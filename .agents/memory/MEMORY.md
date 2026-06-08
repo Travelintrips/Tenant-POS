@@ -1,2 +1,3 @@
-- [DB push workaround](db-push-workaround.md) — drizzle-kit push hangs from Replit sandbox (no TTY + Supabase network timeout); use psql directly with the SQL migration file instead.
-- [DB connection priority](db-connection-priority.md) — Supabase postgres is unreachable from Replit dev sandbox (timeout); runtime must use DATABASE_URL (Replit built-in). Supabase integration only works if user manually runs the SQL migration in Supabase SQL editor.
+- [api-zod duplicate exports](api-zod-exports.md) — only export from `./generated/api`, not `./generated/types` (same names clash)
+- [scripts workspace resolution](scripts-workspace-resolution.md) — scripts pkg needs `paths` in tsconfig to resolve `@workspace/*` libs; symlinks not created by pnpm for scripts
+- [invalid hook call fix](invalid-hook-call.md) — avoid generated lib hooks (useListTenants etc); use `useQuery` directly in admin-portal pages

@@ -8,20 +8,14 @@
 import type { BookingStatus } from './bookingStatus';
 import type { PaymentStatus } from './paymentStatus';
 
-export interface BookingWithTenant {
-  id: number;
+export interface CreateBookingBody {
   tenantId: number;
-  tenantName?: string | null;
-  boothNumber?: string | null;
-  areaName?: string | null;
   startDate: string;
   endDate: string;
-  totalAmount: number;
-  paidAmount: number;
-  paymentStatus: PaymentStatus;
-  bookingStatus: BookingStatus;
+  totalAmount?: number;
+  paidAmount?: number;
+  paymentStatus?: PaymentStatus;
+  bookingStatus?: BookingStatus;
   dueDate?: string | null;
   periodLabel?: string | null;
-  createdAt: Date;
-  updatedAt: Date;
 }

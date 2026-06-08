@@ -9,37 +9,53 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useListBookings } from "@workspace/api-client-react";
-import type { BookingWithTenantPaymentStatus, BookingWithTenantBookingStatus } from "@workspace/api-client-react";
+import { useQuery } from "@tanstack/react-query";
 
-const PAYMENT_LABEL: Record<string, string> = {
+type PaymentStatus = "UNPAID" | "PARTIAL" | "PAID" | "OVERDUE";
+type BookingStatus = "aktif" | "selesai" | "pending" | "batal";
+
+type BookingWithTenant = {
+  id: number;
+  tenantId: number;
+  tenantName: string | null;
+  boothNumber: string | null;
+  areaName: string | null;
+  startDate: string;
+  endDate: string;
+  totalAmount: number;
+  paidAmount: number;
+  paymentStatus: PaymentStatus;
+  bookingStatus: BookingStatus;
+  dueDate: string | null;
+  periodLabel: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+const PAYMENT_LABEL: Record<PaymentStatus, string> = {
   UNPAID: "Belum Bayar",
   PARTIAL: "Sebagian",
   PAID: "Lunas",
   OVERDUE: "Jatuh Tempo",
 };
 
-const BOOKING_LABEL: Record<string, string> = {
+const BOOKING_LABEL: Record<BookingStatus, string> = {
   aktif: "Aktif",
   selesai: "Selesai",
   pending: "Pending",
   batal: "Batal",
 };
 
-function paymentVariant(
-  status: BookingWithTenantPaymentStatus
-): "default" | "secondary" | "outline" | "destructive" {
-  if (status === "PAID") return "default";
-  if (status === "PARTIAL") return "outline";
-  if (status === "OVERDUE") return "destructive";
+function paymentVariant(s: PaymentStatus): "default" | "secondary" | "outline" | "destructive" {
+  if (s === "PAID") return "default";
+  if (s === "PARTIAL") return "outline";
+  if (s === "OVERDUE") return "destructive";
   return "secondary";
 }
 
-function bookingVariant(
-  status: BookingWithTenantBookingStatus
-): "default" | "secondary" | "outline" {
-  if (status === "aktif") return "default";
-  if (status === "selesai") return "secondary";
+function bookingVariant(s: BookingStatus): "default" | "secondary" | "outline" {
+  if (s === "aktif") return "default";
+  if (s === "selesai") return "secondary";
   return "outline";
 }
 
@@ -51,8 +67,17 @@ function formatRupiah(amount: number) {
   }).format(amount);
 }
 
+async function fetchBookings(): Promise<BookingWithTenant[]> {
+  const res = await fetch("/api/bookings");
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json() as Promise<BookingWithTenant[]>;
+}
+
 export default function BookingTenant() {
-  const { data: bookings, isLoading, isError } = useListBookings();
+  const { data: bookings, isLoading, isError } = useQuery<BookingWithTenant[]>({
+    queryKey: ["/api/bookings"],
+    queryFn: fetchBookings,
+  });
 
   return (
     <div className="flex flex-col gap-6">
@@ -92,7 +117,7 @@ export default function BookingTenant() {
               <TableBody>
                 {isLoading
                   ? Array.from({ length: 4 }).map((_, i) => (
-                      <TableRow key={i} data-testid={`row-booking-skeleton-${i}`}>
+                      <TableRow key={i}>
                         {Array.from({ length: 8 }).map((_, j) => (
                           <TableCell key={j}>
                             <Skeleton className="h-4 w-full" />
@@ -100,7 +125,7 @@ export default function BookingTenant() {
                         ))}
                       </TableRow>
                     ))
-                  : bookings && bookings.length === 0
+                  : !bookings || bookings.length === 0
                   ? (
                     <TableRow>
                       <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
@@ -108,12 +133,12 @@ export default function BookingTenant() {
                       </TableCell>
                     </TableRow>
                   )
-                  : bookings?.map((booking) => (
+                  : bookings.map((booking) => (
                       <TableRow key={booking.id} data-testid={`row-booking-${booking.id}`}>
                         <TableCell className="font-mono text-sm">{booking.id}</TableCell>
-                        <TableCell className="font-medium">{booking.tenantName}</TableCell>
+                        <TableCell className="font-medium">{booking.tenantName ?? "-"}</TableCell>
                         <TableCell>
-                          {booking.areaName}
+                          {booking.areaName ?? ""}
                           {booking.boothNumber ? ` · ${booking.boothNumber}` : ""}
                         </TableCell>
                         <TableCell>{booking.startDate}</TableCell>
@@ -121,12 +146,12 @@ export default function BookingTenant() {
                         <TableCell>{formatRupiah(booking.totalAmount)}</TableCell>
                         <TableCell>
                           <Badge variant={paymentVariant(booking.paymentStatus)}>
-                            {PAYMENT_LABEL[booking.paymentStatus] ?? booking.paymentStatus}
+                            {PAYMENT_LABEL[booking.paymentStatus]}
                           </Badge>
                         </TableCell>
                         <TableCell>
                           <Badge variant={bookingVariant(booking.bookingStatus)}>
-                            {BOOKING_LABEL[booking.bookingStatus] ?? booking.bookingStatus}
+                            {BOOKING_LABEL[booking.bookingStatus]}
                           </Badge>
                         </TableCell>
                       </TableRow>
