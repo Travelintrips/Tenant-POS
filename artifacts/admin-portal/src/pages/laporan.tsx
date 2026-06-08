@@ -94,7 +94,7 @@ function CustomTooltip({ active, payload, label }: any) {
       ))}
       {payload.length === 2 && (
         <div className="border-t border-slate-100 mt-1.5 pt-1.5 flex justify-between">
-          <span className="text-slate-400">Total</span>
+          <span className="text-slate-400">Jumlah</span>
           <span className="font-semibold">{formatRupiah(payload.reduce((s: number, p: any) => s + p.value, 0))}</span>
         </div>
       )}
@@ -369,7 +369,7 @@ export default function Laporan() {
               </tbody>
               <tfoot>
                 <tr className="bg-slate-50 border-t">
-                  <td colSpan={3} className="px-4 py-2.5 text-xs font-semibold text-slate-600">Total</td>
+                  <td colSpan={3} className="px-4 py-2.5 text-xs font-semibold text-slate-600">Jumlah</td>
                   <td className="px-4 py-2.5 text-right font-bold text-sm tabular-nums">
                     {formatRupiahFull(rekapData.reduce((s, r) => s + r.sewa, 0))}
                   </td>

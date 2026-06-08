@@ -60,7 +60,7 @@ export default function DataTenant() {
 
       <Card>
         <CardHeader>
-          <CardTitle>List Tenant</CardTitle>
+          <CardTitle>Daftar Tenant</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="rounded-md border">
