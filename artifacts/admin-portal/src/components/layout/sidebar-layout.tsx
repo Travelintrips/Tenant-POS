@@ -25,7 +25,7 @@ export function SidebarLayout({ children }: { children: React.ReactNode }) {
         <SidebarHeader className="flex flex-row items-center gap-2 px-4 py-4">
           <Building2 className="h-6 w-6 text-primary" />
           <span className="text-lg font-bold text-sidebar-foreground">
-            Admin Portal
+            Portal Admin
           </span>
         </SidebarHeader>
         <SidebarContent>

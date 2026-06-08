@@ -92,7 +92,7 @@ export default function BookingTenant() {
 
       <Card>
         <CardHeader>
-          <CardTitle>List Booking</CardTitle>
+          <CardTitle>Daftar Booking</CardTitle>
         </CardHeader>
         <CardContent>
           {isError && (
