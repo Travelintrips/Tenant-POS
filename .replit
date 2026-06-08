@@ -9,10 +9,44 @@ args = ["pnpm", "store", "prune"]
 env = { "CI" = "true" }
 
 [workflows]
-<<<<<<< HEAD
-=======
 runButton = "Project"
->>>>>>> 5a26ce70ef766bdb9a88d31bc1683df925169e3c
+
+[[workflows.workflow]]
+name = "Project"
+mode = "parallel"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "Admin Portal"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "API Server"
+
+[[workflows.workflow]]
+name = "Admin Portal"
+author = "agent"
+
+[workflows.workflow.metadata]
+outputType = "webview"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "PORT=25580 BASE_PATH=/ pnpm --filter @workspace/admin-portal run dev"
+waitForPort = 25580
+
+[[workflows.workflow]]
+name = "API Server"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "PORT=8080 pnpm --filter @workspace/api-server run dev"
+waitForPort = 8080
+
+[workflows.workflow.metadata]
+outputType = "console"
 
 [agent]
 stack = "PNPM_WORKSPACE"
@@ -21,11 +55,6 @@ expertMode = true
 [postMerge]
 path = "scripts/post-merge.sh"
 timeoutMs = 20000
-<<<<<<< HEAD
-
-[[ports]]
-localPort = 5000
-externalPort = 5000
 
 [[ports]]
 localPort = 8080
@@ -38,8 +67,3 @@ externalPort = 8081
 [[ports]]
 localPort = 25580
 externalPort = 3000
-
-[nix]
-channel = "stable-25_05"
-=======
->>>>>>> 5a26ce70ef766bdb9a88d31bc1683df925169e3c
