@@ -359,7 +359,6 @@ function StatusLegend() {
 }
 
 // ─── Detail Panel ─────────────────────────────────────────────────────────────
-function DetailPanel({ item, onClose, onProses, onCetak }: {
 function DetailRow({
   label,
   value,
@@ -401,21 +400,6 @@ function DetailPanel({
   }
   const status = resolveStatus(item);
   const cfg = statusConfig[status];
-  return (
-    <div className="flex flex-col h-full">
-      <div className="flex items-start justify-between p-4 border-b gap-2">
-        <div className="min-w-0">
-          <p className="text-xs text-muted-foreground truncate">{item.boothNumber} · {item.areaName}</p>
-          <h3 className="font-bold text-base leading-tight truncate">
-            {status === "VACANT" ? "Unit Kosong" : item.businessName}
-          </h3>
-          {status !== "VACANT" && <p className="text-xs text-muted-foreground truncate">{item.ownerName}</p>}
-        </div>
-        <div className="flex items-center gap-2 shrink-0">
-          <span className={cn("inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full border font-medium", cfg.badge)}>
-            {cfg.icon} {cfg.label}
-          </span>
-          <button onClick={onClose} className="text-muted-foreground hover:text-foreground">
   const isVacant = status === "VACANT";
   const hasPaid = item.paidAmount > 0;
   const canPay = !isVacant && item.bookingId !== null && status !== "PAID";
@@ -506,6 +490,12 @@ function DetailPanel({
                     <Calendar className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
                     <span>{item.startDate ?? "?"} — {item.endDate ?? "?"}</span>
                   </div>
+                )}
+              </div>
+            </div>
+
+            {/* Info Bisnis & Penyewa */}
+            <div>
               <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">
                 Info Bisnis &amp; Penyewa
               </p>
@@ -550,106 +540,6 @@ function DetailPanel({
                 )}
               </div>
             </div>
-
-            {/* Info Sewa */}
-            {item.bookingId && (
-              <>
-                <Separator />
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">Detail Tagihan</p>
-                  <div className={cn("rounded-lg border p-3 space-y-2",
-                    status === "OVERDUE" ? "bg-red-50 border-red-200"
-                    : status === "PAID" ? "bg-emerald-50 border-emerald-200"
-                    : status === "PARTIAL" ? "bg-blue-50 border-blue-200"
-                    : "bg-amber-50 border-amber-200"
-                  )}>
-                    {item.periodLabel && (
-                      <div className="flex justify-between text-sm">
-                        <span className="text-muted-foreground">Periode</span>
-                        <span className="font-medium">{item.periodLabel}</span>
-                      </div>
-                    )}
-                    <div className="flex justify-between text-sm">
-                      <span className="text-muted-foreground">Total Tagihan</span>
-                      <span className="font-medium">{formatRupiah(item.totalAmount)}</span>
-                    </div>
-                    {item.paidAmount > 0 && (
-                      <div className="flex justify-between text-sm">
-                        <span className="text-muted-foreground">Sudah Dibayar</span>
-                        <span className="font-medium text-emerald-600">{formatRupiah(item.paidAmount)}</span>
-                      </div>
-                    )}
-                    <Separator />
-                    <div className="flex justify-between">
-                      <span className="text-sm font-semibold">Sisa Tagihan</span>
-                      <span className={cn("font-bold text-base",
-                        status === "PAID" ? "text-emerald-700" : status === "OVERDUE" ? "text-red-600"
-                        : status === "PARTIAL" ? "text-blue-600" : "text-amber-600"
-                      )}>
-                        {formatRupiah(item.remainingAmount)}
-                      </span>
-                    </div>
-                    {item.dueDate && (
-                      <div className="flex justify-between text-xs text-muted-foreground">
-                        <span>Jatuh Tempo</span><span>{item.dueDate}</span>
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                <div className="flex flex-col gap-2">
-                  {status !== "PAID" && (
-                    <Button
-                      className={cn("w-full", status === "OVERDUE" && "bg-red-600 hover:bg-red-700 text-white")}
-                      size="sm"
-                      onClick={() => onProses(item)}
-                    >
-                      <CreditCard className="w-4 h-4 mr-2" />
-                      {status === "OVERDUE" ? "Bayar Tunggakan" : "Bayar Sekarang"}
-                    </Button>
-                  )}
-                  <Button className="w-full" variant="outline" size="sm" onClick={() => onCetak(item)}>
-                    <Printer className="w-4 h-4 mr-2" />Cetak Struk Terakhir
-                  </Button>
-              <div>
-                <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">
-                  Periode Sewa
-                </p>
-                <div className="bg-muted/30 rounded-lg px-3 divide-y divide-border/60">
-                  <DetailRow
-                    label="Tanggal Mulai"
-                    value={
-                      <span className="flex items-center gap-1 justify-end">
-                        <Calendar className="w-3 h-3 text-muted-foreground shrink-0" />
-                        {formatTanggalID(item.startDate)}
-                      </span>
-                    }
-                  />
-                  <DetailRow
-                    label="Tanggal Akhir"
-                    value={
-                      <span className="flex items-center gap-1 justify-end">
-                        <Calendar className="w-3 h-3 text-muted-foreground shrink-0" />
-                        {formatTanggalID(item.endDate)}
-                      </span>
-                    }
-                  />
-                  <DetailRow
-                    label="Status Booking"
-                    value={
-                      <span
-                        className={cn(
-                          "inline-flex items-center text-[11px] px-2 py-0.5 rounded-full border font-medium",
-                          bookingStatusBadge[item.bookingStatus] ?? "bg-slate-100 text-slate-600 border-slate-300"
-                        )}
-                      >
-                        {bookingStatusLabel[item.bookingStatus] ?? item.bookingStatus}
-                      </span>
-                    }
-                  />
-                </div>
-              </div>
-            )}
 
             {/* Detail Tagihan */}
             {item.bookingId && (
