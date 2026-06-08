@@ -1,10 +1,10 @@
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Building2, Receipt, X, CheckCircle2, AlertCircle, CircleDashed,
   Clock, Phone, Mail, Calendar, CreditCard, Printer, Banknote,
   Smartphone, WalletCards, TrendingUp, Users, AlertTriangle, Zap,
-  MoreHorizontal,
+  MoreHorizontal, Search, RotateCcw, ChevronDown,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -559,16 +559,26 @@ function BoothCard({
 
 // ─── Floor Plan Component ─────────────────────────────────────────────────────
 
-function TenantFloorPlan({ items: rawItems, selected, onSelect }: {
-  items: FloorPlanItem[]; selected: FloorPlanItem | null; onSelect: (item: FloorPlanItem) => void;
+function TenantFloorPlan({ items: rawItems, selected, onSelect, isFiltered }: {
+  items: FloorPlanItem[]; selected: FloorPlanItem | null; onSelect: (item: FloorPlanItem) => void; isFiltered?: boolean;
 }) {
   const items = Array.isArray(rawItems) ? rawItems : [];
   if (items.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center h-full text-center p-10 text-muted-foreground">
-        <Building2 className="w-12 h-12 mb-4 opacity-25" />
-        <p className="text-base font-medium">Belum ada data tenant</p>
-        <p className="text-sm mt-1">Tambahkan tenant terlebih dahulu untuk melihat denah.</p>
+        {isFiltered ? (
+          <>
+            <Search className="w-12 h-12 mb-4 opacity-25" />
+            <p className="text-base font-medium">Tidak ada tenant yang cocok</p>
+            <p className="text-sm mt-1">Coba ubah kata kunci atau filter yang digunakan.</p>
+          </>
+        ) : (
+          <>
+            <Building2 className="w-12 h-12 mb-4 opacity-25" />
+            <p className="text-base font-medium">Belum ada data tenant</p>
+            <p className="text-sm mt-1">Tambahkan tenant terlebih dahulu untuk melihat denah.</p>
+          </>
+        )}
       </div>
     );
   }
@@ -634,6 +644,115 @@ function StatusLegend() {
           <span className={cn("w-2.5 h-2.5 rounded-sm inline-block border", colorMap[status])} />{label}
         </span>
       ))}
+    </div>
+  );
+}
+
+// ─── Filter Bar ───────────────────────────────────────────────────────────────
+
+type FilterState = {
+  search: string;
+  status: string;
+  area: string;
+};
+
+const STATUS_FILTER_OPTS: Array<{ value: string; label: string; active: string; inactive: string }> = [
+  { value: "", label: "Semua", active: "bg-slate-800 text-white border-slate-800", inactive: "bg-white text-slate-600 border-slate-200 hover:border-slate-400" },
+  { value: "PAID", label: "Lunas", active: "bg-emerald-600 text-white border-emerald-600", inactive: "bg-white text-emerald-700 border-emerald-200 hover:border-emerald-400" },
+  { value: "UNPAID", label: "Belum Bayar", active: "bg-amber-500 text-white border-amber-500", inactive: "bg-white text-amber-700 border-amber-200 hover:border-amber-400" },
+  { value: "PARTIAL", label: "Sebagian", active: "bg-blue-600 text-white border-blue-600", inactive: "bg-white text-blue-700 border-blue-200 hover:border-blue-400" },
+  { value: "OVERDUE", label: "Jatuh Tempo", active: "bg-red-600 text-white border-red-600", inactive: "bg-white text-red-700 border-red-200 hover:border-red-400" },
+];
+
+function FilterBar({
+  filters,
+  onChange,
+  availableAreas,
+  totalCount,
+  filteredCount,
+}: {
+  filters: FilterState;
+  onChange: (f: Partial<FilterState>) => void;
+  availableAreas: string[];
+  totalCount: number;
+  filteredCount: number;
+}) {
+  const hasFilter = !!(filters.search || filters.status || filters.area);
+
+  return (
+    <div className="flex flex-col gap-2 px-3 pt-2.5 pb-2 border-b bg-slate-50/60">
+      <div className="flex items-center gap-2">
+        <div className="relative flex-1">
+          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
+          <input
+            value={filters.search}
+            onChange={(e) => onChange({ search: e.target.value })}
+            placeholder="Cari nama bisnis, owner, email, nomor booth..."
+            className="w-full pl-8 pr-8 py-1.5 rounded-lg border border-slate-200 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary/30 placeholder:text-slate-400"
+          />
+          {filters.search && (
+            <button
+              onClick={() => onChange({ search: "" })}
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          )}
+        </div>
+
+        {availableAreas.length > 1 && (
+          <div className="relative">
+            <select
+              value={filters.area}
+              onChange={(e) => onChange({ area: e.target.value })}
+              className="appearance-none pl-2.5 pr-7 py-1.5 rounded-lg border border-slate-200 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary/30 cursor-pointer"
+            >
+              <option value="">Semua Area</option>
+              {availableAreas.map((a) => (
+                <option key={a} value={a}>{a}</option>
+              ))}
+            </select>
+            <ChevronDown className="absolute right-1.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
+          </div>
+        )}
+
+        {hasFilter && (
+          <button
+            onClick={() => onChange({ search: "", status: "", area: "" })}
+            className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-slate-200 text-xs font-medium text-slate-600 bg-white hover:bg-slate-100 transition-colors whitespace-nowrap"
+          >
+            <RotateCcw className="w-3 h-3" />
+            Reset
+          </button>
+        )}
+      </div>
+
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-1 flex-wrap">
+          {STATUS_FILTER_OPTS.map((opt) => (
+            <button
+              key={opt.value}
+              onClick={() => onChange({ status: opt.value })}
+              className={cn(
+                "px-2.5 py-0.5 rounded-full text-xs font-medium border transition-all",
+                filters.status === opt.value ? opt.active : opt.inactive
+              )}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+        <span className="text-xs text-muted-foreground whitespace-nowrap shrink-0">
+          {hasFilter ? (
+            <span>
+              <span className="font-semibold text-primary">{filteredCount}</span>
+              {" "}dari {totalCount} tenant
+            </span>
+          ) : (
+            <span>{totalCount} tenant</span>
+          )}
+        </span>
+      </div>
     </div>
   );
 }
@@ -1355,9 +1474,43 @@ function ModalPembayaran({ item, onClose, onSuccess }: {
 export default function TenantPos() {
   const [selected, setSelected] = useState<FloorPlanItem | null>(null);
   const [modalItem, setModalItem] = useState<FloorPlanItem | null>(null);
+  const [filters, setFilters] = useState<FilterState>({ search: "", status: "", area: "" });
 
   const overview = useOverview();
   const floorPlan = useFloorPlan();
+
+  const allItems = floorPlan.data ?? [];
+
+  const availableAreas = useMemo(() => {
+    return [...new Set(allItems.map((i) => i.areaName))].sort();
+  }, [allItems]);
+
+  const filteredItems = useMemo(() => {
+    let items = allItems;
+    const q = filters.search.toLowerCase().trim();
+    if (q) {
+      items = items.filter(
+        (i) =>
+          i.businessName.toLowerCase().includes(q) ||
+          i.ownerName.toLowerCase().includes(q) ||
+          (i.email?.toLowerCase().includes(q) ?? false) ||
+          i.boothNumber.toLowerCase().includes(q)
+      );
+    }
+    if (filters.status) {
+      items = items.filter((i) => resolveStatus(i) === filters.status);
+    }
+    if (filters.area) {
+      items = items.filter((i) => i.areaName === filters.area);
+    }
+    return items;
+  }, [allItems, filters]);
+
+  const hasFilter = !!(filters.search || filters.status || filters.area);
+
+  const handleFilterChange = (partial: Partial<FilterState>) => {
+    setFilters((prev) => ({ ...prev, ...partial }));
+  };
 
   const handleSelect = (item: FloorPlanItem) => {
     setSelected((prev) => (prev?.id === item.id ? null : item));
@@ -1397,11 +1550,20 @@ export default function TenantPos() {
       <SummaryCards overview={overview.data} loading={overview.isLoading} />
 
       <div className="flex flex-1 gap-4 min-h-0">
-        <Card className="flex-1 min-w-0 overflow-hidden">
-          <CardHeader className="py-3 px-4 border-b">
+        <Card className="flex-1 min-w-0 overflow-hidden flex flex-col">
+          <CardHeader className="py-2.5 px-4 border-b shrink-0">
             <CardTitle className="text-sm font-semibold text-slate-700">Denah Tenant</CardTitle>
           </CardHeader>
-          <CardContent className="p-0 h-[calc(100%-3rem)]">
+          {!floorPlan.isLoading && !floorPlan.isError && (
+            <FilterBar
+              filters={filters}
+              onChange={handleFilterChange}
+              availableAreas={availableAreas}
+              totalCount={allItems.length}
+              filteredCount={filteredItems.length}
+            />
+          )}
+          <CardContent className="p-0 flex-1 min-h-0 overflow-hidden">
             {floorPlan.isLoading ? (
               <FloorPlanSkeleton />
             ) : floorPlan.isError ? (
@@ -1412,9 +1574,10 @@ export default function TenantPos() {
               </div>
             ) : (
               <TenantFloorPlan
-                items={floorPlan.data ?? []}
+                items={filteredItems}
                 selected={selected}
                 onSelect={handleSelect}
+                isFiltered={hasFilter}
               />
             )}
           </CardContent>
@@ -1437,7 +1600,6 @@ export default function TenantPos() {
           item={modalItem}
           onClose={() => setModalItem(null)}
           onSuccess={(updated) => {
-            // Update selected item state langsung tanpa tunggu refetch
             if (selected?.id === modalItem.id) {
               setSelected(prev => prev ? {
                 ...prev,
