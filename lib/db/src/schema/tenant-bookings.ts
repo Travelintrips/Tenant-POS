@@ -14,6 +14,7 @@ export const tenantBookingsTable = pgTable("tenant_bookings", {
   endDate: date("end_date").notNull(),
   totalAmount: integer("total_amount").notNull().default(0),
   paidAmount: integer("paid_amount").notNull().default(0),
+  remainingAmount: integer("remaining_amount").notNull().default(0),
   paymentStatus: paymentStatusEnum("payment_status").notNull().default("UNPAID"),
   bookingStatus: bookingStatusEnum("booking_status").notNull().default("aktif"),
   dueDate: date("due_date"),
