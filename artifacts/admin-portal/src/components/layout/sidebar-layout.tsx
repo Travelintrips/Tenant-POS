@@ -13,7 +13,7 @@ import {
   SidebarInset,
   SidebarTrigger
 } from "@/components/ui/sidebar";
-import { Building2, Store, CalendarRange, Calculator } from "lucide-react";
+import { Building2, Store, CalendarRange, Calculator, BarChart3 } from "lucide-react";
 import { Separator } from "@/components/ui/separator";
 
 export function SidebarLayout({ children }: { children: React.ReactNode }) {
@@ -65,6 +65,23 @@ export function SidebarLayout({ children }: { children: React.ReactNode }) {
                   <Link href="/tenant-pos">
                     <Calculator className="mr-2 h-4 w-4" />
                     <span>POS Tenant</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            </SidebarMenu>
+          </SidebarGroup>
+          <SidebarGroup>
+            <SidebarGroupLabel>LAPORAN</SidebarGroupLabel>
+            <SidebarMenu>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  asChild
+                  isActive={location === "/laporan"}
+                  data-testid="nav-laporan"
+                >
+                  <Link href="/laporan">
+                    <BarChart3 className="mr-2 h-4 w-4" />
+                    <span>Rekap Pembayaran</span>
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>

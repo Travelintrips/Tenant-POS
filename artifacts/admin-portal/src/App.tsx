@@ -8,6 +8,7 @@ import { SidebarLayout } from "@/components/layout/sidebar-layout";
 import DataTenant from "@/pages/data-tenant";
 import BookingTenant from "@/pages/booking-tenant";
 import TenantPos from "@/pages/tenant-pos";
+import Laporan from "@/pages/laporan";
 
 const queryClient = new QueryClient();
 
@@ -34,6 +35,11 @@ function Router() {
       <Route path="/tenant-pos">
         <SidebarLayout>
           <TenantPos />
+        </SidebarLayout>
+      </Route>
+      <Route path="/laporan">
+        <SidebarLayout>
+          <Laporan />
         </SidebarLayout>
       </Route>
       <Route>
