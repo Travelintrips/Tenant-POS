@@ -56,6 +56,7 @@ const DATA_2026 = [
   { bulan: "Apr", sport: 8500000,  tod: 11200000 },
   { bulan: "Mei", sport: 13000000, tod: 11200000 },
   { bulan: "Jun", sport: 13000000, tod: 13600000 },
+];
 
 const BULAN_OPTIONS = [
   { value: "", label: "Semua Bulan" },
@@ -85,10 +86,6 @@ const STATUS_COLOR: Record<string, string> = {
 };
 const STATUS_LABEL: Record<string, string> = {
   PAID: "Lunas", PARTIAL: "Sebagian", UNPAID: "Belum", OVERDUE: "Jatuh Tempo",
-};
-
-const METODE_LABEL: Record<string, string> = {
-  tunai: "Cash", transfer: "Transfer", qris: "QRIS", edc: "EDC", other: "Lainnya",
 };
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -446,8 +443,6 @@ export default function Laporan() {
 
       {/* KPI Cards (historical / static) */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-
-      <div className="grid grid-cols-4 gap-4">
 
         <Card>
           <CardContent className="pt-4 pb-4">
