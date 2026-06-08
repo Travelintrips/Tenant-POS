@@ -1,15 +1,21 @@
 openapi: 3.1.0
 info:
-  # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: Mall Tenant Management API
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
     description: Health operations
+  - name: tenants
+    description: Tenant management
+  - name: bookings
+    description: Booking/lease management
+  - name: pos
+    description: POS Tenant operations
+
 paths:
   /healthz:
     get:
@@ -24,6 +30,267 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  /tenants:
+    get:
+      operationId: listTenants
+      tags: [tenants]
+      summary: List all tenants
+      responses:
+        "200":
+          description: List of tenants
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Tenant"
+    post:
+      operationId: createTenant
+      tags: [tenants]
+      summary: Create a new tenant
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InsertTenant"
+      responses:
+        "201":
+          description: Created tenant
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Tenant"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /tenants/{id}:
+    get:
+      operationId: getTenant
+      tags: [tenants]
+      summary: Get a tenant by ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Tenant
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Tenant"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    put:
+      operationId: updateTenant
+      tags: [tenants]
+      summary: Update a tenant
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InsertTenant"
+      responses:
+        "200":
+          description: Updated tenant
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Tenant"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    delete:
+      operationId: deleteTenant
+      tags: [tenants]
+      summary: Delete a tenant
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeletedResponse"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /bookings:
+    get:
+      operationId: listBookings
+      tags: [bookings]
+      summary: List all bookings with tenant info
+      responses:
+        "200":
+          description: List of bookings
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/BookingWithTenant"
+    post:
+      operationId: createBooking
+      tags: [bookings]
+      summary: Create a new booking
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InsertBooking"
+      responses:
+        "201":
+          description: Created booking
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BookingWithTenant"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /bookings/{id}:
+    get:
+      operationId: getBooking
+      tags: [bookings]
+      summary: Get a booking by ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Booking
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BookingWithTenant"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    put:
+      operationId: updateBooking
+      tags: [bookings]
+      summary: Update a booking
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InsertBooking"
+      responses:
+        "200":
+          description: Updated booking
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BookingWithTenant"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /tenant-pos/overview:
+    get:
+      operationId: getPosOverview
+      tags: [pos]
+      summary: POS summary statistics
+      responses:
+        "200":
+          description: Overview stats
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PosOverview"
+
+  /tenant-pos/floor-plan:
+    get:
+      operationId: getFloorPlan
+      tags: [pos]
+      summary: Floor plan with payment status per tenant
+      responses:
+        "200":
+          description: Floor plan items
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/FloorPlanItem"
+
+  /tenant-pos/payments:
+    post:
+      operationId: createPayment
+      tags: [pos]
+      summary: Record a POS payment
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InsertPayment"
+      responses:
+        "201":
+          description: Created payment
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TenantPayment"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
 components:
   schemas:
     HealthStatus:
@@ -31,6 +298,292 @@ components:
       properties:
         status:
           type: string
-      required:
-        - status
+      required: [status]
 
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+      required: [error]
+
+    DeletedResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+      required: [success]
+
+    Tenant:
+      type: object
+      properties:
+        id:
+          type: integer
+        businessName:
+          type: string
+        ownerName:
+          type: string
+        email:
+          type: string
+          nullable: true
+        phone:
+          type: string
+          nullable: true
+        category:
+          type: string
+          nullable: true
+        boothNumber:
+          type: string
+          nullable: true
+        areaName:
+          type: string
+        status:
+          type: string
+          enum: [aktif, kosong, nonaktif]
+        createdAt:
+          type: string
+        updatedAt:
+          type: string
+      required:
+        - id
+        - businessName
+        - ownerName
+        - areaName
+        - status
+        - createdAt
+        - updatedAt
+
+    InsertTenant:
+      type: object
+      properties:
+        businessName:
+          type: string
+        ownerName:
+          type: string
+        email:
+          type: string
+          nullable: true
+        phone:
+          type: string
+          nullable: true
+        category:
+          type: string
+          nullable: true
+        boothNumber:
+          type: string
+          nullable: true
+        areaName:
+          type: string
+        status:
+          type: string
+          enum: [aktif, kosong, nonaktif]
+      required:
+        - businessName
+        - ownerName
+        - areaName
+
+    BookingWithTenant:
+      type: object
+      properties:
+        id:
+          type: integer
+        tenantId:
+          type: integer
+        tenantName:
+          type: string
+        boothNumber:
+          type: string
+          nullable: true
+        areaName:
+          type: string
+        startDate:
+          type: string
+        endDate:
+          type: string
+        totalAmount:
+          type: integer
+        paidAmount:
+          type: integer
+        paymentStatus:
+          type: string
+          enum: [UNPAID, PARTIAL, PAID, OVERDUE]
+        bookingStatus:
+          type: string
+          enum: [aktif, selesai, pending, batal]
+        dueDate:
+          type: string
+          nullable: true
+        periodLabel:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+        updatedAt:
+          type: string
+      required:
+        - id
+        - tenantId
+        - tenantName
+        - areaName
+        - startDate
+        - endDate
+        - totalAmount
+        - paidAmount
+        - paymentStatus
+        - bookingStatus
+        - createdAt
+        - updatedAt
+
+    InsertBooking:
+      type: object
+      properties:
+        tenantId:
+          type: integer
+        startDate:
+          type: string
+        endDate:
+          type: string
+        totalAmount:
+          type: integer
+        paidAmount:
+          type: integer
+        paymentStatus:
+          type: string
+          enum: [UNPAID, PARTIAL, PAID, OVERDUE]
+        bookingStatus:
+          type: string
+          enum: [aktif, selesai, pending, batal]
+        dueDate:
+          type: string
+          nullable: true
+        periodLabel:
+          type: string
+          nullable: true
+      required:
+        - tenantId
+        - startDate
+        - endDate
+        - totalAmount
+
+    TenantPayment:
+      type: object
+      properties:
+        id:
+          type: integer
+        bookingId:
+          type: integer
+        amount:
+          type: integer
+        paymentMethod:
+          type: string
+          enum: [tunai, transfer, qris]
+        notes:
+          type: string
+          nullable: true
+        paidAt:
+          type: string
+        createdAt:
+          type: string
+      required:
+        - id
+        - bookingId
+        - amount
+        - paymentMethod
+        - paidAt
+        - createdAt
+
+    InsertPayment:
+      type: object
+      properties:
+        bookingId:
+          type: integer
+        amount:
+          type: integer
+        paymentMethod:
+          type: string
+          enum: [tunai, transfer, qris]
+        notes:
+          type: string
+          nullable: true
+      required:
+        - bookingId
+        - amount
+
+    PosOverview:
+      type: object
+      properties:
+        totalActiveTenants:
+          type: integer
+        unpaidCount:
+          type: integer
+        overdueCount:
+          type: integer
+        paidTodayAmount:
+          type: integer
+      required:
+        - totalActiveTenants
+        - unpaidCount
+        - overdueCount
+        - paidTodayAmount
+
+    FloorPlanItem:
+      type: object
+      properties:
+        id:
+          type: string
+        tenantId:
+          type: integer
+        bookingId:
+          type: integer
+          nullable: true
+        businessName:
+          type: string
+        ownerName:
+          type: string
+        email:
+          type: string
+          nullable: true
+        phone:
+          type: string
+          nullable: true
+        category:
+          type: string
+          nullable: true
+        boothNumber:
+          type: string
+        areaName:
+          type: string
+        startDate:
+          type: string
+          nullable: true
+        endDate:
+          type: string
+          nullable: true
+        totalAmount:
+          type: integer
+        paidAmount:
+          type: integer
+        remainingAmount:
+          type: integer
+        paymentStatus:
+          type: string
+        bookingStatus:
+          type: string
+        dueDate:
+          type: string
+          nullable: true
+        periodLabel:
+          type: string
+          nullable: true
+      required:
+        - id
+        - tenantId
+        - businessName
+        - ownerName
+        - boothNumber
+        - areaName
+        - totalAmount
+        - paidAmount
+        - remainingAmount
+        - paymentStatus
+        - bookingStatus

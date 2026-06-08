@@ -1,4 +1,4 @@
-import React from "react";
+import { useState } from "react";
 import {
   Table,
   TableBody,
@@ -9,50 +9,31 @@ import {
 } from "@/components/ui/table";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
+import { useListTenants } from "@workspace/api-client-react";
+import type { TenantStatus } from "@workspace/api-client-react";
 
-const MOCK_DATA = [
-  {
-    id: "TEN-001",
-    nama: "Kopi Kenangan",
-    lokasi: "Lantai 1 - A01",
-    kategori: "F&B",
-    status: "Aktif",
-  },
-  {
-    id: "TEN-002",
-    nama: "H&M",
-    lokasi: "Lantai 2 - B12",
-    kategori: "Fashion",
-    status: "Aktif",
-  },
-  {
-    id: "TEN-003",
-    nama: "Erafone",
-    lokasi: "Lantai 3 - C05",
-    kategori: "Elektronik",
-    status: "Non-Aktif",
-  },
-  {
-    id: "TEN-004",
-    nama: "Gramedia",
-    lokasi: "Lantai 3 - C01",
-    kategori: "Elektronik",
-    status: "Aktif",
-  },
-  {
-    id: "TEN-005",
-    nama: "Chatime",
-    lokasi: "Lantai 1 - A05",
-    kategori: "F&B",
-    status: "Aktif",
-  },
-];
+const STATUS_LABEL: Record<string, string> = {
+  aktif: "Aktif",
+  kosong: "Kosong",
+  nonaktif: "Non-Aktif",
+};
+
+function statusVariant(status: TenantStatus): "default" | "secondary" | "outline" {
+  if (status === "aktif") return "default";
+  if (status === "kosong") return "outline";
+  return "secondary";
+}
 
 export default function DataTenant() {
+  const { data: tenants, isLoading, isError } = useListTenants();
+
   return (
     <div className="flex flex-col gap-6">
       <div>
-        <h1 className="text-2xl font-bold tracking-tight">Data Tenant</h1>
+        <h1 className="text-2xl font-bold tracking-tight" data-testid="heading-data-tenant">
+          Data Tenant
+        </h1>
         <p className="text-muted-foreground mt-1">
           Daftar seluruh tenant yang terdaftar di mall.
         </p>
@@ -63,33 +44,59 @@ export default function DataTenant() {
           <CardTitle>List Tenant</CardTitle>
         </CardHeader>
         <CardContent>
+          {isError && (
+            <p className="text-sm text-destructive py-4 text-center">
+              Gagal memuat data tenant. Periksa koneksi server.
+            </p>
+          )}
           <div className="rounded-md border">
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead className="w-[100px]">ID</TableHead>
-                  <TableHead>Nama Tenant</TableHead>
-                  <TableHead>Lokasi</TableHead>
+                  <TableHead className="w-[80px]">ID</TableHead>
+                  <TableHead>Nama Usaha</TableHead>
+                  <TableHead>Pemilik</TableHead>
+                  <TableHead>Area / Booth</TableHead>
                   <TableHead>Kategori</TableHead>
                   <TableHead>Status</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {MOCK_DATA.map((tenant) => (
-                  <TableRow key={tenant.id}>
-                    <TableCell className="font-medium">{tenant.id}</TableCell>
-                    <TableCell>{tenant.nama}</TableCell>
-                    <TableCell>{tenant.lokasi}</TableCell>
-                    <TableCell>{tenant.kategori}</TableCell>
-                    <TableCell>
-                      <Badge
-                        variant={tenant.status === "Aktif" ? "default" : "secondary"}
-                      >
-                        {tenant.status}
-                      </Badge>
-                    </TableCell>
-                  </TableRow>
-                ))}
+                {isLoading
+                  ? Array.from({ length: 5 }).map((_, i) => (
+                      <TableRow key={i} data-testid={`row-tenant-skeleton-${i}`}>
+                        {Array.from({ length: 6 }).map((_, j) => (
+                          <TableCell key={j}>
+                            <Skeleton className="h-4 w-full" />
+                          </TableCell>
+                        ))}
+                      </TableRow>
+                    ))
+                  : tenants && tenants.length === 0
+                  ? (
+                    <TableRow>
+                      <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
+                        Belum ada tenant terdaftar.
+                      </TableCell>
+                    </TableRow>
+                  )
+                  : tenants?.map((tenant) => (
+                      <TableRow key={tenant.id} data-testid={`row-tenant-${tenant.id}`}>
+                        <TableCell className="font-mono text-sm">{tenant.id}</TableCell>
+                        <TableCell className="font-medium">{tenant.businessName}</TableCell>
+                        <TableCell>{tenant.ownerName}</TableCell>
+                        <TableCell>
+                          {tenant.areaName}
+                          {tenant.boothNumber ? ` · ${tenant.boothNumber}` : ""}
+                        </TableCell>
+                        <TableCell>{tenant.category ?? "-"}</TableCell>
+                        <TableCell>
+                          <Badge variant={statusVariant(tenant.status)}>
+                            {STATUS_LABEL[tenant.status] ?? tenant.status}
+                          </Badge>
+                        </TableCell>
+                      </TableRow>
+                    ))}
               </TableBody>
             </Table>
           </div>

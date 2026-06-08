@@ -1,0 +1,2 @@
+- [DB push workaround](db-push-workaround.md) — drizzle-kit push hangs from Replit sandbox (no TTY + Supabase network timeout); use psql directly with the SQL migration file instead.
+- [DB connection priority](db-connection-priority.md) — Supabase postgres is unreachable from Replit dev sandbox (timeout); runtime must use DATABASE_URL (Replit built-in). Supabase integration only works if user manually runs the SQL migration in Supabase SQL editor.
