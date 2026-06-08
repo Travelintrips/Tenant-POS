@@ -4,10 +4,7 @@ import {
   Building2, Receipt, X, CheckCircle2, AlertCircle, CircleDashed,
   Clock, Phone, Mail, Calendar, CreditCard, Printer, Banknote,
   Smartphone, WalletCards, TrendingUp, Users, AlertTriangle, Zap,
-  MoreHorizontal, History, Filter,
-
-  MoreHorizontal, Search, RotateCcw, ChevronDown,
-
+  MoreHorizontal, History, Filter, Search, RotateCcw, ChevronDown,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -85,6 +82,7 @@ type PaymentRecord = {
   receiptNumber: string | null;
   notes: string | null;
   paidAt: string;
+};
 
 type PaymentHistoryItem = {
   id: number;
@@ -229,17 +227,10 @@ function useFloorPlan() {
 }
 
 function usePaymentHistory(bookingId: number | null) {
-
-  return useQuery<PaymentRecord[]>({
-    queryKey: ["tenant-pos-payments", bookingId],
-    queryFn: () =>
-      fetch(`${BASE}/api/tenant-pos/payments/${bookingId}`).then((r) => r.json()),
-
   return useQuery<PaymentHistoryItem[]>({
     queryKey: ["payment-history", bookingId],
     queryFn: () =>
       fetch(`${BASE}/api/tenant-pos/bookings/${bookingId}/payments`).then((r) => r.json()),
-
     enabled: bookingId !== null,
   });
 }
@@ -1573,13 +1564,9 @@ function ModalPembayaran({ item, onClose, onSuccess }: {
 
 // ─── Modal Riwayat ────────────────────────────────────────────────────────────
 
-const METODE_LABEL: Record<string, string> = {
-  tunai: "Cash", transfer: "Transfer", qris: "QRIS", edc: "EDC", other: "Lainnya",
-};
-
 function ModalRiwayat({ item, onClose }: { item: FloorPlanItem; onClose: () => void }) {
   const { data: payments, isLoading, isError, refetch } = usePaymentHistory(item.bookingId);
-  const total = payments?.reduce((s, p) => s + p.amount, 0) ?? 0;
+  const total = payments?.reduce((s, p) => s + p.amountPaid, 0) ?? 0;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
@@ -1648,7 +1635,7 @@ function ModalRiwayat({ item, onClose }: { item: FloorPlanItem; onClose: () => v
                         <p className="text-[11px] font-mono text-muted-foreground truncate">{p.receiptNumber}</p>
                       )}
                       <p className="text-xs text-muted-foreground mt-0.5">
-                        {formatTanggalID(p.paidAt.slice(0, 10))}
+                        {formatTanggalID(p.paymentDate.slice(0, 10))}
                         {" · "}
                         {METODE_LABEL[p.paymentMethod] ?? p.paymentMethod}
                       </p>
@@ -1658,7 +1645,7 @@ function ModalRiwayat({ item, onClose }: { item: FloorPlanItem; onClose: () => v
                     </div>
                   </div>
                   <div className="text-right shrink-0">
-                    <p className="font-semibold text-sm text-emerald-700">{formatRupiah(p.amount)}</p>
+                    <p className="font-semibold text-sm text-emerald-700">{formatRupiah(p.amountPaid)}</p>
                     {(p.discountAmount > 0 || p.penaltyAmount > 0) && (
                       <div className="text-[10px] space-x-1">
                         {p.discountAmount > 0 && (
@@ -1705,11 +1692,6 @@ export default function TenantPos() {
 
   const overview = useOverview();
   const floorPlan = useFloorPlan();
-
-  const filteredItems = (floorPlan.data ?? []).filter((item) => {
-    if (!filterStatus) return true;
-    return resolveStatus(item) === filterStatus;
-  });
 
   const allItems = floorPlan.data ?? [];
 
@@ -1784,7 +1766,7 @@ export default function TenantPos() {
 
       <div className="flex flex-1 gap-4 min-h-0">
 
-        <Card className="flex-1 min-w-0 overflow-hidden">
+        <Card className="flex-1 min-w-0 overflow-hidden flex flex-col">
           <CardHeader className="py-3 px-4 border-b flex-row items-center justify-between space-y-0">
             <div className="flex items-center gap-2">
               <CardTitle className="text-sm font-semibold text-slate-700">Denah Tenant</CardTitle>
@@ -1811,12 +1793,6 @@ export default function TenantPos() {
                 </button>
               ))}
             </div>
-          </CardHeader>
-          <CardContent className="p-0 h-[calc(100%-3.25rem)]">
-
-        <Card className="flex-1 min-w-0 overflow-hidden flex flex-col">
-          <CardHeader className="py-2.5 px-4 border-b shrink-0">
-            <CardTitle className="text-sm font-semibold text-slate-700">Denah Tenant</CardTitle>
           </CardHeader>
           {!floorPlan.isLoading && !floorPlan.isError && (
             <FilterBar
