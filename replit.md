@@ -4,7 +4,7 @@ A mall tenant management admin portal (in Indonesian) with three sections: Data 
 
 ## Run & Operate
 
-- Admin Portal runs on port 25580 (external: 3000) — `PORT=25580 BASE_PATH=/ pnpm --filter @workspace/admin-portal run dev`
+- Admin Portal runs on port 5000 (Replit webview) — `PORT=5000 BASE_PATH=/ pnpm --filter @workspace/admin-portal run dev`
 - API Server runs on port 8080 — `PORT=8080 pnpm --filter @workspace/api-server run dev`
 - `pnpm run typecheck` — full typecheck across all packages
 - `pnpm run build` — typecheck + build all packages
@@ -50,7 +50,7 @@ _Populate as you build — explicit user instructions worth remembering across s
 
 ## Gotchas
 
-- Always pass `PORT=25580 BASE_PATH=/` when starting the admin portal dev server
+- Always pass `PORT=5000 BASE_PATH=/` when starting the admin portal dev server (port 5000 required for Replit webview)
 - Always pass `PORT=8080` when starting the API server
 - Workflows are named "Admin Portal" and "API Server"
 
