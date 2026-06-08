@@ -321,23 +321,16 @@ const BOOKINGS: BookingInput[] = [
 async function seed() {
   console.log("🌱 Mulai seeding data tenant POS...");
 
-  // Hapus data lama (urutan penting karena FK)
   await db.delete(tenantPaymentsTable);
   await db.delete(tenantBookingsTable);
   await db.delete(tenantsTable);
   console.log("  ✓ Data lama dihapus");
 
-  // Insert tenants
-  const insertedTenants = await db
-    .insert(tenantsTable)
-    .values(TENANTS)
-    .returning();
+  const insertedTenants = await db.insert(tenantsTable).values(TENANTS).returning();
   console.log(`  ✓ ${insertedTenants.length} tenant diinsert`);
 
-  // Buat map nama → id
   const tenantMap = new Map(insertedTenants.map((t) => [t.businessName, t.id]));
 
-  // Insert bookings
   const bookingValues = BOOKINGS.map((b) => {
     const tenantId = tenantMap.get(b.tenantBusinessName);
     if (!tenantId) throw new Error(`Tenant tidak ditemukan: ${b.tenantBusinessName}`);
@@ -347,6 +340,7 @@ async function seed() {
       endDate: b.endDate,
       totalAmount: b.totalAmount,
       paidAmount: b.paidAmount,
+      remainingAmount: b.totalAmount - b.paidAmount,
       paymentStatus: b.paymentStatus,
       bookingStatus: b.bookingStatus,
       dueDate: b.dueDate,
@@ -354,27 +348,26 @@ async function seed() {
     };
   });
 
-  const insertedBookings = await db
-    .insert(tenantBookingsTable)
-    .values(bookingValues)
-    .returning();
+  const insertedBookings = await db.insert(tenantBookingsTable).values(bookingValues).returning();
   console.log(`  ✓ ${insertedBookings.length} booking diinsert`);
 
-  // Insert payments untuk yang sudah PAID
+  const datePart = new Date().toISOString().slice(0, 10).replace(/-/g, "");
   const paidBookings = insertedBookings.filter((b) => b.paymentStatus === "PAID");
-  const paymentValues = paidBookings.map((b) => ({
+  const paymentValues = paidBookings.map((b, i) => ({
     bookingId: b.id,
+    tenantId: b.tenantId,
     amount: b.paidAmount,
+    discountAmount: 0,
+    penaltyAmount: 0,
     paymentMethod: "transfer" as const,
+    paymentStatus: "PAID" as const,
+    receiptNumber: `SEED-${datePart}-${String(i + 1).padStart(4, "0")}`,
     notes: "Pembayaran awal (seed)",
     paidAt: new Date(),
   }));
 
   if (paymentValues.length > 0) {
-    const insertedPayments = await db
-      .insert(tenantPaymentsTable)
-      .values(paymentValues)
-      .returning();
+    const insertedPayments = await db.insert(tenantPaymentsTable).values(paymentValues).returning();
     console.log(`  ✓ ${insertedPayments.length} payment diinsert`);
   }
 

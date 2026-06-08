@@ -5,15 +5,11 @@ import {
   tenantBookingsTable,
   tenantPaymentsTable,
 } from "@workspace/db/schema";
-import { eq, and, sql } from "drizzle-orm";
+import { eq, and, sql, desc } from "drizzle-orm";
 import { z } from "zod";
 
 const router: IRouter = Router();
 
-/**
- * Generate nomor kuitansi sequential: TENANT-PAY-YYYYMMDD-0001
- * Menggunakan query ke DB untuk mendapat nomor urut berikutnya hari ini.
- */
 async function generateReceiptNumber(): Promise<string> {
   const datePart = new Date().toISOString().slice(0, 10).replace(/-/g, "");
   const prefix = `TENANT-PAY-${datePart}-`;
@@ -120,7 +116,7 @@ router.get("/tenant-pos/floor-plan", async (req, res) => {
       totalAmount: row.totalAmount ?? 0,
       paidAmount: row.paidAmount ?? 0,
       remainingAmount: row.remainingAmount ?? 0,
-      paymentStatus: row.paymentStatus ?? "UNPAID",
+      paymentStatus: (row.paymentStatus ?? "UNPAID") as string,
       bookingStatus: row.bookingStatus ?? "aktif",
       dueDate: row.dueDate ?? null,
       periodLabel: row.periodLabel ?? null,
@@ -145,11 +141,43 @@ router.get("/tenant-pos/payments/:bookingId", async (req, res) => {
       .select()
       .from(tenantPaymentsTable)
       .where(eq(tenantPaymentsTable.bookingId, bookingId))
-      .orderBy(tenantPaymentsTable.paidAt);
+      .orderBy(desc(tenantPaymentsTable.paidAt));
     res.json(payments);
   } catch (err) {
     req.log.error(err, "Failed to get payments for booking");
     res.status(500).json({ error: "Gagal mengambil riwayat pembayaran" });
+  }
+});
+
+// ─── GET /api/tenant-pos/recent-payments ─────────────────────────────────────
+router.get("/tenant-pos/recent-payments", async (req, res) => {
+  try {
+    const limitParam = Math.min(Number(req.query.limit ?? 20), 50);
+    const rows = await db
+      .select({
+        id: tenantPaymentsTable.id,
+        amount: tenantPaymentsTable.amount,
+        discountAmount: tenantPaymentsTable.discountAmount,
+        penaltyAmount: tenantPaymentsTable.penaltyAmount,
+        paymentMethod: tenantPaymentsTable.paymentMethod,
+        receiptNumber: tenantPaymentsTable.receiptNumber,
+        notes: tenantPaymentsTable.notes,
+        paidAt: tenantPaymentsTable.paidAt,
+        businessName: tenantsTable.businessName,
+        boothNumber: tenantsTable.boothNumber,
+        areaName: tenantsTable.areaName,
+        periodLabel: tenantBookingsTable.periodLabel,
+      })
+      .from(tenantPaymentsTable)
+      .innerJoin(tenantBookingsTable, eq(tenantPaymentsTable.bookingId, tenantBookingsTable.id))
+      .innerJoin(tenantsTable, eq(tenantBookingsTable.tenantId, tenantsTable.id))
+      .orderBy(desc(tenantPaymentsTable.paidAt))
+      .limit(limitParam);
+
+    res.json(rows);
+  } catch (err) {
+    req.log.error(err, "Failed to get recent payments");
+    res.status(500).json({ error: "Gagal mengambil data pembayaran terbaru" });
   }
 });
 
@@ -188,7 +216,6 @@ router.post("/tenant-pos/payments", async (req, res) => {
 
   try {
     const result = await db.transaction(async (tx) => {
-      // 1 — Ambil dan kunci booking
       const [booking] = await tx
         .select()
         .from(tenantBookingsTable)
@@ -208,7 +235,6 @@ router.post("/tenant-pos/payments", async (req, res) => {
         throw Object.assign(new Error("Booking ini sudah dibatalkan"), { status: 409 });
       }
 
-      // 2 — Cek tenant
       const [tenant] = await tx
         .select({ id: tenantsTable.id })
         .from(tenantsTable)
@@ -218,10 +244,8 @@ router.post("/tenant-pos/payments", async (req, res) => {
         throw Object.assign(new Error("Tenant tidak ditemukan"), { status: 404 });
       }
 
-      // 3 — Hitung finalBill dan saldo
       const finalBill = booking.totalAmount - discountAmount + penaltyAmount;
 
-      // Total payment sebelumnya (dari tabel payments, bukan dari booking.paidAmount saja)
       const [prevPaid] = await tx
         .select({ total: sql<number>`coalesce(sum(amount), 0)::int` })
         .from(tenantPaymentsTable)
@@ -231,7 +255,6 @@ router.post("/tenant-pos/payments", async (req, res) => {
       const newPaidAmount = previousPaidAmount + amountPaid;
       const remainingAmount = Math.max(finalBill - newPaidAmount, 0);
 
-      // 4 — Tentukan payment status
       let paymentStatus: "PAID" | "PARTIAL" | "UNPAID";
       if (newPaidAmount >= finalBill) {
         paymentStatus = "PAID";
@@ -241,10 +264,8 @@ router.post("/tenant-pos/payments", async (req, res) => {
         paymentStatus = "UNPAID";
       }
 
-      // 5 — Generate receipt number (sequential, aman dalam transaction)
       const receiptNumber = await generateReceiptNumber();
 
-      // 6 — Simpan record payment
       const paidAt = paymentDate ? new Date(paymentDate) : new Date();
       const [payment] = await tx
         .insert(tenantPaymentsTable)
@@ -262,7 +283,6 @@ router.post("/tenant-pos/payments", async (req, res) => {
         })
         .returning();
 
-      // 7 — Update booking tenant
       const [updatedBooking] = await tx
         .update(tenantBookingsTable)
         .set({

@@ -4,7 +4,7 @@ import {
   Building2, Receipt, X, CheckCircle2, AlertCircle, CircleDashed,
   Clock, Phone, Mail, Calendar, CreditCard, Printer, Banknote,
   Smartphone, WalletCards, TrendingUp, Users, AlertTriangle, Zap,
-  MoreHorizontal,
+  MoreHorizontal, History, Filter,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -67,6 +67,20 @@ type PaymentResponse = {
   paymentStatus: string;
   paidAmount: number;
   remainingAmount: number;
+};
+
+type PaymentRecord = {
+  id: number;
+  bookingId: number;
+  tenantId: number | null;
+  amount: number;
+  discountAmount: number;
+  penaltyAmount: number;
+  paymentMethod: string;
+  paymentStatus: string;
+  receiptNumber: string | null;
+  notes: string | null;
+  paidAt: string;
 };
 
 // ─── Status Config ────────────────────────────────────────────────────────────
@@ -171,9 +185,18 @@ function useFloorPlan() {
   });
 }
 
+function usePaymentHistory(bookingId: number | null) {
+  return useQuery<PaymentRecord[]>({
+    queryKey: ["tenant-pos-payments", bookingId],
+    queryFn: () =>
+      fetch(`${BASE}/api/tenant-pos/payments/${bookingId}`).then((r) => r.json()),
+    enabled: bookingId !== null,
+  });
+}
+
 // ─── Summary Cards ────────────────────────────────────────────────────────────
 
-function SummaryCards({ overview, loading }: { overview?: Overview; loading: boolean }) {
+function SummaryCards({ overview, loading, error }: { overview?: Overview; loading: boolean; error?: boolean }) {
   const cards = [
     {
       label: "Total Tenant Aktif",
@@ -209,8 +232,17 @@ function SummaryCards({ overview, loading }: { overview?: Overview; loading: boo
     },
   ];
 
+  if (error) {
+    return (
+      <div className="flex items-center gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+        <AlertCircle className="w-4 h-4 shrink-0" />
+        Gagal memuat ringkasan. Data mungkin tidak akurat.
+      </div>
+    );
+  }
+
   return (
-    <div className="grid grid-cols-4 gap-4">
+    <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
       {cards.map((c) => (
         <Card key={c.label} className={cn("border", c.color)}>
           <CardContent className="pt-4 pb-4">
@@ -383,11 +415,13 @@ function DetailPanel({
   onClose,
   onProses,
   onCetak,
+  onRiwayat,
 }: {
   item: FloorPlanItem | null;
   onClose: () => void;
   onProses: (item: FloorPlanItem) => void;
   onCetak: (item: FloorPlanItem) => void;
+  onRiwayat: (item: FloorPlanItem) => void;
 }) {
   if (!item) {
     return (
@@ -488,7 +522,7 @@ function DetailPanel({
                 {(item.startDate || item.endDate) && (
                   <div className="flex items-center gap-2">
                     <Calendar className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
-                    <span>{item.startDate ?? "?"} — {item.endDate ?? "?"}</span>
+                    <span>{formatTanggalID(item.startDate)} — {formatTanggalID(item.endDate)}</span>
                   </div>
                 )}
               </div>
@@ -662,9 +696,9 @@ function DetailPanel({
                   className="w-full"
                   variant="outline"
                   size="sm"
-                  disabled
+                  onClick={() => onRiwayat(item)}
                 >
-                  <Clock className="w-4 h-4 mr-2" />
+                  <History className="w-4 h-4 mr-2" />
                   Lihat Riwayat
                 </Button>
                 <Button
@@ -1045,14 +1079,141 @@ function ModalPembayaran({ item, onClose, onSuccess }: {
   );
 }
 
+// ─── Modal Riwayat ────────────────────────────────────────────────────────────
+
+const METODE_LABEL: Record<string, string> = {
+  tunai: "Cash", transfer: "Transfer", qris: "QRIS", edc: "EDC", other: "Lainnya",
+};
+
+function ModalRiwayat({ item, onClose }: { item: FloorPlanItem; onClose: () => void }) {
+  const { data: payments, isLoading, isError, refetch } = usePaymentHistory(item.bookingId);
+  const total = payments?.reduce((s, p) => s + p.amount, 0) ?? 0;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg mx-4 overflow-hidden flex flex-col max-h-[85vh]">
+
+        {/* Header */}
+        <div className="bg-primary px-6 py-4 flex items-center justify-between shrink-0">
+          <div>
+            <p className="text-white/70 text-xs">Riwayat Pembayaran</p>
+            <h2 className="text-white font-bold text-lg leading-tight">{item.businessName}</h2>
+            <p className="text-white/80 text-xs mt-0.5">{item.boothNumber} · {item.areaName}</p>
+          </div>
+          <button onClick={onClose} className="text-white/70 hover:text-white">
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        {/* Info ringkas tagihan */}
+        <div className="px-6 py-3 bg-slate-50 border-b shrink-0">
+          <div className="grid grid-cols-3 gap-3 text-sm">
+            <div>
+              <p className="text-[11px] text-muted-foreground">Total Tagihan</p>
+              <p className="font-semibold">{formatRupiah(item.totalAmount)}</p>
+            </div>
+            <div>
+              <p className="text-[11px] text-muted-foreground">Total Dibayar</p>
+              <p className="font-semibold text-emerald-700">{formatRupiah(item.paidAmount)}</p>
+            </div>
+            <div>
+              <p className="text-[11px] text-muted-foreground">Sisa Tagihan</p>
+              <p className={cn("font-semibold", item.remainingAmount > 0 ? "text-amber-600" : "text-emerald-700")}>
+                {formatRupiah(item.remainingAmount)}
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* Daftar transaksi */}
+        <div className="flex-1 overflow-y-auto p-4">
+          {isLoading ? (
+            <div className="space-y-3">
+              {[1, 2, 3].map((i) => <Skeleton key={i} className="h-16 w-full rounded-xl" />)}
+            </div>
+          ) : isError ? (
+            <div className="flex flex-col items-center justify-center py-10 text-destructive text-center">
+              <AlertCircle className="w-8 h-8 mb-2 opacity-60" />
+              <p className="font-medium text-sm">Gagal memuat riwayat</p>
+              <Button variant="outline" size="sm" className="mt-3" onClick={() => refetch()}>Coba Lagi</Button>
+            </div>
+          ) : !payments?.length ? (
+            <div className="flex flex-col items-center justify-center py-10 text-muted-foreground text-center">
+              <History className="w-9 h-9 mb-3 opacity-25" />
+              <p className="font-medium text-sm">Belum ada riwayat pembayaran</p>
+              <p className="text-xs mt-1">Pembayaran pertama belum dilakukan</p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {payments.map((p, i) => (
+                <div key={p.id} className="rounded-xl border bg-white px-4 py-3 flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className="w-7 h-7 rounded-full bg-emerald-100 flex items-center justify-center shrink-0">
+                      <span className="text-[10px] font-bold text-emerald-700">#{i + 1}</span>
+                    </div>
+                    <div className="min-w-0">
+                      {p.receiptNumber && (
+                        <p className="text-[11px] font-mono text-muted-foreground truncate">{p.receiptNumber}</p>
+                      )}
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        {formatTanggalID(p.paidAt.slice(0, 10))}
+                        {" · "}
+                        {METODE_LABEL[p.paymentMethod] ?? p.paymentMethod}
+                      </p>
+                      {p.notes && (
+                        <p className="text-[11px] text-muted-foreground/70 mt-0.5 truncate">{p.notes}</p>
+                      )}
+                    </div>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <p className="font-semibold text-sm text-emerald-700">{formatRupiah(p.amount)}</p>
+                    {(p.discountAmount > 0 || p.penaltyAmount > 0) && (
+                      <div className="text-[10px] space-x-1">
+                        {p.discountAmount > 0 && (
+                          <span className="text-emerald-600">-{formatRupiah(p.discountAmount)}</span>
+                        )}
+                        {p.penaltyAmount > 0 && (
+                          <span className="text-red-600">+{formatRupiah(p.penaltyAmount)}</span>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ))}
+
+              {/* Total */}
+              <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 flex justify-between items-center mt-2">
+                <span className="text-sm font-semibold text-emerald-800">Total Terbayar</span>
+                <span className="text-lg font-bold text-emerald-700">{formatRupiah(total)}</span>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="p-4 border-t bg-white shrink-0">
+          <Button variant="outline" className="w-full" onClick={onClose}>Tutup</Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function TenantPos() {
   const [selected, setSelected] = useState<FloorPlanItem | null>(null);
   const [modalItem, setModalItem] = useState<FloorPlanItem | null>(null);
+  const [riwayatItem, setRiwayatItem] = useState<FloorPlanItem | null>(null);
+  const [filterStatus, setFilterStatus] = useState<PaymentStatus | "VACANT" | null>(null);
 
   const overview = useOverview();
   const floorPlan = useFloorPlan();
+
+  const filteredItems = (floorPlan.data ?? []).filter((item) => {
+    if (!filterStatus) return true;
+    return resolveStatus(item) === filterStatus;
+  });
 
   const handleSelect = (item: FloorPlanItem) => {
     setSelected((prev) => (prev?.id === item.id ? null : item));
@@ -1089,14 +1250,38 @@ export default function TenantPos() {
         <StatusLegend />
       </div>
 
-      <SummaryCards overview={overview.data} loading={overview.isLoading} />
+      <SummaryCards overview={overview.data} loading={overview.isLoading} error={overview.isError} />
 
       <div className="flex flex-1 gap-4 min-h-0">
         <Card className="flex-1 min-w-0 overflow-hidden">
-          <CardHeader className="py-3 px-4 border-b">
-            <CardTitle className="text-sm font-semibold text-slate-700">Denah Tenant</CardTitle>
+          <CardHeader className="py-3 px-4 border-b flex-row items-center justify-between space-y-0">
+            <div className="flex items-center gap-2">
+              <CardTitle className="text-sm font-semibold text-slate-700">Denah Tenant</CardTitle>
+              {filterStatus && !floorPlan.isLoading && (
+                <span className="text-[10px] text-muted-foreground">
+                  ({filteredItems.length}/{(floorPlan.data ?? []).length} unit)
+                </span>
+              )}
+            </div>
+            <div className="flex items-center gap-1 flex-wrap justify-end">
+              <Filter className="w-3.5 h-3.5 text-muted-foreground mr-0.5" />
+              {([null, "PAID", "UNPAID", "PARTIAL", "OVERDUE", "VACANT"] as const).map((s) => (
+                <button
+                  key={String(s)}
+                  onClick={() => setFilterStatus(s === filterStatus ? null : s)}
+                  className={cn(
+                    "text-[10px] px-2 py-0.5 rounded-full border font-medium transition-all",
+                    filterStatus === s
+                      ? "bg-primary text-white border-primary"
+                      : "text-muted-foreground border-muted hover:border-slate-300"
+                  )}
+                >
+                  {s === null ? "Semua" : s === "PAID" ? "Lunas" : s === "UNPAID" ? "Belum Bayar" : s === "PARTIAL" ? "Sebagian" : s === "OVERDUE" ? "Jatuh Tempo" : "Kosong"}
+                </button>
+              ))}
+            </div>
           </CardHeader>
-          <CardContent className="p-0 h-[calc(100%-3rem)]">
+          <CardContent className="p-0 h-[calc(100%-3.25rem)]">
             {floorPlan.isLoading ? (
               <FloorPlanSkeleton />
             ) : floorPlan.isError ? (
@@ -1105,9 +1290,20 @@ export default function TenantPos() {
                 <p className="font-medium">Gagal memuat data denah</p>
                 <Button variant="outline" size="sm" className="mt-3" onClick={() => floorPlan.refetch()}>Coba Lagi</Button>
               </div>
+            ) : filteredItems.length === 0 ? (
+              <div className="flex flex-col items-center justify-center h-full text-center p-10 text-muted-foreground">
+                <Building2 className="w-10 h-10 mb-3 opacity-25" />
+                <p className="font-medium text-sm">Tidak ada unit dengan status ini</p>
+                <button
+                  className="text-xs text-primary mt-2 hover:underline"
+                  onClick={() => setFilterStatus(null)}
+                >
+                  Tampilkan semua
+                </button>
+              </div>
             ) : (
               <TenantFloorPlan
-                items={floorPlan.data ?? []}
+                items={filteredItems}
                 selected={selected}
                 onSelect={handleSelect}
               />
@@ -1122,6 +1318,7 @@ export default function TenantPos() {
               onClose={() => setSelected(null)}
               onProses={setModalItem}
               onCetak={handleCetak}
+              onRiwayat={setRiwayatItem}
             />
           </CardContent>
         </Card>
@@ -1132,7 +1329,6 @@ export default function TenantPos() {
           item={modalItem}
           onClose={() => setModalItem(null)}
           onSuccess={(updated) => {
-            // Update selected item state langsung tanpa tunggu refetch
             if (selected?.id === modalItem.id) {
               setSelected(prev => prev ? {
                 ...prev,
@@ -1144,6 +1340,10 @@ export default function TenantPos() {
             setModalItem(null);
           }}
         />
+      )}
+
+      {riwayatItem && (
+        <ModalRiwayat item={riwayatItem} onClose={() => setRiwayatItem(null)} />
       )}
     </div>
   );

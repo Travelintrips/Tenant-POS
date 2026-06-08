@@ -1,12 +1,19 @@
 import React, { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
   LineChart, Line, PieChart, Pie, Cell, Sector,
 } from "recharts";
-import { TrendingUp, TrendingDown, Building2, AlertCircle, CheckCircle2, CircleDashed, Download, ChevronDown } from "lucide-react";
+import {
+  TrendingUp, TrendingDown, Building2, AlertCircle, CheckCircle2,
+  CircleDashed, Download, ChevronDown, Zap, RefreshCw,
+} from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
+
+const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
 function formatRupiah(v: number) {
   if (v >= 1_000_000) return `Rp ${(v / 1_000_000).toFixed(1)}jt`;
@@ -15,8 +22,18 @@ function formatRupiah(v: number) {
 function formatRupiahFull(v: number) {
   return new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", minimumFractionDigits: 0 }).format(v);
 }
+function formatTanggalID(dateStr: string): string {
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return dateStr;
+  return d.toLocaleDateString("id-ID", { day: "numeric", month: "long", year: "numeric" });
+}
+function formatJamPendek(dateStr: string): string {
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return "";
+  return d.toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" });
+}
 
-const BULAN = ["Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Ags", "Sep", "Okt", "Nov", "Des"];
+// ─── Static chart data ────────────────────────────────────────────────────────
 
 const DATA_2026 = [
   { bulan: "Jan", sport: 13000000, tod: 13600000 },
@@ -79,6 +96,54 @@ const statusBadge: Record<string, string> = {
   Menunggak: "bg-red-100 text-red-700 border-red-200",
   Kosong: "bg-slate-100 text-slate-500 border-slate-200",
 };
+
+const METODE_LABEL: Record<string, string> = {
+  tunai: "Cash", transfer: "Transfer", qris: "QRIS", edc: "EDC", other: "Lainnya",
+};
+
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+type Overview = {
+  totalActiveTenants: number;
+  unpaidCount: number;
+  overdueCount: number;
+  paidTodayAmount: number;
+};
+
+type RecentPayment = {
+  id: number;
+  amount: number;
+  discountAmount: number;
+  penaltyAmount: number;
+  paymentMethod: string;
+  receiptNumber: string | null;
+  notes: string | null;
+  paidAt: string;
+  businessName: string;
+  boothNumber: string;
+  areaName: string;
+  periodLabel: string | null;
+};
+
+// ─── Hooks ────────────────────────────────────────────────────────────────────
+
+function useLiveOverview() {
+  return useQuery<Overview>({
+    queryKey: ["laporan-overview"],
+    queryFn: () => fetch(`${BASE}/api/tenant-pos/overview`).then((r) => r.json()),
+    refetchInterval: 30_000,
+  });
+}
+
+function useRecentPayments() {
+  return useQuery<RecentPayment[]>({
+    queryKey: ["laporan-recent-payments"],
+    queryFn: () => fetch(`${BASE}/api/tenant-pos/recent-payments?limit=15`).then((r) => r.json()),
+    refetchInterval: 30_000,
+  });
+}
+
+// ─── Sub-components ───────────────────────────────────────────────────────────
 
 function CustomTooltip({ active, payload, label }: any) {
   if (!active || !payload?.length) return null;
@@ -151,6 +216,176 @@ function DonutChart({ data, title }: { data: typeof STATUS_SPORT; title: string 
   );
 }
 
+// ─── Live Widgets ─────────────────────────────────────────────────────────────
+
+function LiveKPIBar() {
+  const { data, isLoading, isError, refetch } = useLiveOverview();
+
+  return (
+    <Card className="border-emerald-200 bg-gradient-to-r from-emerald-50/60 to-white">
+      <CardContent className="py-4">
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-2">
+            <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-700">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+              LIVE — Hari Ini
+            </span>
+          </div>
+          <button
+            onClick={() => refetch()}
+            className="text-muted-foreground hover:text-slate-700 transition-colors"
+            title="Refresh data live"
+          >
+            <RefreshCw className="w-3.5 h-3.5" />
+          </button>
+        </div>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+          <div>
+            <p className="text-[11px] text-muted-foreground uppercase tracking-wide">Terkumpul Hari Ini</p>
+            {isLoading ? <Skeleton className="h-6 w-24 mt-1" /> : (
+              <p className="text-xl font-bold text-emerald-700 mt-0.5">
+                {formatRupiahFull(data?.paidTodayAmount ?? 0)}
+              </p>
+            )}
+          </div>
+          <div>
+            <p className="text-[11px] text-muted-foreground uppercase tracking-wide">Tenant Aktif</p>
+            {isLoading ? <Skeleton className="h-6 w-10 mt-1" /> : (
+              <p className="text-xl font-bold mt-0.5">{data?.totalActiveTenants ?? 0}</p>
+            )}
+          </div>
+          <div>
+            <p className="text-[11px] text-muted-foreground uppercase tracking-wide">Tagihan Pending</p>
+            {isLoading ? <Skeleton className="h-6 w-10 mt-1" /> : (
+              <p className="text-xl font-bold text-amber-600 mt-0.5">{data?.unpaidCount ?? 0}</p>
+            )}
+          </div>
+          <div>
+            <p className="text-[11px] text-muted-foreground uppercase tracking-wide">Jatuh Tempo</p>
+            {isLoading ? <Skeleton className="h-6 w-10 mt-1" /> : (
+              <p className="text-xl font-bold text-red-600 mt-0.5">{data?.overdueCount ?? 0}</p>
+            )}
+          </div>
+        </div>
+        {isError && (
+          <p className="text-xs text-red-500 mt-2 flex items-center gap-1">
+            <AlertCircle className="w-3.5 h-3.5" />
+            Gagal memuat data live
+          </p>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function RecentPaymentsTable() {
+  const { data: payments, isLoading, isError, refetch, dataUpdatedAt } = useRecentPayments();
+
+  const lastUpdate = dataUpdatedAt
+    ? new Date(dataUpdatedAt).toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit", second: "2-digit" })
+    : null;
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <div className="flex items-center justify-between">
+          <div>
+            <CardTitle className="text-base flex items-center gap-2">
+              Pembayaran Terbaru
+              <span className="inline-flex items-center gap-1 text-[10px] font-normal text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded-full border border-emerald-200">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />LIVE
+              </span>
+            </CardTitle>
+            <CardDescription>
+              Transaksi real-time dari POS Tenant
+              {lastUpdate && <span className="ml-2 text-[10px]">· diperbarui {lastUpdate}</span>}
+            </CardDescription>
+          </div>
+          <button
+            onClick={() => refetch()}
+            className="text-muted-foreground hover:text-slate-700 transition-colors"
+            title="Refresh"
+          >
+            <RefreshCw className="w-4 h-4" />
+          </button>
+        </div>
+      </CardHeader>
+      <CardContent className="pt-0">
+        {isLoading ? (
+          <div className="space-y-2">
+            {[1, 2, 3, 4, 5].map((i) => <Skeleton key={i} className="h-12 w-full rounded-lg" />)}
+          </div>
+        ) : isError ? (
+          <div className="flex flex-col items-center justify-center py-8 text-muted-foreground text-center">
+            <AlertCircle className="w-8 h-8 mb-2 opacity-40" />
+            <p className="text-sm">Gagal memuat pembayaran terbaru</p>
+            <button onClick={() => refetch()} className="text-xs text-primary mt-2 hover:underline">Coba Lagi</button>
+          </div>
+        ) : !payments?.length ? (
+          <div className="flex flex-col items-center justify-center py-8 text-muted-foreground text-center">
+            <Zap className="w-8 h-8 mb-2 opacity-30" />
+            <p className="text-sm">Belum ada pembayaran yang tercatat</p>
+            <p className="text-xs mt-1">Lakukan pembayaran di POS Tenant untuk melihat data di sini</p>
+          </div>
+        ) : (
+          <div className="rounded-lg border overflow-hidden">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="bg-slate-50 border-b">
+                  <th className="text-left px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wide">Waktu</th>
+                  <th className="text-left px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wide">Tenant</th>
+                  <th className="text-left px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wide hidden sm:table-cell">Periode</th>
+                  <th className="text-left px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wide hidden md:table-cell">Metode</th>
+                  <th className="text-right px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wide">Jumlah</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {payments.map((p) => (
+                  <tr key={p.id} className="hover:bg-slate-50/60 transition-colors">
+                    <td className="px-4 py-3 text-xs text-muted-foreground whitespace-nowrap">
+                      <div>{formatTanggalID(p.paidAt.slice(0, 10))}</div>
+                      <div className="text-[10px] text-slate-400">{formatJamPendek(p.paidAt)}</div>
+                    </td>
+                    <td className="px-4 py-3">
+                      <p className="font-medium truncate max-w-[150px]">{p.businessName}</p>
+                      <p className="text-[11px] text-muted-foreground">{p.boothNumber} · {p.areaName}</p>
+                    </td>
+                    <td className="px-4 py-3 text-sm text-slate-500 hidden sm:table-cell">
+                      {p.periodLabel ?? "—"}
+                    </td>
+                    <td className="px-4 py-3 hidden md:table-cell">
+                      <span className="text-xs px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 border border-slate-200">
+                        {METODE_LABEL[p.paymentMethod] ?? p.paymentMethod}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-right font-semibold text-emerald-700 tabular-nums whitespace-nowrap">
+                      {formatRupiahFull(p.amount)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+              {payments.length > 0 && (
+                <tfoot>
+                  <tr className="bg-slate-50 border-t">
+                    <td colSpan={3} className="px-4 py-2.5 text-xs font-semibold text-slate-600">
+                      {payments.length} transaksi terakhir
+                    </td>
+                    <td colSpan={2} className="px-4 py-2.5 text-right font-bold text-sm tabular-nums text-emerald-700">
+                      {formatRupiahFull(payments.reduce((s, p) => s + p.amount, 0))}
+                    </td>
+                  </tr>
+                </tfoot>
+              )}
+            </table>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+// ─── Page ─────────────────────────────────────────────────────────────────────
+
 export default function Laporan() {
   const [tahun, setTahun] = useState<"2026" | "2025">("2026");
   const [cabangRekap, setCabangRekap] = useState<"sport" | "tod">("sport");
@@ -198,8 +433,11 @@ export default function Laporan() {
         </div>
       </div>
 
-      {/* KPI Cards */}
-      <div className="grid grid-cols-4 gap-4">
+      {/* Live KPI bar */}
+      <LiveKPIBar />
+
+      {/* KPI Cards (historical / static) */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <Card>
           <CardContent className="pt-4 pb-4">
             <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide">Total Pendapatan</p>
@@ -238,6 +476,9 @@ export default function Laporan() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Recent Payments (live) */}
+      <RecentPaymentsTable />
 
       {/* Bar Chart */}
       <Card>
