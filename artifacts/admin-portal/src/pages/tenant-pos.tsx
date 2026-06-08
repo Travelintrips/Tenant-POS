@@ -280,9 +280,10 @@ function BoothCard({
 
 // ─── Floor Plan Component ─────────────────────────────────────────────────────
 
-function TenantFloorPlan({ items, selected, onSelect }: {
+function TenantFloorPlan({ items: rawItems, selected, onSelect }: {
   items: FloorPlanItem[]; selected: FloorPlanItem | null; onSelect: (item: FloorPlanItem) => void;
 }) {
+  const items = Array.isArray(rawItems) ? rawItems : [];
   if (items.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center h-full text-center p-10 text-muted-foreground">
