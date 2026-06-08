@@ -1,21 +1,21 @@
-import { pgTable, serial, text, timestamp, pgEnum } from "drizzle-orm/pg-core";
+import { pgTable, serial, integer, text, timestamp } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
-export const tenantStatusEnum = pgEnum("tenant_status", ["aktif", "kosong", "nonaktif"]);
-
 export const tenantsTable = pgTable("tenants", {
   id: serial("id").primaryKey(),
+  companyId: integer("company_id"),
+  userId: integer("user_id"),
   businessName: text("business_name").notNull(),
   ownerName: text("owner_name").notNull(),
-  email: text("email"),
   phone: text("phone"),
-  category: text("category"),
-  boothNumber: text("booth_number"),
-  areaName: text("area_name").notNull(),
-  status: tenantStatusEnum("status").notNull().default("aktif"),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  email: text("email"),
+  businessCategory: text("business_category"),
+  logoUrl: text("logo_url"),
+  address: text("address"),
+  status: text("status").notNull().default("aktif"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
 export const insertTenantSchema = createInsertSchema(tenantsTable).omit({ id: true, createdAt: true, updatedAt: true });

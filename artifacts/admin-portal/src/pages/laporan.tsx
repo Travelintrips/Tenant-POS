@@ -7,7 +7,7 @@ import {
 import {
   TrendingUp, TrendingDown, Building2, AlertCircle, CheckCircle2,
   CircleDashed, Download, ChevronDown, Zap, RefreshCw,
-  Download, ChevronDown, Receipt, CreditCard, Banknote, Smartphone, BadgeCheck,
+  Receipt, CreditCard, Banknote, Smartphone, BadgeCheck,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";

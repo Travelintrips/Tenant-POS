@@ -9,34 +9,35 @@ import { eq } from "drizzle-orm";
 
 const router: IRouter = Router();
 
-async function enrichBooking(row: typeof tenantBookingsTable.$inferSelect & {
-  tenantName: string;
-  boothNumber: string | null;
-  areaName: string;
-}) {
-  return row;
-}
+const bookingSelect = {
+  id: tenantBookingsTable.id,
+  tenantId: tenantBookingsTable.tenantId,
+  tenantName: tenantsTable.businessName,
+  orderNumber: tenantBookingsTable.orderNumber,
+  bookingType: tenantBookingsTable.bookingType,
+  startDate: tenantBookingsTable.startDate,
+  endDate: tenantBookingsTable.endDate,
+  durationMonths: tenantBookingsTable.durationMonths,
+  price: tenantBookingsTable.price,
+  totalPrice: tenantBookingsTable.totalPrice,
+  monthlyPrice: tenantBookingsTable.monthlyPrice,
+  paymentStatus: tenantBookingsTable.paymentStatus,
+  status: tenantBookingsTable.status,
+  paymentPeriodType: tenantBookingsTable.paymentPeriodType,
+  periodStartMonth: tenantBookingsTable.periodStartMonth,
+  periodStartYear: tenantBookingsTable.periodStartYear,
+  periodEndMonth: tenantBookingsTable.periodEndMonth,
+  periodEndYear: tenantBookingsTable.periodEndYear,
+  totalMonths: tenantBookingsTable.totalMonths,
+  adminNotes: tenantBookingsTable.adminNotes,
+  createdAt: tenantBookingsTable.createdAt,
+  updatedAt: tenantBookingsTable.updatedAt,
+} as const;
 
 router.get("/bookings", async (req, res) => {
   try {
     const rows = await db
-      .select({
-        id: tenantBookingsTable.id,
-        tenantId: tenantBookingsTable.tenantId,
-        tenantName: tenantsTable.businessName,
-        boothNumber: tenantsTable.boothNumber,
-        areaName: tenantsTable.areaName,
-        startDate: tenantBookingsTable.startDate,
-        endDate: tenantBookingsTable.endDate,
-        totalAmount: tenantBookingsTable.totalAmount,
-        paidAmount: tenantBookingsTable.paidAmount,
-        paymentStatus: tenantBookingsTable.paymentStatus,
-        bookingStatus: tenantBookingsTable.bookingStatus,
-        dueDate: tenantBookingsTable.dueDate,
-        periodLabel: tenantBookingsTable.periodLabel,
-        createdAt: tenantBookingsTable.createdAt,
-        updatedAt: tenantBookingsTable.updatedAt,
-      })
+      .select(bookingSelect)
       .from(tenantBookingsTable)
       .leftJoin(tenantsTable, eq(tenantBookingsTable.tenantId, tenantsTable.id))
       .orderBy(tenantBookingsTable.id);
@@ -60,23 +61,7 @@ router.post("/bookings", async (req, res) => {
       .returning();
 
     const [withTenant] = await db
-      .select({
-        id: tenantBookingsTable.id,
-        tenantId: tenantBookingsTable.tenantId,
-        tenantName: tenantsTable.businessName,
-        boothNumber: tenantsTable.boothNumber,
-        areaName: tenantsTable.areaName,
-        startDate: tenantBookingsTable.startDate,
-        endDate: tenantBookingsTable.endDate,
-        totalAmount: tenantBookingsTable.totalAmount,
-        paidAmount: tenantBookingsTable.paidAmount,
-        paymentStatus: tenantBookingsTable.paymentStatus,
-        bookingStatus: tenantBookingsTable.bookingStatus,
-        dueDate: tenantBookingsTable.dueDate,
-        periodLabel: tenantBookingsTable.periodLabel,
-        createdAt: tenantBookingsTable.createdAt,
-        updatedAt: tenantBookingsTable.updatedAt,
-      })
+      .select(bookingSelect)
       .from(tenantBookingsTable)
       .leftJoin(tenantsTable, eq(tenantBookingsTable.tenantId, tenantsTable.id))
       .where(eq(tenantBookingsTable.id, booking.id));
@@ -96,23 +81,7 @@ router.get("/bookings/:id", async (req, res) => {
   }
   try {
     const [row] = await db
-      .select({
-        id: tenantBookingsTable.id,
-        tenantId: tenantBookingsTable.tenantId,
-        tenantName: tenantsTable.businessName,
-        boothNumber: tenantsTable.boothNumber,
-        areaName: tenantsTable.areaName,
-        startDate: tenantBookingsTable.startDate,
-        endDate: tenantBookingsTable.endDate,
-        totalAmount: tenantBookingsTable.totalAmount,
-        paidAmount: tenantBookingsTable.paidAmount,
-        paymentStatus: tenantBookingsTable.paymentStatus,
-        bookingStatus: tenantBookingsTable.bookingStatus,
-        dueDate: tenantBookingsTable.dueDate,
-        periodLabel: tenantBookingsTable.periodLabel,
-        createdAt: tenantBookingsTable.createdAt,
-        updatedAt: tenantBookingsTable.updatedAt,
-      })
+      .select(bookingSelect)
       .from(tenantBookingsTable)
       .leftJoin(tenantsTable, eq(tenantBookingsTable.tenantId, tenantsTable.id))
       .where(eq(tenantBookingsTable.id, id));
@@ -152,23 +121,7 @@ router.put("/bookings/:id", async (req, res) => {
     }
 
     const [withTenant] = await db
-      .select({
-        id: tenantBookingsTable.id,
-        tenantId: tenantBookingsTable.tenantId,
-        tenantName: tenantsTable.businessName,
-        boothNumber: tenantsTable.boothNumber,
-        areaName: tenantsTable.areaName,
-        startDate: tenantBookingsTable.startDate,
-        endDate: tenantBookingsTable.endDate,
-        totalAmount: tenantBookingsTable.totalAmount,
-        paidAmount: tenantBookingsTable.paidAmount,
-        paymentStatus: tenantBookingsTable.paymentStatus,
-        bookingStatus: tenantBookingsTable.bookingStatus,
-        dueDate: tenantBookingsTable.dueDate,
-        periodLabel: tenantBookingsTable.periodLabel,
-        createdAt: tenantBookingsTable.createdAt,
-        updatedAt: tenantBookingsTable.updatedAt,
-      })
+      .select(bookingSelect)
       .from(tenantBookingsTable)
       .leftJoin(tenantsTable, eq(tenantBookingsTable.tenantId, tenantsTable.id))
       .where(eq(tenantBookingsTable.id, id));

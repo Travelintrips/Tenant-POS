@@ -1,33 +1,26 @@
-import { pgTable, serial, integer, text, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, serial, integer, text, numeric, timestamp } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
-import { tenantBookingsTable, paymentStatusEnum } from "./tenant-bookings";
-import { tenantsTable } from "./tenants";
-import { pgEnum } from "drizzle-orm/pg-core";
-
-export const paymentMethodEnum = pgEnum("payment_method", ["tunai", "transfer", "qris", "edc", "other"]);
+import { tenantBookingsTable } from "./tenant-bookings";
 
 export const tenantPaymentsTable = pgTable("tenant_payments", {
   id: serial("id").primaryKey(),
-  bookingId: integer("booking_id").notNull().references(() => tenantBookingsTable.id),
-  tenantId: integer("tenant_id").references(() => tenantsTable.id),
-  amount: integer("amount").notNull(),
-  discountAmount: integer("discount_amount").notNull().default(0),
-  penaltyAmount: integer("penalty_amount").notNull().default(0),
-  paymentMethod: paymentMethodEnum("payment_method").notNull().default("tunai"),
-  paymentStatus: paymentStatusEnum("payment_status").notNull().default("PAID"),
-  receiptNumber: text("receipt_number"),
+  companyId: integer("company_id"),
+  tenantBookingId: integer("tenant_booking_id").notNull().references(() => tenantBookingsTable.id),
+  paymentNumber: text("payment_number"),
+  proofImageUrl: text("proof_image_url"),
+  amount: numeric("amount").notNull(),
+  method: text("method").notNull().default("tunai"),
   notes: text("notes"),
-  createdBy: integer("created_by"),
-  paidAt: timestamp("paid_at").notNull().defaultNow(),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  status: text("status").notNull().default("PAID"),
+  paidAt: timestamp("paid_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
 export const tenantPaymentsRelations = relations(tenantPaymentsTable, ({ one }) => ({
-  booking: one(tenantBookingsTable, { fields: [tenantPaymentsTable.bookingId], references: [tenantBookingsTable.id] }),
-  tenant: one(tenantsTable, { fields: [tenantPaymentsTable.tenantId], references: [tenantsTable.id] }),
+  booking: one(tenantBookingsTable, { fields: [tenantPaymentsTable.tenantBookingId], references: [tenantBookingsTable.id] }),
 }));
 
 export const tenantBookingPaymentsRelations = relations(tenantBookingsTable, ({ many }) => ({
