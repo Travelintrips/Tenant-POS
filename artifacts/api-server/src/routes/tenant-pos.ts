@@ -7,8 +7,6 @@ import {
   insertTenantPaymentSchema,
 } from "@workspace/db/schema";
 import { eq, and, sql } from "drizzle-orm";
-import { tenantsTable, tenantBookingsTable, tenantPaymentsTable } from "@workspace/db/schema";
-import { eq, and, sql } from "drizzle-orm";
 import { z } from "zod";
 
 const router: IRouter = Router();
@@ -116,38 +114,6 @@ router.get("/tenant-pos/floor-plan", async (req, res) => {
   }
 });
 
-router.post("/tenant-pos/payments", async (req, res) => {
-  const parsed = insertTenantPaymentSchema.safeParse(req.body);
-  if (!parsed.success) {
-    res.status(400).json({ error: parsed.error.message });
-    return;
-  }
-  try {
-    const [payment] = await db
-      .insert(tenantPaymentsTable)
-      .values(parsed.data)
-      .returning();
-
-    const booking = await db
-      .select()
-      .from(tenantBookingsTable)
-      .where(eq(tenantBookingsTable.id, parsed.data.bookingId));
-
-    if (booking[0]) {
-      const newPaid = (booking[0].paidAmount ?? 0) + parsed.data.amount;
-      const total = booking[0].totalAmount ?? 0;
-      const newStatus =
-        newPaid >= total ? "PAID" : newPaid > 0 ? "PARTIAL" : "UNPAID";
-      await db
-        .update(tenantBookingsTable)
-        .set({ paidAmount: newPaid, paymentStatus: newStatus as "PAID" | "PARTIAL" | "UNPAID", updatedAt: new Date() })
-        .where(eq(tenantBookingsTable.id, parsed.data.bookingId));
-    }
-
-    res.status(201).json(payment);
-  } catch (err) {
-    req.log.error(err, "Failed to create payment");
-    res.status(500).json({ error: "Gagal mencatat pembayaran" });
 const paymentBodySchema = z.object({
   bookingId: z.number().int().positive(),
   amount: z.number().int().positive(),
@@ -155,10 +121,6 @@ const paymentBodySchema = z.object({
   notes: z.string().optional(),
 });
 
-/**
- * POST /api/tenant-pos/payments
- * Catat pembayaran tenant dan perbarui status booking
- */
 router.post("/tenant-pos/payments", async (req, res) => {
   const parsed = paymentBodySchema.safeParse(req.body);
   if (!parsed.success) {
