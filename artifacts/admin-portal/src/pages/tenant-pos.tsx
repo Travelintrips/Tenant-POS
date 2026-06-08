@@ -121,7 +121,6 @@ function formatRupiah(amount: number) {
     minimumFractionDigits: 0,
   }).format(amount);
 }
-
 function todayString() {
   return new Date().toISOString().slice(0, 10);
 }
@@ -129,6 +128,32 @@ function todayString() {
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
 // ─── Fetch hooks ──────────────────────────────────────────────────────────────
+function formatTanggalID(dateStr: string | null): string {
+  if (!dateStr) return "—";
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return dateStr;
+  return d.toLocaleDateString("id-ID", {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  });
+}
+
+const bookingStatusLabel: Record<string, string> = {
+  aktif: "Aktif",
+  selesai: "Selesai",
+  pending: "Pending",
+  batal: "Batal",
+};
+
+const bookingStatusBadge: Record<string, string> = {
+  aktif: "bg-emerald-100 text-emerald-700 border-emerald-300",
+  selesai: "bg-slate-100 text-slate-600 border-slate-300",
+  pending: "bg-amber-100 text-amber-700 border-amber-300",
+  batal: "bg-red-100 text-red-600 border-red-300",
+};
+
+// ─── Fetch hooks ──────────────────────────────────────────────────────────
 
 function useOverview() {
   return useQuery<Overview>({
@@ -334,8 +359,32 @@ function StatusLegend() {
 }
 
 // ─── Detail Panel ─────────────────────────────────────────────────────────────
-
 function DetailPanel({ item, onClose, onProses, onCetak }: {
+function DetailRow({
+  label,
+  value,
+  valueClass,
+}: {
+  label: string;
+  value: React.ReactNode;
+  valueClass?: string;
+}) {
+  return (
+    <div className="flex items-start justify-between gap-3 py-1.5">
+      <span className="text-xs text-muted-foreground shrink-0 leading-5">{label}</span>
+      <span className={cn("text-xs font-medium text-right leading-5 break-all", valueClass)}>
+        {value}
+      </span>
+    </div>
+  );
+}
+
+function DetailPanel({
+  item,
+  onClose,
+  onProses,
+  onCetak,
+}: {
   item: FloorPlanItem | null;
   onClose: () => void;
   onProses: (item: FloorPlanItem) => void;
@@ -367,32 +416,86 @@ function DetailPanel({ item, onClose, onProses, onCetak }: {
             {cfg.icon} {cfg.label}
           </span>
           <button onClick={onClose} className="text-muted-foreground hover:text-foreground">
+  const isVacant = status === "VACANT";
+  const hasPaid = item.paidAmount > 0;
+  const canPay = !isVacant && item.bookingId !== null && status !== "PAID";
+  const canPrint = !isVacant && item.bookingId !== null && status === "PAID";
+
+  const billingBg =
+    status === "OVERDUE"
+      ? "bg-red-50 border-red-200"
+      : status === "PAID"
+      ? "bg-emerald-50 border-emerald-200"
+      : status === "PARTIAL"
+      ? "bg-blue-50 border-blue-200"
+      : "bg-amber-50 border-amber-200";
+
+  const remainingColor =
+    status === "PAID"
+      ? "text-emerald-700"
+      : status === "OVERDUE"
+      ? "text-red-600"
+      : status === "PARTIAL"
+      ? "text-blue-600"
+      : "text-amber-600";
+
+  return (
+    <div className="flex flex-col h-full">
+      {/* Header */}
+      <div className="px-4 pt-4 pb-3 border-b bg-slate-50/60">
+        <div className="flex items-start justify-between gap-2 mb-2">
+          <div className="min-w-0">
+            <p className="text-[11px] text-muted-foreground">
+              {item.boothNumber}{item.areaName ? ` · ${item.areaName}` : ""}
+            </p>
+            <h3 className="font-bold text-sm leading-tight mt-0.5">
+              {isVacant ? "Unit Kosong" : item.businessName}
+            </h3>
+            {!isVacant && (
+              <p className="text-xs text-muted-foreground mt-0.5">{item.ownerName}</p>
+            )}
+          </div>
+          <button
+            onClick={onClose}
+            className="text-muted-foreground hover:text-foreground shrink-0 mt-0.5"
+          >
             <X className="w-4 h-4" />
           </button>
         </div>
+        <div className="flex items-center gap-2 flex-wrap">
+          <span
+            className={cn(
+              "inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full border font-medium",
+              cfg.badge
+            )}
+          >
+            {cfg.icon}
+            Pembayaran: {cfg.label}
+          </span>
+          {!isVacant && item.bookingStatus && (
+            <span
+              className={cn(
+                "inline-flex items-center text-[11px] px-2 py-0.5 rounded-full border font-medium",
+                bookingStatusBadge[item.bookingStatus] ?? "bg-slate-100 text-slate-600 border-slate-300"
+              )}
+            >
+              Booking: {bookingStatusLabel[item.bookingStatus] ?? item.bookingStatus}
+            </span>
+          )}
+        </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
-        <div className="grid grid-cols-2 gap-2 text-sm">
-          <div className="bg-muted/40 rounded-lg p-3">
-            <p className="text-xs text-muted-foreground mb-0.5">Kategori</p>
-            <p className="font-medium">{item.category ?? "—"}</p>
-          </div>
-          <div className="bg-muted/40 rounded-lg p-3">
-            <p className="text-xs text-muted-foreground mb-0.5">Nomor Booth</p>
-            <p className="font-medium">{item.boothNumber}</p>
-          </div>
-        </div>
-
-        {status === "VACANT" ? (
-          <div className="rounded-lg border-2 border-dashed border-slate-300 p-4 text-center text-muted-foreground">
-            <CircleDashed className="w-8 h-8 mx-auto mb-2 opacity-40" />
+      <div className="flex-1 overflow-y-auto">
+        {isVacant ? (
+          <div className="flex flex-col items-center justify-center h-full text-center p-6 text-muted-foreground">
+            <CircleDashed className="w-10 h-10 mb-3 opacity-30" />
             <p className="text-sm font-medium">Unit Belum Tersewa</p>
-            <p className="text-xs mt-1">Unit ini sedang tersedia untuk disewakan</p>
+            <p className="text-xs mt-1">Unit ini tersedia untuk disewakan</p>
           </div>
         ) : (
-          <>
-            <Separator />
+          <div className="p-4 space-y-4">
+
+            {/* Info Bisnis */}
             <div>
               <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">Info Penyewa</p>
               <div className="space-y-2 text-sm">
@@ -403,10 +506,52 @@ function DetailPanel({ item, onClose, onProses, onCetak }: {
                     <Calendar className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
                     <span>{item.startDate ?? "?"} — {item.endDate ?? "?"}</span>
                   </div>
+              <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">
+                Info Bisnis &amp; Penyewa
+              </p>
+              <div className="bg-muted/30 rounded-lg px-3 divide-y divide-border/60">
+                <DetailRow label="Nama Bisnis" value={item.businessName} />
+                <DetailRow label="Nama Owner" value={item.ownerName} />
+                {item.email && (
+                  <DetailRow
+                    label="Email"
+                    value={
+                      <span className="flex items-center gap-1 justify-end">
+                        <Mail className="w-3 h-3 text-muted-foreground shrink-0" />
+                        {item.email}
+                      </span>
+                    }
+                  />
+                )}
+                {item.phone && (
+                  <DetailRow
+                    label="No. WA / Telp"
+                    value={
+                      <span className="flex items-center gap-1 justify-end">
+                        <Phone className="w-3 h-3 text-muted-foreground shrink-0" />
+                        {item.phone}
+                      </span>
+                    }
+                  />
+                )}
+                <DetailRow label="Kategori" value={item.category ?? "—"} />
+              </div>
+            </div>
+
+            {/* Info Booth */}
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">
+                Info Booth / Lapak
+              </p>
+              <div className="bg-muted/30 rounded-lg px-3 divide-y divide-border/60">
+                <DetailRow label="Nomor Booth" value={item.boothNumber} />
+                {item.areaName && (
+                  <DetailRow label="Area / Zona" value={item.areaName} />
                 )}
               </div>
             </div>
 
+            {/* Info Sewa */}
             {item.bookingId && (
               <>
                 <Separator />
@@ -466,10 +611,143 @@ function DetailPanel({ item, onClose, onProses, onCetak }: {
                   <Button className="w-full" variant="outline" size="sm" onClick={() => onCetak(item)}>
                     <Printer className="w-4 h-4 mr-2" />Cetak Struk Terakhir
                   </Button>
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">
+                  Periode Sewa
+                </p>
+                <div className="bg-muted/30 rounded-lg px-3 divide-y divide-border/60">
+                  <DetailRow
+                    label="Tanggal Mulai"
+                    value={
+                      <span className="flex items-center gap-1 justify-end">
+                        <Calendar className="w-3 h-3 text-muted-foreground shrink-0" />
+                        {formatTanggalID(item.startDate)}
+                      </span>
+                    }
+                  />
+                  <DetailRow
+                    label="Tanggal Akhir"
+                    value={
+                      <span className="flex items-center gap-1 justify-end">
+                        <Calendar className="w-3 h-3 text-muted-foreground shrink-0" />
+                        {formatTanggalID(item.endDate)}
+                      </span>
+                    }
+                  />
+                  <DetailRow
+                    label="Status Booking"
+                    value={
+                      <span
+                        className={cn(
+                          "inline-flex items-center text-[11px] px-2 py-0.5 rounded-full border font-medium",
+                          bookingStatusBadge[item.bookingStatus] ?? "bg-slate-100 text-slate-600 border-slate-300"
+                        )}
+                      >
+                        {bookingStatusLabel[item.bookingStatus] ?? item.bookingStatus}
+                      </span>
+                    }
+                  />
                 </div>
-              </>
+              </div>
             )}
-          </>
+
+            {/* Detail Tagihan */}
+            {item.bookingId && (
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">
+                  Detail Tagihan
+                </p>
+                <div className={cn("rounded-lg border px-3 divide-y divide-border/60", billingBg)}>
+                  {item.periodLabel && (
+                    <DetailRow label="Periode" value={item.periodLabel} />
+                  )}
+                  <DetailRow
+                    label="Status Pembayaran"
+                    value={
+                      <span
+                        className={cn(
+                          "inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full border font-medium",
+                          cfg.badge
+                        )}
+                      >
+                        {cfg.icon} {cfg.label}
+                      </span>
+                    }
+                  />
+                  <DetailRow
+                    label="Total Tagihan"
+                    value={formatRupiah(item.totalAmount)}
+                    valueClass="font-semibold"
+                  />
+                  <DetailRow
+                    label="Sudah Dibayar"
+                    value={hasPaid ? formatRupiah(item.paidAmount) : "Belum ada"}
+                    valueClass={hasPaid ? "text-emerald-700" : "text-muted-foreground"}
+                  />
+                  <div className="py-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-semibold">Sisa Pembayaran</span>
+                      <span className={cn("text-sm font-bold", remainingColor)}>
+                        {formatRupiah(item.remainingAmount)}
+                      </span>
+                    </div>
+                  </div>
+                  {item.dueDate && (
+                    <DetailRow
+                      label="Jatuh Tempo"
+                      value={
+                        <span className={cn(
+                          "flex items-center gap-1 justify-end",
+                          status === "OVERDUE" ? "text-red-600 font-semibold" : ""
+                        )}>
+                          <Clock className="w-3 h-3 shrink-0" />
+                          {formatTanggalID(item.dueDate)}
+                        </span>
+                      }
+                    />
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Tombol Aksi */}
+            {item.bookingId && (
+              <div className="flex flex-col gap-2 pt-1">
+                <Button
+                  className={cn(
+                    "w-full",
+                    !canPay && "hidden",
+                    status === "OVERDUE" && "bg-red-600 hover:bg-red-700 text-white"
+                  )}
+                  size="sm"
+                  onClick={() => onProses(item)}
+                  disabled={!canPay}
+                >
+                  <CreditCard className="w-4 h-4 mr-2" />
+                  Bayar Sekarang
+                </Button>
+                <Button
+                  className="w-full"
+                  variant="outline"
+                  size="sm"
+                  disabled
+                >
+                  <Clock className="w-4 h-4 mr-2" />
+                  Lihat Riwayat
+                </Button>
+                <Button
+                  className="w-full"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => canPrint && onCetak(item)}
+                  disabled={!canPrint}
+                >
+                  <Printer className="w-4 h-4 mr-2" />
+                  Cetak Receipt
+                </Button>
+              </div>
+            )}
+          </div>
         )}
       </div>
     </div>
@@ -905,7 +1183,7 @@ export default function TenantPos() {
           </CardContent>
         </Card>
 
-        <Card className="w-72 flex-shrink-0 overflow-hidden">
+        <Card className="w-80 flex-shrink-0 overflow-hidden">
           <CardContent className="p-0 h-full">
             <DetailPanel
               item={selected}

@@ -160,7 +160,7 @@ const paymentBodySchema = z.object({
   amountPaid: z.number().int().min(1, "amountPaid harus lebih dari 0"),
   discountAmount: z.number().int().min(0).default(0),
   penaltyAmount: z.number().int().min(0).default(0),
-  paymentMethod: z.enum(["tunai", "transfer", "qris"]),
+  paymentMethod: z.enum(["tunai", "transfer", "qris", "edc", "other"]),
   paymentDate: z.string().optional(),
   notes: z.string().optional(),
 });
