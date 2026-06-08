@@ -5,6 +5,9 @@ import {
   Clock, Phone, Mail, Calendar, CreditCard, Printer, Banknote,
   Smartphone, WalletCards, TrendingUp, Users, AlertTriangle, Zap,
   MoreHorizontal, History, Filter, Search, RotateCcw, ChevronDown,
+  MoreHorizontal, History, Filter,
+  Search, RotateCcw, ChevronDown,
+
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -1685,10 +1688,7 @@ export default function TenantPos() {
   const [modalItem, setModalItem] = useState<FloorPlanItem | null>(null);
 
   const [riwayatItem, setRiwayatItem] = useState<FloorPlanItem | null>(null);
-  const [filterStatus, setFilterStatus] = useState<PaymentStatus | "VACANT" | null>(null);
-
   const [filters, setFilters] = useState<FilterState>({ search: "", status: "", area: "" });
-
 
   const overview = useOverview();
   const floorPlan = useFloorPlan();
@@ -1793,6 +1793,8 @@ export default function TenantPos() {
                 </button>
               ))}
             </div>
+          <CardHeader className="py-2.5 px-4 border-b shrink-0">
+            <CardTitle className="text-sm font-semibold text-slate-700">Denah Tenant</CardTitle>
           </CardHeader>
           {!floorPlan.isLoading && !floorPlan.isError && (
             <FilterBar
