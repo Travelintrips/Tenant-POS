@@ -69,6 +69,27 @@ type PaymentResponse = {
   remainingAmount: number;
 };
 
+type PaymentHistoryItem = {
+  id: number;
+  receiptNumber: string | null;
+  amountPaid: number;
+  discountAmount: number;
+  penaltyAmount: number;
+  paymentMethod: MetodeBayar;
+  paymentStatus: string;
+  paymentDate: string;
+  notes: string | null;
+  createdAt: string;
+};
+
+const METODE_LABEL: Record<MetodeBayar, string> = {
+  tunai: "Cash",
+  transfer: "Transfer",
+  qris: "QRIS",
+  edc: "EDC",
+  other: "Lainnya",
+};
+
 // ─── Status Config ────────────────────────────────────────────────────────────
 
 const statusConfig: Record<
@@ -168,6 +189,15 @@ function useFloorPlan() {
     queryKey: ["tenant-pos-floor-plan"],
     queryFn: () => fetch(`${BASE}/api/tenant-pos/floor-plan`).then((r) => r.json()),
     refetchInterval: 30_000,
+  });
+}
+
+function usePaymentHistory(bookingId: number | null) {
+  return useQuery<PaymentHistoryItem[]>({
+    queryKey: ["payment-history", bookingId],
+    queryFn: () =>
+      fetch(`${BASE}/api/tenant-pos/bookings/${bookingId}/payments`).then((r) => r.json()),
+    enabled: bookingId !== null,
   });
 }
 
@@ -390,6 +420,8 @@ function DetailPanel({
   onProses: (item: FloorPlanItem) => void;
   onCetak: (item: FloorPlanItem) => void;
 }) {
+  const paymentHistory = usePaymentHistory(item?.bookingId ?? null);
+
   if (!item) {
     return (
       <div className="flex flex-col items-center justify-center h-full text-center p-6 text-muted-foreground">
@@ -617,25 +649,100 @@ function DetailPanel({
                   <CreditCard className="w-4 h-4 mr-2" />
                   Bayar Sekarang
                 </Button>
-                <Button
-                  className="w-full"
-                  variant="outline"
-                  size="sm"
-                  disabled
-                >
-                  <Clock className="w-4 h-4 mr-2" />
-                  Lihat Riwayat
-                </Button>
-                <Button
-                  className="w-full"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => canPrint && onCetak(item)}
-                  disabled={!canPrint}
-                >
-                  <Printer className="w-4 h-4 mr-2" />
-                  Cetak Receipt
-                </Button>
+              </div>
+            )}
+
+            {/* Riwayat Pembayaran */}
+            {item.bookingId && (
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">
+                  Riwayat Pembayaran
+                </p>
+                {paymentHistory.isLoading ? (
+                  <div className="space-y-2">
+                    <Skeleton className="h-14 w-full rounded-lg" />
+                    <Skeleton className="h-14 w-full rounded-lg" />
+                  </div>
+                ) : Array.isArray(paymentHistory.data) && paymentHistory.data.length > 0 ? (
+                  <div className="space-y-2">
+                    {paymentHistory.data.map((p) => {
+                      const tgl = new Date(p.paymentDate);
+                      return (
+                        <div key={p.id} className="rounded-lg border bg-muted/20 px-3 py-2.5 text-xs space-y-2">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="font-mono text-[10px] text-muted-foreground truncate">
+                              {p.receiptNumber ?? `#${p.id}`}
+                            </span>
+                            <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full border font-medium bg-emerald-100 text-emerald-700 border-emerald-300 shrink-0">
+                              <CheckCircle2 className="w-2.5 h-2.5" />Lunas
+                            </span>
+                          </div>
+                          <div className="grid grid-cols-2 gap-x-3 gap-y-1">
+                            <div>
+                              <p className="text-muted-foreground">Tanggal</p>
+                              <p className="font-medium">{tgl.toLocaleDateString("id-ID", { day: "numeric", month: "short", year: "numeric" })}</p>
+                            </div>
+                            <div>
+                              <p className="text-muted-foreground">Metode</p>
+                              <p className="font-medium">{METODE_LABEL[p.paymentMethod] ?? p.paymentMethod}</p>
+                            </div>
+                            <div className="col-span-2">
+                              <p className="text-muted-foreground">Nominal</p>
+                              <p className="font-bold text-emerald-700">{formatRupiah(p.amountPaid)}</p>
+                            </div>
+                            {p.discountAmount > 0 && (
+                              <div>
+                                <p className="text-muted-foreground">Diskon</p>
+                                <p className="font-medium text-blue-600">{formatRupiah(p.discountAmount)}</p>
+                              </div>
+                            )}
+                            {p.penaltyAmount > 0 && (
+                              <div>
+                                <p className="text-muted-foreground">Denda</p>
+                                <p className="font-medium text-red-600">{formatRupiah(p.penaltyAmount)}</p>
+                              </div>
+                            )}
+                          </div>
+                          {p.notes && (
+                            <p className="text-muted-foreground italic">&ldquo;{p.notes}&rdquo;</p>
+                          )}
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="w-full h-7 text-xs"
+                            onClick={() => {
+                              cetakStrukPDF({
+                                noStruk: p.receiptNumber ?? buatNoStruk(),
+                                tanggal: formatTanggal(tgl),
+                                jam: formatJam(tgl),
+                                cabang: item.areaName,
+                                unitId: item.boothNumber,
+                                unitNama: item.businessName,
+                                penyewa: item.ownerName,
+                                kategori: item.category ?? "—",
+                                luas: "—",
+                                periodeBayar: item.periodLabel ?? "—",
+                                sewaBulanan: item.totalAmount,
+                                jumlahBayar: p.amountPaid,
+                                metodeBayar: METODE_LABEL[p.paymentMethod] ?? p.paymentMethod,
+                                kasir: "Admin",
+                                status: "lunas",
+                              });
+                            }}
+                          >
+                            <Printer className="w-3 h-3 mr-1.5" />
+                            Cetak Receipt
+                          </Button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="rounded-lg border border-dashed p-4 text-center text-muted-foreground text-xs">
+                    <Receipt className="w-6 h-6 mx-auto mb-1.5 opacity-30" />
+                    Belum ada riwayat pembayaran.
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -709,6 +816,7 @@ function ModalPembayaran({ item, onClose, onSuccess }: {
       setShowConfirm(false);
       void queryClient.invalidateQueries({ queryKey: ["tenant-pos-floor-plan"] });
       void queryClient.invalidateQueries({ queryKey: ["tenant-pos-overview"] });
+      void queryClient.invalidateQueries({ queryKey: ["payment-history", item.bookingId] });
       toast({
         title: "Pembayaran Berhasil",
         description: `Kuitansi ${data.receiptNumber} · ${formatRupiah(nominalNum)} tersimpan.`,

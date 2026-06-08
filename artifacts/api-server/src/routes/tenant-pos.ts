@@ -133,6 +133,40 @@ router.get("/tenant-pos/floor-plan", async (req, res) => {
   }
 });
 
+// ─── GET /api/tenant-pos/bookings/:bookingId/payments ────────────────────────
+router.get("/tenant-pos/bookings/:bookingId/payments", async (req, res) => {
+  const bookingId = Number(req.params.bookingId);
+  if (isNaN(bookingId)) {
+    res.status(400).json({ error: "ID tidak valid" });
+    return;
+  }
+  try {
+    const payments = await db
+      .select()
+      .from(tenantPaymentsTable)
+      .where(eq(tenantPaymentsTable.bookingId, bookingId))
+      .orderBy(tenantPaymentsTable.paidAt);
+
+    const result = payments.map((p) => ({
+      id: p.id,
+      receiptNumber: p.receiptNumber,
+      amountPaid: p.amount,
+      discountAmount: p.discountAmount,
+      penaltyAmount: p.penaltyAmount,
+      paymentMethod: p.paymentMethod,
+      paymentStatus: p.paymentStatus,
+      paymentDate: p.paidAt,
+      notes: p.notes,
+      createdAt: p.createdAt,
+    }));
+
+    res.json(result);
+  } catch (err) {
+    req.log.error(err, "Failed to get payment history for booking");
+    res.status(500).json({ error: "Gagal mengambil riwayat pembayaran" });
+  }
+});
+
 // ─── GET /api/tenant-pos/payments/:bookingId ─────────────────────────────────
 router.get("/tenant-pos/payments/:bookingId", async (req, res) => {
   const bookingId = Number(req.params.bookingId);
