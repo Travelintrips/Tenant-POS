@@ -129,6 +129,40 @@ router.get("/tenant-pos/floor-plan", async (req, res) => {
   }
 });
 
+// ─── GET /api/tenant-pos/bookings/:bookingId/payments ────────────────────────
+router.get("/tenant-pos/bookings/:bookingId/payments", async (req, res) => {
+  const bookingId = Number(req.params.bookingId);
+  if (isNaN(bookingId)) {
+    res.status(400).json({ error: "ID tidak valid" });
+    return;
+  }
+  try {
+    const payments = await db
+      .select()
+      .from(tenantPaymentsTable)
+      .where(eq(tenantPaymentsTable.bookingId, bookingId))
+      .orderBy(tenantPaymentsTable.paidAt);
+
+    const result = payments.map((p) => ({
+      id: p.id,
+      receiptNumber: p.receiptNumber,
+      amountPaid: p.amount,
+      discountAmount: p.discountAmount,
+      penaltyAmount: p.penaltyAmount,
+      paymentMethod: p.paymentMethod,
+      paymentStatus: p.paymentStatus,
+      paymentDate: p.paidAt,
+      notes: p.notes,
+      createdAt: p.createdAt,
+    }));
+
+    res.json(result);
+  } catch (err) {
+    req.log.error(err, "Failed to get payment history for booking");
+    res.status(500).json({ error: "Gagal mengambil riwayat pembayaran" });
+  }
+});
+
 // ─── GET /api/tenant-pos/payments/:bookingId ─────────────────────────────────
 router.get("/tenant-pos/payments/:bookingId", async (req, res) => {
   const bookingId = Number(req.params.bookingId);
@@ -313,6 +347,66 @@ router.post("/tenant-pos/payments", async (req, res) => {
       console.error(err);
       res.status(500).json({ error: "Gagal memproses pembayaran" });
     }
+  }
+});
+
+// ─── GET /api/tenant-pos/payments/:paymentId/receipt ─────────────────────────
+router.get("/tenant-pos/payments/:paymentId/receipt", async (req, res) => {
+  const paymentId = Number(req.params.paymentId);
+  if (isNaN(paymentId)) {
+    res.status(400).json({ error: "ID tidak valid" });
+    return;
+  }
+  try {
+    const [row] = await db
+      .select({
+        paymentId: tenantPaymentsTable.id,
+        receiptNumber: tenantPaymentsTable.receiptNumber,
+        paymentDate: tenantPaymentsTable.paidAt,
+        amountPaid: tenantPaymentsTable.amount,
+        discountAmount: tenantPaymentsTable.discountAmount,
+        penaltyAmount: tenantPaymentsTable.penaltyAmount,
+        paymentMethod: tenantPaymentsTable.paymentMethod,
+        paymentStatus: tenantPaymentsTable.paymentStatus,
+        notes: tenantPaymentsTable.notes,
+        billingPeriod: tenantBookingsTable.periodLabel,
+        totalAmount: tenantBookingsTable.totalAmount,
+        remainingAmount: tenantBookingsTable.remainingAmount,
+        businessName: tenantsTable.businessName,
+        ownerName: tenantsTable.ownerName,
+        boothNumber: tenantsTable.boothNumber,
+        areaName: tenantsTable.areaName,
+      })
+      .from(tenantPaymentsTable)
+      .innerJoin(tenantBookingsTable, eq(tenantPaymentsTable.bookingId, tenantBookingsTable.id))
+      .innerJoin(tenantsTable, eq(tenantBookingsTable.tenantId, tenantsTable.id))
+      .where(eq(tenantPaymentsTable.id, paymentId));
+
+    if (!row) {
+      res.status(404).json({ error: "Data pembayaran tidak ditemukan" });
+      return;
+    }
+
+    res.json({
+      receiptNumber: row.receiptNumber ?? `PAY-${paymentId}`,
+      paymentDate: row.paymentDate,
+      businessName: row.businessName,
+      ownerName: row.ownerName,
+      boothNumber: row.boothNumber,
+      billingPeriod: row.billingPeriod ?? "—",
+      totalAmount: row.totalAmount,
+      discountAmount: row.discountAmount ?? 0,
+      penaltyAmount: row.penaltyAmount ?? 0,
+      amountPaid: row.amountPaid,
+      remainingAmount: row.remainingAmount ?? 0,
+      paymentMethod: row.paymentMethod,
+      paymentStatus: row.paymentStatus,
+      notes: row.notes ?? null,
+      adminName: "Admin",
+    });
+  } catch (err) {
+    req.log.error(err, "Failed to get payment receipt");
+    res.status(500).json({ error: "Gagal mengambil data receipt" });
   }
 });
 

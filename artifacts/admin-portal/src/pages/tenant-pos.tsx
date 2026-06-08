@@ -1,10 +1,13 @@
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Building2, Receipt, X, CheckCircle2, AlertCircle, CircleDashed,
   Clock, Phone, Mail, Calendar, CreditCard, Printer, Banknote,
   Smartphone, WalletCards, TrendingUp, Users, AlertTriangle, Zap,
   MoreHorizontal, History, Filter,
+
+  MoreHorizontal, Search, RotateCcw, ChevronDown,
+
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -69,6 +72,7 @@ type PaymentResponse = {
   remainingAmount: number;
 };
 
+
 type PaymentRecord = {
   id: number;
   bookingId: number;
@@ -81,6 +85,45 @@ type PaymentRecord = {
   receiptNumber: string | null;
   notes: string | null;
   paidAt: string;
+
+type PaymentHistoryItem = {
+  id: number;
+  receiptNumber: string | null;
+  amountPaid: number;
+  discountAmount: number;
+  penaltyAmount: number;
+  paymentMethod: MetodeBayar;
+  paymentStatus: string;
+  paymentDate: string;
+  notes: string | null;
+  createdAt: string;
+};
+
+type ReceiptData = {
+  receiptNumber: string;
+  paymentDate: string;
+  businessName: string;
+  ownerName: string;
+  boothNumber: string;
+  billingPeriod: string;
+  totalAmount: number;
+  discountAmount: number;
+  penaltyAmount: number;
+  amountPaid: number;
+  remainingAmount: number;
+  paymentMethod: string;
+  paymentStatus: string;
+  notes: string | null;
+  adminName: string;
+};
+
+const METODE_LABEL: Record<MetodeBayar, string> = {
+  tunai: "Cash",
+  transfer: "Transfer",
+  qris: "QRIS",
+  edc: "EDC",
+  other: "Lainnya",
+
 };
 
 // ─── Status Config ────────────────────────────────────────────────────────────
@@ -186,13 +229,254 @@ function useFloorPlan() {
 }
 
 function usePaymentHistory(bookingId: number | null) {
+
   return useQuery<PaymentRecord[]>({
     queryKey: ["tenant-pos-payments", bookingId],
     queryFn: () =>
       fetch(`${BASE}/api/tenant-pos/payments/${bookingId}`).then((r) => r.json()),
+
+  return useQuery<PaymentHistoryItem[]>({
+    queryKey: ["payment-history", bookingId],
+    queryFn: () =>
+      fetch(`${BASE}/api/tenant-pos/bookings/${bookingId}/payments`).then((r) => r.json()),
+
     enabled: bookingId !== null,
   });
 }
+
+
+
+function useReceiptData(paymentId: number | null) {
+  return useQuery<ReceiptData>({
+    queryKey: ["receipt", paymentId],
+    queryFn: () =>
+      fetch(`${BASE}/api/tenant-pos/payments/${paymentId}/receipt`).then((r) => {
+        if (!r.ok) throw new Error("Gagal mengambil data receipt");
+        return r.json();
+      }),
+    enabled: paymentId !== null,
+  });
+}
+
+// ─── Modal Receipt / Kwitansi ─────────────────────────────────────────────────
+
+function ModalReceipt({
+  paymentId,
+  onClose,
+}: {
+  paymentId: number;
+  onClose: () => void;
+}) {
+  const { data, isLoading, isError } = useReceiptData(paymentId);
+
+  const handlePrint = () => {
+    window.print();
+  };
+
+  const metodeLabel: Record<string, string> = {
+    tunai: "Cash / Tunai",
+    transfer: "Transfer Bank",
+    qris: "QRIS",
+    edc: "EDC / Kartu Debit",
+    other: "Lainnya",
+  };
+
+  const statusLabel: Record<string, { text: string; color: string }> = {
+    PAID: { text: "LUNAS", color: "text-emerald-700" },
+    PARTIAL: { text: "BAYAR SEBAGIAN", color: "text-blue-700" },
+    UNPAID: { text: "BELUM BAYAR", color: "text-amber-700" },
+    OVERDUE: { text: "JATUH TEMPO", color: "text-red-700" },
+  };
+
+  return (
+    <>
+      {/* Print Styles — hanya aktif saat window.print() */}
+      <style dangerouslySetInnerHTML={{ __html: `
+        @media print {
+          body * { visibility: hidden !important; }
+          #receipt-printable, #receipt-printable * { visibility: visible !important; }
+          #receipt-printable {
+            position: fixed !important;
+            top: 0 !important; left: 0 !important;
+            width: 100% !important;
+            padding: 32px !important;
+            box-sizing: border-box !important;
+            background: white !important;
+          }
+          .no-print { display: none !important; }
+        }
+      `}} />
+
+      {/* Overlay */}
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm no-print">
+        <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 overflow-hidden flex flex-col max-h-[90vh]">
+
+          {/* Modal Header */}
+          <div className="flex items-center justify-between px-5 py-3.5 border-b bg-slate-50 shrink-0 no-print">
+            <div className="flex items-center gap-2">
+              <Receipt className="w-4 h-4 text-slate-500" />
+              <span className="font-semibold text-sm text-slate-700">Kwitansi Pembayaran</span>
+            </div>
+            <button onClick={onClose} className="text-muted-foreground hover:text-foreground">
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+
+          {/* Content */}
+          <div className="flex-1 overflow-y-auto">
+            {isLoading && (
+              <div className="p-8 space-y-3">
+                <Skeleton className="h-6 w-48 mx-auto" />
+                <Skeleton className="h-4 w-64 mx-auto" />
+                <Skeleton className="h-px w-full" />
+                {Array.from({ length: 8 }).map((_, i) => (
+                  <Skeleton key={i} className="h-4 w-full" />
+                ))}
+              </div>
+            )}
+            {isError && (
+              <div className="p-8 text-center text-red-600">
+                <AlertCircle className="w-10 h-10 mx-auto mb-3 opacity-60" />
+                <p className="font-medium text-sm">Gagal memuat data kwitansi</p>
+              </div>
+            )}
+            {data && (
+              <div id="receipt-printable" className="p-6 font-sans text-slate-800">
+                {/* Header Kwitansi */}
+                <div className="text-center mb-5">
+                  <div className="inline-flex items-center justify-center w-10 h-10 rounded-full bg-primary/10 mb-2">
+                    <Building2 className="w-5 h-5 text-primary" />
+                  </div>
+                  <h1 className="text-base font-bold uppercase tracking-widest text-slate-800">Mall Admin Portal</h1>
+                  <p className="text-xs text-slate-500 mt-0.5">Sistem Manajemen Tenant Mal</p>
+                  <div className="my-3 border-t border-dashed border-slate-300" />
+                  <h2 className="text-lg font-extrabold uppercase tracking-wider text-slate-900">
+                    Kwitansi Pembayaran Tenant
+                  </h2>
+                </div>
+
+                {/* Receipt Meta */}
+                <div className="bg-slate-50 rounded-lg px-4 py-3 mb-4 space-y-1.5 text-xs">
+                  <div className="flex justify-between">
+                    <span className="text-slate-500 font-medium">No. Kwitansi</span>
+                    <span className="font-mono font-bold text-primary">{data.receiptNumber}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-500 font-medium">Tanggal Bayar</span>
+                    <span className="font-semibold">
+                      {new Date(data.paymentDate).toLocaleDateString("id-ID", {
+                        day: "numeric", month: "long", year: "numeric",
+                      })}
+                    </span>
+                  </div>
+                  {data.adminName && (
+                    <div className="flex justify-between">
+                      <span className="text-slate-500 font-medium">Admin</span>
+                      <span className="font-semibold">{data.adminName}</span>
+                    </div>
+                  )}
+                </div>
+
+                {/* Info Tenant */}
+                <div className="mb-4">
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-2">Data Tenant</p>
+                  <div className="divide-y divide-slate-100 text-xs">
+                    {[
+                      ["Nama Bisnis", data.businessName],
+                      ["Nama Pemilik", data.ownerName],
+                      ["Booth / Lapak", data.boothNumber],
+                      ["Periode Sewa", data.billingPeriod],
+                    ].map(([label, value]) => (
+                      <div key={label} className="flex justify-between py-1.5">
+                        <span className="text-slate-500">{label}</span>
+                        <span className="font-semibold text-right max-w-[60%]">{value}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Rincian Pembayaran */}
+                <div className="mb-4">
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-2">Rincian Pembayaran</p>
+                  <div className="divide-y divide-slate-100 text-xs">
+                    <div className="flex justify-between py-1.5">
+                      <span className="text-slate-500">Total Tagihan</span>
+                      <span className="font-semibold">{formatRupiah(data.totalAmount)}</span>
+                    </div>
+                    {data.discountAmount > 0 && (
+                      <div className="flex justify-between py-1.5">
+                        <span className="text-slate-500">Diskon</span>
+                        <span className="font-semibold text-emerald-600">− {formatRupiah(data.discountAmount)}</span>
+                      </div>
+                    )}
+                    {data.penaltyAmount > 0 && (
+                      <div className="flex justify-between py-1.5">
+                        <span className="text-slate-500">Denda</span>
+                        <span className="font-semibold text-red-600">+ {formatRupiah(data.penaltyAmount)}</span>
+                      </div>
+                    )}
+                    <div className="flex justify-between py-1.5">
+                      <span className="text-slate-500">Metode Bayar</span>
+                      <span className="font-semibold">{metodeLabel[data.paymentMethod] ?? data.paymentMethod}</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Nominal Dibayar */}
+                <div className="rounded-xl border-2 border-primary/30 bg-primary/5 px-4 py-3 mb-4">
+                  <div className="flex justify-between items-center mb-2">
+                    <span className="text-xs font-semibold text-slate-600">Nominal Dibayar</span>
+                    <span className="text-xl font-extrabold text-primary">{formatRupiah(data.amountPaid)}</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-xs text-slate-500">Sisa Pembayaran</span>
+                    <span className={cn("text-sm font-bold", data.remainingAmount === 0 ? "text-emerald-600" : "text-amber-600")}>
+                      {formatRupiah(data.remainingAmount)}
+                    </span>
+                  </div>
+                  <div className="mt-2.5 pt-2.5 border-t border-primary/20 flex justify-between items-center">
+                    <span className="text-xs text-slate-500">Status Pembayaran</span>
+                    <span className={cn("text-xs font-bold uppercase", statusLabel[data.paymentStatus]?.color ?? "text-slate-700")}>
+                      {statusLabel[data.paymentStatus]?.text ?? data.paymentStatus}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Catatan */}
+                {data.notes && (
+                  <div className="mb-4 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-xs text-amber-800">
+                    <span className="font-semibold">Catatan: </span>{data.notes}
+                  </div>
+                )}
+
+                {/* Footer */}
+                <div className="border-t border-dashed border-slate-300 pt-3 text-center text-[10px] text-slate-400">
+                  <p>Kwitansi ini diterbitkan oleh sistem Mall Admin Portal</p>
+                  <p className="mt-0.5">Dicetak pada: {new Date().toLocaleString("id-ID")}</p>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Footer Tombol */}
+          {data && (
+            <div className="flex gap-2 px-5 py-3.5 border-t bg-white shrink-0 no-print">
+              <Button variant="outline" className="flex-1" onClick={onClose}>
+                <X className="w-4 h-4 mr-1.5" />
+                Tutup
+              </Button>
+              <Button className="flex-1 bg-primary" onClick={handlePrint}>
+                <Printer className="w-4 h-4 mr-1.5" />
+                Print
+              </Button>
+            </div>
+          )}
+        </div>
+      </div>
+    </>
+  );
+}
+
 
 // ─── Summary Cards ────────────────────────────────────────────────────────────
 
@@ -312,15 +596,26 @@ function BoothCard({
 
 // ─── Floor Plan Component ─────────────────────────────────────────────────────
 
-function TenantFloorPlan({ items, selected, onSelect }: {
-  items: FloorPlanItem[]; selected: FloorPlanItem | null; onSelect: (item: FloorPlanItem) => void;
+function TenantFloorPlan({ items: rawItems, selected, onSelect, isFiltered }: {
+  items: FloorPlanItem[]; selected: FloorPlanItem | null; onSelect: (item: FloorPlanItem) => void; isFiltered?: boolean;
 }) {
+  const items = Array.isArray(rawItems) ? rawItems : [];
   if (items.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center h-full text-center p-10 text-muted-foreground">
-        <Building2 className="w-12 h-12 mb-4 opacity-25" />
-        <p className="text-base font-medium">Belum ada data tenant</p>
-        <p className="text-sm mt-1">Tambahkan tenant terlebih dahulu untuk melihat denah.</p>
+        {isFiltered ? (
+          <>
+            <Search className="w-12 h-12 mb-4 opacity-25" />
+            <p className="text-base font-medium">Tidak ada tenant yang cocok</p>
+            <p className="text-sm mt-1">Coba ubah kata kunci atau filter yang digunakan.</p>
+          </>
+        ) : (
+          <>
+            <Building2 className="w-12 h-12 mb-4 opacity-25" />
+            <p className="text-base font-medium">Belum ada data tenant</p>
+            <p className="text-sm mt-1">Tambahkan tenant terlebih dahulu untuk melihat denah.</p>
+          </>
+        )}
       </div>
     );
   }
@@ -390,6 +685,115 @@ function StatusLegend() {
   );
 }
 
+// ─── Filter Bar ───────────────────────────────────────────────────────────────
+
+type FilterState = {
+  search: string;
+  status: string;
+  area: string;
+};
+
+const STATUS_FILTER_OPTS: Array<{ value: string; label: string; active: string; inactive: string }> = [
+  { value: "", label: "Semua", active: "bg-slate-800 text-white border-slate-800", inactive: "bg-white text-slate-600 border-slate-200 hover:border-slate-400" },
+  { value: "PAID", label: "Lunas", active: "bg-emerald-600 text-white border-emerald-600", inactive: "bg-white text-emerald-700 border-emerald-200 hover:border-emerald-400" },
+  { value: "UNPAID", label: "Belum Bayar", active: "bg-amber-500 text-white border-amber-500", inactive: "bg-white text-amber-700 border-amber-200 hover:border-amber-400" },
+  { value: "PARTIAL", label: "Sebagian", active: "bg-blue-600 text-white border-blue-600", inactive: "bg-white text-blue-700 border-blue-200 hover:border-blue-400" },
+  { value: "OVERDUE", label: "Jatuh Tempo", active: "bg-red-600 text-white border-red-600", inactive: "bg-white text-red-700 border-red-200 hover:border-red-400" },
+];
+
+function FilterBar({
+  filters,
+  onChange,
+  availableAreas,
+  totalCount,
+  filteredCount,
+}: {
+  filters: FilterState;
+  onChange: (f: Partial<FilterState>) => void;
+  availableAreas: string[];
+  totalCount: number;
+  filteredCount: number;
+}) {
+  const hasFilter = !!(filters.search || filters.status || filters.area);
+
+  return (
+    <div className="flex flex-col gap-2 px-3 pt-2.5 pb-2 border-b bg-slate-50/60">
+      <div className="flex items-center gap-2">
+        <div className="relative flex-1">
+          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
+          <input
+            value={filters.search}
+            onChange={(e) => onChange({ search: e.target.value })}
+            placeholder="Cari nama bisnis, owner, email, nomor booth..."
+            className="w-full pl-8 pr-8 py-1.5 rounded-lg border border-slate-200 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary/30 placeholder:text-slate-400"
+          />
+          {filters.search && (
+            <button
+              onClick={() => onChange({ search: "" })}
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          )}
+        </div>
+
+        {availableAreas.length > 1 && (
+          <div className="relative">
+            <select
+              value={filters.area}
+              onChange={(e) => onChange({ area: e.target.value })}
+              className="appearance-none pl-2.5 pr-7 py-1.5 rounded-lg border border-slate-200 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary/30 cursor-pointer"
+            >
+              <option value="">Semua Area</option>
+              {availableAreas.map((a) => (
+                <option key={a} value={a}>{a}</option>
+              ))}
+            </select>
+            <ChevronDown className="absolute right-1.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
+          </div>
+        )}
+
+        {hasFilter && (
+          <button
+            onClick={() => onChange({ search: "", status: "", area: "" })}
+            className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-slate-200 text-xs font-medium text-slate-600 bg-white hover:bg-slate-100 transition-colors whitespace-nowrap"
+          >
+            <RotateCcw className="w-3 h-3" />
+            Reset
+          </button>
+        )}
+      </div>
+
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-1 flex-wrap">
+          {STATUS_FILTER_OPTS.map((opt) => (
+            <button
+              key={opt.value}
+              onClick={() => onChange({ status: opt.value })}
+              className={cn(
+                "px-2.5 py-0.5 rounded-full text-xs font-medium border transition-all",
+                filters.status === opt.value ? opt.active : opt.inactive
+              )}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+        <span className="text-xs text-muted-foreground whitespace-nowrap shrink-0">
+          {hasFilter ? (
+            <span>
+              <span className="font-semibold text-primary">{filteredCount}</span>
+              {" "}dari {totalCount} tenant
+            </span>
+          ) : (
+            <span>{totalCount} tenant</span>
+          )}
+        </span>
+      </div>
+    </div>
+  );
+}
+
 // ─── Detail Panel ─────────────────────────────────────────────────────────────
 function DetailRow({
   label,
@@ -423,6 +827,9 @@ function DetailPanel({
   onCetak: (item: FloorPlanItem) => void;
   onRiwayat: (item: FloorPlanItem) => void;
 }) {
+  const paymentHistory = usePaymentHistory(item?.bookingId ?? null);
+  const [receiptPaymentId, setReceiptPaymentId] = useState<number | null>(null);
+
   if (!item) {
     return (
       <div className="flex flex-col items-center justify-center h-full text-center p-6 text-muted-foreground">
@@ -459,6 +866,12 @@ function DetailPanel({
 
   return (
     <div className="flex flex-col h-full">
+      {receiptPaymentId !== null && (
+        <ModalReceipt
+          paymentId={receiptPaymentId}
+          onClose={() => setReceiptPaymentId(null)}
+        />
+      )}
       {/* Header */}
       <div className="px-4 pt-4 pb-3 border-b bg-slate-50/60">
         <div className="flex items-start justify-between gap-2 mb-2">
@@ -575,6 +988,7 @@ function DetailPanel({
               </div>
             </div>
 
+
             {/* Periode Sewa */}
             {item.bookingId && (
               <div>
@@ -616,6 +1030,7 @@ function DetailPanel({
                 </div>
               </div>
             )}
+
 
             {/* Detail Tagihan */}
             {item.bookingId && (
@@ -713,6 +1128,82 @@ function DetailPanel({
                 </Button>
               </div>
             )}
+
+            {/* Riwayat Pembayaran */}
+            {item.bookingId && (
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">
+                  Riwayat Pembayaran
+                </p>
+                {paymentHistory.isLoading ? (
+                  <div className="space-y-2">
+                    <Skeleton className="h-14 w-full rounded-lg" />
+                    <Skeleton className="h-14 w-full rounded-lg" />
+                  </div>
+                ) : Array.isArray(paymentHistory.data) && paymentHistory.data.length > 0 ? (
+                  <div className="space-y-2">
+                    {paymentHistory.data.map((p) => {
+                      const tgl = new Date(p.paymentDate);
+                      return (
+                        <div key={p.id} className="rounded-lg border bg-muted/20 px-3 py-2.5 text-xs space-y-2">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="font-mono text-[10px] text-muted-foreground truncate">
+                              {p.receiptNumber ?? `#${p.id}`}
+                            </span>
+                            <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full border font-medium bg-emerald-100 text-emerald-700 border-emerald-300 shrink-0">
+                              <CheckCircle2 className="w-2.5 h-2.5" />Lunas
+                            </span>
+                          </div>
+                          <div className="grid grid-cols-2 gap-x-3 gap-y-1">
+                            <div>
+                              <p className="text-muted-foreground">Tanggal</p>
+                              <p className="font-medium">{tgl.toLocaleDateString("id-ID", { day: "numeric", month: "short", year: "numeric" })}</p>
+                            </div>
+                            <div>
+                              <p className="text-muted-foreground">Metode</p>
+                              <p className="font-medium">{METODE_LABEL[p.paymentMethod] ?? p.paymentMethod}</p>
+                            </div>
+                            <div className="col-span-2">
+                              <p className="text-muted-foreground">Nominal</p>
+                              <p className="font-bold text-emerald-700">{formatRupiah(p.amountPaid)}</p>
+                            </div>
+                            {p.discountAmount > 0 && (
+                              <div>
+                                <p className="text-muted-foreground">Diskon</p>
+                                <p className="font-medium text-blue-600">{formatRupiah(p.discountAmount)}</p>
+                              </div>
+                            )}
+                            {p.penaltyAmount > 0 && (
+                              <div>
+                                <p className="text-muted-foreground">Denda</p>
+                                <p className="font-medium text-red-600">{formatRupiah(p.penaltyAmount)}</p>
+                              </div>
+                            )}
+                          </div>
+                          {p.notes && (
+                            <p className="text-muted-foreground italic">&ldquo;{p.notes}&rdquo;</p>
+                          )}
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="w-full h-7 text-xs"
+                            onClick={() => setReceiptPaymentId(p.id)}
+                          >
+                            <Printer className="w-3 h-3 mr-1.5" />
+                            Cetak Receipt
+                          </Button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="rounded-lg border border-dashed p-4 text-center text-muted-foreground text-xs">
+                    <Receipt className="w-6 h-6 mx-auto mb-1.5 opacity-30" />
+                    Belum ada riwayat pembayaran.
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -784,6 +1275,7 @@ function ModalPembayaran({ item, onClose, onSuccess }: {
       setShowConfirm(false);
       void queryClient.invalidateQueries({ queryKey: ["tenant-pos-floor-plan"] });
       void queryClient.invalidateQueries({ queryKey: ["tenant-pos-overview"] });
+      void queryClient.invalidateQueries({ queryKey: ["payment-history", item.bookingId] });
       toast({
         title: "Pembayaran Berhasil",
         description: `Kuitansi ${data.receiptNumber} · ${formatRupiah(nominalNum)} tersimpan.`,
@@ -1204,8 +1696,12 @@ function ModalRiwayat({ item, onClose }: { item: FloorPlanItem; onClose: () => v
 export default function TenantPos() {
   const [selected, setSelected] = useState<FloorPlanItem | null>(null);
   const [modalItem, setModalItem] = useState<FloorPlanItem | null>(null);
+
   const [riwayatItem, setRiwayatItem] = useState<FloorPlanItem | null>(null);
   const [filterStatus, setFilterStatus] = useState<PaymentStatus | "VACANT" | null>(null);
+
+  const [filters, setFilters] = useState<FilterState>({ search: "", status: "", area: "" });
+
 
   const overview = useOverview();
   const floorPlan = useFloorPlan();
@@ -1214,6 +1710,40 @@ export default function TenantPos() {
     if (!filterStatus) return true;
     return resolveStatus(item) === filterStatus;
   });
+
+  const allItems = floorPlan.data ?? [];
+
+  const availableAreas = useMemo(() => {
+    return [...new Set(allItems.map((i) => i.areaName))].sort();
+  }, [allItems]);
+
+  const filteredItems = useMemo(() => {
+    let items = allItems;
+    const q = filters.search.toLowerCase().trim();
+    if (q) {
+      items = items.filter(
+        (i) =>
+          i.businessName.toLowerCase().includes(q) ||
+          i.ownerName.toLowerCase().includes(q) ||
+          (i.email?.toLowerCase().includes(q) ?? false) ||
+          i.boothNumber.toLowerCase().includes(q)
+      );
+    }
+    if (filters.status) {
+      items = items.filter((i) => resolveStatus(i) === filters.status);
+    }
+    if (filters.area) {
+      items = items.filter((i) => i.areaName === filters.area);
+    }
+    return items;
+  }, [allItems, filters]);
+
+  const hasFilter = !!(filters.search || filters.status || filters.area);
+
+  const handleFilterChange = (partial: Partial<FilterState>) => {
+    setFilters((prev) => ({ ...prev, ...partial }));
+  };
+
 
   const handleSelect = (item: FloorPlanItem) => {
     setSelected((prev) => (prev?.id === item.id ? null : item));
@@ -1253,6 +1783,7 @@ export default function TenantPos() {
       <SummaryCards overview={overview.data} loading={overview.isLoading} error={overview.isError} />
 
       <div className="flex flex-1 gap-4 min-h-0">
+
         <Card className="flex-1 min-w-0 overflow-hidden">
           <CardHeader className="py-3 px-4 border-b flex-row items-center justify-between space-y-0">
             <div className="flex items-center gap-2">
@@ -1282,6 +1813,22 @@ export default function TenantPos() {
             </div>
           </CardHeader>
           <CardContent className="p-0 h-[calc(100%-3.25rem)]">
+
+        <Card className="flex-1 min-w-0 overflow-hidden flex flex-col">
+          <CardHeader className="py-2.5 px-4 border-b shrink-0">
+            <CardTitle className="text-sm font-semibold text-slate-700">Denah Tenant</CardTitle>
+          </CardHeader>
+          {!floorPlan.isLoading && !floorPlan.isError && (
+            <FilterBar
+              filters={filters}
+              onChange={handleFilterChange}
+              availableAreas={availableAreas}
+              totalCount={allItems.length}
+              filteredCount={filteredItems.length}
+            />
+          )}
+          <CardContent className="p-0 flex-1 min-h-0 overflow-hidden">
+
             {floorPlan.isLoading ? (
               <FloorPlanSkeleton />
             ) : floorPlan.isError ? (
@@ -1306,6 +1853,7 @@ export default function TenantPos() {
                 items={filteredItems}
                 selected={selected}
                 onSelect={handleSelect}
+                isFiltered={hasFilter}
               />
             )}
           </CardContent>
