@@ -6,7 +6,7 @@ import { tenantBookingsTable, paymentStatusEnum } from "./tenant-bookings";
 import { tenantsTable } from "./tenants";
 import { pgEnum } from "drizzle-orm/pg-core";
 
-export const paymentMethodEnum = pgEnum("payment_method", ["tunai", "transfer", "qris"]);
+export const paymentMethodEnum = pgEnum("payment_method", ["tunai", "transfer", "qris", "edc", "other"]);
 
 export const tenantPaymentsTable = pgTable("tenant_payments", {
   id: serial("id").primaryKey(),

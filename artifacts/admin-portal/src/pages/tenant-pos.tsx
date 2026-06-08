@@ -1,20 +1,35 @@
 import React, { useState } from "react";
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Building2, Receipt, X, CheckCircle2, AlertCircle, CircleDashed,
   Clock, Phone, Mail, Calendar, CreditCard, Printer, Banknote,
-  Smartphone, WalletCards, TrendingUp, Users, AlertTriangle,
+  Smartphone, WalletCards, TrendingUp, Users, AlertTriangle, Zap,
+  MoreHorizontal,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { cn } from "@/lib/utils";
+import { useToast } from "@/hooks/use-toast";
 import { cetakStrukPDF, buatNoStruk, formatTanggal, formatJam } from "@/lib/cetak-struk";
 
-// ─── Types ───────────────────────────────────────────────────────────────────
+// ─── Types ────────────────────────────────────────────────────────────────────
 
 type PaymentStatus = "PAID" | "UNPAID" | "PARTIAL" | "OVERDUE";
+type MetodeBayar = "tunai" | "transfer" | "qris" | "edc" | "other";
 
 type FloorPlanItem = {
   id: string;
@@ -43,6 +58,15 @@ type Overview = {
   unpaidCount: number;
   overdueCount: number;
   paidTodayAmount: number;
+};
+
+type PaymentResponse = {
+  success: boolean;
+  payment: { id: number; amount: number; paymentMethod: MetodeBayar; paidAt: string };
+  receiptNumber: string;
+  paymentStatus: string;
+  paidAmount: number;
+  remainingAmount: number;
 };
 
 // ─── Status Config ────────────────────────────────────────────────────────────
@@ -98,12 +122,18 @@ function formatRupiah(amount: number) {
   }).format(amount);
 }
 
-// ─── Fetch hooks ─────────────────────────────────────────────────────────────
+function todayString() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
+
+// ─── Fetch hooks ──────────────────────────────────────────────────────────────
 
 function useOverview() {
   return useQuery<Overview>({
     queryKey: ["tenant-pos-overview"],
-    queryFn: () => fetch("/api/tenant-pos/overview").then((r) => r.json()),
+    queryFn: () => fetch(`${BASE}/api/tenant-pos/overview`).then((r) => r.json()),
     refetchInterval: 30_000,
   });
 }
@@ -111,7 +141,7 @@ function useOverview() {
 function useFloorPlan() {
   return useQuery<FloorPlanItem[]>({
     queryKey: ["tenant-pos-floor-plan"],
-    queryFn: () => fetch("/api/tenant-pos/floor-plan").then((r) => r.json()),
+    queryFn: () => fetch(`${BASE}/api/tenant-pos/floor-plan`).then((r) => r.json()),
     refetchInterval: 30_000,
   });
 }
@@ -183,17 +213,12 @@ function SummaryCards({ overview, loading }: { overview?: Overview; loading: boo
 // ─── Booth Card ───────────────────────────────────────────────────────────────
 
 function BoothCard({
-  item,
-  selected,
-  onClick,
+  item, selected, onClick,
 }: {
-  item: FloorPlanItem;
-  selected: boolean;
-  onClick: () => void;
+  item: FloorPlanItem; selected: boolean; onClick: () => void;
 }) {
   const status = resolveStatus(item);
   const cfg = statusConfig[status];
-
   return (
     <button
       onClick={onClick}
@@ -207,45 +232,20 @@ function BoothCard({
         <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wide leading-none">
           {item.boothNumber}
         </span>
-        <span
-          className={cn(
-            "inline-flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded-full border font-medium shrink-0",
-            cfg.badge
-          )}
-        >
-          {cfg.icon}
-          {cfg.label}
+        <span className={cn("inline-flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded-full border font-medium shrink-0", cfg.badge)}>
+          {cfg.icon}{cfg.label}
         </span>
       </div>
-
       <p className="text-sm font-semibold leading-tight text-slate-800 truncate">
-        {status === "VACANT" ? (
-          <span className="text-slate-400 italic text-xs">Kosong</span>
-        ) : (
-          item.businessName
-        )}
+        {status === "VACANT" ? <span className="text-slate-400 italic text-xs">Kosong</span> : item.businessName}
       </p>
-
       {status !== "VACANT" && item.bookingId && (
         <div className="mt-1.5 space-y-0.5">
-          {item.periodLabel && (
-            <p className="text-[11px] text-slate-500 truncate">{item.periodLabel}</p>
-          )}
-          <p
-            className={cn(
-              "text-xs font-semibold",
-              status === "PAID"
-                ? "text-emerald-600"
-                : status === "OVERDUE"
-                ? "text-red-600"
-                : status === "PARTIAL"
-                ? "text-blue-600"
-                : "text-amber-600"
-            )}
-          >
-            {status === "PAID"
-              ? "✓ Lunas"
-              : `Sisa ${formatRupiah(item.remainingAmount)}`}
+          {item.periodLabel && <p className="text-[11px] text-slate-500 truncate">{item.periodLabel}</p>}
+          <p className={cn("text-xs font-semibold",
+            status === "PAID" ? "text-emerald-600" : status === "OVERDUE" ? "text-red-600" : status === "PARTIAL" ? "text-blue-600" : "text-amber-600"
+          )}>
+            {status === "PAID" ? "✓ Lunas" : `Sisa ${formatRupiah(item.remainingAmount)}`}
           </p>
         </div>
       )}
@@ -255,14 +255,8 @@ function BoothCard({
 
 // ─── Floor Plan Component ─────────────────────────────────────────────────────
 
-function TenantFloorPlan({
-  items,
-  selected,
-  onSelect,
-}: {
-  items: FloorPlanItem[];
-  selected: FloorPlanItem | null;
-  onSelect: (item: FloorPlanItem) => void;
+function TenantFloorPlan({ items, selected, onSelect }: {
+  items: FloorPlanItem[]; selected: FloorPlanItem | null; onSelect: (item: FloorPlanItem) => void;
 }) {
   if (items.length === 0) {
     return (
@@ -273,33 +267,24 @@ function TenantFloorPlan({
       </div>
     );
   }
-
   const grouped = items.reduce<Record<string, FloorPlanItem[]>>((acc, item) => {
     if (!acc[item.areaName]) acc[item.areaName] = [];
     acc[item.areaName].push(item);
     return acc;
   }, {});
-
   return (
     <div className="h-full overflow-y-auto p-4 space-y-6">
       {Object.entries(grouped).map(([area, areaItems]) => (
         <div key={area}>
           <div className="flex items-center gap-2 mb-3">
             <Building2 className="w-4 h-4 text-muted-foreground" />
-            <h3 className="text-sm font-semibold text-slate-700 uppercase tracking-wide">
-              {area}
-            </h3>
+            <h3 className="text-sm font-semibold text-slate-700 uppercase tracking-wide">{area}</h3>
             <span className="text-xs text-muted-foreground">({areaItems.length} unit)</span>
             <div className="flex-1 h-px bg-slate-200 ml-1" />
           </div>
           <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3">
             {areaItems.map((item) => (
-              <BoothCard
-                key={item.id}
-                item={item}
-                selected={selected?.id === item.id}
-                onClick={() => onSelect(item)}
-              />
+              <BoothCard key={item.id} item={item} selected={selected?.id === item.id} onClick={() => onSelect(item)} />
             ))}
           </div>
         </div>
@@ -308,8 +293,6 @@ function TenantFloorPlan({
   );
 }
 
-// ─── Floor Plan Skeleton ──────────────────────────────────────────────────────
-
 function FloorPlanSkeleton() {
   return (
     <div className="h-full p-4 space-y-6">
@@ -317,9 +300,7 @@ function FloorPlanSkeleton() {
         <div key={g}>
           <Skeleton className="h-4 w-36 mb-3" />
           <div className="grid grid-cols-3 gap-2.5">
-            {Array.from({ length: 6 }).map((_, i) => (
-              <Skeleton key={i} className="h-[88px] rounded-xl" />
-            ))}
+            {Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} className="h-[88px] rounded-xl" />)}
           </div>
         </div>
       ))}
@@ -338,18 +319,14 @@ function StatusLegend() {
     { status: "VACANT", label: "Kosong" },
   ];
   const colorMap: Record<string, string> = {
-    PAID: "bg-emerald-400",
-    UNPAID: "bg-amber-400",
-    PARTIAL: "bg-blue-400",
-    OVERDUE: "bg-red-400",
-    VACANT: "bg-slate-300",
+    PAID: "bg-emerald-400", UNPAID: "bg-amber-400", PARTIAL: "bg-blue-400",
+    OVERDUE: "bg-red-400", VACANT: "bg-slate-300",
   };
   return (
     <div className="flex items-center gap-3 flex-wrap">
       {items.map(({ status, label }) => (
         <span key={status} className="flex items-center gap-1.5 text-xs text-muted-foreground">
-          <span className={cn("w-2.5 h-2.5 rounded-sm inline-block border", colorMap[status])} />
-          {label}
+          <span className={cn("w-2.5 h-2.5 rounded-sm inline-block border", colorMap[status])} />{label}
         </span>
       ))}
     </div>
@@ -358,12 +335,7 @@ function StatusLegend() {
 
 // ─── Detail Panel ─────────────────────────────────────────────────────────────
 
-function DetailPanel({
-  item,
-  onClose,
-  onProses,
-  onCetak,
-}: {
+function DetailPanel({ item, onClose, onProses, onCetak }: {
   item: FloorPlanItem | null;
   onClose: () => void;
   onProses: (item: FloorPlanItem) => void;
@@ -378,37 +350,23 @@ function DetailPanel({
       </div>
     );
   }
-
   const status = resolveStatus(item);
   const cfg = statusConfig[status];
-
   return (
     <div className="flex flex-col h-full">
       <div className="flex items-start justify-between p-4 border-b gap-2">
         <div className="min-w-0">
-          <p className="text-xs text-muted-foreground truncate">
-            {item.boothNumber} · {item.areaName}
-          </p>
+          <p className="text-xs text-muted-foreground truncate">{item.boothNumber} · {item.areaName}</p>
           <h3 className="font-bold text-base leading-tight truncate">
             {status === "VACANT" ? "Unit Kosong" : item.businessName}
           </h3>
-          {status !== "VACANT" && (
-            <p className="text-xs text-muted-foreground truncate">{item.ownerName}</p>
-          )}
+          {status !== "VACANT" && <p className="text-xs text-muted-foreground truncate">{item.ownerName}</p>}
         </div>
         <div className="flex items-center gap-2 shrink-0">
-          <span
-            className={cn(
-              "inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full border font-medium",
-              cfg.badge
-            )}
-          >
+          <span className={cn("inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full border font-medium", cfg.badge)}>
             {cfg.icon} {cfg.label}
           </span>
-          <button
-            onClick={onClose}
-            className="text-muted-foreground hover:text-foreground"
-          >
+          <button onClick={onClose} className="text-muted-foreground hover:text-foreground">
             <X className="w-4 h-4" />
           </button>
         </div>
@@ -436,28 +394,14 @@ function DetailPanel({
           <>
             <Separator />
             <div>
-              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">
-                Info Penyewa
-              </p>
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">Info Penyewa</p>
               <div className="space-y-2 text-sm">
-                {item.phone && (
-                  <div className="flex items-center gap-2">
-                    <Phone className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
-                    <span>{item.phone}</span>
-                  </div>
-                )}
-                {item.email && (
-                  <div className="flex items-center gap-2">
-                    <Mail className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
-                    <span className="truncate">{item.email}</span>
-                  </div>
-                )}
+                {item.phone && <div className="flex items-center gap-2"><Phone className="w-3.5 h-3.5 text-muted-foreground shrink-0" /><span>{item.phone}</span></div>}
+                {item.email && <div className="flex items-center gap-2"><Mail className="w-3.5 h-3.5 text-muted-foreground shrink-0" /><span className="truncate">{item.email}</span></div>}
                 {(item.startDate || item.endDate) && (
                   <div className="flex items-center gap-2">
                     <Calendar className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
-                    <span>
-                      {item.startDate ?? "?"} — {item.endDate ?? "?"}
-                    </span>
+                    <span>{item.startDate ?? "?"} — {item.endDate ?? "?"}</span>
                   </div>
                 )}
               </div>
@@ -467,21 +411,13 @@ function DetailPanel({
               <>
                 <Separator />
                 <div>
-                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">
-                    Detail Tagihan
-                  </p>
-                  <div
-                    className={cn(
-                      "rounded-lg border p-3 space-y-2",
-                      status === "OVERDUE"
-                        ? "bg-red-50 border-red-200"
-                        : status === "PAID"
-                        ? "bg-emerald-50 border-emerald-200"
-                        : status === "PARTIAL"
-                        ? "bg-blue-50 border-blue-200"
-                        : "bg-amber-50 border-amber-200"
-                    )}
-                  >
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">Detail Tagihan</p>
+                  <div className={cn("rounded-lg border p-3 space-y-2",
+                    status === "OVERDUE" ? "bg-red-50 border-red-200"
+                    : status === "PAID" ? "bg-emerald-50 border-emerald-200"
+                    : status === "PARTIAL" ? "bg-blue-50 border-blue-200"
+                    : "bg-amber-50 border-amber-200"
+                  )}>
                     {item.periodLabel && (
                       <div className="flex justify-between text-sm">
                         <span className="text-muted-foreground">Periode</span>
@@ -495,33 +431,22 @@ function DetailPanel({
                     {item.paidAmount > 0 && (
                       <div className="flex justify-between text-sm">
                         <span className="text-muted-foreground">Sudah Dibayar</span>
-                        <span className="font-medium text-emerald-600">
-                          {formatRupiah(item.paidAmount)}
-                        </span>
+                        <span className="font-medium text-emerald-600">{formatRupiah(item.paidAmount)}</span>
                       </div>
                     )}
                     <Separator />
                     <div className="flex justify-between">
                       <span className="text-sm font-semibold">Sisa Tagihan</span>
-                      <span
-                        className={cn(
-                          "font-bold text-base",
-                          status === "PAID"
-                            ? "text-emerald-700"
-                            : status === "OVERDUE"
-                            ? "text-red-600"
-                            : status === "PARTIAL"
-                            ? "text-blue-600"
-                            : "text-amber-600"
-                        )}
-                      >
+                      <span className={cn("font-bold text-base",
+                        status === "PAID" ? "text-emerald-700" : status === "OVERDUE" ? "text-red-600"
+                        : status === "PARTIAL" ? "text-blue-600" : "text-amber-600"
+                      )}>
                         {formatRupiah(item.remainingAmount)}
                       </span>
                     </div>
                     {item.dueDate && (
                       <div className="flex justify-between text-xs text-muted-foreground">
-                        <span>Jatuh Tempo</span>
-                        <span>{item.dueDate}</span>
+                        <span>Jatuh Tempo</span><span>{item.dueDate}</span>
                       </div>
                     )}
                   </div>
@@ -530,27 +455,16 @@ function DetailPanel({
                 <div className="flex flex-col gap-2">
                   {status !== "PAID" && (
                     <Button
-                      className={cn(
-                        "w-full",
-                        status === "OVERDUE" && "bg-red-600 hover:bg-red-700 text-white"
-                      )}
+                      className={cn("w-full", status === "OVERDUE" && "bg-red-600 hover:bg-red-700 text-white")}
                       size="sm"
                       onClick={() => onProses(item)}
                     >
                       <CreditCard className="w-4 h-4 mr-2" />
-                      {status === "OVERDUE"
-                        ? "Proses Pembayaran Tunggakan"
-                        : "Proses Pembayaran"}
+                      {status === "OVERDUE" ? "Bayar Tunggakan" : "Bayar Sekarang"}
                     </Button>
                   )}
-                  <Button
-                    className="w-full"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => onCetak(item)}
-                  >
-                    <Printer className="w-4 h-4 mr-2" />
-                    Cetak Struk Terakhir
+                  <Button className="w-full" variant="outline" size="sm" onClick={() => onCetak(item)}>
+                    <Printer className="w-4 h-4 mr-2" />Cetak Struk Terakhir
                   </Button>
                 </div>
               </>
@@ -564,252 +478,360 @@ function DetailPanel({
 
 // ─── Modal Pembayaran ─────────────────────────────────────────────────────────
 
-type MetodeBayar = "tunai" | "transfer" | "qris";
+const METODE_OPTIONS: Array<{ value: MetodeBayar; label: string; icon: React.ReactNode }> = [
+  { value: "tunai",    label: "Cash",     icon: <Banknote className="w-4 h-4" /> },
+  { value: "transfer", label: "Transfer", icon: <WalletCards className="w-4 h-4" /> },
+  { value: "qris",     label: "QRIS",     icon: <Smartphone className="w-4 h-4" /> },
+  { value: "edc",      label: "EDC",      icon: <Zap className="w-4 h-4" /> },
+  { value: "other",    label: "Lainnya",  icon: <MoreHorizontal className="w-4 h-4" /> },
+];
 
-interface PaymentResult {
-  payment: { id: number; amount: number; paymentMethod: MetodeBayar; paidAt: string };
-  booking: { paidAmount: number; paymentStatus: string };
-  remainingAmount: number;
-}
-
-async function postPembayaran(body: {
-  bookingId: number;
-  amount: number;
-  paymentMethod: MetodeBayar;
-  notes?: string;
-}): Promise<PaymentResult> {
-  const res = await fetch("/api/tenant-pos/payments", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error ?? "Gagal memproses pembayaran");
-  return data;
-}
-
-function ModalPembayaran({
-  item,
-  onClose,
-  onSuccess,
-}: {
+function ModalPembayaran({ item, onClose, onSuccess }: {
   item: FloorPlanItem;
   onClose: () => void;
-  onSuccess: () => void;
+  onSuccess: (updatedItem: { paidAmount: number; remainingAmount: number; paymentStatus: string }) => void;
 }) {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+
+  const [nominal, setNominal] = useState("");
+  const [diskon, setDiskon] = useState("0");
+  const [denda, setDenda] = useState("0");
   const [metode, setMetode] = useState<MetodeBayar>("tunai");
-  const [noStruk] = useState(() => buatNoStruk());
-  const [paidAt, setPaidAt] = useState<Date | null>(null);
+  const [tanggalBayar, setTanggalBayar] = useState(todayString());
+  const [catatan, setCatatan] = useState("");
+  const [showConfirm, setShowConfirm] = useState(false);
+  const [result, setResult] = useState<PaymentResponse | null>(null);
 
-  const metodeLabel: Record<MetodeBayar, string> = {
-    tunai: "Tunai",
-    transfer: "Transfer Bank",
-    qris: "QRIS",
-  };
+  // Computed values
+  const nominalNum  = parseInt(nominal.replace(/\D/g, "")) || 0;
+  const diskonNum   = parseInt(diskon.replace(/\D/g, ""))  || 0;
+  const dendaNum    = parseInt(denda.replace(/\D/g, ""))   || 0;
+  const finalBill   = item.totalAmount - diskonNum + dendaNum;
+  const sisaSetelah = Math.max(finalBill - item.paidAmount - nominalNum, 0);
 
-  const mutation = useMutation<PaymentResult, Error, void>({
-    mutationFn: () =>
-      postPembayaran({
-        bookingId: item.bookingId!,
-        amount: item.remainingAmount,
-        paymentMethod: metode,
-      }),
-    onSuccess: () => {
-      setPaidAt(new Date());
+  // Validation
+  const errNominal = nominalNum <= 0 ? "Nominal harus lebih dari 0" : "";
+  const errMetode  = !metode ? "Pilih metode pembayaran" : "";
+  const isValid    = !errNominal && !errMetode;
+
+  const mutation = useMutation<PaymentResponse, Error>({
+    mutationFn: async () => {
+      const res = await fetch(`${BASE}/api/tenant-pos/payments`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          bookingId: item.bookingId,
+          tenantId: item.tenantId,
+          amountPaid: nominalNum,
+          discountAmount: diskonNum,
+          penaltyAmount: dendaNum,
+          paymentMethod: metode,
+          paymentDate: tanggalBayar,
+          notes: catatan || undefined,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error((data as { error?: string }).error ?? "Gagal memproses pembayaran");
+      return data as PaymentResponse;
+    },
+    onSuccess: (data) => {
+      setResult(data);
+      setShowConfirm(false);
+      void queryClient.invalidateQueries({ queryKey: ["tenant-pos-floor-plan"] });
+      void queryClient.invalidateQueries({ queryKey: ["tenant-pos-overview"] });
+      toast({
+        title: "Pembayaran Berhasil",
+        description: `Kuitansi ${data.receiptNumber} · ${formatRupiah(nominalNum)} tersimpan.`,
+      });
+      onSuccess({ paidAmount: data.paidAmount, remainingAmount: data.remainingAmount, paymentStatus: data.paymentStatus });
+    },
+    onError: (e) => {
+      setShowConfirm(false);
+      toast({ title: "Pembayaran Gagal", description: e.message, variant: "destructive" });
     },
   });
 
-  const handleCetak = () => {
-    const now = paidAt ?? new Date();
-    cetakStrukPDF({
-      noStruk,
-      tanggal: formatTanggal(now),
-      jam: formatJam(now),
-      cabang: item.areaName,
-      unitId: item.boothNumber,
-      unitNama: item.businessName,
-      penyewa: item.businessName,
-      kategori: item.category ?? "—",
-      luas: "—",
-      periodeBayar: item.periodLabel ?? "—",
-      sewaBulanan: item.totalAmount,
-      jumlahBayar: item.remainingAmount,
-      metodeBayar: metodeLabel[metode],
-      kasir: "Admin",
-      status: item.paymentStatus === "OVERDUE" ? "tunggakan" : "lunas",
-    });
-  };
+  function handleClickBayar(e: React.FormEvent) {
+    e.preventDefault();
+    if (!isValid) return;
+    setShowConfirm(true);
+  }
 
-  const selesai = mutation.isSuccess;
   const isOverdue = item.paymentStatus === "OVERDUE";
+  const metodeLabel = METODE_OPTIONS.find(m => m.value === metode)?.label ?? metode;
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 overflow-hidden">
-        {!selesai ? (
-          <>
-            <div
-              className={cn(
-                "px-6 py-4 flex items-center justify-between",
-                isOverdue ? "bg-red-600" : "bg-primary"
-              )}
+  // ── Sukses screen ──
+  if (result) {
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+        <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm mx-4 p-8 flex flex-col items-center text-center">
+          <div className="w-16 h-16 rounded-full bg-emerald-100 flex items-center justify-center mb-4">
+            <CheckCircle2 className="w-9 h-9 text-emerald-600" />
+          </div>
+          <h2 className="text-xl font-bold text-slate-900">Pembayaran Berhasil!</h2>
+          <p className="text-slate-500 text-sm mt-1">{item.businessName} · {item.periodLabel ?? "—"}</p>
+          <p className="text-2xl font-bold text-emerald-600 mt-2">{formatRupiah(nominalNum)}</p>
+          <p className="text-xs text-slate-400 mt-1 mb-1">via {metodeLabel}</p>
+          <p className="text-xs font-mono bg-slate-100 px-3 py-1 rounded-full text-slate-600 mb-6">
+            {result.receiptNumber}
+          </p>
+          {result.remainingAmount > 0 && (
+            <p className="text-sm text-amber-600 font-medium mb-4">
+              Sisa tagihan: {formatRupiah(result.remainingAmount)}
+            </p>
+          )}
+          <div className="flex gap-3 w-full">
+            <Button variant="outline" className="flex-1" onClick={onClose}>Tutup</Button>
+            <Button
+              className="flex-1 bg-emerald-600 hover:bg-emerald-700"
+              onClick={() => {
+                const now = new Date();
+                cetakStrukPDF({
+                  noStruk: result.receiptNumber,
+                  tanggal: formatTanggal(now),
+                  jam: formatJam(now),
+                  cabang: item.areaName,
+                  unitId: item.boothNumber,
+                  unitNama: item.businessName,
+                  penyewa: item.businessName,
+                  kategori: item.category ?? "—",
+                  luas: "—",
+                  periodeBayar: item.periodLabel ?? "—",
+                  sewaBulanan: item.totalAmount,
+                  jumlahBayar: nominalNum,
+                  metodeBayar: metodeLabel,
+                  kasir: "Admin",
+                  status: isOverdue ? "tunggakan" : "lunas",
+                });
+              }}
             >
-              <div>
-                <p className="text-white/70 text-xs">Konfirmasi Pembayaran</p>
-                <h2 className="text-white font-bold text-lg leading-tight">
-                  {item.businessName}
-                </h2>
-                <p className="text-white/80 text-xs mt-0.5">
-                  {item.boothNumber} · {item.areaName}
-                </p>
-              </div>
-              <button
-                onClick={onClose}
-                className="text-white/70 hover:text-white"
-                disabled={mutation.isPending}
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
+              <Printer className="w-4 h-4 mr-2" />Cetak Struk
+            </Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
+  // ── Form screen ──
+  return (
+    <>
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+        <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg mx-4 overflow-hidden flex flex-col max-h-[90vh]">
+
+          {/* Header */}
+          <div className={cn("px-6 py-4 flex items-center justify-between shrink-0",
+            isOverdue ? "bg-red-600" : "bg-primary")}>
+            <div>
+              <p className="text-white/70 text-xs">Form Pembayaran</p>
+              <h2 className="text-white font-bold text-lg leading-tight">{item.businessName}</h2>
+              <p className="text-white/80 text-xs mt-0.5">{item.boothNumber} · {item.areaName}</p>
+            </div>
+            <button onClick={onClose} className="text-white/70 hover:text-white" disabled={mutation.isPending}>
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+
+          {/* Body */}
+          <form onSubmit={handleClickBayar} className="overflow-y-auto flex-1">
             <div className="p-6 space-y-5">
-              <div
-                className={cn(
-                  "rounded-xl border p-4 space-y-2",
-                  isOverdue ? "bg-red-50 border-red-200" : "bg-slate-50 border-slate-200"
-                )}
-              >
-                {item.periodLabel && (
-                  <div className="flex justify-between text-sm">
-                    <span className="text-slate-500">Periode</span>
-                    <span className="font-medium">{item.periodLabel}</span>
+
+              {/* Info Readonly */}
+              <div className={cn("rounded-xl border p-4 space-y-2 text-sm",
+                isOverdue ? "bg-red-50 border-red-200" : "bg-slate-50 border-slate-200")}>
+                <div className="grid grid-cols-2 gap-x-4 gap-y-1.5">
+                  <div>
+                    <p className="text-xs text-slate-400">Nama Tenant</p>
+                    <p className="font-semibold truncate">{item.businessName}</p>
                   </div>
-                )}
-                <div className="flex justify-between text-sm">
-                  <span className="text-slate-500">Total Tagihan</span>
-                  <span className="font-medium">{formatRupiah(item.totalAmount)}</span>
+                  <div>
+                    <p className="text-xs text-slate-400">Booking ID</p>
+                    <p className="font-semibold font-mono">#{item.bookingId}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-slate-400">Nomor Booth</p>
+                    <p className="font-semibold">{item.boothNumber}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-slate-400">Periode</p>
+                    <p className="font-semibold truncate">{item.periodLabel ?? "—"}</p>
+                  </div>
                 </div>
-                {item.paidAmount > 0 && (
-                  <div className="flex justify-between text-sm">
-                    <span className="text-slate-500">Sudah Dibayar</span>
-                    <span className="font-medium text-emerald-600">
-                      {formatRupiah(item.paidAmount)}
-                    </span>
-                  </div>
-                )}
                 <Separator />
                 <div className="flex justify-between">
-                  <span className="font-semibold">Total Bayar</span>
-                  <span
-                    className={cn(
-                      "font-bold text-xl",
-                      isOverdue ? "text-red-600" : "text-slate-900"
-                    )}
-                  >
+                  <span className="text-slate-500">Total Tagihan</span>
+                  <span className="font-semibold">{formatRupiah(item.totalAmount)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-500">Sudah Dibayar</span>
+                  <span className="font-semibold text-emerald-600">{formatRupiah(item.paidAmount)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="font-semibold">Sisa Pembayaran</span>
+                  <span className={cn("font-bold", isOverdue ? "text-red-600" : "text-amber-600")}>
                     {formatRupiah(item.remainingAmount)}
                   </span>
                 </div>
               </div>
 
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-3">
-                  Metode Pembayaran
-                </p>
-                <div className="grid grid-cols-3 gap-2">
-                  {(["tunai", "transfer", "qris"] as MetodeBayar[]).map((m) => {
-                    const icons = {
-                      tunai: <Banknote className="w-5 h-5" />,
-                      transfer: <WalletCards className="w-5 h-5" />,
-                      qris: <Smartphone className="w-5 h-5" />,
-                    };
-                    return (
-                      <button
-                        key={m}
-                        onClick={() => setMetode(m)}
-                        disabled={mutation.isPending}
-                        className={cn(
-                          "flex flex-col items-center gap-1.5 rounded-xl border-2 py-3 px-2 text-xs font-medium transition-all",
-                          metode === m
-                            ? "border-primary bg-primary/5 text-primary"
-                            : "border-slate-200 text-slate-500 hover:border-slate-300",
-                          mutation.isPending && "opacity-50 cursor-not-allowed"
-                        )}
-                      >
-                        {icons[m]}
-                        {metodeLabel[m]}
-                      </button>
-                    );
-                  })}
+              {/* Diskon & Denda */}
+              <div className="grid grid-cols-2 gap-4">
+                <div className="flex flex-col gap-1.5">
+                  <Label htmlFor="diskon">Diskon (Rp)</Label>
+                  <Input
+                    id="diskon"
+                    inputMode="numeric"
+                    value={diskon}
+                    onChange={e => setDiskon(e.target.value)}
+                    disabled={mutation.isPending}
+                  />
                 </div>
+                <div className="flex flex-col gap-1.5">
+                  <Label htmlFor="denda">Denda (Rp)</Label>
+                  <Input
+                    id="denda"
+                    inputMode="numeric"
+                    value={denda}
+                    onChange={e => setDenda(e.target.value)}
+                    disabled={mutation.isPending}
+                  />
+                </div>
+              </div>
+
+              {/* Nominal */}
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="nominal">
+                  Nominal Dibayar (Rp) <span className="text-red-500">*</span>
+                </Label>
+                <Input
+                  id="nominal"
+                  inputMode="numeric"
+                  placeholder="Masukkan jumlah pembayaran"
+                  value={nominal}
+                  onChange={e => setNominal(e.target.value)}
+                  disabled={mutation.isPending}
+                  className={nominal && errNominal ? "border-red-400" : ""}
+                />
+                {nominal && errNominal && (
+                  <p className="text-xs text-red-500">{errNominal}</p>
+                )}
+                {nominalNum > 0 && (
+                  <p className="text-xs text-muted-foreground">
+                    Sisa setelah bayar: <span className={cn("font-semibold", sisaSetelah === 0 ? "text-emerald-600" : "text-amber-600")}>
+                      {formatRupiah(sisaSetelah)}
+                    </span>
+                  </p>
+                )}
+              </div>
+
+              {/* Metode Pembayaran */}
+              <div className="flex flex-col gap-2">
+                <Label>Metode Pembayaran <span className="text-red-500">*</span></Label>
+                <div className="grid grid-cols-5 gap-2">
+                  {METODE_OPTIONS.map((m) => (
+                    <button
+                      type="button"
+                      key={m.value}
+                      onClick={() => setMetode(m.value)}
+                      disabled={mutation.isPending}
+                      className={cn(
+                        "flex flex-col items-center gap-1 rounded-xl border-2 py-2.5 px-1 text-[11px] font-medium transition-all",
+                        metode === m.value
+                          ? "border-primary bg-primary/5 text-primary"
+                          : "border-slate-200 text-slate-500 hover:border-slate-300",
+                        mutation.isPending && "opacity-50 cursor-not-allowed"
+                      )}
+                    >
+                      {m.icon}{m.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Tanggal Pembayaran */}
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="tanggal">Tanggal Pembayaran</Label>
+                <Input
+                  id="tanggal"
+                  type="date"
+                  value={tanggalBayar}
+                  onChange={e => setTanggalBayar(e.target.value)}
+                  disabled={mutation.isPending}
+                />
+              </div>
+
+              {/* Catatan */}
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="catatan">Catatan Pembayaran</Label>
+                <Input
+                  id="catatan"
+                  placeholder="Opsional"
+                  value={catatan}
+                  onChange={e => setCatatan(e.target.value)}
+                  disabled={mutation.isPending}
+                />
               </div>
 
               {mutation.isError && (
                 <div className="flex items-center gap-2 rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">
                   <AlertCircle className="w-4 h-4 shrink-0" />
-                  {mutation.error.message}
+                  {mutation.error?.message}
                 </div>
               )}
+            </div>
+          </form>
 
-              <Button
-                className="w-full h-11 text-base font-semibold"
-                onClick={() => mutation.mutate()}
-                disabled={mutation.isPending}
-              >
-                {mutation.isPending ? (
-                  <>
-                    <span className="w-4 h-4 mr-2 border-2 border-white border-t-transparent rounded-full animate-spin inline-block" />
-                    Memproses...
-                  </>
-                ) : (
-                  <>
-                    <CheckCircle2 className="w-4 h-4 mr-2" />
-                    Proses Pembayaran · {metodeLabel[metode]}
-                  </>
-                )}
-              </Button>
-            </div>
-          </>
-        ) : (
-          <div className="p-8 flex flex-col items-center text-center">
-            <div className="w-16 h-16 rounded-full bg-emerald-100 flex items-center justify-center mb-4">
-              <CheckCircle2 className="w-9 h-9 text-emerald-600" />
-            </div>
-            <h2 className="text-xl font-bold text-slate-900">Pembayaran Berhasil!</h2>
-            <p className="text-slate-500 text-sm mt-1 mb-1">
-              {item.businessName} · {item.periodLabel ?? "—"}
-            </p>
-            <p className="text-2xl font-bold text-emerald-600 mt-1">
-              {formatRupiah(item.remainingAmount)}
-            </p>
-            <p className="text-xs text-slate-400 mt-1 mb-6">
-              via {metodeLabel[metode]} · {noStruk}
-            </p>
-            <div className="flex gap-3 w-full">
-              <Button
-                variant="outline"
-                className="flex-1"
-                onClick={() => {
-                  onSuccess();
-                  onClose();
-                }}
-              >
-                Tutup
-              </Button>
-              <Button
-                className="flex-1 bg-emerald-600 hover:bg-emerald-700"
-                onClick={handleCetak}
-              >
-                <Printer className="w-4 h-4 mr-2" />
-                Cetak Struk PDF
-              </Button>
-            </div>
-            <p className="text-xs text-slate-400 mt-3">
-              Browser akan membuka dialog cetak. Pilih "Save as PDF" untuk simpan.
-            </p>
+          {/* Footer */}
+          <div className="p-4 border-t bg-white shrink-0">
+            <Button
+              type="submit"
+              className="w-full h-11 text-base font-semibold"
+              onClick={handleClickBayar}
+              disabled={mutation.isPending || !nominalNum}
+            >
+              {mutation.isPending ? (
+                <><span className="w-4 h-4 mr-2 border-2 border-white border-t-transparent rounded-full animate-spin inline-block" />Memproses...</>
+              ) : (
+                <><CreditCard className="w-4 h-4 mr-2" />Bayar Sekarang · {metodeLabel}</>
+              )}
+            </Button>
           </div>
-        )}
+        </div>
       </div>
-    </div>
+
+      {/* Confirm Dialog */}
+      <AlertDialog open={showConfirm} onOpenChange={setShowConfirm}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Konfirmasi Pembayaran</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-2 text-sm">
+                <p>Yakin ingin menyimpan pembayaran tenant ini?</p>
+                <div className="rounded-lg bg-slate-50 border p-3 space-y-1.5 mt-2">
+                  <div className="flex justify-between"><span className="text-slate-500">Tenant</span><span className="font-medium">{item.businessName}</span></div>
+                  <div className="flex justify-between"><span className="text-slate-500">Nominal Bayar</span><span className="font-semibold text-primary">{formatRupiah(nominalNum)}</span></div>
+                  {diskonNum > 0 && <div className="flex justify-between"><span className="text-slate-500">Diskon</span><span className="text-emerald-600">-{formatRupiah(diskonNum)}</span></div>}
+                  {dendaNum > 0 && <div className="flex justify-between"><span className="text-slate-500">Denda</span><span className="text-red-600">+{formatRupiah(dendaNum)}</span></div>}
+                  <div className="flex justify-between"><span className="text-slate-500">Metode</span><span className="font-medium">{metodeLabel}</span></div>
+                  <div className="flex justify-between"><span className="text-slate-500">Sisa Setelah</span><span className={cn("font-semibold", sisaSetelah === 0 ? "text-emerald-600" : "text-amber-600")}>{formatRupiah(sisaSetelah)}</span></div>
+                </div>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={mutation.isPending}>Batal</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => mutation.mutate()}
+              disabled={mutation.isPending}
+              className="bg-primary"
+            >
+              {mutation.isPending ? "Menyimpan..." : "Ya, Simpan Pembayaran"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   );
 }
 
@@ -852,9 +874,7 @@ export default function TenantPos() {
       <div className="flex items-start justify-between">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">POS Tenant</h1>
-          <p className="text-muted-foreground mt-0.5 text-sm">
-            Klik unit pada denah untuk melihat detail pembayaran
-          </p>
+          <p className="text-muted-foreground mt-0.5 text-sm">Klik unit pada denah untuk melihat detail pembayaran</p>
         </div>
         <StatusLegend />
       </div>
@@ -873,14 +893,7 @@ export default function TenantPos() {
               <div className="flex flex-col items-center justify-center h-full text-center p-10 text-destructive">
                 <AlertTriangle className="w-10 h-10 mb-3 opacity-60" />
                 <p className="font-medium">Gagal memuat data denah</p>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="mt-3"
-                  onClick={() => floorPlan.refetch()}
-                >
-                  Coba Lagi
-                </Button>
+                <Button variant="outline" size="sm" className="mt-3" onClick={() => floorPlan.refetch()}>Coba Lagi</Button>
               </div>
             ) : (
               <TenantFloorPlan
@@ -908,10 +921,17 @@ export default function TenantPos() {
         <ModalPembayaran
           item={modalItem}
           onClose={() => setModalItem(null)}
-          onSuccess={() => {
-            floorPlan.refetch();
-            overview.refetch();
-            setSelected(null);
+          onSuccess={(updated) => {
+            // Update selected item state langsung tanpa tunggu refetch
+            if (selected?.id === modalItem.id) {
+              setSelected(prev => prev ? {
+                ...prev,
+                paidAmount: updated.paidAmount,
+                remainingAmount: updated.remainingAmount,
+                paymentStatus: updated.paymentStatus as PaymentStatus,
+              } : null);
+            }
+            setModalItem(null);
           }}
         />
       )}
