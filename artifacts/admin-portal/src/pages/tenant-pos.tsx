@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import {
   Building2, Receipt, X, CheckCircle2, AlertCircle, CircleDashed,
   Clock, Phone, Mail, Calendar, CreditCard, Printer, Banknote,
@@ -566,6 +566,28 @@ function DetailPanel({
 
 type MetodeBayar = "tunai" | "transfer" | "qris";
 
+interface PaymentResult {
+  payment: { id: number; amount: number; paymentMethod: MetodeBayar; paidAt: string };
+  booking: { paidAmount: number; paymentStatus: string };
+  remainingAmount: number;
+}
+
+async function postPembayaran(body: {
+  bookingId: number;
+  amount: number;
+  paymentMethod: MetodeBayar;
+  notes?: string;
+}): Promise<PaymentResult> {
+  const res = await fetch("/api/tenant-pos/payments", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error ?? "Gagal memproses pembayaran");
+  return data;
+}
+
 function ModalPembayaran({
   item,
   onClose,
@@ -576,9 +598,8 @@ function ModalPembayaran({
   onSuccess: () => void;
 }) {
   const [metode, setMetode] = useState<MetodeBayar>("tunai");
-  const [selesai, setSelesai] = useState(false);
   const [noStruk] = useState(() => buatNoStruk());
-  const now = new Date();
+  const [paidAt, setPaidAt] = useState<Date | null>(null);
 
   const metodeLabel: Record<MetodeBayar, string> = {
     tunai: "Tunai",
@@ -586,9 +607,20 @@ function ModalPembayaran({
     qris: "QRIS",
   };
 
-  const handleProses = () => setSelesai(true);
+  const mutation = useMutation<PaymentResult, Error, void>({
+    mutationFn: () =>
+      postPembayaran({
+        bookingId: item.bookingId!,
+        amount: item.remainingAmount,
+        paymentMethod: metode,
+      }),
+    onSuccess: () => {
+      setPaidAt(new Date());
+    },
+  });
 
   const handleCetak = () => {
+    const now = paidAt ?? new Date();
     cetakStrukPDF({
       noStruk,
       tanggal: formatTanggal(now),
@@ -608,6 +640,7 @@ function ModalPembayaran({
     });
   };
 
+  const selesai = mutation.isSuccess;
   const isOverdue = item.paymentStatus === "OVERDUE";
 
   return (
@@ -630,7 +663,11 @@ function ModalPembayaran({
                   {item.boothNumber} · {item.areaName}
                 </p>
               </div>
-              <button onClick={onClose} className="text-white/70 hover:text-white">
+              <button
+                onClick={onClose}
+                className="text-white/70 hover:text-white"
+                disabled={mutation.isPending}
+              >
                 <X className="w-5 h-5" />
               </button>
             </div>
@@ -639,9 +676,7 @@ function ModalPembayaran({
               <div
                 className={cn(
                   "rounded-xl border p-4 space-y-2",
-                  isOverdue
-                    ? "bg-red-50 border-red-200"
-                    : "bg-slate-50 border-slate-200"
+                  isOverdue ? "bg-red-50 border-red-200" : "bg-slate-50 border-slate-200"
                 )}
               >
                 {item.periodLabel && (
@@ -691,11 +726,13 @@ function ModalPembayaran({
                       <button
                         key={m}
                         onClick={() => setMetode(m)}
+                        disabled={mutation.isPending}
                         className={cn(
                           "flex flex-col items-center gap-1.5 rounded-xl border-2 py-3 px-2 text-xs font-medium transition-all",
                           metode === m
                             ? "border-primary bg-primary/5 text-primary"
-                            : "border-slate-200 text-slate-500 hover:border-slate-300"
+                            : "border-slate-200 text-slate-500 hover:border-slate-300",
+                          mutation.isPending && "opacity-50 cursor-not-allowed"
                         )}
                       >
                         {icons[m]}
@@ -706,9 +743,29 @@ function ModalPembayaran({
                 </div>
               </div>
 
-              <Button className="w-full h-11 text-base font-semibold" onClick={handleProses}>
-                <CheckCircle2 className="w-4 h-4 mr-2" />
-                Proses Pembayaran · {metodeLabel[metode]}
+              {mutation.isError && (
+                <div className="flex items-center gap-2 rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">
+                  <AlertCircle className="w-4 h-4 shrink-0" />
+                  {mutation.error.message}
+                </div>
+              )}
+
+              <Button
+                className="w-full h-11 text-base font-semibold"
+                onClick={() => mutation.mutate()}
+                disabled={mutation.isPending}
+              >
+                {mutation.isPending ? (
+                  <>
+                    <span className="w-4 h-4 mr-2 border-2 border-white border-t-transparent rounded-full animate-spin inline-block" />
+                    Memproses...
+                  </>
+                ) : (
+                  <>
+                    <CheckCircle2 className="w-4 h-4 mr-2" />
+                    Proses Pembayaran · {metodeLabel[metode]}
+                  </>
+                )}
               </Button>
             </div>
           </>
@@ -731,7 +788,10 @@ function ModalPembayaran({
               <Button
                 variant="outline"
                 className="flex-1"
-                onClick={() => { onSuccess(); onClose(); }}
+                onClick={() => {
+                  onSuccess();
+                  onClose();
+                }}
               >
                 Tutup
               </Button>
@@ -851,6 +911,7 @@ export default function TenantPos() {
           onSuccess={() => {
             floorPlan.refetch();
             overview.refetch();
+            setSelected(null);
           }}
         />
       )}
