@@ -1,36 +1,48 @@
-# [Project name]
+# Mall Admin Portal
 
-_Replace the heading above with the project's name, and this line with one sentence describing what this app does for users._
+A mall tenant management admin portal (in Indonesian) with three sections: Data Tenant, Booking Tenant, and POS Tenant.
 
 ## Run & Operate
 
-- `pnpm --filter @workspace/api-server run dev` — run the API server (port 5000)
+- Admin Portal runs on port 25580 (external: 3000) — `PORT=25580 BASE_PATH=/ pnpm --filter @workspace/admin-portal run dev`
+- API Server runs on port 8080 — `PORT=8080 pnpm --filter @workspace/api-server run dev`
 - `pnpm run typecheck` — full typecheck across all packages
 - `pnpm run build` — typecheck + build all packages
-- `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from the OpenAPI spec
 - `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
 - Required env: `DATABASE_URL` — Postgres connection string
 
 ## Stack
 
 - pnpm workspaces, Node.js 24, TypeScript 5.9
+- Frontend: React + Vite, shadcn/ui, Tailwind CSS, wouter (routing), TanStack Query
 - API: Express 5
 - DB: PostgreSQL + Drizzle ORM
-- Validation: Zod (`zod/v4`), `drizzle-zod`
-- API codegen: Orval (from OpenAPI spec)
+- Validation: Zod
 - Build: esbuild (CJS bundle)
 
 ## Where things live
 
-_Populate as you build — short repo map plus pointers to the source-of-truth file for DB schema, API contracts, theme files, etc._
+- `artifacts/admin-portal/` — React frontend with sidebar layout
+  - `src/pages/data-tenant.tsx` — tenant list table
+  - `src/pages/booking-tenant.tsx` — lease/booking list
+  - `src/pages/tenant-pos.tsx` — POS (point of sale) placeholder
+  - `src/components/layout/sidebar-layout.tsx` — main navigation sidebar
+- `artifacts/api-server/` — Express 5 API server
+- `lib/db/` — Drizzle ORM schema and DB connection
+- `lib/api-spec/` — OpenAPI spec (source of truth for API contracts)
 
 ## Architecture decisions
 
-_Populate as you build — non-obvious choices a reader couldn't infer from the code (3-5 bullets)._
+- Vite requires PORT and BASE_PATH env vars at startup (not optional)
+- Admin portal deployed at path `/` (root) via BASE_PATH env var
+- API server at port 8080 (external port 80), proxied under `/api`
 
 ## Product
 
-_Describe the high-level user-facing capabilities of this app once they exist._
+Mall tenant management system:
+- **Data Tenant** — view all registered tenants with status (Active/Inactive)
+- **Booking Tenant** — view all lease agreements and their status
+- **POS Tenant** — tenant map and payment processing (placeholder)
 
 ## User preferences
 
@@ -38,7 +50,9 @@ _Populate as you build — explicit user instructions worth remembering across s
 
 ## Gotchas
 
-_Populate as you build — sharp edges, "always run X before Y" rules._
+- Always pass `PORT=25580 BASE_PATH=/` when starting the admin portal dev server
+- Always pass `PORT=8080` when starting the API server
+- Workflows are named "Admin Portal" and "API Server"
 
 ## Pointers
 
