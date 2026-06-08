@@ -5,8 +5,7 @@ import {
   Clock, Phone, Mail, Calendar, CreditCard, Printer, Banknote,
   Smartphone, WalletCards, TrendingUp, Users, AlertTriangle, Zap,
   MoreHorizontal, History, Filter,
-
-  MoreHorizontal, Search, RotateCcw, ChevronDown,
+  Search, RotateCcw, ChevronDown,
 
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -85,6 +84,7 @@ type PaymentRecord = {
   receiptNumber: string | null;
   notes: string | null;
   paidAt: string;
+};
 
 type PaymentHistoryItem = {
   id: number;
@@ -229,17 +229,10 @@ function useFloorPlan() {
 }
 
 function usePaymentHistory(bookingId: number | null) {
-
-  return useQuery<PaymentRecord[]>({
-    queryKey: ["tenant-pos-payments", bookingId],
-    queryFn: () =>
-      fetch(`${BASE}/api/tenant-pos/payments/${bookingId}`).then((r) => r.json()),
-
   return useQuery<PaymentHistoryItem[]>({
     queryKey: ["payment-history", bookingId],
     queryFn: () =>
       fetch(`${BASE}/api/tenant-pos/bookings/${bookingId}/payments`).then((r) => r.json()),
-
     enabled: bookingId !== null,
   });
 }
@@ -1573,13 +1566,9 @@ function ModalPembayaran({ item, onClose, onSuccess }: {
 
 // ─── Modal Riwayat ────────────────────────────────────────────────────────────
 
-const METODE_LABEL: Record<string, string> = {
-  tunai: "Cash", transfer: "Transfer", qris: "QRIS", edc: "EDC", other: "Lainnya",
-};
-
 function ModalRiwayat({ item, onClose }: { item: FloorPlanItem; onClose: () => void }) {
   const { data: payments, isLoading, isError, refetch } = usePaymentHistory(item.bookingId);
-  const total = payments?.reduce((s, p) => s + p.amount, 0) ?? 0;
+  const total = payments?.reduce((s, p) => s + p.amountPaid, 0) ?? 0;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
@@ -1648,7 +1637,7 @@ function ModalRiwayat({ item, onClose }: { item: FloorPlanItem; onClose: () => v
                         <p className="text-[11px] font-mono text-muted-foreground truncate">{p.receiptNumber}</p>
                       )}
                       <p className="text-xs text-muted-foreground mt-0.5">
-                        {formatTanggalID(p.paidAt.slice(0, 10))}
+                        {formatTanggalID(p.paymentDate.slice(0, 10))}
                         {" · "}
                         {METODE_LABEL[p.paymentMethod] ?? p.paymentMethod}
                       </p>
@@ -1658,7 +1647,7 @@ function ModalRiwayat({ item, onClose }: { item: FloorPlanItem; onClose: () => v
                     </div>
                   </div>
                   <div className="text-right shrink-0">
-                    <p className="font-semibold text-sm text-emerald-700">{formatRupiah(p.amount)}</p>
+                    <p className="font-semibold text-sm text-emerald-700">{formatRupiah(p.amountPaid)}</p>
                     {(p.discountAmount > 0 || p.penaltyAmount > 0) && (
                       <div className="text-[10px] space-x-1">
                         {p.discountAmount > 0 && (
@@ -1698,18 +1687,10 @@ export default function TenantPos() {
   const [modalItem, setModalItem] = useState<FloorPlanItem | null>(null);
 
   const [riwayatItem, setRiwayatItem] = useState<FloorPlanItem | null>(null);
-  const [filterStatus, setFilterStatus] = useState<PaymentStatus | "VACANT" | null>(null);
-
   const [filters, setFilters] = useState<FilterState>({ search: "", status: "", area: "" });
-
 
   const overview = useOverview();
   const floorPlan = useFloorPlan();
-
-  const filteredItems = (floorPlan.data ?? []).filter((item) => {
-    if (!filterStatus) return true;
-    return resolveStatus(item) === filterStatus;
-  });
 
   const allItems = floorPlan.data ?? [];
 
@@ -1783,36 +1764,6 @@ export default function TenantPos() {
       <SummaryCards overview={overview.data} loading={overview.isLoading} error={overview.isError} />
 
       <div className="flex flex-1 gap-4 min-h-0">
-
-        <Card className="flex-1 min-w-0 overflow-hidden">
-          <CardHeader className="py-3 px-4 border-b flex-row items-center justify-between space-y-0">
-            <div className="flex items-center gap-2">
-              <CardTitle className="text-sm font-semibold text-slate-700">Denah Tenant</CardTitle>
-              {filterStatus && !floorPlan.isLoading && (
-                <span className="text-[10px] text-muted-foreground">
-                  ({filteredItems.length}/{(floorPlan.data ?? []).length} unit)
-                </span>
-              )}
-            </div>
-            <div className="flex items-center gap-1 flex-wrap justify-end">
-              <Filter className="w-3.5 h-3.5 text-muted-foreground mr-0.5" />
-              {([null, "PAID", "UNPAID", "PARTIAL", "OVERDUE", "VACANT"] as const).map((s) => (
-                <button
-                  key={String(s)}
-                  onClick={() => setFilterStatus(s === filterStatus ? null : s)}
-                  className={cn(
-                    "text-[10px] px-2 py-0.5 rounded-full border font-medium transition-all",
-                    filterStatus === s
-                      ? "bg-primary text-white border-primary"
-                      : "text-muted-foreground border-muted hover:border-slate-300"
-                  )}
-                >
-                  {s === null ? "Semua" : s === "PAID" ? "Lunas" : s === "UNPAID" ? "Belum Bayar" : s === "PARTIAL" ? "Sebagian" : s === "OVERDUE" ? "Jatuh Tempo" : "Kosong"}
-                </button>
-              ))}
-            </div>
-          </CardHeader>
-          <CardContent className="p-0 h-[calc(100%-3.25rem)]">
 
         <Card className="flex-1 min-w-0 overflow-hidden flex flex-col">
           <CardHeader className="py-2.5 px-4 border-b shrink-0">
