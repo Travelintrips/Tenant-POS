@@ -4,7 +4,7 @@ import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 import { tenantsTable } from "./tenants";
 
-export const paymentStatusEnum = pgEnum("payment_status", ["UNPAID", "PARTIAL", "PAID", "OVERDUE"]);
+export const paymentStatusEnum = pgEnum("payment_status", ["UNPAID", "PARTIAL", "PAID", "OVERDUE", "CANCELLED"]);
 export const bookingStatusEnum = pgEnum("booking_status", ["aktif", "selesai", "pending", "batal"]);
 
 export const tenantBookingsTable = pgTable("tenant_bookings", {

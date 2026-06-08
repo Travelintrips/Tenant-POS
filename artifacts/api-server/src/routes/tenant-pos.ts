@@ -4,12 +4,18 @@ import {
   tenantsTable,
   tenantBookingsTable,
   tenantPaymentsTable,
-  insertTenantPaymentSchema,
 } from "@workspace/db/schema";
 import { eq, and, sql } from "drizzle-orm";
 import { z } from "zod";
 
 const router: IRouter = Router();
+
+function generateReceiptNumber(): string {
+  const now = new Date();
+  const datePart = now.toISOString().slice(0, 10).replace(/-/g, "");
+  const timePart = String(now.getTime()).slice(-6);
+  return `RCP-${datePart}-${timePart}`;
+}
 
 router.get("/tenant-pos/overview", async (req, res) => {
   try {
@@ -117,6 +123,8 @@ router.get("/tenant-pos/floor-plan", async (req, res) => {
 const paymentBodySchema = z.object({
   bookingId: z.number().int().positive(),
   amount: z.number().int().positive(),
+  discountAmount: z.number().int().min(0).default(0),
+  penaltyAmount: z.number().int().min(0).default(0),
   paymentMethod: z.enum(["tunai", "transfer", "qris"]),
   notes: z.string().optional(),
 });
@@ -128,7 +136,7 @@ router.post("/tenant-pos/payments", async (req, res) => {
     return;
   }
 
-  const { bookingId, amount, paymentMethod, notes } = parsed.data;
+  const { bookingId, amount, discountAmount, penaltyAmount, paymentMethod, notes } = parsed.data;
 
   try {
     const [booking] = await db
@@ -146,15 +154,38 @@ router.post("/tenant-pos/payments", async (req, res) => {
       return;
     }
 
+    if (booking.paymentStatus === "CANCELLED") {
+      res.status(409).json({ error: "Booking ini sudah dibatalkan" });
+      return;
+    }
+
     const remaining = booking.totalAmount - booking.paidAmount;
-    const actualAmount = Math.min(amount, remaining);
+    // Amount efektif setelah diskon dan penalti
+    const effectiveAmount = Math.min(amount - discountAmount + penaltyAmount, remaining);
+    if (effectiveAmount <= 0) {
+      res.status(400).json({ error: "Jumlah pembayaran tidak valid" });
+      return;
+    }
+
+    const receiptNumber = generateReceiptNumber();
 
     const [payment] = await db
       .insert(tenantPaymentsTable)
-      .values({ bookingId, amount: actualAmount, paymentMethod, notes })
+      .values({
+        bookingId,
+        tenantId: booking.tenantId,
+        amount: effectiveAmount,
+        discountAmount,
+        penaltyAmount,
+        paymentMethod,
+        paymentStatus: "PAID",
+        receiptNumber,
+        notes,
+        paidAt: new Date(),
+      })
       .returning();
 
-    const newPaidAmount = booking.paidAmount + actualAmount;
+    const newPaidAmount = booking.paidAmount + effectiveAmount;
     const newPaymentStatus: "PAID" | "PARTIAL" | "UNPAID" =
       newPaidAmount >= booking.totalAmount
         ? "PAID"
@@ -173,13 +204,36 @@ router.post("/tenant-pos/payments", async (req, res) => {
       .returning();
 
     res.json({
-      payment,
+      payment: {
+        ...payment,
+        receiptNumber: payment.receiptNumber,
+      },
       booking: updatedBooking,
       remainingAmount: updatedBooking.totalAmount - updatedBooking.paidAmount,
     });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Gagal memproses pembayaran" });
+  }
+});
+
+router.get("/tenant-pos/payments/:bookingId", async (req, res) => {
+  const bookingId = Number(req.params.bookingId);
+  if (isNaN(bookingId)) {
+    res.status(400).json({ error: "ID tidak valid" });
+    return;
+  }
+  try {
+    const payments = await db
+      .select()
+      .from(tenantPaymentsTable)
+      .where(eq(tenantPaymentsTable.bookingId, bookingId))
+      .orderBy(tenantPaymentsTable.paidAt);
+
+    res.json(payments);
+  } catch (err) {
+    req.log.error(err, "Failed to get payments for booking");
+    res.status(500).json({ error: "Gagal mengambil riwayat pembayaran" });
   }
 });
 
