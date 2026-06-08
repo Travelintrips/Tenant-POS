@@ -1,10 +1,10 @@
 import React, { useState } from "react";
-import { Building2, MapPin, Receipt, X, CheckCircle2, AlertCircle, CircleDashed, ChevronRight, Phone, Mail, Calendar, CreditCard } from "lucide-react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
+import { Building2, MapPin, Receipt, X, CheckCircle2, AlertCircle, CircleDashed, Phone, Mail, Calendar, CreditCard, Printer, Banknote, Smartphone, WalletCards } from "lucide-react";
+import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
+import { cetakStrukPDF, buatNoStruk, formatTanggal, formatJam } from "@/lib/cetak-struk";
 
 type StatusUnit = "aktif" | "kosong" | "menunggak";
 
@@ -305,7 +305,12 @@ function UnitCard({ unit, selected, onClick }: { unit: Unit; selected: boolean; 
   );
 }
 
-function DetailPanel({ unit, onClose }: { unit: Unit | null; onClose: () => void }) {
+function DetailPanel({ unit, onClose, onProses, onCetak }: {
+  unit: Unit | null;
+  onClose: () => void;
+  onProses: (unit: Unit) => void;
+  onCetak: (unit: Unit) => void;
+}) {
   if (!unit) {
     return (
       <div className="flex flex-col items-center justify-center h-full text-center p-6 text-muted-foreground">
@@ -402,18 +407,159 @@ function DetailPanel({ unit, onClose }: { unit: Unit | null; onClose: () => void
             </div>
 
             {unit.status === "menunggak" && (
-              <Button className="w-full bg-red-600 hover:bg-red-700 text-white" size="sm">
+              <Button className="w-full bg-red-600 hover:bg-red-700 text-white" size="sm" onClick={() => onProses(unit)}>
                 <CreditCard className="w-4 h-4 mr-2" />
                 Proses Pembayaran Tunggakan
               </Button>
             )}
             {unit.status === "aktif" && (
-              <Button className="w-full" variant="outline" size="sm">
-                <CreditCard className="w-4 h-4 mr-2" />
-                Cetak Kuitansi
-              </Button>
+              <div className="flex flex-col gap-2">
+                <Button className="w-full" size="sm" onClick={() => onProses(unit)}>
+                  <CreditCard className="w-4 h-4 mr-2" />
+                  Proses Pembayaran
+                </Button>
+                <Button className="w-full" variant="outline" size="sm" onClick={() => onCetak(unit)}>
+                  <Printer className="w-4 h-4 mr-2" />
+                  Cetak Struk Terakhir
+                </Button>
+              </div>
             )}
           </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+type MetodeBayar = "tunai" | "transfer" | "qris";
+
+function ModalPembayaran({
+  unit,
+  cabang,
+  onClose,
+}: {
+  unit: Unit;
+  cabang: string;
+  onClose: () => void;
+}) {
+  const [metode, setMetode] = useState<MetodeBayar>("tunai");
+  const [selesai, setSelesai] = useState(false);
+  const [noStruk] = useState(() => buatNoStruk());
+  const now = new Date();
+
+  const metodeLabel: Record<MetodeBayar, string> = { tunai: "Tunai", transfer: "Transfer Bank", qris: "QRIS" };
+
+  const handleProses = () => setSelesai(true);
+
+  const handleCetak = () => {
+    cetakStrukPDF({
+      noStruk,
+      tanggal: formatTanggal(now),
+      jam: formatJam(now),
+      cabang,
+      unitId: unit.id,
+      unitNama: unit.nama,
+      penyewa: unit.penyewa!,
+      kategori: unit.kategori,
+      luas: unit.luas,
+      periodeBayar: unit.tagihanBulan!,
+      sewaBulanan: unit.sewaBulanan!,
+      jumlahBayar: unit.jumlahTagihan!,
+      metodeBayar: metodeLabel[metode],
+      kasir: "Admin",
+      status: unit.status === "menunggak" ? "tunggakan" : "lunas",
+    });
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 overflow-hidden">
+        {!selesai ? (
+          <>
+            {/* Header */}
+            <div className={cn("px-6 py-4 flex items-center justify-between", unit.status === "menunggak" ? "bg-red-600" : "bg-primary")}>
+              <div>
+                <p className="text-white/70 text-xs">Konfirmasi Pembayaran</p>
+                <h2 className="text-white font-bold text-lg leading-tight">{unit.penyewa}</h2>
+                <p className="text-white/80 text-xs mt-0.5">{unit.id} · {cabang}</p>
+              </div>
+              <button onClick={onClose} className="text-white/70 hover:text-white">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-5">
+              {/* Ringkasan Tagihan */}
+              <div className={cn("rounded-xl border p-4 space-y-2", unit.status === "menunggak" ? "bg-red-50 border-red-200" : "bg-slate-50 border-slate-200")}>
+                <div className="flex justify-between text-sm">
+                  <span className="text-slate-500">Periode</span>
+                  <span className="font-medium">{unit.tagihanBulan}</span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-slate-500">Sewa/Bulan</span>
+                  <span className="font-medium">{formatRupiah(unit.sewaBulanan!)}</span>
+                </div>
+                <Separator />
+                <div className="flex justify-between">
+                  <span className="font-semibold">Total Bayar</span>
+                  <span className={cn("font-bold text-xl", unit.status === "menunggak" ? "text-red-600" : "text-slate-900")}>
+                    {formatRupiah(unit.jumlahTagihan!)}
+                  </span>
+                </div>
+              </div>
+
+              {/* Pilih Metode */}
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-3">Metode Pembayaran</p>
+                <div className="grid grid-cols-3 gap-2">
+                  {(["tunai", "transfer", "qris"] as MetodeBayar[]).map((m) => {
+                    const icons = { tunai: <Banknote className="w-5 h-5" />, transfer: <WalletCards className="w-5 h-5" />, qris: <Smartphone className="w-5 h-5" /> };
+                    return (
+                      <button
+                        key={m}
+                        onClick={() => setMetode(m)}
+                        className={cn(
+                          "flex flex-col items-center gap-1.5 rounded-xl border-2 py-3 px-2 text-xs font-medium transition-all",
+                          metode === m ? "border-primary bg-primary/5 text-primary" : "border-slate-200 text-slate-500 hover:border-slate-300"
+                        )}
+                      >
+                        {icons[m]}
+                        {metodeLabel[m]}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Tombol Proses */}
+              <Button className="w-full h-11 text-base font-semibold" onClick={handleProses}>
+                <CheckCircle2 className="w-4 h-4 mr-2" />
+                Proses Pembayaran · {metodeLabel[metode]}
+              </Button>
+            </div>
+          </>
+        ) : (
+          /* Sukses */
+          <div className="p-8 flex flex-col items-center text-center">
+            <div className="w-16 h-16 rounded-full bg-emerald-100 flex items-center justify-center mb-4">
+              <CheckCircle2 className="w-9 h-9 text-emerald-600" />
+            </div>
+            <h2 className="text-xl font-bold text-slate-900">Pembayaran Berhasil!</h2>
+            <p className="text-slate-500 text-sm mt-1 mb-1">{unit.penyewa} · {unit.tagihanBulan}</p>
+            <p className="text-2xl font-bold text-emerald-600 mt-1">{formatRupiah(unit.jumlahTagihan!)}</p>
+            <p className="text-xs text-slate-400 mt-1 mb-6">via {metodeLabel[metode]} · {noStruk}</p>
+
+            <div className="flex gap-3 w-full">
+              <Button variant="outline" className="flex-1" onClick={onClose}>
+                Tutup
+              </Button>
+              <Button className="flex-1 bg-emerald-600 hover:bg-emerald-700" onClick={handleCetak}>
+                <Printer className="w-4 h-4 mr-2" />
+                Cetak Struk PDF
+              </Button>
+            </div>
+            <p className="text-xs text-slate-400 mt-3">Browser akan membuka dialog cetak. Pilih "Save as PDF" untuk simpan.</p>
+          </div>
         )}
       </div>
     </div>
@@ -507,6 +653,9 @@ function TODMap({ selected, onSelect }: { selected: Unit | null; onSelect: (u: U
 export default function TenantPos() {
   const [cabang, setCabang] = useState<"sport" | "tod">("sport");
   const [selectedUnit, setSelectedUnit] = useState<Unit | null>(null);
+  const [modalUnit, setModalUnit] = useState<Unit | null>(null);
+
+  const cabangLabel = cabang === "sport" ? "Sport Centre" : "TOD";
 
   const handleSelect = (unit: Unit) => {
     setSelectedUnit((prev) => (prev?.id === unit.id ? null : unit));
@@ -515,6 +664,29 @@ export default function TenantPos() {
   const handleCabangChange = (c: "sport" | "tod") => {
     setCabang(c);
     setSelectedUnit(null);
+  };
+
+  const handleProses = (unit: Unit) => setModalUnit(unit);
+
+  const handleCetak = (unit: Unit) => {
+    const now = new Date();
+    cetakStrukPDF({
+      noStruk: buatNoStruk(),
+      tanggal: formatTanggal(now),
+      jam: formatJam(now),
+      cabang: cabangLabel,
+      unitId: unit.id,
+      unitNama: unit.nama,
+      penyewa: unit.penyewa!,
+      kategori: unit.kategori,
+      luas: unit.luas,
+      periodeBayar: unit.tagihanBulan!,
+      sewaBulanan: unit.sewaBulanan!,
+      jumlahBayar: unit.jumlahTagihan!,
+      metodeBayar: "—",
+      kasir: "Admin",
+      status: unit.status === "menunggak" ? "tunggakan" : "lunas",
+    });
   };
 
   const allUnits = cabang === "sport" ? SPORT_CENTRE : TOD_UNITS;
@@ -587,10 +759,23 @@ export default function TenantPos() {
 
         <Card className="w-72 flex-shrink-0 overflow-hidden">
           <CardContent className="p-0 h-full">
-            <DetailPanel unit={selectedUnit} onClose={() => setSelectedUnit(null)} />
+            <DetailPanel
+              unit={selectedUnit}
+              onClose={() => setSelectedUnit(null)}
+              onProses={handleProses}
+              onCetak={handleCetak}
+            />
           </CardContent>
         </Card>
       </div>
+
+      {modalUnit && (
+        <ModalPembayaran
+          unit={modalUnit}
+          cabang={cabangLabel}
+          onClose={() => setModalUnit(null)}
+        />
+      )}
     </div>
   );
 }
