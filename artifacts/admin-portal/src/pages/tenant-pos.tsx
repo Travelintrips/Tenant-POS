@@ -82,6 +82,24 @@ type PaymentHistoryItem = {
   createdAt: string;
 };
 
+type ReceiptData = {
+  receiptNumber: string;
+  paymentDate: string;
+  businessName: string;
+  ownerName: string;
+  boothNumber: string;
+  billingPeriod: string;
+  totalAmount: number;
+  discountAmount: number;
+  penaltyAmount: number;
+  amountPaid: number;
+  remainingAmount: number;
+  paymentMethod: string;
+  paymentStatus: string;
+  notes: string | null;
+  adminName: string;
+};
+
 const METODE_LABEL: Record<MetodeBayar, string> = {
   tunai: "Cash",
   transfer: "Transfer",
@@ -199,6 +217,237 @@ function usePaymentHistory(bookingId: number | null) {
       fetch(`${BASE}/api/tenant-pos/bookings/${bookingId}/payments`).then((r) => r.json()),
     enabled: bookingId !== null,
   });
+}
+
+function useReceiptData(paymentId: number | null) {
+  return useQuery<ReceiptData>({
+    queryKey: ["receipt", paymentId],
+    queryFn: () =>
+      fetch(`${BASE}/api/tenant-pos/payments/${paymentId}/receipt`).then((r) => {
+        if (!r.ok) throw new Error("Gagal mengambil data receipt");
+        return r.json();
+      }),
+    enabled: paymentId !== null,
+  });
+}
+
+// ─── Modal Receipt / Kwitansi ─────────────────────────────────────────────────
+
+function ModalReceipt({
+  paymentId,
+  onClose,
+}: {
+  paymentId: number;
+  onClose: () => void;
+}) {
+  const { data, isLoading, isError } = useReceiptData(paymentId);
+
+  const handlePrint = () => {
+    window.print();
+  };
+
+  const metodeLabel: Record<string, string> = {
+    tunai: "Cash / Tunai",
+    transfer: "Transfer Bank",
+    qris: "QRIS",
+    edc: "EDC / Kartu Debit",
+    other: "Lainnya",
+  };
+
+  const statusLabel: Record<string, { text: string; color: string }> = {
+    PAID: { text: "LUNAS", color: "text-emerald-700" },
+    PARTIAL: { text: "BAYAR SEBAGIAN", color: "text-blue-700" },
+    UNPAID: { text: "BELUM BAYAR", color: "text-amber-700" },
+    OVERDUE: { text: "JATUH TEMPO", color: "text-red-700" },
+  };
+
+  return (
+    <>
+      {/* Print Styles — hanya aktif saat window.print() */}
+      <style dangerouslySetInnerHTML={{ __html: `
+        @media print {
+          body * { visibility: hidden !important; }
+          #receipt-printable, #receipt-printable * { visibility: visible !important; }
+          #receipt-printable {
+            position: fixed !important;
+            top: 0 !important; left: 0 !important;
+            width: 100% !important;
+            padding: 32px !important;
+            box-sizing: border-box !important;
+            background: white !important;
+          }
+          .no-print { display: none !important; }
+        }
+      `}} />
+
+      {/* Overlay */}
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm no-print">
+        <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 overflow-hidden flex flex-col max-h-[90vh]">
+
+          {/* Modal Header */}
+          <div className="flex items-center justify-between px-5 py-3.5 border-b bg-slate-50 shrink-0 no-print">
+            <div className="flex items-center gap-2">
+              <Receipt className="w-4 h-4 text-slate-500" />
+              <span className="font-semibold text-sm text-slate-700">Kwitansi Pembayaran</span>
+            </div>
+            <button onClick={onClose} className="text-muted-foreground hover:text-foreground">
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+
+          {/* Content */}
+          <div className="flex-1 overflow-y-auto">
+            {isLoading && (
+              <div className="p-8 space-y-3">
+                <Skeleton className="h-6 w-48 mx-auto" />
+                <Skeleton className="h-4 w-64 mx-auto" />
+                <Skeleton className="h-px w-full" />
+                {Array.from({ length: 8 }).map((_, i) => (
+                  <Skeleton key={i} className="h-4 w-full" />
+                ))}
+              </div>
+            )}
+            {isError && (
+              <div className="p-8 text-center text-red-600">
+                <AlertCircle className="w-10 h-10 mx-auto mb-3 opacity-60" />
+                <p className="font-medium text-sm">Gagal memuat data kwitansi</p>
+              </div>
+            )}
+            {data && (
+              <div id="receipt-printable" className="p-6 font-sans text-slate-800">
+                {/* Header Kwitansi */}
+                <div className="text-center mb-5">
+                  <div className="inline-flex items-center justify-center w-10 h-10 rounded-full bg-primary/10 mb-2">
+                    <Building2 className="w-5 h-5 text-primary" />
+                  </div>
+                  <h1 className="text-base font-bold uppercase tracking-widest text-slate-800">Mall Admin Portal</h1>
+                  <p className="text-xs text-slate-500 mt-0.5">Sistem Manajemen Tenant Mal</p>
+                  <div className="my-3 border-t border-dashed border-slate-300" />
+                  <h2 className="text-lg font-extrabold uppercase tracking-wider text-slate-900">
+                    Kwitansi Pembayaran Tenant
+                  </h2>
+                </div>
+
+                {/* Receipt Meta */}
+                <div className="bg-slate-50 rounded-lg px-4 py-3 mb-4 space-y-1.5 text-xs">
+                  <div className="flex justify-between">
+                    <span className="text-slate-500 font-medium">No. Kwitansi</span>
+                    <span className="font-mono font-bold text-primary">{data.receiptNumber}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-500 font-medium">Tanggal Bayar</span>
+                    <span className="font-semibold">
+                      {new Date(data.paymentDate).toLocaleDateString("id-ID", {
+                        day: "numeric", month: "long", year: "numeric",
+                      })}
+                    </span>
+                  </div>
+                  {data.adminName && (
+                    <div className="flex justify-between">
+                      <span className="text-slate-500 font-medium">Admin</span>
+                      <span className="font-semibold">{data.adminName}</span>
+                    </div>
+                  )}
+                </div>
+
+                {/* Info Tenant */}
+                <div className="mb-4">
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-2">Data Tenant</p>
+                  <div className="divide-y divide-slate-100 text-xs">
+                    {[
+                      ["Nama Bisnis", data.businessName],
+                      ["Nama Pemilik", data.ownerName],
+                      ["Booth / Lapak", data.boothNumber],
+                      ["Periode Sewa", data.billingPeriod],
+                    ].map(([label, value]) => (
+                      <div key={label} className="flex justify-between py-1.5">
+                        <span className="text-slate-500">{label}</span>
+                        <span className="font-semibold text-right max-w-[60%]">{value}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Rincian Pembayaran */}
+                <div className="mb-4">
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-2">Rincian Pembayaran</p>
+                  <div className="divide-y divide-slate-100 text-xs">
+                    <div className="flex justify-between py-1.5">
+                      <span className="text-slate-500">Total Tagihan</span>
+                      <span className="font-semibold">{formatRupiah(data.totalAmount)}</span>
+                    </div>
+                    {data.discountAmount > 0 && (
+                      <div className="flex justify-between py-1.5">
+                        <span className="text-slate-500">Diskon</span>
+                        <span className="font-semibold text-emerald-600">− {formatRupiah(data.discountAmount)}</span>
+                      </div>
+                    )}
+                    {data.penaltyAmount > 0 && (
+                      <div className="flex justify-between py-1.5">
+                        <span className="text-slate-500">Denda</span>
+                        <span className="font-semibold text-red-600">+ {formatRupiah(data.penaltyAmount)}</span>
+                      </div>
+                    )}
+                    <div className="flex justify-between py-1.5">
+                      <span className="text-slate-500">Metode Bayar</span>
+                      <span className="font-semibold">{metodeLabel[data.paymentMethod] ?? data.paymentMethod}</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Nominal Dibayar */}
+                <div className="rounded-xl border-2 border-primary/30 bg-primary/5 px-4 py-3 mb-4">
+                  <div className="flex justify-between items-center mb-2">
+                    <span className="text-xs font-semibold text-slate-600">Nominal Dibayar</span>
+                    <span className="text-xl font-extrabold text-primary">{formatRupiah(data.amountPaid)}</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-xs text-slate-500">Sisa Pembayaran</span>
+                    <span className={cn("text-sm font-bold", data.remainingAmount === 0 ? "text-emerald-600" : "text-amber-600")}>
+                      {formatRupiah(data.remainingAmount)}
+                    </span>
+                  </div>
+                  <div className="mt-2.5 pt-2.5 border-t border-primary/20 flex justify-between items-center">
+                    <span className="text-xs text-slate-500">Status Pembayaran</span>
+                    <span className={cn("text-xs font-bold uppercase", statusLabel[data.paymentStatus]?.color ?? "text-slate-700")}>
+                      {statusLabel[data.paymentStatus]?.text ?? data.paymentStatus}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Catatan */}
+                {data.notes && (
+                  <div className="mb-4 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-xs text-amber-800">
+                    <span className="font-semibold">Catatan: </span>{data.notes}
+                  </div>
+                )}
+
+                {/* Footer */}
+                <div className="border-t border-dashed border-slate-300 pt-3 text-center text-[10px] text-slate-400">
+                  <p>Kwitansi ini diterbitkan oleh sistem Mall Admin Portal</p>
+                  <p className="mt-0.5">Dicetak pada: {new Date().toLocaleString("id-ID")}</p>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Footer Tombol */}
+          {data && (
+            <div className="flex gap-2 px-5 py-3.5 border-t bg-white shrink-0 no-print">
+              <Button variant="outline" className="flex-1" onClick={onClose}>
+                <X className="w-4 h-4 mr-1.5" />
+                Tutup
+              </Button>
+              <Button className="flex-1 bg-primary" onClick={handlePrint}>
+                <Printer className="w-4 h-4 mr-1.5" />
+                Print
+              </Button>
+            </div>
+          )}
+        </div>
+      </div>
+    </>
+  );
 }
 
 // ─── Summary Cards ────────────────────────────────────────────────────────────
@@ -421,6 +670,7 @@ function DetailPanel({
   onCetak: (item: FloorPlanItem) => void;
 }) {
   const paymentHistory = usePaymentHistory(item?.bookingId ?? null);
+  const [receiptPaymentId, setReceiptPaymentId] = useState<number | null>(null);
 
   if (!item) {
     return (
@@ -458,6 +708,12 @@ function DetailPanel({
 
   return (
     <div className="flex flex-col h-full">
+      {receiptPaymentId !== null && (
+        <ModalReceipt
+          paymentId={receiptPaymentId}
+          onClose={() => setReceiptPaymentId(null)}
+        />
+      )}
       {/* Header */}
       <div className="px-4 pt-4 pb-3 border-b bg-slate-50/60">
         <div className="flex items-start justify-between gap-2 mb-2">
@@ -710,25 +966,7 @@ function DetailPanel({
                             variant="outline"
                             size="sm"
                             className="w-full h-7 text-xs"
-                            onClick={() => {
-                              cetakStrukPDF({
-                                noStruk: p.receiptNumber ?? buatNoStruk(),
-                                tanggal: formatTanggal(tgl),
-                                jam: formatJam(tgl),
-                                cabang: item.areaName,
-                                unitId: item.boothNumber,
-                                unitNama: item.businessName,
-                                penyewa: item.ownerName,
-                                kategori: item.category ?? "—",
-                                luas: "—",
-                                periodeBayar: item.periodLabel ?? "—",
-                                sewaBulanan: item.totalAmount,
-                                jumlahBayar: p.amountPaid,
-                                metodeBayar: METODE_LABEL[p.paymentMethod] ?? p.paymentMethod,
-                                kasir: "Admin",
-                                status: "lunas",
-                              });
-                            }}
+                            onClick={() => setReceiptPaymentId(p.id)}
                           >
                             <Printer className="w-3 h-3 mr-1.5" />
                             Cetak Receipt
