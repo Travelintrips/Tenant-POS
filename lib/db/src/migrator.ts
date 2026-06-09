@@ -3,6 +3,29 @@ import { dbConfig } from "./config";
 
 const MIGRATIONS: { name: string; sql: string }[] = [
   {
+    name: "0002_users_table",
+    sql: `
+CREATE TABLE IF NOT EXISTS "users" (
+  "id" serial PRIMARY KEY NOT NULL,
+  "email" text NOT NULL,
+  "name" text NOT NULL,
+  "avatar_url" text,
+  "role" text NOT NULL DEFAULT 'admin',
+  "created_at" timestamptz NOT NULL DEFAULT now(),
+  "updated_at" timestamptz NOT NULL DEFAULT now()
+);
+
+DO $$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_indexes
+    WHERE tablename = 'users' AND indexname = 'users_email_unique'
+  ) THEN
+    CREATE UNIQUE INDEX users_email_unique ON "users" ("email");
+  END IF;
+END $$;
+    `.trim(),
+  },
+  {
     name: "0001_ensure_schema",
     sql: `
 CREATE TABLE IF NOT EXISTS "tenants" (

@@ -7,8 +7,11 @@ import {
 } from "@workspace/db/schema";
 import { eq, and, sql, desc } from "drizzle-orm";
 import { z } from "zod";
+import { requireAnyRole } from "../middlewares/auth";
 
 const router: IRouter = Router();
+
+router.use(requireAnyRole("owner", "admin", "finance", "cashier"));
 
 async function generateReceiptNumber(): Promise<string> {
   const datePart = new Date().toISOString().slice(0, 10).replace(/-/g, "");

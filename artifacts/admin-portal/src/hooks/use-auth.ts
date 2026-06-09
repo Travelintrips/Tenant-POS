@@ -1,10 +1,22 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 
+export const USER_ROLES = ["owner", "admin", "finance", "cashier"] as const;
+export type UserRole = (typeof USER_ROLES)[number];
+
+export const ROLE_LABELS: Record<UserRole, string> = {
+  owner: "Pemilik",
+  admin: "Admin",
+  finance: "Keuangan",
+  cashier: "Kasir",
+};
+
 export interface AuthUser {
   id: string;
+  dbId: number;
   email: string;
   name: string;
   avatar: string | null;
+  role: UserRole;
 }
 
 export function useAuth() {
@@ -36,4 +48,9 @@ export function useLogout() {
       window.location.href = "/login";
     },
   });
+}
+
+export function hasRole(user: AuthUser | null | undefined, ...roles: UserRole[]): boolean {
+  if (!user) return false;
+  return roles.includes(user.role);
 }

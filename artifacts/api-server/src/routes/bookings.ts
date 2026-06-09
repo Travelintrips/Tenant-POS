@@ -6,8 +6,11 @@ import {
   insertTenantBookingSchema,
 } from "@workspace/db/schema";
 import { eq } from "drizzle-orm";
+import { requireAnyRole } from "../middlewares/auth";
 
 const router: IRouter = Router();
+
+router.use(requireAnyRole("owner", "admin", "finance"));
 
 const bookingSelect = {
   id: tenantBookingsTable.id,

@@ -16,13 +16,24 @@ import {
 } from "@/components/ui/sidebar";
 import { Building2, Store, CalendarRange, Calculator, BarChart3, LogOut } from "lucide-react";
 import { Separator } from "@/components/ui/separator";
-import { useAuth, useLogout } from "@/hooks/use-auth";
+import { useAuth, useLogout, ROLE_LABELS, type UserRole } from "@/hooks/use-auth";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+
+const ROLE_COLORS: Record<UserRole, string> = {
+  owner:   "bg-purple-100 text-purple-800",
+  admin:   "bg-blue-100 text-blue-800",
+  finance: "bg-green-100 text-green-800",
+  cashier: "bg-orange-100 text-orange-800",
+};
 
 export function SidebarLayout({ children }: { children: React.ReactNode }) {
   const [location] = useLocation();
   const { data: user } = useAuth();
   const logout = useLogout();
+
+  const role = user?.role as UserRole | undefined;
+  const can = (...roles: UserRole[]) => !!role && roles.includes(role);
 
   return (
     <SidebarProvider>
@@ -34,66 +45,76 @@ export function SidebarLayout({ children }: { children: React.ReactNode }) {
           </span>
         </SidebarHeader>
         <SidebarContent>
-          <SidebarGroup>
-            <SidebarGroupLabel>PENYEWA TENAN</SidebarGroupLabel>
-            <SidebarMenu>
-              <SidebarMenuItem>
-                <SidebarMenuButton
-                  asChild
-                  isActive={location === "/data-tenant"}
-                  data-testid="nav-data-tenant"
-                >
-                  <Link href="/data-tenant">
-                    <Store className="mr-2 h-4 w-4" />
-                    <span>Data Tenant</span>
-                  </Link>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-              <SidebarMenuItem>
-                <SidebarMenuButton
-                  asChild
-                  isActive={location === "/booking-tenant"}
-                  data-testid="nav-booking-tenant"
-                >
-                  <Link href="/booking-tenant">
-                    <CalendarRange className="mr-2 h-4 w-4" />
-                    <span>Booking Tenant</span>
-                  </Link>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-              <SidebarMenuItem>
-                <SidebarMenuButton
-                  asChild
-                  isActive={location === "/tenant-pos"}
-                  data-testid="nav-tenant-pos"
-                >
-                  <Link href="/tenant-pos">
-                    <Calculator className="mr-2 h-4 w-4" />
-                    <span>POS Tenant</span>
-                  </Link>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-            </SidebarMenu>
-          </SidebarGroup>
-          <SidebarGroup>
-            <SidebarGroupLabel>LAPORAN</SidebarGroupLabel>
-            <SidebarMenu>
-              <SidebarMenuItem>
-                <SidebarMenuButton
-                  asChild
-                  isActive={location === "/laporan"}
-                  data-testid="nav-laporan"
-                >
-                  <Link href="/laporan">
-                    <BarChart3 className="mr-2 h-4 w-4" />
-                    <span>Rekap Pembayaran</span>
-                  </Link>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-            </SidebarMenu>
-          </SidebarGroup>
+          {can("owner", "admin", "finance", "cashier") && (
+            <SidebarGroup>
+              <SidebarGroupLabel>PENYEWA TENAN</SidebarGroupLabel>
+              <SidebarMenu>
+                {can("owner", "admin") && (
+                  <SidebarMenuItem>
+                    <SidebarMenuButton
+                      asChild
+                      isActive={location === "/data-tenant"}
+                      data-testid="nav-data-tenant"
+                    >
+                      <Link href="/data-tenant">
+                        <Store className="mr-2 h-4 w-4" />
+                        <span>Data Tenant</span>
+                      </Link>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                )}
+                {can("owner", "admin", "finance") && (
+                  <SidebarMenuItem>
+                    <SidebarMenuButton
+                      asChild
+                      isActive={location === "/booking-tenant"}
+                      data-testid="nav-booking-tenant"
+                    >
+                      <Link href="/booking-tenant">
+                        <CalendarRange className="mr-2 h-4 w-4" />
+                        <span>Booking Tenant</span>
+                      </Link>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                )}
+                {can("owner", "admin", "finance", "cashier") && (
+                  <SidebarMenuItem>
+                    <SidebarMenuButton
+                      asChild
+                      isActive={location === "/tenant-pos"}
+                      data-testid="nav-tenant-pos"
+                    >
+                      <Link href="/tenant-pos">
+                        <Calculator className="mr-2 h-4 w-4" />
+                        <span>POS Tenant</span>
+                      </Link>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                )}
+              </SidebarMenu>
+            </SidebarGroup>
+          )}
+          {can("owner", "admin", "finance") && (
+            <SidebarGroup>
+              <SidebarGroupLabel>LAPORAN</SidebarGroupLabel>
+              <SidebarMenu>
+                <SidebarMenuItem>
+                  <SidebarMenuButton
+                    asChild
+                    isActive={location === "/laporan"}
+                    data-testid="nav-laporan"
+                  >
+                    <Link href="/laporan">
+                      <BarChart3 className="mr-2 h-4 w-4" />
+                      <span>Rekap Pembayaran</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              </SidebarMenu>
+            </SidebarGroup>
+          )}
         </SidebarContent>
-        {user && (
+        {user && role && (
           <SidebarFooter className="border-t px-3 py-3">
             <div className="flex items-center gap-2 mb-2">
               {user.avatar ? (
@@ -111,6 +132,9 @@ export function SidebarLayout({ children }: { children: React.ReactNode }) {
                 <p className="text-xs font-medium text-sidebar-foreground truncate">{user.name}</p>
                 <p className="text-[10px] text-muted-foreground truncate">{user.email}</p>
               </div>
+              <Badge className={`text-[10px] px-1.5 py-0 h-4 shrink-0 border-0 ${ROLE_COLORS[role]}`}>
+                {ROLE_LABELS[role]}
+              </Badge>
             </div>
             <Button
               variant="ghost"

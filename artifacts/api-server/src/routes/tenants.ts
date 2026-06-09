@@ -2,8 +2,11 @@ import { Router, type IRouter } from "express";
 import { db } from "@workspace/db";
 import { tenantsTable, insertTenantSchema } from "@workspace/db/schema";
 import { eq, asc } from "drizzle-orm";
+import { requireAnyRole } from "../middlewares/auth";
 
 const router: IRouter = Router();
+
+router.use(requireAnyRole("owner", "admin"));
 
 router.get("/tenants", async (req, res) => {
   try {
