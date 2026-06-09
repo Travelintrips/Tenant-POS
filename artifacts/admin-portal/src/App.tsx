@@ -12,6 +12,7 @@ import { SiteProvider } from "@/contexts/site-context";
 
 import DataTenant from "@/pages/data-tenant";
 import UnitTenant from "@/pages/unit-tenant";
+import RekapTenant from "@/pages/rekap-tenant";
 import BookingTenant from "@/pages/booking-tenant";
 import TenantPos from "@/pages/tenant-pos";
 import Laporan from "@/pages/laporan";
@@ -129,6 +130,13 @@ function Router() {
         <AuthGuard roles={["owner", "admin"]}>
           <SidebarLayout>
             <AuditLogs />
+          </SidebarLayout>
+        </AuthGuard>
+      </Route>
+      <Route path="/rekap-tenant">
+        <AuthGuard roles={["owner", "admin", "finance"]}>
+          <SidebarLayout>
+            <RekapTenant />
           </SidebarLayout>
         </AuthGuard>
       </Route>
