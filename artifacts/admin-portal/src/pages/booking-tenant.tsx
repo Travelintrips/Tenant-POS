@@ -268,6 +268,7 @@ export default function BookingTenant() {
   const { data: bookings, isLoading, isError } = useQuery<BookingWithTenant[]>({
     queryKey: ["/api/bookings"],
     queryFn: fetchBookings,
+    refetchInterval: 30000,
   });
 
   const { data: tenants } = useQuery<Tenant[]>({

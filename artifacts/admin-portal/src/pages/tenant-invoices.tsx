@@ -373,6 +373,7 @@ export default function TenantInvoices() {
   const { data: invoices, isLoading, isError } = useQuery<Invoice[]>({
     queryKey: ["/api/tenant-invoices", filterStatus, filterTenant, search],
     queryFn: () => apiFetch<Invoice[]>(`${BASE}/api/tenant-invoices?${qParams}`),
+    refetchInterval: 30000,
   });
 
   const { data: tenants } = useQuery<Tenant[]>({

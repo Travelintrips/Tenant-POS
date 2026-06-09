@@ -8,6 +8,7 @@ import {
 import { eq, and, ne, lt, lte, gte, or } from "drizzle-orm";
 import { requireAnyRole } from "../middlewares/auth";
 import { logAudit } from "../lib/audit";
+import { sseBroker } from "../lib/sse-broker";
 import { z } from "zod/v4";
 
 const router: IRouter = Router();
@@ -211,6 +212,7 @@ router.post("/bookings", async (req, res) => {
       afterData: withTenant,
     });
 
+    sseBroker.publish("booking_updated", { bookingId: booking.id });
     res.status(201).json({ ...withTenant, contractStatus: computeContractStatus(withTenant) });
   } catch (err) {
     req.log.error(err, "Failed to create booking");
@@ -306,6 +308,7 @@ router.put("/bookings/:id", async (req, res) => {
       afterData: withTenant,
     });
 
+    sseBroker.publish("booking_updated", { bookingId: id });
     res.json({ ...withTenant, contractStatus: computeContractStatus(withTenant) });
   } catch (err) {
     req.log.error(err, "Failed to update booking");

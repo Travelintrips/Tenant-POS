@@ -1,5 +1,6 @@
 import { Router, type IRouter } from "express";
 import { db } from "@workspace/db";
+import { sseBroker } from "../lib/sse-broker";
 import {
   mallUnitsTable,
   tenantBookingsTable,
@@ -279,6 +280,7 @@ router.patch("/mall-units/:id", requireAnyRole("owner", "admin"), async (req, re
       beforeData: before,
       afterData: updated,
     });
+    sseBroker.publish("unit_updated", { unitId: id });
     res.json(updated);
   } catch (err) {
     req.log.error(err, "Failed to update mall unit");

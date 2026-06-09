@@ -1,5 +1,6 @@
 import { Router, type IRouter } from "express";
 import { db } from "@workspace/db";
+import { sseBroker } from "../lib/sse-broker";
 import {
   tenantInvoicesTable,
   tenantBookingsTable,
@@ -324,6 +325,7 @@ router.patch("/tenant-invoices/:id", async (req, res) => {
       .leftJoin(tenantsTable, eq(tenantInvoicesTable.tenantId, tenantsTable.id))
       .where(eq(tenantInvoicesTable.id, updated.id));
 
+    sseBroker.publish("invoice_updated", { invoiceId: id });
     res.json(withTenant);
   } catch (err) {
     req.log.error(err, "Failed to update invoice");
@@ -533,7 +535,7 @@ router.post("/tenant-invoices/:id/payment", async (req, res) => {
           invoiceId: id,
           tenantId: invoice.tenantId,
           bookingId: invoice.bookingId ?? null,
-          amount: amountPaid,
+          amount: String(amountPaid),
           discountAmount: "0",
           penaltyAmount: "0",
           paymentMethod,
@@ -571,6 +573,7 @@ router.post("/tenant-invoices/:id/payment", async (req, res) => {
         invoiceStatus: result.newStatus,
       },
     });
+    sseBroker.publish("payment_created", { paymentId: result.payment.id, invoiceId: id });
     res.status(201).json({
       success: true,
       payment: result.payment,

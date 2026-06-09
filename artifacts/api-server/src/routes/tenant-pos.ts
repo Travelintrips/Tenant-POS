@@ -11,6 +11,7 @@ import { eq, and, sql, desc } from "drizzle-orm";
 import { z } from "zod";
 import { requireAnyRole } from "../middlewares/auth";
 import { logAudit } from "../lib/audit";
+import { sseBroker } from "../lib/sse-broker";
 
 const router: IRouter = Router();
 
@@ -483,6 +484,7 @@ router.post("/tenant-pos/payments", async (req, res) => {
         paymentStatus: result.paymentStatus,
       },
     });
+    sseBroker.publish("payment_created", { paymentId: result.payment.id });
     res.status(201).json({
       success: true,
       payment: result.payment,
@@ -613,6 +615,7 @@ router.post("/tenant-pos/payments/:id/void", async (req, res) => {
       beforeData: { id: result.id, isVoided: false, amount: result.amount },
       afterData: { id: result.id, isVoided: true, voidReason: parsed.data.voidReason },
     });
+    sseBroker.publish("payment_voided", { paymentId: result.id });
     res.json({ success: true, message: "Pembayaran berhasil di-void", paymentId: result.id });
   } catch (err) {
     const e = err as Error & { status?: number };
