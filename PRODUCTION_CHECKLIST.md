@@ -443,3 +443,120 @@ helmet({
 |------|-----------|
 | `artifacts/api-server/src/app.ts` | Import `helmet`; tambah `app.use(helmet({...}))` setelah pinoHttp |
 | `artifacts/api-server/src/__tests__/security-headers.test.ts` | **Baru** — 20 test case verifikasi security headers |
+
+---
+
+## 12. CSP Frontend (Content Security Policy)
+
+**Tanggal ditambahkan:** 9 Juni 2026  
+**File:** `artifacts/admin-portal/index.html`  
+**Metode:** Meta tag `<meta http-equiv="Content-Security-Policy" ...>`
+
+### Status CSP Saat Ini
+
+| Komponen | Status |
+|----------|--------|
+| CSP dipasang di frontend | ✅ **Ya** — meta tag di `index.html` |
+| CSP dipasang di API server | ❌ Tidak (sengaja; lihat bagian 11) |
+| Policy ketat (nonce/hash) | ⚠️ Belum — menggunakan `unsafe-inline`/`unsafe-eval` |
+| CSP report-uri | ❌ Belum dikonfigurasi |
+
+### Policy yang Digunakan (Development/Staging)
+
+```
+default-src 'self';
+script-src  'self' 'unsafe-inline' 'unsafe-eval';
+style-src   'self' 'unsafe-inline' https://fonts.googleapis.com;
+img-src     'self' data: blob: https:;
+connect-src 'self' http: https: ws: wss:;
+font-src    'self' data: https://fonts.gstatic.com;
+frame-ancestors 'self';
+object-src  'none';
+base-uri    'self';
+```
+
+### Kenapa Belum Dibuat Ketat
+
+| Alasan | Detail |
+|--------|--------|
+| **Vite dev HMR** membutuhkan `unsafe-eval` | Module hot-reload menggunakan `eval()` secara internal |
+| **React inline handlers** membutuhkan `unsafe-inline` | Event handler JSX dikompilasi ke inline script di dev mode |
+| **Recharts/framer-motion** mungkin butuh `unsafe-eval` | Beberapa animation library menggunakan `new Function()` |
+| **Google Fonts** membutuhkan allow-list googleapis/gstatic | Font CSS di-load dari CDN eksternal |
+| **Upload preview** menggunakan `blob:` URL | `URL.createObjectURL()` di logo preview & export PDF |
+| **Vite HMR websocket** membutuhkan `ws: wss:` | Live-reload menggunakan WebSocket koneksi |
+| Domain production belum final | Nonce/hash CSP harus dites setelah domain production diketahui |
+
+### Proteksi yang Sudah Aktif dari Policy Ini
+
+Meskipun masih longgar, policy ini sudah memberikan perlindungan nyata:
+
+| Direktif | Proteksi |
+|----------|---------|
+| `object-src 'none'` | ✅ Blokir plugin Flash/Java/ActiveX |
+| `base-uri 'self'` | ✅ Cegah base tag injection (redirect relatif URL) |
+| `frame-ancestors 'self'` | ✅ Cegah clickjacking via iframe dari domain lain (backup dari X-Frame-Options) |
+| `default-src 'self'` | ✅ Fallback — resource tidak terdaftar di-blokir |
+| `connect-src` terbatas | ✅ Tidak allow arbitrary WebSocket ke domain asing |
+| `img-src https:` | ✅ Allow gambar dari HTTPS saja, tidak dari HTTP plaintext |
+
+### Rekomendasi CSP Production Final
+
+Setelah domain production final diketahui dan app stabil:
+
+```
+# Target policy production (ketat):
+default-src 'self';
+script-src  'self' 'nonce-{SERVER_NONCE}';           # Hapus unsafe-inline/eval
+style-src   'self' 'nonce-{SERVER_NONCE}' https://fonts.googleapis.com;
+img-src     'self' data: blob: https:;
+connect-src 'self' https://api.{DOMAIN} wss://api.{DOMAIN};   # Batasi ke domain production
+font-src    'self' https://fonts.gstatic.com;
+frame-ancestors 'none';                                # Lebih ketat dari 'self'
+object-src  'none';
+base-uri    'self';
+report-uri  /api/csp-report;                          # Monitor violation
+```
+
+**Langkah memperketat CSP production:**
+1. Deploy ke staging dengan policy current (longgar)
+2. Aktifkan `report-only` mode dulu: `Content-Security-Policy-Report-Only`
+3. Kumpulkan violation report minimal 1 minggu
+4. Baru perketat secara bertahap berdasarkan report
+5. Hapus `unsafe-eval` dulu, lalu `unsafe-inline` dengan nonce
+6. Aktifkan `report-uri` ke endpoint monitoring
+
+### Audit Frontend — Temuan
+
+| Aspek | Status | Catatan |
+|-------|--------|---------|
+| Inline `<script>` selain main.tsx | ✅ Tidak ada | Hanya `<script type="module" src="/src/main.tsx">` |
+| Script dari CDN eksternal | ✅ Tidak ada | Semua JS di-bundle via Vite/npm |
+| CSS dari CDN eksternal | ⚠️ Google Fonts | `fonts.googleapis.com` — sudah di-allow-list |
+| Font dari CDN eksternal | ⚠️ Google Fonts | `fonts.gstatic.com` — sudah di-allow-list |
+| Recharts | ✅ Bundled | Tidak ada CDN, di-bundle bersama app |
+| Framer Motion | ✅ Bundled | Tidak ada CDN, di-bundle bersama app |
+| Google OAuth | ✅ Link redirect | `<a href="/api/auth/google">` — tidak ada JS popup, tidak perlu allow Google domain di CSP |
+| Upload logo preview | ⚠️ `blob:` URL | `URL.createObjectURL()` — sudah di-allow-list `img-src blob:` |
+| Export PDF | ⚠️ `blob:` URL | `URL.createObjectURL()` untuk download — sudah di-allow-list |
+| WebSocket HMR | ⚠️ `ws://` | Vite dev server — sudah di-allow-list `connect-src ws: wss:` |
+
+### Catatan Penting
+
+> ⚠️ **Meta CSP vs Header CSP:** Meta tag CSP tidak support `frame-ancestors` dan `report-uri` di beberapa browser lama. Untuk production yang butuh `frame-ancestors` dan monitoring penuh, CSP harus dikirim sebagai **HTTP response header** dari server (Nginx/Express), bukan meta tag.
+
+> ⚠️ **CSP harus dites setelah domain production final** karena `connect-src` dan `img-src` mungkin perlu disesuaikan dengan URL API dan CDN yang berbeda di production vs development.
+
+### Hasil Verifikasi Setelah CSP Ditambahkan
+
+```
+✅ pnpm run typecheck  — 0 error (semua packages)
+✅ pnpm run build      — admin-portal 2462 modules, api-server 3.0mb
+✅ pnpm test           — 141/141 tests pass (12 test files)
+✅ Halaman /login      — render normal, tidak blank
+✅ Dashboard           — render normal setelah dev login
+✅ Google Fonts        — dimuat dari fonts.googleapis.com (di-allow-list)
+✅ Recharts/charts     — render normal (bundled, tidak perlu CDN)
+✅ API calls           — /api/auth/me, /api/tenants, dll tetap berfungsi
+✅ Upload preview      — blob: URL di-allow-list
+```
