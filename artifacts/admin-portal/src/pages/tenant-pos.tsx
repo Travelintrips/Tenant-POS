@@ -213,7 +213,8 @@ function formatTanggalID(dateStr: string | null): string {
 }
 function resolveStatus(item: FloorPlanItem): PaymentStatus | "VACANT" {
   if (!item.bookingId) return "VACANT";
-  return item.paymentStatus;
+  const upper = (item.paymentStatus ?? "UNPAID").toUpperCase() as PaymentStatus;
+  return statusConfig[upper] ? upper : "UNPAID";
 }
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");

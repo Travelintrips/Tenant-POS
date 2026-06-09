@@ -160,7 +160,7 @@ router.get("/tenant-pos/floor-plan", async (req, res) => {
       totalAmount: Number(row.totalAmount ?? 0),
       paidAmount: Number(row.paidAmount ?? 0),
       remainingAmount: Number(row.remainingAmount ?? 0),
-      paymentStatus: (row.paymentStatus ?? "UNPAID") as string,
+      paymentStatus: (row.paymentStatus ?? "UNPAID").toUpperCase() as string,
       bookingStatus: row.bookingStatus ?? "aktif",
       dueDate: row.dueDate ?? null,
       periodLabel: row.periodLabel ?? null,
