@@ -1,4 +1,5 @@
 import pg from "pg";
+import { dbConfig } from "./config";
 
 const MIGRATIONS: { name: string; sql: string }[] = [
   {
@@ -92,20 +93,9 @@ END $$;
 const MIGRATIONS_TABLE = "schema_migrations";
 
 export async function runMigrations(): Promise<void> {
-  const connectionString =
-    process.env["SUPABASE_PG_URL"] ??
-    process.env["SUPABASE_DATABASE_URL_DEV"] ??
-    process.env["DATABASE_URL"];
-
-  if (!connectionString) {
-    throw new Error(
-      "No database connection string found. Set SUPABASE_PG_URL, SUPABASE_DATABASE_URL_DEV, or DATABASE_URL.",
-    );
-  }
-
   const client = new pg.Client({
-    connectionString,
-    ssl: { rejectUnauthorized: false },
+    connectionString: dbConfig.url,
+    ssl: dbConfig.ssl,
   });
 
   await client.connect();
