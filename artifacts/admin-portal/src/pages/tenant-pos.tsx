@@ -1793,8 +1793,6 @@ export default function TenantPos() {
                 </button>
               ))}
             </div>
-          <CardHeader className="py-2.5 px-4 border-b shrink-0">
-            <CardTitle className="text-sm font-semibold text-slate-700">Denah Tenant</CardTitle>
           </CardHeader>
           {!floorPlan.isLoading && !floorPlan.isError && (
             <FilterBar
