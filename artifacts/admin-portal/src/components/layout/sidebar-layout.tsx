@@ -14,7 +14,7 @@ import {
   SidebarInset,
   SidebarTrigger
 } from "@/components/ui/sidebar";
-import { Building2, Store, CalendarRange, Calculator, BarChart3, LogOut, FileText } from "lucide-react";
+import { Building2, Store, CalendarRange, Calculator, BarChart3, LogOut, FileText, Shield } from "lucide-react";
 import { Separator } from "@/components/ui/separator";
 import { useAuth, useLogout, ROLE_LABELS, type UserRole } from "@/hooks/use-auth";
 import { Button } from "@/components/ui/button";
@@ -121,6 +121,25 @@ export function SidebarLayout({ children }: { children: React.ReactNode }) {
                     <Link href="/laporan">
                       <BarChart3 className="mr-2 h-4 w-4" />
                       <span>Rekap Pembayaran</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              </SidebarMenu>
+            </SidebarGroup>
+          )}
+          {can("owner", "admin") && (
+            <SidebarGroup>
+              <SidebarGroupLabel>SISTEM</SidebarGroupLabel>
+              <SidebarMenu>
+                <SidebarMenuItem>
+                  <SidebarMenuButton
+                    asChild
+                    isActive={location === "/audit-logs"}
+                    data-testid="nav-audit-logs"
+                  >
+                    <Link href="/audit-logs">
+                      <Shield className="mr-2 h-4 w-4" />
+                      <span>Audit Log</span>
                     </Link>
                   </SidebarMenuButton>
                 </SidebarMenuItem>

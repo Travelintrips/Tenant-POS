@@ -2,8 +2,10 @@ import { Router, type IRouter } from "express";
 import passport from "../lib/auth";
 import { db } from "@workspace/db";
 import { usersTable, USER_ROLES, type UserRole } from "@workspace/db/schema";
-import { eq } from "drizzle-orm";
+import { eq, asc } from "drizzle-orm";
 import { findOrCreateUser } from "../lib/auth";
+import { requireAnyRole, requireAuth } from "../middlewares/auth";
+import { logAudit } from "../lib/audit";
 
 const router: IRouter = Router();
 
@@ -82,6 +84,78 @@ router.post("/auth/logout", (req, res) => {
   req.logout(() => {
     res.json({ ok: true });
   });
+});
+
+// ─── GET /api/users — daftar user (owner/admin only) ─────────────────────────
+router.get("/users", requireAuth, requireAnyRole("owner", "admin"), async (_req, res) => {
+  try {
+    const users = await db
+      .select({
+        id: usersTable.id,
+        email: usersTable.email,
+        name: usersTable.name,
+        role: usersTable.role,
+        avatarUrl: usersTable.avatarUrl,
+        createdAt: usersTable.createdAt,
+        updatedAt: usersTable.updatedAt,
+      })
+      .from(usersTable)
+      .orderBy(asc(usersTable.createdAt));
+    res.json(users);
+  } catch (err) {
+    res.status(500).json({ error: "Gagal mengambil daftar user" });
+  }
+});
+
+// ─── PATCH /api/users/:id/role — ganti peran user ─────────────────────────────
+router.patch("/users/:id/role", requireAuth, requireAnyRole("owner"), async (req, res) => {
+  const id = Number(req.params.id);
+  if (isNaN(id)) {
+    res.status(400).json({ error: "ID tidak valid" });
+    return;
+  }
+
+  const { role } = req.body as { role?: string };
+  if (!role || !USER_ROLES.includes(role as UserRole)) {
+    res.status(400).json({ error: `Peran tidak valid. Pilihan: ${USER_ROLES.join(", ")}` });
+    return;
+  }
+
+  try {
+    const [before] = await db
+      .select({ id: usersTable.id, email: usersTable.email, name: usersTable.name, role: usersTable.role })
+      .from(usersTable)
+      .where(eq(usersTable.id, id));
+
+    if (!before) {
+      res.status(404).json({ error: "User tidak ditemukan" });
+      return;
+    }
+
+    const [updated] = await db
+      .update(usersTable)
+      .set({ role: role as UserRole, updatedAt: new Date() })
+      .where(eq(usersTable.id, id))
+      .returning({
+        id: usersTable.id,
+        email: usersTable.email,
+        name: usersTable.name,
+        role: usersTable.role,
+        updatedAt: usersTable.updatedAt,
+      });
+
+    logAudit(req, {
+      action: "change_user_role",
+      entityType: "user",
+      entityId: id,
+      beforeData: { id: before.id, email: before.email, name: before.name, role: before.role },
+      afterData: { id: updated.id, email: updated.email, name: updated.name, role: updated.role },
+    });
+
+    res.json(updated);
+  } catch (err) {
+    res.status(500).json({ error: "Gagal mengubah peran user" });
+  }
 });
 
 export default router;

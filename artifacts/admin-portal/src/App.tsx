@@ -14,6 +14,7 @@ import BookingTenant from "@/pages/booking-tenant";
 import TenantPos from "@/pages/tenant-pos";
 import Laporan from "@/pages/laporan";
 import TenantInvoices from "@/pages/tenant-invoices";
+import AuditLogs from "@/pages/audit-logs";
 
 const queryClient = new QueryClient();
 
@@ -106,6 +107,13 @@ function Router() {
         <AuthGuard roles={["owner", "admin", "finance"]}>
           <SidebarLayout>
             <TenantInvoices />
+          </SidebarLayout>
+        </AuthGuard>
+      </Route>
+      <Route path="/audit-logs">
+        <AuthGuard roles={["owner", "admin"]}>
+          <SidebarLayout>
+            <AuditLogs />
           </SidebarLayout>
         </AuthGuard>
       </Route>

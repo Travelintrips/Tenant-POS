@@ -10,6 +10,7 @@ import {
 import { eq, and, sql, desc } from "drizzle-orm";
 import { z } from "zod";
 import { requireAnyRole } from "../middlewares/auth";
+import { logAudit } from "../lib/audit";
 
 const router: IRouter = Router();
 
@@ -468,6 +469,20 @@ router.post("/tenant-pos/payments", async (req, res) => {
       return { payment, booking: updatedBooking, paymentStatus, newPaidAmount, remainingAmount, receiptNumber, change };
     });
 
+    logAudit(req, {
+      action: "create_payment",
+      entityType: "payment",
+      entityId: result.payment.id,
+      afterData: {
+        paymentId: result.payment.id,
+        bookingId,
+        tenantId,
+        amountPaid,
+        paymentMethod,
+        receiptNumber: result.receiptNumber,
+        paymentStatus: result.paymentStatus,
+      },
+    });
     res.status(201).json({
       success: true,
       payment: result.payment,
@@ -591,6 +606,13 @@ router.post("/tenant-pos/payments/:id/void", async (req, res) => {
       return payment;
     });
 
+    logAudit(req, {
+      action: "void_payment",
+      entityType: "payment",
+      entityId: result.id,
+      beforeData: { id: result.id, isVoided: false, amount: result.amount },
+      afterData: { id: result.id, isVoided: true, voidReason: parsed.data.voidReason },
+    });
     res.json({ success: true, message: "Pembayaran berhasil di-void", paymentId: result.id });
   } catch (err) {
     const e = err as Error & { status?: number };
@@ -639,6 +661,13 @@ router.post("/tenant-pos/payments/:id/refund", async (req, res) => {
       .set({ refundAmount: String(parsed.data.refundAmount), refundReason: parsed.data.refundReason, refundStatus: "processed", updatedAt: new Date() })
       .where(eq(tenantPaymentsTable.id, paymentId));
 
+    logAudit(req, {
+      action: "refund_payment",
+      entityType: "payment",
+      entityId: paymentId,
+      beforeData: { id: paymentId, refundAmount: 0, refundStatus: payment.refundStatus },
+      afterData: { id: paymentId, refundAmount: parsed.data.refundAmount, refundReason: parsed.data.refundReason, refundStatus: "processed" },
+    });
     res.json({ success: true, message: "Refund berhasil dicatat" });
   } catch (err) {
     console.error(err);

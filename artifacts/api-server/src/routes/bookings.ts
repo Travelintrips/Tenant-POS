@@ -7,6 +7,7 @@ import {
 } from "@workspace/db/schema";
 import { eq, and, ne, lt, lte, gte, or } from "drizzle-orm";
 import { requireAnyRole } from "../middlewares/auth";
+import { logAudit } from "../lib/audit";
 import { z } from "zod/v4";
 
 const router: IRouter = Router();
@@ -203,6 +204,13 @@ router.post("/bookings", async (req, res) => {
       .leftJoin(tenantsTable, eq(tenantBookingsTable.tenantId, tenantsTable.id))
       .where(eq(tenantBookingsTable.id, booking.id));
 
+    logAudit(req, {
+      action: "create_booking",
+      entityType: "booking",
+      entityId: booking.id,
+      afterData: withTenant,
+    });
+
     res.status(201).json({ ...withTenant, contractStatus: computeContractStatus(withTenant) });
   } catch (err) {
     req.log.error(err, "Failed to create booking");
@@ -267,6 +275,12 @@ router.put("/bookings/:id", async (req, res) => {
   }
 
   try {
+    const [before] = await db
+      .select(bookingSelect)
+      .from(tenantBookingsTable)
+      .leftJoin(tenantsTable, eq(tenantBookingsTable.tenantId, tenantsTable.id))
+      .where(eq(tenantBookingsTable.id, id));
+
     const [updated] = await db
       .update(tenantBookingsTable)
       .set({ ...data, updatedAt: new Date() })
@@ -284,10 +298,66 @@ router.put("/bookings/:id", async (req, res) => {
       .leftJoin(tenantsTable, eq(tenantBookingsTable.tenantId, tenantsTable.id))
       .where(eq(tenantBookingsTable.id, id));
 
+    logAudit(req, {
+      action: "update_booking",
+      entityType: "booking",
+      entityId: id,
+      beforeData: before,
+      afterData: withTenant,
+    });
+
     res.json({ ...withTenant, contractStatus: computeContractStatus(withTenant) });
   } catch (err) {
     req.log.error(err, "Failed to update booking");
     res.status(500).json({ error: "Gagal memperbarui kontrak" });
+  }
+});
+
+// ─── POST /api/bookings/:id/terminate ─────────────────────────────────────────
+router.post("/bookings/:id/terminate", requireAnyRole("owner", "admin"), async (req, res) => {
+  const id = Number(req.params.id);
+  if (isNaN(id)) {
+    res.status(400).json({ error: "ID tidak valid" });
+    return;
+  }
+
+  const { reason } = req.body as { reason?: string };
+
+  try {
+    const [before] = await db
+      .select(bookingSelect)
+      .from(tenantBookingsTable)
+      .leftJoin(tenantsTable, eq(tenantBookingsTable.tenantId, tenantsTable.id))
+      .where(eq(tenantBookingsTable.id, id));
+
+    if (!before) {
+      res.status(404).json({ error: "Kontrak tidak ditemukan" });
+      return;
+    }
+
+    const [updated] = await db
+      .update(tenantBookingsTable)
+      .set({
+        contractStatus: "terminated",
+        bookingStatus: "batal",
+        adminNotes: reason ? `[TERMINATE] ${reason}` : "[TERMINATE]",
+        updatedAt: new Date(),
+      })
+      .where(eq(tenantBookingsTable.id, id))
+      .returning();
+
+    logAudit(req, {
+      action: "terminate_booking",
+      entityType: "booking",
+      entityId: id,
+      beforeData: before,
+      afterData: { ...before, contractStatus: "terminated", reason },
+    });
+
+    res.json({ success: true, booking: updated });
+  } catch (err) {
+    req.log.error(err, "Failed to terminate booking");
+    res.status(500).json({ error: "Gagal mengakhiri kontrak" });
   }
 });
 

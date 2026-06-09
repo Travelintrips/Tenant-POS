@@ -5,9 +5,9 @@ import {
   Clock, Phone, Mail, Calendar, CreditCard, Printer, Banknote,
   Smartphone, WalletCards, TrendingUp, Users, AlertTriangle, Zap,
   MoreHorizontal, History, Filter, Search, RotateCcw, ChevronDown,
-  MoreHorizontal, History, Filter, Search, ChevronRight, MapPin,
+  ChevronRight, MapPin,
   Wrench, Package, RefreshCw, Info, FileText, Layers,
-  LogIn, LogOut, FileText, Ban, RefreshCw, ShieldAlert, DollarSign,
+  LogIn, LogOut, Ban, ShieldAlert, DollarSign,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -1860,38 +1860,10 @@ export default function TenantPos() {
                 selected={selected}
                 onSelect={handleSelect}
                 isFiltered={hasFilter}
-        {/* Status filter */}
-        <div className="flex items-center gap-1 flex-wrap">
-          <button
-            onClick={() => setStatusFilter("all")}
-            className={cn("text-xs px-2.5 py-1 rounded-full border font-medium transition-all", statusFilter === "all" ? "bg-foreground text-background border-foreground" : "border-border text-muted-foreground hover:border-foreground/40")}
-          >
-            Semua <span className="opacity-60">({statusCounts.all ?? 0})</span>
-          </button>
-          {(Object.entries(UNIT_STATUS_CONFIG) as [UnitStatus, typeof UNIT_STATUS_CONFIG[UnitStatus]][]).map(([key, cfg]) => (
-            <button
-              key={key}
-              onClick={() => setStatusFilter(statusFilter === key ? "all" : key)}
-              className={cn("text-xs px-2.5 py-1 rounded-full border font-medium transition-all flex items-center gap-1",
-                statusFilter === key ? cn(cfg.badge, "shadow-sm") : "border-border text-muted-foreground hover:border-foreground/40"
-              )}
-            >
-              {cfg.icon}{cfg.label}
-              {statusCounts[key] != null && <span className="opacity-60">({statusCounts[key]})</span>}
-            </button>
-          ))}
-        </div>
-
-        {/* Search */}
-        <div className="relative ml-auto">
-          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
-          <Input
-            className="pl-8 h-8 text-xs w-44"
-            placeholder="Cari unit / tenant..."
-            value={searchQ}
-            onChange={e => setSearchQ(e.target.value)}
-          />
-        </div>
+              />
+            )}
+          </CardContent>
+        </Card>
       </div>
 
       {/* Main content: floor plan + side panel */}
@@ -1970,6 +1942,8 @@ export default function TenantPos() {
           unit={payUnit}
           onClose={() => setPayUnit(null)}
           onSuccess={() => { setPayUnit(null); void refetch(); }}
+        />
+      )}
       {/* Shift Panel */}
       {!currentShift.isLoading && (
         <ShiftPanel

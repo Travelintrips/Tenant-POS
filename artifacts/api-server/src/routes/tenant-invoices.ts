@@ -9,6 +9,7 @@ import {
 import { eq, and, sql, desc, ilike, or } from "drizzle-orm";
 import { z } from "zod/v4";
 import { requireAnyRole } from "../middlewares/auth";
+import { logAudit } from "../lib/audit";
 
 const router: IRouter = Router();
 router.use(requireAnyRole("owner", "admin", "finance"));
@@ -243,6 +244,12 @@ router.post("/tenant-invoices", async (req, res) => {
       .leftJoin(tenantsTable, eq(tenantInvoicesTable.tenantId, tenantsTable.id))
       .where(eq(tenantInvoicesTable.id, invoice.id));
 
+    logAudit(req, {
+      action: "create_invoice",
+      entityType: "invoice",
+      entityId: withTenant?.id,
+      afterData: withTenant,
+    });
     res.status(201).json(withTenant);
   } catch (err) {
     req.log.error(err, "Failed to create invoice");
@@ -417,6 +424,12 @@ router.post("/tenant-invoices/generate-from-booking/:bookingId", async (req, res
       .leftJoin(tenantsTable, eq(tenantInvoicesTable.tenantId, tenantsTable.id))
       .where(eq(tenantInvoicesTable.id, invoice.id));
 
+    logAudit(req, {
+      action: "create_invoice",
+      entityType: "invoice",
+      entityId: invoice.id,
+      afterData: withTenant,
+    });
     res.status(201).json(withTenant);
   } catch (err) {
     req.log.error(err, "Failed to generate invoice from booking");
@@ -447,6 +460,13 @@ router.post("/tenant-invoices/:id/cancel", async (req, res) => {
       .where(eq(tenantInvoicesTable.id, id))
       .returning();
 
+    logAudit(req, {
+      action: "cancel_invoice",
+      entityType: "invoice",
+      entityId: id,
+      beforeData: existing,
+      afterData: updated,
+    });
     res.json(updated);
   } catch (err) {
     req.log.error(err, "Failed to cancel invoice");
@@ -538,6 +558,19 @@ router.post("/tenant-invoices/:id/payment", async (req, res) => {
       return { payment, invoice: updatedInvoice, receiptNumber, newStatus, newPaidAmount, outstanding };
     });
 
+    logAudit(req, {
+      action: "create_payment",
+      entityType: "payment",
+      entityId: result.payment.id,
+      afterData: {
+        paymentId: result.payment.id,
+        invoiceId: id,
+        amountPaid,
+        paymentMethod,
+        receiptNumber: result.receiptNumber,
+        invoiceStatus: result.newStatus,
+      },
+    });
     res.status(201).json({
       success: true,
       payment: result.payment,

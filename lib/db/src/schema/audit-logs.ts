@@ -1,4 +1,4 @@
-import { pgTable, serial, integer, text, jsonb, timestamptz } from "drizzle-orm/pg-core";
+import { pgTable, serial, integer, text, jsonb, timestamp } from "drizzle-orm/pg-core";
 
 export const auditLogsTable = pgTable("audit_logs", {
   id: serial("id").primaryKey(),
@@ -12,7 +12,7 @@ export const auditLogsTable = pgTable("audit_logs", {
   afterData: jsonb("after_data"),
   ipAddress: text("ip_address"),
   userAgent: text("user_agent"),
-  createdAt: timestamptz("created_at").notNull().defaultNow(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
 export type AuditLog = typeof auditLogsTable.$inferSelect;

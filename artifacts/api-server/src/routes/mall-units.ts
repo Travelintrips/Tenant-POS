@@ -11,6 +11,7 @@ import {
 } from "@workspace/db/schema";
 import { eq, and, or, lte, gte, ne, sql, desc } from "drizzle-orm";
 import { requireAnyRole } from "../middlewares/auth";
+import { logAudit } from "../lib/audit";
 import { z } from "zod";
 
 const router: IRouter = Router();
@@ -232,6 +233,12 @@ router.post("/mall-units", requireAnyRole("owner", "admin"), async (req, res) =>
 
   try {
     const [unit] = await db.insert(mallUnitsTable).values(parsed.data).returning();
+    logAudit(req, {
+      action: "update_unit_status",
+      entityType: "mall_unit",
+      entityId: unit.id,
+      afterData: unit,
+    });
     res.status(201).json(unit);
   } catch (err) {
     req.log.error(err, "Failed to create mall unit");
@@ -254,6 +261,7 @@ router.patch("/mall-units/:id", requireAnyRole("owner", "admin"), async (req, re
   }
 
   try {
+    const [before] = await db.select().from(mallUnitsTable).where(eq(mallUnitsTable.id, id));
     const [updated] = await db
       .update(mallUnitsTable)
       .set({ ...parsed.data, updatedAt: new Date() })
@@ -264,6 +272,13 @@ router.patch("/mall-units/:id", requireAnyRole("owner", "admin"), async (req, re
       res.status(404).json({ error: "Unit tidak ditemukan" });
       return;
     }
+    logAudit(req, {
+      action: "update_unit_status",
+      entityType: "mall_unit",
+      entityId: id,
+      beforeData: before,
+      afterData: updated,
+    });
     res.json(updated);
   } catch (err) {
     req.log.error(err, "Failed to update mall unit");
