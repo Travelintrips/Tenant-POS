@@ -7,7 +7,12 @@
     "build": "pnpm run typecheck && pnpm -r --if-present run build",
     "typecheck:libs": "tsc --build",
     "typecheck": "pnpm run typecheck:libs && pnpm -r --filter \"./artifacts/**\" --filter \"./scripts\" --if-present run typecheck",
-    "db:seed": "pnpm --filter @workspace/scripts run seed:demo"
+    "db:seed": "pnpm --filter @workspace/scripts run seed:demo",
+    "test": "pnpm run test:backend && pnpm run test:frontend",
+    "test:backend": "pnpm --filter @workspace/api-server run test",
+    "test:frontend": "pnpm --filter @workspace/admin-portal run test",
+    "test:watch": "pnpm -r --if-present run test:watch",
+    "test:coverage": "pnpm run test:backend -- --coverage && pnpm run test:frontend -- --coverage"
   },
   "private": true,
   "devDependencies": {
