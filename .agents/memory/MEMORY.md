@@ -5,3 +5,5 @@
 - [schema-column-fix](schema-column-fix.md) — 3 tables needed ALTER TABLE to add missing columns; sync old data booking_id from tenant_booking_id after adding new column
 - [drizzle-kit-tty](drizzle-kit-tty.md) — drizzle-kit push requires interactive TTY for new tables; add SQL migration to lib/db/src/migrator.ts instead
 - [drizzle-timestamptz](drizzle-timestamptz.md) — `timestamptz` is not exported from drizzle-orm@0.45; use `timestamp("col", { withTimezone: true })` instead
+- [tenant-status-mismatch](tenant-status-mismatch.md) — tenant status in DB is "active"/"inactive" (English) but some queries use "aktif"; always query with IN ('aktif', 'active') for tenant status filters
+- [artifact-workflow-port-conflict](artifact-workflow-port-conflict.md) — artifact workflows (api-server) conflict with "Start application" on port 8080; keep both in "Start application" as parallel background processes

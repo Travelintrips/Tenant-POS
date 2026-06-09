@@ -45,7 +45,7 @@ router.get("/tenant-pos/overview", async (req, res) => {
     const [totalActive] = await db
       .select({ count: sql<number>`count(*)::int` })
       .from(tenantsTable)
-      .where(eq(tenantsTable.status, "aktif"));
+      .where(sql`${tenantsTable.status} IN ('aktif', 'active')`);
 
     const [unpaid] = await db
       .select({ count: sql<number>`count(*)::int` })
