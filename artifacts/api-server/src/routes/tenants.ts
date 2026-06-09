@@ -1,16 +1,19 @@
 import { Router, type IRouter } from "express";
 import { db } from "@workspace/db";
 import { tenantsTable, insertTenantSchema } from "@workspace/db/schema";
-import { eq } from "drizzle-orm";
+import { eq, asc } from "drizzle-orm";
+import { requireAnyRole } from "../middlewares/auth";
 
 const router: IRouter = Router();
+
+router.use(requireAnyRole("owner", "admin"));
 
 router.get("/tenants", async (req, res) => {
   try {
     const rows = await db
       .select()
       .from(tenantsTable)
-      .orderBy(tenantsTable.areaName, tenantsTable.id);
+      .orderBy(asc(tenantsTable.id));
     res.json(rows);
   } catch (err) {
     req.log.error(err, "Failed to list tenants");

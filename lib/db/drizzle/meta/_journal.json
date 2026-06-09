@@ -8,6 +8,13 @@
       "when": 1780926146727,
       "tag": "0000_dry_madame_web",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1780963230000,
+      "tag": "0001_ensure_schema",
+      "breakpoints": true
     }
   ]
 }

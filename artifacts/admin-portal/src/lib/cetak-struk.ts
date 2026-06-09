@@ -14,6 +14,11 @@ export interface DataStruk {
   metodeBayar: string;
   kasir: string;
   status: "lunas" | "tunggakan";
+  invoiceNumber?: string;
+  referenceNumber?: string;
+  kembalian?: number;
+  diskon?: number;
+  denda?: number;
 }
 
 function formatRp(v: number) {

@@ -1,46 +1,113 @@
-import { Switch, Route, Router as WouterRouter } from "wouter";
+import { Switch, Route, Router as WouterRouter, Redirect } from "wouter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/not-found";
+import Unauthorized from "@/pages/unauthorized";
+import Login from "@/pages/login";
 import { SidebarLayout } from "@/components/layout/sidebar-layout";
+import { useAuth, type UserRole } from "@/hooks/use-auth";
+import { RealtimeSync } from "@/components/realtime-sync";
 
 import DataTenant from "@/pages/data-tenant";
 import BookingTenant from "@/pages/booking-tenant";
 import TenantPos from "@/pages/tenant-pos";
 import Laporan from "@/pages/laporan";
+import TenantInvoices from "@/pages/tenant-invoices";
 
 const queryClient = new QueryClient();
+
+const Spinner = () => (
+  <div className="min-h-screen flex items-center justify-center">
+    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
+  </div>
+);
+
+function getDefaultRoute(role: UserRole): string {
+  switch (role) {
+    case "cashier": return "tenant-pos";
+    case "finance": return "laporan";
+    default: return "data-tenant";
+  }
+}
+
+function AuthGuard({ children, roles }: { children: React.ReactNode; roles?: UserRole[] }) {
+  const { data: user, isLoading } = useAuth();
+
+  if (isLoading) return <Spinner />;
+
+  if (!user) {
+    window.location.href = "/login";
+    return null;
+  }
+
+  if (roles && !roles.includes(user.role)) {
+    return <Redirect to="/unauthorized" />;
+  }
+
+  return (
+    <>
+      <RealtimeSync />
+      {children}
+    </>
+  );
+}
 
 function Router() {
   return (
     <Switch>
+      <Route path="/login">
+        <Login />
+      </Route>
+      <Route path="/unauthorized">
+        <Unauthorized />
+      </Route>
       <Route path="/">
-        {/* Redirect to /data-tenant */}
         {() => {
-          window.location.replace(import.meta.env.BASE_URL + "data-tenant");
+          const { data: user, isLoading } = useAuth();
+          if (isLoading) return <Spinner />;
+          if (!user) {
+            window.location.href = "/login";
+            return null;
+          }
+          window.location.replace(import.meta.env.BASE_URL + getDefaultRoute(user.role));
           return null;
         }}
       </Route>
       <Route path="/data-tenant">
-        <SidebarLayout>
-          <DataTenant />
-        </SidebarLayout>
+        <AuthGuard roles={["owner", "admin"]}>
+          <SidebarLayout>
+            <DataTenant />
+          </SidebarLayout>
+        </AuthGuard>
       </Route>
       <Route path="/booking-tenant">
-        <SidebarLayout>
-          <BookingTenant />
-        </SidebarLayout>
+        <AuthGuard roles={["owner", "admin", "finance"]}>
+          <SidebarLayout>
+            <BookingTenant />
+          </SidebarLayout>
+        </AuthGuard>
       </Route>
       <Route path="/tenant-pos">
-        <SidebarLayout>
-          <TenantPos />
-        </SidebarLayout>
+        <AuthGuard roles={["owner", "admin", "finance", "cashier"]}>
+          <SidebarLayout>
+            <TenantPos />
+          </SidebarLayout>
+        </AuthGuard>
       </Route>
       <Route path="/laporan">
-        <SidebarLayout>
-          <Laporan />
-        </SidebarLayout>
+        <AuthGuard roles={["owner", "admin", "finance"]}>
+          <SidebarLayout>
+            <Laporan />
+          </SidebarLayout>
+        </AuthGuard>
+      </Route>
+      <Route path="/tenant-invoices">
+        <AuthGuard roles={["owner", "admin", "finance"]}>
+          <SidebarLayout>
+            <TenantInvoices />
+          </SidebarLayout>
+        </AuthGuard>
       </Route>
       <Route>
         <SidebarLayout>
