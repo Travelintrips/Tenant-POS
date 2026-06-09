@@ -4,6 +4,7 @@ import path from "path";
 import fs from "fs";
 import crypto from "crypto";
 import { requireAuth } from "../middlewares/auth";
+import { uploadRateLimiter } from "../middlewares/rate-limit";
 
 const UPLOAD_DIR = path.join(process.cwd(), "uploads");
 

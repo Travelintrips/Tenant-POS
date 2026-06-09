@@ -7,6 +7,7 @@ import { findOrCreateUser } from "../lib/auth";
 import { requireAnyRole, requireAuth } from "../middlewares/auth";
 import { logAudit } from "../lib/audit";
 import { logger } from "../lib/logger";
+import { devLoginRateLimiter, googleAuthRateLimiter, authMeRateLimiter } from "../middlewares/rate-limit";
 
 const router: IRouter = Router();
 
