@@ -22,7 +22,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import {
   Plus, FileText, Printer, CreditCard, X, Search, Zap, AlertCircle,
-  CheckCircle2, Clock, Ban, CircleDashed, MessageCircle, Send,
+  CheckCircle2, Clock, Ban, CircleDashed, MessageCircle, Send, Link2, Loader2,
 } from "lucide-react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -362,6 +362,7 @@ export default function TenantInvoices() {
   const [detailTarget, setDetailTarget] = useState<Invoice | null>(null);
 
   const [cancelTarget, setCancelTarget] = useState<Invoice | null>(null);
+  const [sendingLinkId, setSendingLinkId] = useState<number | null>(null);
 
   // ─── Queries ────────────────────────────────────────────────────────────────
 
@@ -451,6 +452,21 @@ export default function TenantInvoices() {
       }
     },
     onError: (e: Error) => toast({ title: "Gagal Kirim WA", description: e.message, variant: "destructive" }),
+  });
+
+  const sendLinkMutation = useMutation({
+    mutationFn: (id: number) =>
+      apiPost<{ ok: boolean; skipped?: boolean; message: string }>(`${BASE}/api/whatsapp/invoice/${id}/send`, {}),
+    onMutate: (id) => setSendingLinkId(id),
+    onSettled: () => setSendingLinkId(null),
+    onSuccess: (res) => {
+      if (res.skipped) {
+        toast({ title: "WA Tidak Terkirim", description: "FONNTE_TOKEN belum dikonfigurasi.", variant: "destructive" });
+      } else {
+        toast({ title: "Link Bayar Terkirim! 🔗", description: res.message });
+      }
+    },
+    onError: (e: Error) => toast({ title: "Gagal Kirim Link", description: e.message, variant: "destructive" }),
   });
 
   const waBlastMutation = useMutation({
@@ -652,7 +668,7 @@ export default function TenantInvoices() {
                   <TableHead className="min-w-[110px]">Terbayar</TableHead>
                   <TableHead className="min-w-[110px]">Sisa</TableHead>
                   <TableHead>Status</TableHead>
-                  <TableHead className="w-[130px] text-right">Aksi</TableHead>
+                  <TableHead className="w-[220px] text-right">Aksi</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>

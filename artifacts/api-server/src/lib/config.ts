@@ -18,8 +18,8 @@ export const config = {
 
   db: {
     url:
-      process.env["SUPABASE_DATABASE_URL"] ??
       process.env["DATABASE_URL"] ??
+      process.env["SUPABASE_DATABASE_URL"] ??
       (() => {
         throw new Error("SUPABASE_DATABASE_URL atau DATABASE_URL harus diset");
       })(),

@@ -573,4 +573,127 @@ router.get("/laporan/floors-list", async (req, res) => {
   return res.json(floorsArr.map((r) => r.floor));
 });
 
+/**
+ * GET /api/laporan/rekap-tenant
+ * Rekap per-tenant: status kontrak, tagihan, pembayaran, tunggakan
+ */
+router.get("/laporan/rekap-tenant", async (req, res) => {
+  const siteId = req.siteId;
+  const siteClause = siteId > 0 ? `AND t.site_id = ${siteId}` : "";
+
+  try {
+    const rows = await db.execute(sql`
+      SELECT
+        t.id                          AS tenant_id,
+        t.business_name,
+        t.owner_name,
+        t.phone,
+        COALESCE(t.category, t.business_category) AS category,
+        t.status                      AS tenant_status,
+        t.site_id,
+        s.name                        AS site_name,
+        s.type                        AS site_type,
+
+        -- Booking terbaru (utamakan active)
+        b.id                          AS booking_id,
+        b.unit_code,
+        b.contract_status,
+        b.payment_status              AS booking_payment_status,
+        b.start_date,
+        b.end_date,
+        b.due_date,
+        b.price                       AS monthly_rent,
+        b.period_label,
+
+        -- Agregasi invoice
+        COALESCE(inv.total_billed, 0)     AS total_billed,
+        COALESCE(inv.total_paid, 0)       AS total_paid,
+        COALESCE(inv.total_outstanding, 0) AS total_outstanding,
+        COALESCE(inv.inv_count, 0)        AS invoice_count,
+        COALESCE(inv.paid_count, 0)       AS paid_count,
+        COALESCE(inv.overdue_count, 0)    AS overdue_count,
+        COALESCE(inv.unpaid_count, 0)     AS unpaid_count,
+
+        -- Pembayaran terakhir
+        pay.last_paid_at,
+        pay.last_paid_amount
+
+      FROM tenants t
+      LEFT JOIN mall_sites s ON s.id = t.site_id
+      LEFT JOIN LATERAL (
+        SELECT * FROM tenant_bookings tb
+        WHERE tb.tenant_id = t.id
+        ORDER BY
+          CASE tb.contract_status
+            WHEN 'active'        THEN 1
+            WHEN 'expiring_soon' THEN 2
+            WHEN 'draft'         THEN 3
+            WHEN 'expired'       THEN 4
+            ELSE 5
+          END,
+          tb.id DESC
+        LIMIT 1
+      ) b ON true
+      LEFT JOIN LATERAL (
+        SELECT
+          SUM(total_amount)::numeric                               AS total_billed,
+          SUM(paid_amount)::numeric                                AS total_paid,
+          SUM(outstanding_amount)::numeric                         AS total_outstanding,
+          COUNT(*)::int                                            AS inv_count,
+          COUNT(*) FILTER (WHERE status = 'paid')::int             AS paid_count,
+          COUNT(*) FILTER (WHERE status = 'overdue')::int          AS overdue_count,
+          COUNT(*) FILTER (WHERE status IN ('unpaid','partial'))::int AS unpaid_count
+        FROM tenant_invoices ti
+        WHERE ti.tenant_id = t.id
+      ) inv ON true
+      LEFT JOIN LATERAL (
+        SELECT MAX(paid_at) AS last_paid_at, (ARRAY_AGG(amount ORDER BY paid_at DESC))[1] AS last_paid_amount
+        FROM tenant_payments tp
+        WHERE tp.tenant_id = t.id
+          AND (tp.is_voided = false OR tp.is_voided IS NULL)
+      ) pay ON true
+      WHERE t.status NOT IN ('blacklisted')
+        ${siteId > 0 ? sql`AND t.site_id = ${siteId}` : sql``}
+      ORDER BY s.id, t.business_name
+    `);
+
+    const data = ((rows as any).rows ?? rows) as any[];
+
+    const result = data.map((r: any) => ({
+      tenantId:             Number(r.tenant_id),
+      businessName:         r.business_name,
+      ownerName:            r.owner_name,
+      phone:                r.phone,
+      category:             r.category,
+      tenantStatus:         r.tenant_status,
+      siteId:               Number(r.site_id),
+      siteName:             r.site_name,
+      siteType:             r.site_type,
+      bookingId:            r.booking_id ? Number(r.booking_id) : null,
+      unitCode:             r.unit_code,
+      contractStatus:       r.contract_status,
+      bookingPaymentStatus: r.booking_payment_status,
+      startDate:            r.start_date,
+      endDate:              r.end_date,
+      dueDate:              r.due_date,
+      monthlyRent:          r.monthly_rent ? Number(r.monthly_rent) : 0,
+      periodLabel:          r.period_label,
+      totalBilled:          Number(r.total_billed),
+      totalPaid:            Number(r.total_paid),
+      totalOutstanding:     Number(r.total_outstanding),
+      invoiceCount:         Number(r.invoice_count),
+      paidCount:            Number(r.paid_count),
+      overdueCount:         Number(r.overdue_count),
+      unpaidCount:          Number(r.unpaid_count),
+      lastPaidAt:           r.last_paid_at ?? null,
+      lastPaidAmount:       r.last_paid_amount ? Number(r.last_paid_amount) : null,
+    }));
+
+    res.json(result);
+  } catch (err) {
+    req.log.error(err, "Failed to get rekap tenant");
+    res.status(500).json({ error: "Gagal mengambil rekap tenant" });
+  }
+});
+
 export default router;
