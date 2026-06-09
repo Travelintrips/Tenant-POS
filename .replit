@@ -24,13 +24,13 @@ args = "Start application"
 name = "Start application"
 author = "agent"
 
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "PORT=8080 pnpm --filter @workspace/api-server run dev & PORT=5000 BASE_PATH=/ pnpm --filter @workspace/admin-portal run dev"
-waitForPort = 5000
-
 [workflows.workflow.metadata]
 outputType = "webview"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pnpm install --frozen-lockfile && PORT=8080 pnpm --filter @workspace/api-server run dev & sleep 8 && PORT=5000 BASE_PATH=/ pnpm --filter @workspace/admin-portal run dev"
+waitForPort = 5000
 
 [agent]
 stack = "BEST_EFFORT_FALLBACK"
@@ -63,8 +63,6 @@ externalPort = 80
 [userenv]
 
 [userenv.shared]
-SUPABASE_URL = "https://nzdweipzckfszczzqtuw.supabase.co"
-SUPABASE_URL_DEV = "https://xssrfshdrtdfupgqwfdw.supabase.co"
 
 [nix]
 channel = "stable-25_05"
