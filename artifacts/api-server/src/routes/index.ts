@@ -8,6 +8,7 @@ import tenantPosRouter from "./tenant-pos";
 import laporanRouter from "./laporan";
 import tenantInvoicesRouter from "./tenant-invoices";
 import mallUnitsRouter from "./mall-units";
+import auditLogsRouter from "./audit-logs";
 import { requireAuth } from "../middlewares/auth";
 
 const router: IRouter = Router();
@@ -24,5 +25,6 @@ router.use(tenantPosRouter);
 router.use(laporanRouter);
 router.use(tenantInvoicesRouter);
 router.use(mallUnitsRouter);
+router.use(auditLogsRouter);
 
 export default router;
