@@ -2,26 +2,54 @@ import { Router, type IRouter } from "express";
 import passport from "../lib/auth";
 import { db } from "@workspace/db";
 import { usersTable, USER_ROLES, type UserRole } from "@workspace/db/schema";
-import { eq, sql } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { findOrCreateUser } from "../lib/auth";
 
 const router: IRouter = Router();
 
 if (process.env.NODE_ENV !== "production") {
-  router.post("/auth/dev-login", (req, res) => {
-    const devUser: Express.User = {
-      id: "dev-001",
-      email: "dev@localhost",
-      name: "Dev User",
-      avatar: null,
-    };
-    req.login(devUser, (err) => {
-      if (err) {
-        res.status(500).json({ error: "Dev login gagal" });
-        return;
+  router.post("/auth/dev-login", async (req, res) => {
+    const { email, name, role } = req.body as { email?: string; name?: string; role?: string };
+
+    const effectiveEmail = email ?? "dev@localhost";
+    const effectiveName = name ?? "Dev User";
+    const effectiveRole: UserRole = (USER_ROLES.includes(role as UserRole) ? role : "admin") as UserRole;
+
+    try {
+      const dbUser = await findOrCreateUser({
+        email: effectiveEmail,
+        name: effectiveName,
+        avatar: null,
+      });
+
+      if (dbUser.role !== effectiveRole) {
+        await db
+          .update(usersTable)
+          .set({ role: effectiveRole, updatedAt: new Date() })
+          .where(eq(usersTable.id, dbUser.id));
+        dbUser.role = effectiveRole;
       }
-      res.json(devUser);
-    });
+
+      const sessionUser: Express.User = {
+        id: `dev:${effectiveEmail}`,
+        dbId: dbUser.id,
+        email: dbUser.email,
+        name: dbUser.name,
+        avatar: dbUser.avatarUrl,
+        role: dbUser.role,
+      };
+
+      req.login(sessionUser, (err) => {
+        if (err) {
+          res.status(500).json({ error: "Login gagal" });
+          return;
+        }
+        res.json(sessionUser);
+      });
+    } catch (err) {
+      console.error("[dev-login] Error:", err);
+      res.status(500).json({ error: "Gagal membuat sesi dev login" });
+    }
   });
 }
 
@@ -55,57 +83,5 @@ router.post("/auth/logout", (req, res) => {
     res.json({ ok: true });
   });
 });
-
-if (process.env.NODE_ENV === "development") {
-  router.post("/auth/dev-login", async (req, res) => {
-    const { email, name, role } = req.body as { email?: string; name?: string; role?: string };
-
-    if (!email || !role) {
-      res.status(400).json({ error: "email dan role wajib diisi" });
-      return;
-    }
-
-    if (!USER_ROLES.includes(role as UserRole)) {
-      res.status(400).json({ error: `Role tidak valid. Pilih salah satu: ${USER_ROLES.join(", ")}` });
-      return;
-    }
-
-    try {
-      const dbUser = await findOrCreateUser({
-        email,
-        name: name || email,
-        avatar: null,
-      });
-
-      if (dbUser.role !== role) {
-        await db
-          .update(usersTable)
-          .set({ role, updatedAt: new Date() })
-          .where(eq(usersTable.id, dbUser.id));
-        dbUser.role = role;
-      }
-
-      const sessionUser: Express.User = {
-        id: `dev:${email}`,
-        dbId: dbUser.id,
-        email: dbUser.email,
-        name: dbUser.name,
-        avatar: dbUser.avatarUrl,
-        role: dbUser.role,
-      };
-
-      req.login(sessionUser, (err) => {
-        if (err) {
-          res.status(500).json({ error: "Login gagal" });
-          return;
-        }
-        res.json(sessionUser);
-      });
-    } catch (err) {
-      console.error("[dev-login] Error:", err);
-      res.status(500).json({ error: "Gagal membuat sesi dev login" });
-    }
-  });
-}
 
 export default router;

@@ -3,6 +3,7 @@ import { Building2, FlaskConical } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
+import { useQueryClient } from "@tanstack/react-query";
 import { ROLE_LABELS, type UserRole } from "@/hooks/use-auth";
 
 const IS_DEV = import.meta.env.DEV;
@@ -14,7 +15,7 @@ const DEV_ACCOUNTS: { role: UserRole; email: string; name: string; color: string
   { role: "cashier", email: "cashier@dev.local", name: "Dev Kasir",   color: "bg-orange-100 text-orange-800 hover:bg-orange-200" },
 ];
 
-async function devLogin(account: (typeof DEV_ACCOUNTS)[number]) {
+async function devLoginRequest(account: (typeof DEV_ACCOUNTS)[number]) {
   const res = await fetch("/api/auth/dev-login", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -29,11 +30,25 @@ async function devLogin(account: (typeof DEV_ACCOUNTS)[number]) {
 export default function Login() {
   const error = new URLSearchParams(window.location.search).get("error");
   const [loadingRole, setLoadingRole] = useState<UserRole | null>(null);
+  const qc = useQueryClient();
 
   const handleDevLogin = async (account: (typeof DEV_ACCOUNTS)[number]) => {
     setLoadingRole(account.role);
-    await devLogin(account);
-    setLoadingRole(null);
+    try {
+      const res = await fetch("/api/auth/dev-login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ email: account.email, name: account.name, role: account.role }),
+      });
+      if (res.ok) {
+        const user = await res.json();
+        qc.setQueryData(["auth-me"], user);
+        window.location.href = "/";
+      }
+    } catch {
+      setLoadingRole(null);
+    }
   };
 
   return (
