@@ -213,7 +213,11 @@ const bookingStatusBadge: Record<string, string> = {
 function useOverview() {
   return useQuery<Overview>({
     queryKey: ["tenant-pos-overview"],
-    queryFn: () => fetch(`${BASE}/api/tenant-pos/overview`).then((r) => r.json()),
+    queryFn: async () => {
+      const r = await fetch(`${BASE}/api/tenant-pos/overview`, { credentials: "include" });
+      if (!r.ok) throw new Error(`Overview error ${r.status}`);
+      return r.json();
+    },
     refetchInterval: 30_000,
   });
 }
@@ -221,7 +225,11 @@ function useOverview() {
 function useFloorPlan() {
   return useQuery<FloorPlanItem[]>({
     queryKey: ["tenant-pos-floor-plan"],
-    queryFn: () => fetch(`${BASE}/api/tenant-pos/floor-plan`).then((r) => r.json()),
+    queryFn: async () => {
+      const r = await fetch(`${BASE}/api/tenant-pos/floor-plan`, { credentials: "include" });
+      if (!r.ok) throw new Error(`Floor plan error ${r.status}`);
+      return r.json();
+    },
     refetchInterval: 30_000,
   });
 }
