@@ -1,8 +1,8 @@
 # PRODUCTION HARDENING CHECKLIST — Mall Admin Portal
 
 Tanggal: 9 Juni 2026  
-Versi: post-login-audit hardening + rate limiting  
-Status build: ✅ typecheck lulus · ✅ build lulus · ✅ 121/121 test pass
+Versi: post-login-audit hardening + rate limiting + Helmet security headers  
+Status build: ✅ typecheck lulus · ✅ build lulus · ✅ 141/141 test pass
 
 ---
 
@@ -340,3 +340,106 @@ logger.warn({
    - production sim: dev-login-enabled mengembalikan false ✓
    - response format 429 JSON benar ✓ | RATE_LIMIT_RESPONSE export valid ✓
 ```
+
+---
+
+## 11. HTTP Security Headers (Helmet)
+
+**Package:** `helmet` v8 (types built-in)  
+**Lokasi:** `artifacts/api-server/src/app.ts` — dipasang setelah `pinoHttp`, sebelum `cors`
+
+### Header yang Aktif
+
+| Header | Nilai | Keterangan |
+|--------|-------|------------|
+| `X-Content-Type-Options` | `nosniff` | ✅ Mencegah MIME-sniffing oleh browser |
+| `X-Frame-Options` | `SAMEORIGIN` | ✅ Cegah clickjacking; sameorigin aman untuk reverse-proxy single-domain |
+| `Referrer-Policy` | `strict-origin-when-cross-origin` | ✅ Tidak bocorkan URL lengkap ke domain lain |
+| `Cross-Origin-Opener-Policy` | `same-origin` | ✅ Isolasi window context; aman untuk redirect-flow Google OAuth |
+| `Cross-Origin-Resource-Policy` | `cross-origin` | ✅ Upload (logo/PDF) bisa di-load oleh frontend yang berjalan di port berbeda |
+| `Strict-Transport-Security` | `max-age=15552000; includeSubDomains` | ✅ Aktif otomatis Helmet — browser wajib pakai HTTPS |
+| `X-DNS-Prefetch-Control` | `off` | ✅ Helmet default |
+| `X-Download-Options` | `noopen` | ✅ Helmet default (IE/Edge) |
+| `X-Permitted-Cross-Domain-Policies` | `none` | ✅ Helmet default |
+| `X-Powered-By` | **dihapus** | ✅ Tidak expose "Express" ke luar |
+| `Content-Security-Policy` | **dinonaktifkan** | ⚠️ Lihat keterangan di bawah |
+| `Cross-Origin-Embedder-Policy` | **dinonaktifkan** | ⚠️ Lihat keterangan di bawah |
+
+### CSP Dinonaktifkan — Penjelasan
+
+```typescript
+helmet({
+  contentSecurityPolicy: false,   // CSP tidak diaktifkan di API server
+  crossOriginEmbedderPolicy: false, // COEP tidak diaktifkan
+})
+```
+
+**Alasan CSP dinonaktifkan di API server:**
+- Frontend (admin-portal) berjalan di domain/port **berbeda** dari API server
+- CSP pada API server hanya mempengaruhi header response API (JSON) dan `/uploads/` static files — bukan HTML admin-portal
+- CSP yang relevan seharusnya diset di **Vite / nginx** yang serve `index.html` admin-portal
+- Mengaktifkan CSP di API server tanpa koordinasi dengan frontend bisa memblokir Google OAuth, chart library, atau font external
+
+**Kapan aktifkan CSP di API:**
+- Jika API dan frontend dijadikan satu origin (misalnya Express serve `dist/index.html`)
+- Gunakan `contentSecurityPolicy: { directives: { ... } }` dengan direktif yang sudah disesuaikan
+
+**COEP dinonaktifkan karena:**
+- COEP `require-corp` mewajibkan semua subresource (gambar, font, script) mengirim header `Cross-Origin-Resource-Policy`
+- Upload legacy yang sudah ada mungkin tidak punya header ini
+- `CORP: cross-origin` pada seluruh app sudah cukup untuk use case upload image cross-origin
+
+### Google OAuth Tidak Rusak
+
+| Komponen | Status | Penjelasan |
+|----------|--------|------------|
+| Redirect ke Google | ✅ Aman | COOP `same-origin` aman untuk redirect-flow (bukan popup) |
+| Callback dari Google | ✅ Aman | Server-side redirect, tidak terpengaruh COOP |
+| Session cookie setelah callback | ✅ Aman | Cookie diset di server, COOP tidak mempengaruhi |
+| X-Frame-Options SAMEORIGIN | ✅ Aman | Google OAuth redirect tidak menggunakan iframe |
+
+### SSE /api/events Tidak Rusak
+
+`EventSource` adalah long-lived HTTP GET connection — Helmet hanya menambahkan header pada response, tidak mengubah body/streaming behavior. Test memverifikasi endpoint mengembalikan 401 (bukan 500/crash) saat tanpa auth.
+
+### Static Uploads Tidak Diblokir
+
+- `CORP: cross-origin` memastikan frontend dapat mengambil gambar dari `/uploads/` lintas origin
+- `COEP: false` memastikan tidak ada persyaratan tambahan pada subresource upload
+- Upload yang tidak ada tetap mengembalikan 404 (bukan 403 karena Helmet)
+
+### Risiko yang Tersisa
+
+| Risiko | Level | Mitigasi |
+|--------|-------|----------|
+| CSP belum aktif di frontend | 🟡 Sedang | Tambahkan CSP di Vite config atau nginx jika frontend dipisah deployment |
+| HSTS aktif — jika deploy di HTTP murni akan membuat browser stuck | 🟡 Sedang | Replit deployment pakai HTTPS — aman. Jangan deploy ke HTTP tanpa menonaktifkan HSTS |
+| CSP jika nanti API + frontend di satu domain | 🟡 Sedang | Aktifkan `contentSecurityPolicy` di Helmet dengan direktif yang tepat saat itu |
+| Google OAuth callback domain | 🟢 Rendah | Pastikan `GOOGLE_CLIENT_ID` terdaftar dengan callback URL production yang benar di Google Cloud Console |
+| CORP cross-origin terlalu permisif | 🟢 Rendah | Semua resource di `/uploads/` adalah file yang diupload user — bisa diakses secara publik |
+
+### Hasil Test Security Headers
+
+```
+✅ 20 test baru di security-headers.test.ts
+   - X-Powered-By tidak ada (health, auth/me, dev-login) ✓
+   - X-Content-Type-Options: nosniff (health, auth/me, POST) ✓
+   - X-Frame-Options: SAMEORIGIN ✓
+   - Referrer-Policy: strict-origin-when-cross-origin ✓
+   - Cross-Origin-Opener-Policy: same-origin ✓
+   - Cross-Origin-Resource-Policy: cross-origin ✓
+   - Content-Security-Policy tidak ada (dinonaktifkan) ✓
+   - /api/auth/me tanpa auth → 401 bukan 500 ✓
+   - /api/auth/me dengan auth → 200 + header security ada ✓
+   - /api/events tanpa auth → 401 bukan crash ✓
+   - POST dev-login valid tetap 200 dengan Helmet aktif ✓
+   - /uploads/ nonexistent → 404 bukan 403 (Helmet tidak memblokir) ✓
+   - /api/auth/dev-login-enabled JSON valid + header security ✓
+```
+
+### File yang Diubah (Sesi Helmet)
+
+| File | Perubahan |
+|------|-----------|
+| `artifacts/api-server/src/app.ts` | Import `helmet`; tambah `app.use(helmet({...}))` setelah pinoHttp |
+| `artifacts/api-server/src/__tests__/security-headers.test.ts` | **Baru** — 20 test case verifikasi security headers |
