@@ -356,10 +356,10 @@ function ShiftOpenDialog({ open, onClose, defaultName }: { open: boolean; onClos
 
   const mutation = useMutation({
     mutationFn: async () => {
-      const r = await fetch(`${BASE}/api/tenant-pos/shifts/open`, { credentials: "include",
+      const r = await fetch(`${BASE}/api/tenant-pos/shifts/open`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         credentials: "include",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ cashierName }),
       });
       const d = await r.json();
@@ -423,10 +423,10 @@ function ShiftCloseDialog({ open, onClose, shift }: { open: boolean; onClose: ()
   const mutation = useMutation({
     mutationFn: async () => {
       if (!shift) throw new Error("Tidak ada shift aktif");
-      const r = await fetch(`${BASE}/api/tenant-pos/shifts/${shift.id}/close`, { credentials: "include",
+      const r = await fetch(`${BASE}/api/tenant-pos/shifts/${shift.id}/close`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         credentials: "include",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ actualCash: parseInt(actualCash.replace(/\D/g, "")) || 0 }),
       });
       const d = await r.json();
@@ -531,10 +531,10 @@ function VoidPaymentDialog({ payment, onClose }: {
   const mutation = useMutation({
     mutationFn: async () => {
       if (!payment) throw new Error("Tidak ada data");
-      const r = await fetch(`${BASE}/api/tenant-pos/payments/${payment.id}/void`, { credentials: "include",
+      const r = await fetch(`${BASE}/api/tenant-pos/payments/${payment.id}/void`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         credentials: "include",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ voidReason: reason }),
       });
       const d = await r.json();
@@ -614,10 +614,10 @@ function RefundPaymentDialog({ payment, onClose }: {
   const mutation = useMutation({
     mutationFn: async () => {
       if (!payment) throw new Error("Tidak ada data");
-      const r = await fetch(`${BASE}/api/tenant-pos/payments/${payment.id}/refund`, { credentials: "include",
+      const r = await fetch(`${BASE}/api/tenant-pos/payments/${payment.id}/refund`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         credentials: "include",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ refundAmount: parseInt(refundAmount.replace(/\D/g, "")) || 0, refundReason: reason }),
       });
       const d = await r.json();
@@ -1331,10 +1331,10 @@ function ModalPembayaran({ item, invoice, shiftId, cashierName, onClose, onSucce
 
   const mutation = useMutation<PaymentResponse, Error>({
     mutationFn: async () => {
-      const r = await fetch(`${BASE}/api/tenant-pos/payments`, { credentials: "include",
+      const r = await fetch(`${BASE}/api/tenant-pos/payments`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         credentials: "include",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           bookingId: item.bookingId,
           tenantId: item.tenantId,
