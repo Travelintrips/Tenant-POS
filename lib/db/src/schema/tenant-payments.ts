@@ -10,6 +10,7 @@ export const tenantPaymentsTable = pgTable("tenant_payments", {
   companyId: integer("company_id"),
   tenantBookingId: integer("tenant_booking_id").references(() => tenantBookingsTable.id),
   bookingId: integer("booking_id").references(() => tenantBookingsTable.id),
+  invoiceId: integer("invoice_id"),
   tenantId: integer("tenant_id").references(() => tenantsTable.id),
   paymentNumber: text("payment_number"),
   receiptNumber: text("receipt_number"),

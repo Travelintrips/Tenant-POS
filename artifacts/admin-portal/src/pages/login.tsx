@@ -1,29 +1,4 @@
 import { useState } from "react";
-import { Building2 } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { useQueryClient } from "@tanstack/react-query";
-
-export default function Login() {
-  const error = new URLSearchParams(window.location.search).get("error");
-  const [devLoading, setDevLoading] = useState(false);
-  const qc = useQueryClient();
-
-  async function handleDevLogin() {
-    setDevLoading(true);
-    try {
-      const res = await fetch("/api/auth/dev-login", {
-        method: "POST",
-        credentials: "include",
-      });
-      if (!res.ok) throw new Error("gagal");
-      const user = await res.json();
-      qc.setQueryData(["auth-me"], user);
-      window.location.href = "/data-tenant";
-    } catch {
-      setDevLoading(false);
-    }
-  }
 import { Building2, FlaskConical } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -93,27 +68,6 @@ export default function Login() {
               Masuk dengan Google
             </Button>
           </a>
-          {import.meta.env.DEV && (
-            <>
-              <div className="flex items-center gap-2">
-                <div className="flex-1 h-px bg-border" />
-                <span className="text-xs text-muted-foreground">dev only</span>
-                <div className="flex-1 h-px bg-border" />
-              </div>
-              <Button
-                variant="outline"
-                size="lg"
-                className="w-full gap-2 border-dashed border-amber-400 text-amber-700 hover:bg-amber-50"
-                onClick={handleDevLogin}
-                disabled={devLoading}
-              >
-                {devLoading ? "Masuk..." : "Dev Login (tanpa Google)"}
-              </Button>
-            </>
-          )}
-          <p className="text-xs text-center text-muted-foreground">
-            Hanya akun yang diizinkan yang dapat mengakses portal ini.
-          </p>
 
           {IS_DEV && (
             <>

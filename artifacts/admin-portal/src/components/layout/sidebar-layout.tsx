@@ -14,7 +14,7 @@ import {
   SidebarInset,
   SidebarTrigger
 } from "@/components/ui/sidebar";
-import { Building2, Store, CalendarRange, Calculator, BarChart3, LogOut } from "lucide-react";
+import { Building2, Store, CalendarRange, Calculator, BarChart3, LogOut, FileText } from "lucide-react";
 import { Separator } from "@/components/ui/separator";
 import { useAuth, useLogout, ROLE_LABELS, type UserRole } from "@/hooks/use-auth";
 import { Button } from "@/components/ui/button";
@@ -87,6 +87,20 @@ export function SidebarLayout({ children }: { children: React.ReactNode }) {
                       <Link href="/tenant-pos">
                         <Calculator className="mr-2 h-4 w-4" />
                         <span>POS Tenant</span>
+                      </Link>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                )}
+                {can("owner", "admin", "finance") && (
+                  <SidebarMenuItem>
+                    <SidebarMenuButton
+                      asChild
+                      isActive={location === "/tenant-invoices"}
+                      data-testid="nav-tenant-invoices"
+                    >
+                      <Link href="/tenant-invoices">
+                        <FileText className="mr-2 h-4 w-4" />
+                        <span>Invoice Tenant</span>
                       </Link>
                     </SidebarMenuButton>
                   </SidebarMenuItem>

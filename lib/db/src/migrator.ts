@@ -250,6 +250,163 @@ BEGIN
 END $$;
     `.trim(),
   },
+  {
+    name: "0004_tenant_invoices",
+    sql: `
+-- Buat tabel tenant_invoices
+CREATE TABLE IF NOT EXISTS "tenant_invoices" (
+  "id" serial PRIMARY KEY NOT NULL,
+  "invoice_number" text NOT NULL UNIQUE,
+  "tenant_id" integer NOT NULL,
+  "booking_id" integer,
+  "unit_code" text,
+  "period_start" date,
+  "period_end" date,
+  "due_date" date,
+  "rent_amount" numeric NOT NULL DEFAULT '0',
+  "service_charge_amount" numeric NOT NULL DEFAULT '0',
+  "electricity_charge_amount" numeric NOT NULL DEFAULT '0',
+  "water_charge_amount" numeric NOT NULL DEFAULT '0',
+  "other_charge_amount" numeric NOT NULL DEFAULT '0',
+  "discount_amount" numeric NOT NULL DEFAULT '0',
+  "penalty_amount" numeric NOT NULL DEFAULT '0',
+  "subtotal" numeric NOT NULL DEFAULT '0',
+  "tax_amount" numeric NOT NULL DEFAULT '0',
+  "total_amount" numeric NOT NULL DEFAULT '0',
+  "paid_amount" numeric NOT NULL DEFAULT '0',
+  "outstanding_amount" numeric NOT NULL DEFAULT '0',
+  "status" text NOT NULL DEFAULT 'draft',
+  "notes" text,
+  "created_at" timestamptz NOT NULL DEFAULT now(),
+  "updated_at" timestamptz NOT NULL DEFAULT now()
+);
+
+-- FK tenant_invoices -> tenants
+DO $$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.table_constraints
+    WHERE constraint_name = 'tenant_invoices_tenant_id_tenants_id_fk'
+  ) THEN
+    ALTER TABLE "tenant_invoices"
+      ADD CONSTRAINT "tenant_invoices_tenant_id_tenants_id_fk"
+      FOREIGN KEY ("tenant_id") REFERENCES "tenants"("id") ON DELETE no action ON UPDATE no action;
+  END IF;
+END $$;
+
+-- FK tenant_invoices -> tenant_bookings
+DO $$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.table_constraints
+    WHERE constraint_name = 'tenant_invoices_booking_id_tenant_bookings_id_fk'
+  ) THEN
+    ALTER TABLE "tenant_invoices"
+      ADD CONSTRAINT "tenant_invoices_booking_id_tenant_bookings_id_fk"
+      FOREIGN KEY ("booking_id") REFERENCES "tenant_bookings"("id") ON DELETE no action ON UPDATE no action;
+  END IF;
+END $$;
+
+-- Tambah kolom invoice_id ke tenant_payments
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='tenant_payments' AND column_name='invoice_id') THEN
+    ALTER TABLE "tenant_payments" ADD COLUMN "invoice_id" integer;
+  END IF;
+END $$;
+
+-- Seed: Tambah invoice contoh berdasarkan booking yang ada
+DO $$
+DECLARE
+  b1 record;
+  b2 record;
+  t1 record;
+  t2 record;
+BEGIN
+  SELECT tb.*, te.business_name, te.owner_name, te.booth_number, te.area_name
+    INTO b1
+    FROM tenant_bookings tb JOIN tenants te ON te.id = tb.tenant_id
+    ORDER BY tb.id LIMIT 1 OFFSET 0;
+
+  SELECT tb.*, te.business_name, te.owner_name, te.booth_number, te.area_name
+    INTO b2
+    FROM tenant_bookings tb JOIN tenants te ON te.id = tb.tenant_id
+    ORDER BY tb.id LIMIT 1 OFFSET 1;
+
+  IF b1.id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM tenant_invoices LIMIT 1) THEN
+    INSERT INTO "tenant_invoices" (
+      invoice_number, tenant_id, booking_id, unit_code,
+      period_start, period_end, due_date,
+      rent_amount, service_charge_amount, electricity_charge_amount, water_charge_amount,
+      other_charge_amount, discount_amount, penalty_amount,
+      subtotal, tax_amount, total_amount, paid_amount, outstanding_amount, status, notes
+    ) VALUES (
+      'INV-TENANT/202506/00001', b1.tenant_id, b1.id, b1.unit_code,
+      '2025-06-01', '2025-06-30', '2025-06-10',
+      COALESCE(b1.rent_amount, 0),
+      COALESCE(b1.service_charge_amount, 0),
+      COALESCE(b1.electricity_charge_amount, 0),
+      COALESCE(b1.water_charge_amount, 0),
+      0, 0, 0,
+      COALESCE(b1.rent_amount,0) + COALESCE(b1.service_charge_amount,0) + COALESCE(b1.electricity_charge_amount,0) + COALESCE(b1.water_charge_amount,0),
+      0,
+      COALESCE(b1.rent_amount,0) + COALESCE(b1.service_charge_amount,0) + COALESCE(b1.electricity_charge_amount,0) + COALESCE(b1.water_charge_amount,0),
+      COALESCE(b1.rent_amount,0) + COALESCE(b1.service_charge_amount,0) + COALESCE(b1.electricity_charge_amount,0) + COALESCE(b1.water_charge_amount,0),
+      0,
+      'paid',
+      'Invoice Juni 2025 - lunas'
+    );
+  END IF;
+
+  IF b2.id IS NOT NULL AND (SELECT count(*) FROM tenant_invoices) < 2 THEN
+    INSERT INTO "tenant_invoices" (
+      invoice_number, tenant_id, booking_id, unit_code,
+      period_start, period_end, due_date,
+      rent_amount, service_charge_amount, electricity_charge_amount, water_charge_amount,
+      other_charge_amount, discount_amount, penalty_amount,
+      subtotal, tax_amount, total_amount, paid_amount, outstanding_amount, status, notes
+    ) VALUES (
+      'INV-TENANT/202507/00001', b2.tenant_id, b2.id, b2.unit_code,
+      '2025-07-01', '2025-07-31', '2025-07-10',
+      COALESCE(b2.rent_amount, 0),
+      COALESCE(b2.service_charge_amount, 0),
+      COALESCE(b2.electricity_charge_amount, 0),
+      COALESCE(b2.water_charge_amount, 0),
+      0, 0, 0,
+      COALESCE(b2.rent_amount,0) + COALESCE(b2.service_charge_amount,0) + COALESCE(b2.electricity_charge_amount,0) + COALESCE(b2.water_charge_amount,0),
+      0,
+      COALESCE(b2.rent_amount,0) + COALESCE(b2.service_charge_amount,0) + COALESCE(b2.electricity_charge_amount,0) + COALESCE(b2.water_charge_amount,0),
+      0,
+      COALESCE(b2.rent_amount,0) + COALESCE(b2.service_charge_amount,0) + COALESCE(b2.electricity_charge_amount,0) + COALESCE(b2.water_charge_amount,0),
+      'unpaid',
+      'Invoice Juli 2025 - belum bayar'
+    );
+  END IF;
+
+  IF b1.id IS NOT NULL AND (SELECT count(*) FROM tenant_invoices) < 3 THEN
+    INSERT INTO "tenant_invoices" (
+      invoice_number, tenant_id, booking_id, unit_code,
+      period_start, period_end, due_date,
+      rent_amount, service_charge_amount, electricity_charge_amount, water_charge_amount,
+      other_charge_amount, discount_amount, penalty_amount,
+      subtotal, tax_amount, total_amount, paid_amount, outstanding_amount, status, notes
+    ) VALUES (
+      'INV-TENANT/202508/00001', b1.tenant_id, b1.id, b1.unit_code,
+      '2025-08-01', '2025-08-31', '2025-08-10',
+      COALESCE(b1.rent_amount, 0),
+      COALESCE(b1.service_charge_amount, 0),
+      COALESCE(b1.electricity_charge_amount, 0),
+      COALESCE(b1.water_charge_amount, 0),
+      0, 0, 0,
+      COALESCE(b1.rent_amount,0) + COALESCE(b1.service_charge_amount,0) + COALESCE(b1.electricity_charge_amount,0) + COALESCE(b1.water_charge_amount,0),
+      0,
+      COALESCE(b1.rent_amount,0) + COALESCE(b1.service_charge_amount,0) + COALESCE(b1.electricity_charge_amount,0) + COALESCE(b1.water_charge_amount,0),
+      ROUND((COALESCE(b1.rent_amount,0) + COALESCE(b1.service_charge_amount,0) + COALESCE(b1.electricity_charge_amount,0) + COALESCE(b1.water_charge_amount,0)) * 0.5),
+      ROUND((COALESCE(b1.rent_amount,0) + COALESCE(b1.service_charge_amount,0) + COALESCE(b1.electricity_charge_amount,0) + COALESCE(b1.water_charge_amount,0)) * 0.5),
+      'partial',
+      'Invoice Agustus 2025 - sebagian terbayar'
+    );
+  END IF;
+END $$;
+    `.trim(),
+  },
 ];
 
 const MIGRATIONS_TABLE = "schema_migrations";

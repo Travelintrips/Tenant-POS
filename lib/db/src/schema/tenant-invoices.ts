@@ -1,0 +1,45 @@
+import { pgTable, serial, integer, text, date, numeric, timestamp } from "drizzle-orm/pg-core";
+import { relations } from "drizzle-orm";
+import { createInsertSchema } from "drizzle-zod";
+import { z } from "zod/v4";
+import { tenantsTable } from "./tenants";
+import { tenantBookingsTable } from "./tenant-bookings";
+
+export const INVOICE_STATUSES = ["draft", "unpaid", "partial", "paid", "overdue", "cancelled"] as const;
+export type InvoiceStatus = (typeof INVOICE_STATUSES)[number];
+
+export const tenantInvoicesTable = pgTable("tenant_invoices", {
+  id: serial("id").primaryKey(),
+  invoiceNumber: text("invoice_number").notNull().unique(),
+  tenantId: integer("tenant_id").notNull().references(() => tenantsTable.id),
+  bookingId: integer("booking_id").references(() => tenantBookingsTable.id),
+  unitCode: text("unit_code"),
+  periodStart: date("period_start"),
+  periodEnd: date("period_end"),
+  dueDate: date("due_date"),
+  rentAmount: numeric("rent_amount").notNull().default("0"),
+  serviceChargeAmount: numeric("service_charge_amount").notNull().default("0"),
+  electricityChargeAmount: numeric("electricity_charge_amount").notNull().default("0"),
+  waterChargeAmount: numeric("water_charge_amount").notNull().default("0"),
+  otherChargeAmount: numeric("other_charge_amount").notNull().default("0"),
+  discountAmount: numeric("discount_amount").notNull().default("0"),
+  penaltyAmount: numeric("penalty_amount").notNull().default("0"),
+  subtotal: numeric("subtotal").notNull().default("0"),
+  taxAmount: numeric("tax_amount").notNull().default("0"),
+  totalAmount: numeric("total_amount").notNull().default("0"),
+  paidAmount: numeric("paid_amount").notNull().default("0"),
+  outstandingAmount: numeric("outstanding_amount").notNull().default("0"),
+  status: text("status").notNull().default("draft"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const tenantInvoicesRelations = relations(tenantInvoicesTable, ({ one }) => ({
+  tenant: one(tenantsTable, { fields: [tenantInvoicesTable.tenantId], references: [tenantsTable.id] }),
+  booking: one(tenantBookingsTable, { fields: [tenantInvoicesTable.bookingId], references: [tenantBookingsTable.id] }),
+}));
+
+export const insertTenantInvoiceSchema = createInsertSchema(tenantInvoicesTable).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertTenantInvoice = z.infer<typeof insertTenantInvoiceSchema>;
+export type TenantInvoice = typeof tenantInvoicesTable.$inferSelect;
