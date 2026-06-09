@@ -30,11 +30,12 @@ router.get("/sites", requireAuth, async (req, res) => {
     }
 
     // Others: see sites they have access to, plus the default site (TOD_M1_BANDARA)
-    if (user?.dbId) {
+    const numericDbId = user?.dbId ? Number(user.dbId) : NaN;
+    if (user?.dbId && !isNaN(numericDbId)) {
       const access = await db
         .select({ siteId: userSiteAccessTable.siteId })
         .from(userSiteAccessTable)
-        .where(eq(userSiteAccessTable.userId, user.dbId));
+        .where(eq(userSiteAccessTable.userId, numericDbId));
 
       if (access.length > 0) {
         const siteIds = access.map((a) => a.siteId);
