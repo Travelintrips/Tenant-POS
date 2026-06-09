@@ -4,6 +4,8 @@ import {
   tenantsTable,
   tenantBookingsTable,
   tenantPaymentsTable,
+  tenantInvoicesTable,
+  cashierShiftsTable,
 } from "@workspace/db/schema";
 import { eq, and, sql, desc } from "drizzle-orm";
 import { z } from "zod";
@@ -13,17 +15,21 @@ const router: IRouter = Router();
 
 router.use(requireAnyRole("owner", "admin", "finance", "cashier"));
 
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
 async function generateReceiptNumber(): Promise<string> {
   const datePart = new Date().toISOString().slice(0, 10).replace(/-/g, "");
   const prefix = `TENANT-PAY-${datePart}-`;
-
   const [row] = await db
     .select({ count: sql<number>`count(*)::int` })
     .from(tenantPaymentsTable)
     .where(sql`receipt_number LIKE ${prefix + "%"}`);
-
   const seq = ((row?.count ?? 0) + 1).toString().padStart(4, "0");
   return `${prefix}${seq}`;
+}
+
+function getSessionUser(req: any): { role: string; name: string; id?: number } | null {
+  return (req.session as any)?.user ?? null;
 }
 
 // ─── GET /api/tenant-pos/overview ────────────────────────────────────────────
@@ -42,25 +48,42 @@ router.get("/tenant-pos/overview", async (req, res) => {
       .where(
         and(
           eq(tenantBookingsTable.bookingStatus, "aktif"),
-          sql`${tenantBookingsTable.paymentStatus} IN ('UNPAID', 'PARTIAL')`
+          sql`upper(${tenantBookingsTable.paymentStatus}) IN ('UNPAID', 'PARTIAL')`
         )
       );
 
     const [overdue] = await db
       .select({ count: sql<number>`count(*)::int` })
       .from(tenantBookingsTable)
-      .where(eq(tenantBookingsTable.paymentStatus, "OVERDUE"));
+      .where(sql`upper(${tenantBookingsTable.paymentStatus}) = 'OVERDUE'`);
 
     const [paidToday] = await db
-      .select({ total: sql<number>`coalesce(sum(amount), 0)::int` })
+      .select({ total: sql<number>`coalesce(sum(amount::numeric), 0)::int` })
       .from(tenantPaymentsTable)
-      .where(sql`${tenantPaymentsTable.paidAt}::date = ${today}`);
+      .where(
+        and(
+          sql`${tenantPaymentsTable.paidAt}::date = ${today}`,
+          eq(tenantPaymentsTable.isVoided, false)
+        )
+      );
+
+    const [openShift] = await db
+      .select({
+        id: cashierShiftsTable.id,
+        cashierName: cashierShiftsTable.cashierName,
+        openedAt: cashierShiftsTable.openedAt,
+      })
+      .from(cashierShiftsTable)
+      .where(eq(cashierShiftsTable.status, "open"))
+      .orderBy(desc(cashierShiftsTable.openedAt))
+      .limit(1);
 
     res.json({
       totalActiveTenants: totalActive?.count ?? 0,
       unpaidCount: unpaid?.count ?? 0,
       overdueCount: overdue?.count ?? 0,
       paidTodayAmount: paidToday?.total ?? 0,
+      currentShift: openShift ?? null,
     });
   } catch (err) {
     req.log.error(err, "Failed to get POS overview");
@@ -103,6 +126,19 @@ router.get("/tenant-pos/floor-plan", async (req, res) => {
       )
       .orderBy(tenantsTable.areaName, tenantsTable.id);
 
+    const invoiceCounts = await db
+      .select({
+        tenantId: tenantInvoicesTable.tenantId,
+        openCount: sql<number>`count(*)::int`,
+      })
+      .from(tenantInvoicesTable)
+      .where(sql`${tenantInvoicesTable.status} IN ('unpaid', 'partial', 'overdue')`)
+      .groupBy(tenantInvoicesTable.tenantId);
+
+    const invoiceCountMap = new Map<number, number>(
+      invoiceCounts.map((r) => [r.tenantId, r.openCount])
+    );
+
     const result = rows.map((row: typeof rows[number], idx: number) => ({
       id: `${row.areaName.replace(/\s+/g, "-").toUpperCase()}-${String(idx + 1).padStart(2, "0")}`,
       tenantId: row.tenantId,
@@ -116,19 +152,70 @@ router.get("/tenant-pos/floor-plan", async (req, res) => {
       areaName: row.areaName,
       startDate: row.startDate ?? null,
       endDate: row.endDate ?? null,
-      totalAmount: row.totalAmount ?? 0,
-      paidAmount: row.paidAmount ?? 0,
-      remainingAmount: row.remainingAmount ?? 0,
+      totalAmount: Number(row.totalAmount ?? 0),
+      paidAmount: Number(row.paidAmount ?? 0),
+      remainingAmount: Number(row.remainingAmount ?? 0),
       paymentStatus: (row.paymentStatus ?? "UNPAID") as string,
       bookingStatus: row.bookingStatus ?? "aktif",
       dueDate: row.dueDate ?? null,
       periodLabel: row.periodLabel ?? null,
+      openInvoiceCount: invoiceCountMap.get(row.tenantId) ?? 0,
     }));
 
     res.json(result);
   } catch (err) {
     req.log.error(err, "Failed to get floor plan");
     res.status(500).json({ error: "Gagal mengambil data floor-plan" });
+  }
+});
+
+// ─── GET /api/tenant-pos/tenants/:tenantId/invoices ──────────────────────────
+router.get("/tenant-pos/tenants/:tenantId/invoices", async (req, res) => {
+  const tenantId = Number(req.params.tenantId);
+  if (isNaN(tenantId)) {
+    res.status(400).json({ error: "ID tidak valid" });
+    return;
+  }
+  try {
+    const invoices = await db
+      .select()
+      .from(tenantInvoicesTable)
+      .where(
+        and(
+          eq(tenantInvoicesTable.tenantId, tenantId),
+          sql`${tenantInvoicesTable.status} IN ('unpaid', 'partial', 'overdue', 'paid')`
+        )
+      )
+      .orderBy(tenantInvoicesTable.dueDate, tenantInvoicesTable.id);
+
+    res.json(
+      invoices.map((inv) => ({
+        id: inv.id,
+        invoiceNumber: inv.invoiceNumber,
+        tenantId: inv.tenantId,
+        bookingId: inv.bookingId,
+        unitCode: inv.unitCode,
+        periodStart: inv.periodStart,
+        periodEnd: inv.periodEnd,
+        dueDate: inv.dueDate,
+        rentAmount: Number(inv.rentAmount),
+        serviceChargeAmount: Number(inv.serviceChargeAmount),
+        electricityChargeAmount: Number(inv.electricityChargeAmount),
+        waterChargeAmount: Number(inv.waterChargeAmount),
+        otherChargeAmount: Number(inv.otherChargeAmount),
+        discountAmount: Number(inv.discountAmount),
+        penaltyAmount: Number(inv.penaltyAmount),
+        totalAmount: Number(inv.totalAmount),
+        paidAmount: Number(inv.paidAmount),
+        outstandingAmount: Number(inv.outstandingAmount),
+        status: inv.status,
+        notes: inv.notes,
+        createdAt: inv.createdAt,
+      }))
+    );
+  } catch (err) {
+    req.log.error(err, "Failed to get tenant invoices");
+    res.status(500).json({ error: "Gagal mengambil data invoice" });
   }
 });
 
@@ -144,44 +231,34 @@ router.get("/tenant-pos/bookings/:bookingId/payments", async (req, res) => {
       .select()
       .from(tenantPaymentsTable)
       .where(eq(tenantPaymentsTable.bookingId, bookingId))
-      .orderBy(tenantPaymentsTable.paidAt);
-
-    const result = payments.map((p) => ({
-      id: p.id,
-      receiptNumber: p.receiptNumber,
-      amountPaid: p.amount,
-      discountAmount: p.discountAmount,
-      penaltyAmount: p.penaltyAmount,
-      paymentMethod: p.paymentMethod,
-      paymentStatus: p.paymentStatus,
-      paymentDate: p.paidAt,
-      notes: p.notes,
-      createdAt: p.createdAt,
-    }));
-
-    res.json(result);
-  } catch (err) {
-    req.log.error(err, "Failed to get payment history for booking");
-    res.status(500).json({ error: "Gagal mengambil riwayat pembayaran" });
-  }
-});
-
-// ─── GET /api/tenant-pos/payments/:bookingId ─────────────────────────────────
-router.get("/tenant-pos/payments/:bookingId", async (req, res) => {
-  const bookingId = Number(req.params.bookingId);
-  if (isNaN(bookingId)) {
-    res.status(400).json({ error: "ID tidak valid" });
-    return;
-  }
-  try {
-    const payments = await db
-      .select()
-      .from(tenantPaymentsTable)
-      .where(eq(tenantPaymentsTable.bookingId, bookingId))
       .orderBy(desc(tenantPaymentsTable.paidAt));
-    res.json(payments);
+
+    res.json(
+      payments.map((p) => ({
+        id: p.id,
+        receiptNumber: p.receiptNumber,
+        amountPaid: Number(p.amount),
+        discountAmount: Number(p.discountAmount ?? 0),
+        penaltyAmount: Number(p.penaltyAmount ?? 0),
+        paymentMethod: p.paymentMethod,
+        paymentStatus: p.paymentStatus,
+        paymentDate: p.paidAt,
+        notes: p.notes,
+        createdAt: p.createdAt,
+        isVoided: p.isVoided,
+        voidReason: p.voidReason,
+        voidedAt: p.voidedAt,
+        voidedBy: p.voidedBy,
+        referenceNumber: p.referenceNumber,
+        invoiceId: p.invoiceId,
+        shiftId: p.shiftId,
+        refundAmount: Number(p.refundAmount ?? 0),
+        refundReason: p.refundReason,
+        refundStatus: p.refundStatus,
+      }))
+    );
   } catch (err) {
-    req.log.error(err, "Failed to get payments for booking");
+    req.log.error(err, "Failed to get payment history");
     res.status(500).json({ error: "Gagal mengambil riwayat pembayaran" });
   }
 });
@@ -198,8 +275,10 @@ router.get("/tenant-pos/recent-payments", async (req, res) => {
         penaltyAmount: tenantPaymentsTable.penaltyAmount,
         paymentMethod: tenantPaymentsTable.paymentMethod,
         receiptNumber: tenantPaymentsTable.receiptNumber,
+        referenceNumber: tenantPaymentsTable.referenceNumber,
         notes: tenantPaymentsTable.notes,
         paidAt: tenantPaymentsTable.paidAt,
+        isVoided: tenantPaymentsTable.isVoided,
         businessName: tenantsTable.businessName,
         boothNumber: tenantsTable.boothNumber,
         areaName: tenantsTable.areaName,
@@ -222,33 +301,29 @@ router.get("/tenant-pos/recent-payments", async (req, res) => {
 const paymentBodySchema = z.object({
   bookingId: z.number().int().positive(),
   tenantId: z.number().int().positive(),
+  invoiceId: z.number().int().positive().optional(),
   amountPaid: z.number().int().min(1, "amountPaid harus lebih dari 0"),
   discountAmount: z.number().int().min(0).default(0),
   penaltyAmount: z.number().int().min(0).default(0),
   paymentMethod: z.enum(["tunai", "transfer", "qris", "edc", "other"]),
   paymentDate: z.string().optional(),
+  referenceNumber: z.string().optional(),
+  proofUrl: z.string().optional(),
+  shiftId: z.number().int().positive().optional(),
   notes: z.string().optional(),
 });
 
 router.post("/tenant-pos/payments", async (req, res) => {
   const parsed = paymentBodySchema.safeParse(req.body);
   if (!parsed.success) {
-    res.status(400).json({
-      error: "Data tidak valid",
-      detail: parsed.error.flatten().fieldErrors,
-    });
+    res.status(400).json({ error: "Data tidak valid", detail: parsed.error.flatten().fieldErrors });
     return;
   }
 
   const {
-    bookingId,
-    tenantId,
-    amountPaid,
-    discountAmount,
-    penaltyAmount,
-    paymentMethod,
-    paymentDate,
-    notes,
+    bookingId, tenantId, invoiceId, amountPaid, discountAmount,
+    penaltyAmount, paymentMethod, paymentDate, referenceNumber,
+    proofUrl, shiftId, notes,
   } = parsed.data;
 
   try {
@@ -259,79 +334,127 @@ router.post("/tenant-pos/payments", async (req, res) => {
         .where(eq(tenantBookingsTable.id, bookingId))
         .for("update");
 
-      if (!booking) {
-        throw Object.assign(new Error("Booking tidak ditemukan"), { status: 404 });
-      }
-      if (booking.tenantId !== tenantId) {
+      if (!booking) throw Object.assign(new Error("Booking tidak ditemukan"), { status: 404 });
+      if (booking.tenantId !== tenantId)
         throw Object.assign(new Error("tenantId tidak cocok dengan booking"), { status: 400 });
-      }
-      if (booking.paymentStatus === "PAID") {
-        throw Object.assign(new Error("Booking ini sudah lunas"), { status: 409 });
-      }
-      if (booking.paymentStatus === "CANCELLED") {
+      if (booking.paymentStatus === "CANCELLED")
         throw Object.assign(new Error("Booking ini sudah dibatalkan"), { status: 409 });
-      }
 
       const [tenant] = await tx
         .select({ id: tenantsTable.id })
         .from(tenantsTable)
         .where(eq(tenantsTable.id, tenantId));
-
-      if (!tenant) {
-        throw Object.assign(new Error("Tenant tidak ditemukan"), { status: 404 });
-      }
-
-      const finalBill = booking.totalAmount - discountAmount + penaltyAmount;
+      if (!tenant) throw Object.assign(new Error("Tenant tidak ditemukan"), { status: 404 });
 
       const [prevPaid] = await tx
-        .select({ total: sql<number>`coalesce(sum(amount), 0)::int` })
+        .select({ total: sql<number>`coalesce(sum(amount::numeric), 0)::int` })
         .from(tenantPaymentsTable)
-        .where(eq(tenantPaymentsTable.bookingId, bookingId));
+        .where(
+          and(
+            eq(tenantPaymentsTable.bookingId, bookingId),
+            eq(tenantPaymentsTable.isVoided, false)
+          )
+        );
 
       const previousPaidAmount = prevPaid?.total ?? 0;
+      const finalBill = Number(booking.totalAmount) - discountAmount + penaltyAmount;
       const newPaidAmount = previousPaidAmount + amountPaid;
       const remainingAmount = Math.max(finalBill - newPaidAmount, 0);
+      const change = Math.max(newPaidAmount - finalBill, 0);
 
       let paymentStatus: "PAID" | "PARTIAL" | "UNPAID";
-      if (newPaidAmount >= finalBill) {
-        paymentStatus = "PAID";
-      } else if (newPaidAmount > 0) {
-        paymentStatus = "PARTIAL";
-      } else {
-        paymentStatus = "UNPAID";
-      }
+      if (newPaidAmount >= finalBill) paymentStatus = "PAID";
+      else if (newPaidAmount > 0) paymentStatus = "PARTIAL";
+      else paymentStatus = "UNPAID";
 
       const receiptNumber = await generateReceiptNumber();
-
       const paidAt = paymentDate ? new Date(paymentDate) : new Date();
+
       const [payment] = await tx
         .insert(tenantPaymentsTable)
         .values({
           bookingId,
           tenantId,
-          amount: amountPaid,
-          discountAmount,
-          penaltyAmount,
+          invoiceId: invoiceId ?? null,
+          amount: String(amountPaid),
+          discountAmount: String(discountAmount),
+          penaltyAmount: String(penaltyAmount),
           paymentMethod,
           paymentStatus: "PAID",
           receiptNumber,
-          notes,
+          referenceNumber: referenceNumber ?? null,
+          proofUrl: proofUrl ?? null,
+          shiftId: shiftId ?? null,
+          notes: notes ?? null,
           paidAt,
+          isVoided: false,
+          refundAmount: "0",
         })
         .returning();
 
       const [updatedBooking] = await tx
         .update(tenantBookingsTable)
         .set({
-          paidAmount: newPaidAmount,
-          remainingAmount,
+          paidAmount: String(newPaidAmount),
+          remainingAmount: String(remainingAmount),
           paymentStatus,
           updatedAt: new Date(),
         })
         .where(eq(tenantBookingsTable.id, bookingId))
         .returning();
 
-      return { payment, booking: updatedBooking, paymentStatus, newPaidAmount, remainingAmount, receiptNumber };
+      if (invoiceId) {
+        const [invoice] = await tx
+          .select()
+          .from(tenantInvoicesTable)
+          .where(eq(tenantInvoicesTable.id, invoiceId))
+          .for("update");
+
+        if (invoice) {
+          const [prevInvPaid] = await tx
+            .select({ total: sql<number>`coalesce(sum(amount::numeric), 0)::int` })
+            .from(tenantPaymentsTable)
+            .where(
+              and(
+                eq(tenantPaymentsTable.invoiceId, invoiceId),
+                eq(tenantPaymentsTable.isVoided, false)
+              )
+            );
+
+          const invoicePaid = (prevInvPaid?.total ?? 0) + amountPaid;
+          const invTotal = Number(invoice.totalAmount);
+          const invOutstanding = Math.max(invTotal - invoicePaid, 0);
+          const invStatus = invoicePaid >= invTotal ? "paid" : invoicePaid > 0 ? "partial" : "unpaid";
+
+          await tx
+            .update(tenantInvoicesTable)
+            .set({
+              paidAmount: String(invoicePaid),
+              outstandingAmount: String(invOutstanding),
+              status: invStatus,
+              updatedAt: new Date(),
+            })
+            .where(eq(tenantInvoicesTable.id, invoiceId));
+        }
+      }
+
+      if (shiftId && paymentMethod === "tunai") {
+        const [shift] = await tx
+          .select()
+          .from(cashierShiftsTable)
+          .where(and(eq(cashierShiftsTable.id, shiftId), eq(cashierShiftsTable.status, "open")));
+        if (shift) {
+          await tx
+            .update(cashierShiftsTable)
+            .set({
+              expectedCash: sql`${cashierShiftsTable.expectedCash}::numeric + ${amountPaid}`,
+              updatedAt: new Date(),
+            })
+            .where(eq(cashierShiftsTable.id, shiftId));
+        }
+      }
+
+      return { payment, booking: updatedBooking, paymentStatus, newPaidAmount, remainingAmount, receiptNumber, change };
     });
 
     res.status(201).json({
@@ -341,6 +464,7 @@ router.post("/tenant-pos/payments", async (req, res) => {
       paymentStatus: result.paymentStatus,
       paidAmount: result.newPaidAmount,
       remainingAmount: result.remainingAmount,
+      change: result.change,
     });
   } catch (err) {
     const e = err as Error & { status?: number };
@@ -353,13 +477,168 @@ router.post("/tenant-pos/payments", async (req, res) => {
   }
 });
 
+// ─── POST /api/tenant-pos/payments/:id/void ──────────────────────────────────
+const voidBodySchema = z.object({
+  voidReason: z.string().min(3, "Alasan void wajib diisi (min 3 karakter)"),
+});
+
+router.post("/tenant-pos/payments/:id/void", async (req, res) => {
+  const currentUser = getSessionUser(req);
+  if (!currentUser || !["owner", "admin", "finance"].includes(currentUser.role)) {
+    res.status(403).json({ error: "Hanya owner/admin/finance yang dapat melakukan void" });
+    return;
+  }
+
+  const paymentId = Number(req.params.id);
+  if (isNaN(paymentId)) { res.status(400).json({ error: "ID tidak valid" }); return; }
+
+  const parsed = voidBodySchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Data tidak valid", detail: parsed.error.flatten().fieldErrors });
+    return;
+  }
+
+  try {
+    const result = await db.transaction(async (tx) => {
+      const [payment] = await tx
+        .select()
+        .from(tenantPaymentsTable)
+        .where(eq(tenantPaymentsTable.id, paymentId))
+        .for("update");
+
+      if (!payment) throw Object.assign(new Error("Data pembayaran tidak ditemukan"), { status: 404 });
+      if (payment.isVoided) throw Object.assign(new Error("Pembayaran ini sudah di-void"), { status: 409 });
+
+      await tx
+        .update(tenantPaymentsTable)
+        .set({
+          isVoided: true,
+          voidedAt: new Date(),
+          voidReason: parsed.data.voidReason,
+          voidedBy: currentUser.name,
+          updatedAt: new Date(),
+        })
+        .where(eq(tenantPaymentsTable.id, paymentId));
+
+      if (payment.bookingId) {
+        const [sumResult] = await tx
+          .select({ total: sql<number>`coalesce(sum(amount::numeric), 0)::int` })
+          .from(tenantPaymentsTable)
+          .where(
+            and(
+              eq(tenantPaymentsTable.bookingId, payment.bookingId),
+              eq(tenantPaymentsTable.isVoided, false)
+            )
+          );
+
+        const newPaidAmount = sumResult?.total ?? 0;
+        const [booking] = await tx
+          .select()
+          .from(tenantBookingsTable)
+          .where(eq(tenantBookingsTable.id, payment.bookingId));
+
+        if (booking) {
+          const finalBill = Number(booking.totalAmount);
+          const remainingAmount = Math.max(finalBill - newPaidAmount, 0);
+          const paymentStatus =
+            newPaidAmount >= finalBill ? "PAID" : newPaidAmount > 0 ? "PARTIAL" : "UNPAID";
+          await tx
+            .update(tenantBookingsTable)
+            .set({ paidAmount: String(newPaidAmount), remainingAmount: String(remainingAmount), paymentStatus, updatedAt: new Date() })
+            .where(eq(tenantBookingsTable.id, payment.bookingId));
+        }
+      }
+
+      if (payment.invoiceId) {
+        const [invSum] = await tx
+          .select({ total: sql<number>`coalesce(sum(amount::numeric), 0)::int` })
+          .from(tenantPaymentsTable)
+          .where(
+            and(
+              eq(tenantPaymentsTable.invoiceId, payment.invoiceId),
+              eq(tenantPaymentsTable.isVoided, false)
+            )
+          );
+
+        const invPaid = invSum?.total ?? 0;
+        const [invoice] = await tx
+          .select()
+          .from(tenantInvoicesTable)
+          .where(eq(tenantInvoicesTable.id, payment.invoiceId));
+
+        if (invoice) {
+          const invTotal = Number(invoice.totalAmount);
+          const invOutstanding = Math.max(invTotal - invPaid, 0);
+          const invStatus = invPaid >= invTotal ? "paid" : invPaid > 0 ? "partial" : "unpaid";
+          await tx
+            .update(tenantInvoicesTable)
+            .set({ paidAmount: String(invPaid), outstandingAmount: String(invOutstanding), status: invStatus, updatedAt: new Date() })
+            .where(eq(tenantInvoicesTable.id, payment.invoiceId));
+        }
+      }
+
+      return payment;
+    });
+
+    res.json({ success: true, message: "Pembayaran berhasil di-void", paymentId: result.id });
+  } catch (err) {
+    const e = err as Error & { status?: number };
+    if (e.status) res.status(e.status).json({ error: e.message });
+    else { console.error(err); res.status(500).json({ error: "Gagal melakukan void pembayaran" }); }
+  }
+});
+
+// ─── POST /api/tenant-pos/payments/:id/refund ────────────────────────────────
+const refundBodySchema = z.object({
+  refundAmount: z.number().int().min(1, "Jumlah refund harus lebih dari 0"),
+  refundReason: z.string().min(3, "Alasan refund wajib diisi"),
+});
+
+router.post("/tenant-pos/payments/:id/refund", async (req, res) => {
+  const currentUser = getSessionUser(req);
+  if (!currentUser || !["owner", "admin", "finance"].includes(currentUser.role)) {
+    res.status(403).json({ error: "Hanya owner/admin/finance yang dapat melakukan refund" });
+    return;
+  }
+
+  const paymentId = Number(req.params.id);
+  if (isNaN(paymentId)) { res.status(400).json({ error: "ID tidak valid" }); return; }
+
+  const parsed = refundBodySchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Data tidak valid", detail: parsed.error.flatten().fieldErrors });
+    return;
+  }
+
+  try {
+    const [payment] = await db
+      .select()
+      .from(tenantPaymentsTable)
+      .where(eq(tenantPaymentsTable.id, paymentId));
+
+    if (!payment) { res.status(404).json({ error: "Data pembayaran tidak ditemukan" }); return; }
+    if (payment.isVoided) { res.status(409).json({ error: "Pembayaran ini sudah di-void" }); return; }
+    if (payment.refundStatus === "processed") { res.status(409).json({ error: "Pembayaran ini sudah di-refund" }); return; }
+    if (parsed.data.refundAmount > Number(payment.amount)) {
+      res.status(400).json({ error: "Jumlah refund tidak boleh melebihi nominal bayar" }); return;
+    }
+
+    await db
+      .update(tenantPaymentsTable)
+      .set({ refundAmount: String(parsed.data.refundAmount), refundReason: parsed.data.refundReason, refundStatus: "processed", updatedAt: new Date() })
+      .where(eq(tenantPaymentsTable.id, paymentId));
+
+    res.json({ success: true, message: "Refund berhasil dicatat" });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Gagal melakukan refund" });
+  }
+});
+
 // ─── GET /api/tenant-pos/payments/:paymentId/receipt ─────────────────────────
 router.get("/tenant-pos/payments/:paymentId/receipt", async (req, res) => {
   const paymentId = Number(req.params.paymentId);
-  if (isNaN(paymentId)) {
-    res.status(400).json({ error: "ID tidak valid" });
-    return;
-  }
+  if (isNaN(paymentId)) { res.status(400).json({ error: "ID tidak valid" }); return; }
   try {
     const [row] = await db
       .select({
@@ -371,7 +650,11 @@ router.get("/tenant-pos/payments/:paymentId/receipt", async (req, res) => {
         penaltyAmount: tenantPaymentsTable.penaltyAmount,
         paymentMethod: tenantPaymentsTable.paymentMethod,
         paymentStatus: tenantPaymentsTable.paymentStatus,
+        referenceNumber: tenantPaymentsTable.referenceNumber,
+        invoiceId: tenantPaymentsTable.invoiceId,
+        shiftId: tenantPaymentsTable.shiftId,
         notes: tenantPaymentsTable.notes,
+        isVoided: tenantPaymentsTable.isVoided,
         billingPeriod: tenantBookingsTable.periodLabel,
         totalAmount: tenantBookingsTable.totalAmount,
         remainingAmount: tenantBookingsTable.remainingAmount,
@@ -385,9 +668,24 @@ router.get("/tenant-pos/payments/:paymentId/receipt", async (req, res) => {
       .innerJoin(tenantsTable, eq(tenantBookingsTable.tenantId, tenantsTable.id))
       .where(eq(tenantPaymentsTable.id, paymentId));
 
-    if (!row) {
-      res.status(404).json({ error: "Data pembayaran tidak ditemukan" });
-      return;
+    if (!row) { res.status(404).json({ error: "Data pembayaran tidak ditemukan" }); return; }
+
+    let invoiceNumber: string | null = null;
+    if (row.invoiceId) {
+      const [inv] = await db
+        .select({ invoiceNumber: tenantInvoicesTable.invoiceNumber })
+        .from(tenantInvoicesTable)
+        .where(eq(tenantInvoicesTable.id, row.invoiceId));
+      invoiceNumber = inv?.invoiceNumber ?? null;
+    }
+
+    let cashierName = "Admin";
+    if (row.shiftId) {
+      const [shift] = await db
+        .select({ cashierName: cashierShiftsTable.cashierName })
+        .from(cashierShiftsTable)
+        .where(eq(cashierShiftsTable.id, row.shiftId));
+      if (shift) cashierName = shift.cashierName;
     }
 
     res.json({
@@ -397,19 +695,212 @@ router.get("/tenant-pos/payments/:paymentId/receipt", async (req, res) => {
       ownerName: row.ownerName,
       boothNumber: row.boothNumber,
       billingPeriod: row.billingPeriod ?? "—",
-      totalAmount: row.totalAmount,
-      discountAmount: row.discountAmount ?? 0,
-      penaltyAmount: row.penaltyAmount ?? 0,
-      amountPaid: row.amountPaid,
-      remainingAmount: row.remainingAmount ?? 0,
+      totalAmount: Number(row.totalAmount),
+      discountAmount: Number(row.discountAmount ?? 0),
+      penaltyAmount: Number(row.penaltyAmount ?? 0),
+      amountPaid: Number(row.amountPaid),
+      remainingAmount: Number(row.remainingAmount ?? 0),
       paymentMethod: row.paymentMethod,
       paymentStatus: row.paymentStatus,
+      referenceNumber: row.referenceNumber ?? null,
+      invoiceNumber,
+      cashierName,
+      isVoided: row.isVoided,
       notes: row.notes ?? null,
-      adminName: "Admin",
     });
   } catch (err) {
     req.log.error(err, "Failed to get payment receipt");
     res.status(500).json({ error: "Gagal mengambil data receipt" });
+  }
+});
+
+// ─── GET /api/tenant-pos/shifts/current ──────────────────────────────────────
+router.get("/tenant-pos/shifts/current", async (req, res) => {
+  try {
+    const [shift] = await db
+      .select()
+      .from(cashierShiftsTable)
+      .where(eq(cashierShiftsTable.status, "open"))
+      .orderBy(desc(cashierShiftsTable.openedAt))
+      .limit(1);
+
+    if (!shift) { res.json(null); return; }
+
+    const [txCount] = await db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(tenantPaymentsTable)
+      .where(and(eq(tenantPaymentsTable.shiftId, shift.id), eq(tenantPaymentsTable.isVoided, false)));
+
+    const [txTotal] = await db
+      .select({ total: sql<number>`coalesce(sum(amount::numeric), 0)::int` })
+      .from(tenantPaymentsTable)
+      .where(and(eq(tenantPaymentsTable.shiftId, shift.id), eq(tenantPaymentsTable.isVoided, false)));
+
+    res.json({
+      id: shift.id,
+      cashierName: shift.cashierName,
+      cashierId: shift.cashierId,
+      openedAt: shift.openedAt,
+      closedAt: shift.closedAt,
+      expectedCash: Number(shift.expectedCash),
+      actualCash: shift.actualCash !== null ? Number(shift.actualCash) : null,
+      cashDifference: shift.cashDifference !== null ? Number(shift.cashDifference) : null,
+      notes: shift.notes,
+      status: shift.status,
+      transactionCount: txCount?.count ?? 0,
+      transactionTotal: txTotal?.total ?? 0,
+    });
+  } catch (err) {
+    req.log.error(err, "Failed to get current shift");
+    res.status(500).json({ error: "Gagal mengambil data shift" });
+  }
+});
+
+// ─── POST /api/tenant-pos/shifts/open ────────────────────────────────────────
+const openShiftSchema = z.object({
+  cashierName: z.string().min(2, "Nama kasir wajib diisi"),
+  notes: z.string().optional(),
+});
+
+router.post("/tenant-pos/shifts/open", async (req, res) => {
+  const parsed = openShiftSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Data tidak valid", detail: parsed.error.flatten().fieldErrors });
+    return;
+  }
+
+  try {
+    const [existing] = await db
+      .select({ id: cashierShiftsTable.id })
+      .from(cashierShiftsTable)
+      .where(eq(cashierShiftsTable.status, "open"))
+      .limit(1);
+
+    if (existing) {
+      res.status(409).json({ error: "Masih ada shift yang aktif, tutup terlebih dahulu" });
+      return;
+    }
+
+    const currentUser = getSessionUser(req);
+    const [shift] = await db
+      .insert(cashierShiftsTable)
+      .values({
+        cashierName: parsed.data.cashierName,
+        cashierId: currentUser?.id ?? null,
+        notes: parsed.data.notes ?? null,
+        status: "open",
+        expectedCash: "0",
+      })
+      .returning();
+
+    res.status(201).json(shift);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Gagal membuka shift" });
+  }
+});
+
+// ─── POST /api/tenant-pos/shifts/:id/close ───────────────────────────────────
+const closeShiftSchema = z.object({
+  actualCash: z.number().int().min(0),
+  notes: z.string().optional(),
+});
+
+router.post("/tenant-pos/shifts/:id/close", async (req, res) => {
+  const shiftId = Number(req.params.id);
+  if (isNaN(shiftId)) { res.status(400).json({ error: "ID tidak valid" }); return; }
+
+  const parsed = closeShiftSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Data tidak valid", detail: parsed.error.flatten().fieldErrors });
+    return;
+  }
+
+  try {
+    const [shift] = await db
+      .select()
+      .from(cashierShiftsTable)
+      .where(and(eq(cashierShiftsTable.id, shiftId), eq(cashierShiftsTable.status, "open")));
+
+    if (!shift) { res.status(404).json({ error: "Shift tidak ditemukan atau sudah ditutup" }); return; }
+
+    const expectedCash = Number(shift.expectedCash);
+    const actualCash = parsed.data.actualCash;
+    const cashDifference = actualCash - expectedCash;
+
+    const [updated] = await db
+      .update(cashierShiftsTable)
+      .set({
+        status: "closed",
+        closedAt: new Date(),
+        actualCash: String(actualCash),
+        cashDifference: String(cashDifference),
+        notes: parsed.data.notes ?? shift.notes,
+        updatedAt: new Date(),
+      })
+      .where(eq(cashierShiftsTable.id, shiftId))
+      .returning();
+
+    const [txCount] = await db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(tenantPaymentsTable)
+      .where(and(eq(tenantPaymentsTable.shiftId, shiftId), eq(tenantPaymentsTable.isVoided, false)));
+
+    const [txTotal] = await db
+      .select({ total: sql<number>`coalesce(sum(amount::numeric), 0)::int` })
+      .from(tenantPaymentsTable)
+      .where(and(eq(tenantPaymentsTable.shiftId, shiftId), eq(tenantPaymentsTable.isVoided, false)));
+
+    res.json({
+      shift: updated,
+      summary: { transactionCount: txCount?.count ?? 0, transactionTotal: txTotal?.total ?? 0, expectedCash, actualCash, cashDifference },
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Gagal menutup shift" });
+  }
+});
+
+// ─── GET /api/tenant-pos/daily-report ────────────────────────────────────────
+router.get("/tenant-pos/daily-report", async (req, res) => {
+  try {
+    const dateParam = (req.query.date as string) ?? new Date().toISOString().slice(0, 10);
+
+    const payments = await db
+      .select({
+        id: tenantPaymentsTable.id,
+        amount: tenantPaymentsTable.amount,
+        paymentMethod: tenantPaymentsTable.paymentMethod,
+        receiptNumber: tenantPaymentsTable.receiptNumber,
+        paidAt: tenantPaymentsTable.paidAt,
+        isVoided: tenantPaymentsTable.isVoided,
+        businessName: tenantsTable.businessName,
+        boothNumber: tenantsTable.boothNumber,
+      })
+      .from(tenantPaymentsTable)
+      .innerJoin(tenantBookingsTable, eq(tenantPaymentsTable.bookingId, tenantBookingsTable.id))
+      .innerJoin(tenantsTable, eq(tenantBookingsTable.tenantId, tenantsTable.id))
+      .where(sql`${tenantPaymentsTable.paidAt}::date = ${dateParam}`)
+      .orderBy(tenantPaymentsTable.paidAt);
+
+    const valid = payments.filter((p) => !p.isVoided);
+    const totalAmount = valid.reduce((sum, p) => sum + Number(p.amount), 0);
+    const byMethod: Record<string, number> = {};
+    for (const p of valid) {
+      byMethod[p.paymentMethod ?? "other"] = (byMethod[p.paymentMethod ?? "other"] ?? 0) + Number(p.amount);
+    }
+
+    res.json({
+      date: dateParam,
+      totalAmount,
+      totalCount: valid.length,
+      voidedCount: payments.filter((p) => p.isVoided).length,
+      byMethod,
+      payments: payments.map((p) => ({ ...p, amount: Number(p.amount) })),
+    });
+  } catch (err) {
+    req.log.error(err, "Failed to get daily report");
+    res.status(500).json({ error: "Gagal mengambil laporan harian" });
   }
 });
 
