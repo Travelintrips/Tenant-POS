@@ -1,8 +1,11 @@
 import { ShieldX } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { useLogout } from "@/hooks/use-auth";
 
 export default function Unauthorized() {
+  const logout = useLogout();
+
   return (
     <div className="min-h-screen w-full flex items-center justify-center bg-gray-50">
       <Card className="w-full max-w-md mx-4">
@@ -17,11 +20,16 @@ export default function Unauthorized() {
             </div>
           </div>
           <div className="flex gap-2 mt-6">
-            <Button variant="outline" onClick={() => window.history.back()} className="flex-1">
-              Kembali
-            </Button>
-            <Button onClick={() => (window.location.href = "/")} className="flex-1">
+            <Button variant="outline" onClick={() => (window.location.href = "/")} className="flex-1">
               Ke Beranda
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => logout.mutate()}
+              disabled={logout.isPending}
+              className="flex-1"
+            >
+              {logout.isPending ? "Keluar..." : "Ganti Akun"}
             </Button>
           </div>
         </CardContent>

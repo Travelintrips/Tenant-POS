@@ -1,4 +1,6 @@
 import { Router, type IRouter } from "express";
+import { logger } from "../lib/logger";
+import { paymentRateLimiter } from "../middlewares/rate-limit";
 import { db } from "@workspace/db";
 import {
   tenantsTable,
@@ -15,7 +17,7 @@ import { sseBroker } from "../lib/sse-broker";
 
 const router: IRouter = Router();
 
-router.use(requireAnyRole("owner", "admin", "finance", "cashier"));
+router.use("/tenant-pos", requireAnyRole("owner", "admin", "finance", "cashier"));
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -318,7 +320,7 @@ const paymentBodySchema = z.object({
   notes: z.string().optional(),
 });
 
-router.post("/tenant-pos/payments", async (req, res) => {
+router.post("/tenant-pos/payments", paymentRateLimiter, async (req, res) => {
   const parsed = paymentBodySchema.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: "Data tidak valid", detail: parsed.error.flatten().fieldErrors });
@@ -394,6 +396,7 @@ router.post("/tenant-pos/payments", async (req, res) => {
         .insert(tenantPaymentsTable)
         .values({
           bookingId,
+          tenantBookingId: bookingId,
           tenantId,
           invoiceId: invoiceId ?? null,
           amount: String(amountPaid),
@@ -499,7 +502,7 @@ router.post("/tenant-pos/payments", async (req, res) => {
     if (e.status) {
       res.status(e.status).json({ error: e.message });
     } else {
-      console.error(err);
+      logger.error({ err }, "Gagal memproses pembayaran");
       res.status(500).json({ error: "Gagal memproses pembayaran" });
     }
   }
@@ -510,7 +513,7 @@ const voidBodySchema = z.object({
   voidReason: z.string().min(3, "Alasan void wajib diisi (min 3 karakter)"),
 });
 
-router.post("/tenant-pos/payments/:id/void", async (req, res) => {
+router.post("/tenant-pos/payments/:id/void", paymentRateLimiter, async (req, res) => {
   const currentUser = getSessionUser(req);
   if (!currentUser || !["owner", "admin", "finance"].includes(currentUser.role)) {
     res.status(403).json({ error: "Hanya owner/admin/finance yang dapat melakukan void" });
@@ -616,11 +619,11 @@ router.post("/tenant-pos/payments/:id/void", async (req, res) => {
       afterData: { id: result.id, isVoided: true, voidReason: parsed.data.voidReason },
     });
     sseBroker.publish("payment_voided", { paymentId: result.id });
-    res.json({ success: true, message: "Pembayaran berhasil di-void", paymentId: result.id });
+    res.json({ success: true, message: "Pembayaran berhasil di-void", paymentId: result.id, isVoided: true });
   } catch (err) {
     const e = err as Error & { status?: number };
     if (e.status) res.status(e.status).json({ error: e.message });
-    else { console.error(err); res.status(500).json({ error: "Gagal melakukan void pembayaran" }); }
+    else { logger.error({ err }, "Gagal melakukan void pembayaran"); res.status(500).json({ error: "Gagal melakukan void pembayaran" }); }
   }
 });
 
@@ -630,7 +633,7 @@ const refundBodySchema = z.object({
   refundReason: z.string().min(3, "Alasan refund wajib diisi"),
 });
 
-router.post("/tenant-pos/payments/:id/refund", async (req, res) => {
+router.post("/tenant-pos/payments/:id/refund", paymentRateLimiter, async (req, res) => {
   const currentUser = getSessionUser(req);
   if (!currentUser || !["owner", "admin", "finance"].includes(currentUser.role)) {
     res.status(403).json({ error: "Hanya owner/admin/finance yang dapat melakukan refund" });
@@ -673,7 +676,7 @@ router.post("/tenant-pos/payments/:id/refund", async (req, res) => {
     });
     res.json({ success: true, message: "Refund berhasil dicatat" });
   } catch (err) {
-    console.error(err);
+    logger.error({ err }, "Gagal melakukan refund");
     res.status(500).json({ error: "Gagal melakukan refund" });
   }
 });
@@ -838,7 +841,7 @@ router.post("/tenant-pos/shifts/open", async (req, res) => {
 
     res.status(201).json(shift);
   } catch (err) {
-    console.error(err);
+    logger.error({ err }, "Gagal membuka shift");
     res.status(500).json({ error: "Gagal membuka shift" });
   }
 });
@@ -911,7 +914,7 @@ router.post("/tenant-pos/shifts/:id/close", async (req, res) => {
       summary: { transactionCount: txCount?.count ?? 0, transactionTotal: txTotal?.total ?? 0, expectedCash, actualCash, cashDifference },
     });
   } catch (err) {
-    console.error(err);
+    logger.error({ err }, "Gagal menutup shift");
     res.status(500).json({ error: "Gagal menutup shift" });
   }
 });
@@ -1010,7 +1013,7 @@ router.get("/tenant-pos/shifts/:id/report", async (req, res) => {
       payments: payments.map((p) => ({ ...p, amount: Number(p.amount) })),
     });
   } catch (err) {
-    console.error(err);
+    logger.error({ err }, "Gagal mengambil laporan shift");
     res.status(500).json({ error: "Gagal mengambil laporan shift" });
   }
 });

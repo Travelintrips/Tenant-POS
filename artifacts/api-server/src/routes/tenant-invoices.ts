@@ -13,22 +13,73 @@ import { requireAnyRole } from "../middlewares/auth";
 import { logAudit } from "../lib/audit";
 
 const router: IRouter = Router();
-router.use(requireAnyRole("owner", "admin", "finance"));
+router.use("/tenant-invoices", requireAnyRole("owner", "admin", "finance"));
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
+/**
+ * Generate invoice number format: INV-TENANT/YYYYMM/NNNNN
+ *
+ * Menggunakan MAX sequence (bukan COUNT) agar tidak bentrok ketika ada gap
+ * (invoice dihapus) atau pemanggilan bersamaan. Caller yang melakukan INSERT
+ * harus menangkap unique constraint violation (code "23505") dan memanggil
+ * ulang fungsi ini sekali lagi — lihat insertInvoiceSafe().
+ */
 async function generateInvoiceNumber(): Promise<string> {
   const now = new Date();
   const yyyymm = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}`;
   const prefix = `INV-TENANT/${yyyymm}/`;
 
+  // Gunakan SUBSTR(str, pos) — sintaks posisional eksplisit.
+  // SUBSTRING(str FROM n) di PostgreSQL diinterpretasikan sebagai regex extraction,
+  // bukan positional, sehingga selalu NULL jika n berupa angka yang tidak cocok sebagai regex.
+  const prefixLen = prefix.length;
   const [row] = await db
-    .select({ count: sql<number>`count(*)::int` })
+    .select({
+      maxSeq: sql<number | null>`COALESCE(MAX(CAST(SUBSTR(invoice_number, ${prefixLen + 1}) AS INTEGER)), 0)`,
+    })
     .from(tenantInvoicesTable)
-    .where(sql`invoice_number LIKE ${prefix + "%"}`);
+    .where(
+      sql`invoice_number LIKE ${prefix + "%"} AND LENGTH(invoice_number) = ${prefixLen + 5}`,
+    );
 
-  const seq = ((row?.count ?? 0) + 1).toString().padStart(5, "0");
-  return `${prefix}${seq}`;
+  const next = (row?.maxSeq ?? 0) + 1;
+  return `${prefix}${next.toString().padStart(5, "0")}`;
+}
+
+/**
+ * INSERT invoice dengan retry otomatis jika invoice_number duplicate
+ * (unique constraint violation PostgreSQL = SQLSTATE 23505).
+ * Menghindari 500 akibat race condition pada generateInvoiceNumber.
+ */
+async function insertInvoiceSafe(
+  values: Parameters<typeof db.insert>[0] extends infer T ? (T extends any ? any : never) : never,
+  maxRetries = 3,
+): Promise<typeof tenantInvoicesTable.$inferSelect> {
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    const invoiceNumber = await generateInvoiceNumber();
+
+    try {
+      const [inserted] = await db
+        .insert(tenantInvoicesTable)
+        .values({ ...values, invoiceNumber })
+        .returning();
+      return inserted;
+    } catch (err) {
+      // DrizzleQueryError membungkus PG error asli di .cause — periksa keduanya
+      const code =
+        (err as any)?.code ??
+        (err as any)?.cause?.code ??
+        (err as any)?.cause?.routine;
+      const isUniqueViolation = code === "23505" || (err as any)?.cause?.code === "23505";
+      if (isUniqueViolation && attempt < maxRetries) {
+        // Coba lagi dengan sequence berikutnya
+        continue;
+      }
+      throw err;
+    }
+  }
+  throw new Error(`Gagal generate invoice number setelah ${maxRetries + 1} percobaan`);
 }
 
 function calcAmounts(data: {
@@ -203,7 +254,6 @@ router.post("/tenant-invoices", async (req, res) => {
 
   const data = parsed.data;
   const { subtotal, totalAmount, outstandingAmount } = calcAmounts(data);
-  const invoiceNumber = await generateInvoiceNumber();
 
   const status = data.status ?? resolveStatus(
     Number(totalAmount),
@@ -212,32 +262,28 @@ router.post("/tenant-invoices", async (req, res) => {
   );
 
   try {
-    const [invoice] = await db
-      .insert(tenantInvoicesTable)
-      .values({
-        invoiceNumber,
-        tenantId: data.tenantId,
-        bookingId: data.bookingId ?? null,
-        unitCode: data.unitCode ?? null,
-        periodStart: data.periodStart ?? null,
-        periodEnd: data.periodEnd ?? null,
-        dueDate: data.dueDate ?? null,
-        rentAmount: String(data.rentAmount ?? "0"),
-        serviceChargeAmount: String(data.serviceChargeAmount ?? "0"),
-        electricityChargeAmount: String(data.electricityChargeAmount ?? "0"),
-        waterChargeAmount: String(data.waterChargeAmount ?? "0"),
-        otherChargeAmount: String(data.otherChargeAmount ?? "0"),
-        discountAmount: String(data.discountAmount ?? "0"),
-        penaltyAmount: String(data.penaltyAmount ?? "0"),
-        taxAmount: String(data.taxAmount ?? "0"),
-        subtotal,
-        totalAmount,
-        paidAmount: "0",
-        outstandingAmount,
-        status,
-        notes: data.notes ?? null,
-      })
-      .returning();
+    const invoice = await insertInvoiceSafe({
+      tenantId: data.tenantId,
+      bookingId: data.bookingId ?? null,
+      unitCode: data.unitCode ?? null,
+      periodStart: data.periodStart ?? null,
+      periodEnd: data.periodEnd ?? null,
+      dueDate: data.dueDate ?? null,
+      rentAmount: String(data.rentAmount ?? "0"),
+      serviceChargeAmount: String(data.serviceChargeAmount ?? "0"),
+      electricityChargeAmount: String(data.electricityChargeAmount ?? "0"),
+      waterChargeAmount: String(data.waterChargeAmount ?? "0"),
+      otherChargeAmount: String(data.otherChargeAmount ?? "0"),
+      discountAmount: String(data.discountAmount ?? "0"),
+      penaltyAmount: String(data.penaltyAmount ?? "0"),
+      taxAmount: String(data.taxAmount ?? "0"),
+      subtotal,
+      totalAmount,
+      paidAmount: "0",
+      outstandingAmount,
+      status,
+      notes: data.notes ?? null,
+    });
 
     const [withTenant] = await db
       .select(invoiceSelect)
@@ -353,6 +399,11 @@ router.post("/tenant-invoices/generate-from-booking/:bookingId", async (req, res
 
     if (!tenant) { res.status(404).json({ error: "Tenant tidak ditemukan" }); return; }
 
+    if (!booking.tenantId) {
+      res.status(400).json({ error: "Booking tidak memiliki tenant_id yang valid" });
+      return;
+    }
+
     const billingCycle = booking.billingCycle ?? "monthly";
     const startDate = booking.startDate ? new Date(booking.startDate) : new Date();
     const now = new Date();
@@ -378,12 +429,43 @@ router.post("/tenant-invoices/generate-from-booking/:bookingId", async (req, res
       dueDate.setDate(dueDate.getDate() + 14);
     } else {
       periodStart = startDate;
-      periodEnd = booking.endDate ? new Date(booking.endDate) : new Date(now.getFullYear(), now.getMonth() + 1, 0);
+      periodEnd = booking.endDate
+        ? new Date(booking.endDate)
+        : new Date(now.getFullYear(), now.getMonth() + 1, 0);
       dueDate = new Date(periodEnd);
       dueDate.setDate(dueDate.getDate() + 5);
     }
 
     const toDateStr = (d: Date) => d.toISOString().slice(0, 10);
+
+    const periodStartStr = toDateStr(periodStart);
+    const periodEndStr = toDateStr(periodEnd);
+    const dueDateStr = toDateStr(dueDate);
+
+    // ── Idempotency: jika invoice untuk booking+periode ini sudah ada, kembalikan
+    const [existingInvoice] = await db
+      .select(invoiceSelect)
+      .from(tenantInvoicesTable)
+      .leftJoin(tenantsTable, eq(tenantInvoicesTable.tenantId, tenantsTable.id))
+      .where(
+        and(
+          eq(tenantInvoicesTable.bookingId, bookingId),
+          eq(tenantInvoicesTable.periodStart, periodStartStr),
+          eq(tenantInvoicesTable.periodEnd, periodEndStr),
+        ),
+      );
+
+    if (existingInvoice) {
+      req.log.info(
+        { invoiceId: existingInvoice.id, bookingId },
+        "Invoice untuk periode ini sudah ada, dikembalikan",
+      );
+      res.status(409).json({
+        error: "Invoice untuk booking dan periode ini sudah dibuat sebelumnya",
+        invoice: existingInvoice,
+      });
+      return;
+    }
 
     const rent = Number(booking.rentAmount ?? 0);
     const service = Number(booking.serviceChargeAmount ?? 0);
@@ -391,40 +473,40 @@ router.post("/tenant-invoices/generate-from-booking/:bookingId", async (req, res
     const water = Number(booking.waterChargeAmount ?? 0);
     const subtotalVal = rent + service + elec + water;
 
-    const invoiceNumber = await generateInvoiceNumber();
-
-    const [invoice] = await db
-      .insert(tenantInvoicesTable)
-      .values({
-        invoiceNumber,
-        tenantId: booking.tenantId,
-        bookingId,
-        unitCode: booking.unitCode ?? null,
-        periodStart: toDateStr(periodStart),
-        periodEnd: toDateStr(periodEnd),
-        dueDate: toDateStr(dueDate),
-        rentAmount: String(rent),
-        serviceChargeAmount: String(service),
-        electricityChargeAmount: String(elec),
-        waterChargeAmount: String(water),
-        otherChargeAmount: "0",
-        discountAmount: "0",
-        penaltyAmount: "0",
-        taxAmount: "0",
-        subtotal: String(subtotalVal),
-        totalAmount: String(subtotalVal),
-        paidAmount: "0",
-        outstandingAmount: String(subtotalVal),
-        status: new Date(toDateStr(dueDate)) < now ? "overdue" : "unpaid",
-        notes: req.body.notes ?? null,
-      })
-      .returning();
+    // Gunakan insertInvoiceSafe agar tidak 500 jika ada race condition pada invoice number
+    const invoice = await insertInvoiceSafe({
+      tenantId: booking.tenantId,
+      bookingId,
+      unitCode: booking.unitCode ?? null,
+      periodStart: periodStartStr,
+      periodEnd: periodEndStr,
+      dueDate: dueDateStr,
+      rentAmount: String(rent),
+      serviceChargeAmount: String(service),
+      electricityChargeAmount: String(elec),
+      waterChargeAmount: String(water),
+      otherChargeAmount: "0",
+      discountAmount: "0",
+      penaltyAmount: "0",
+      taxAmount: "0",
+      subtotal: String(subtotalVal),
+      totalAmount: String(subtotalVal),
+      paidAmount: "0",
+      outstandingAmount: String(subtotalVal),
+      status: new Date(dueDateStr) < now ? "overdue" : "unpaid",
+      notes: (req.body as Record<string, unknown>).notes as string ?? null,
+    });
 
     const [withTenant] = await db
       .select(invoiceSelect)
       .from(tenantInvoicesTable)
       .leftJoin(tenantsTable, eq(tenantInvoicesTable.tenantId, tenantsTable.id))
       .where(eq(tenantInvoicesTable.id, invoice.id));
+
+    req.log.info(
+      { invoiceId: invoice.id, invoiceNumber: invoice.invoiceNumber, bookingId },
+      "Invoice berhasil dibuat dari booking",
+    );
 
     logAudit(req, {
       action: "create_invoice",
@@ -434,7 +516,7 @@ router.post("/tenant-invoices/generate-from-booking/:bookingId", async (req, res
     });
     res.status(201).json(withTenant);
   } catch (err) {
-    req.log.error(err, "Failed to generate invoice from booking");
+    req.log.error({ err, bookingId }, "Gagal membuat invoice dari booking");
     res.status(500).json({ error: "Gagal membuat invoice dari booking" });
   }
 });
@@ -535,6 +617,7 @@ router.post("/tenant-invoices/:id/payment", async (req, res) => {
           invoiceId: id,
           tenantId: invoice.tenantId,
           bookingId: invoice.bookingId ?? null,
+          tenantBookingId: invoice.bookingId ?? null,
           amount: String(amountPaid),
           discountAmount: "0",
           penaltyAmount: "0",

@@ -567,6 +567,12 @@ DO $$ BEGIN
 END $$;
     `.trim(),
   },
+  {
+    name: "0010_tenant_payments_nullable_booking_id",
+    sql: `
+ALTER TABLE "tenant_payments" ALTER COLUMN "tenant_booking_id" DROP NOT NULL;
+    `.trim(),
+  },
 ];
 
 const MIGRATIONS_TABLE = "schema_migrations";

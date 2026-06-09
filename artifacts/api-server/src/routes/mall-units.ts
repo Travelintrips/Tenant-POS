@@ -17,7 +17,7 @@ import { z } from "zod";
 
 const router: IRouter = Router();
 
-router.use(requireAnyRole("owner", "admin", "finance", "cashier"));
+router.use("/mall-units", requireAnyRole("owner", "admin", "finance", "cashier"));
 
 // ─── Computed Status Logic ────────────────────────────────────────────────────
 
@@ -285,6 +285,29 @@ router.patch("/mall-units/:id", requireAnyRole("owner", "admin"), async (req, re
   } catch (err) {
     req.log.error(err, "Failed to update mall unit");
     res.status(500).json({ error: "Gagal memperbarui unit" });
+  }
+});
+
+// ─── DELETE /api/mall-units/:id ──────────────────────────────────────────────
+router.delete("/mall-units/:id", requireAnyRole("owner", "admin"), async (req, res) => {
+  const id = Number(req.params.id);
+  if (isNaN(id)) {
+    res.status(400).json({ error: "ID tidak valid" });
+    return;
+  }
+  try {
+    const [deleted] = await db
+      .delete(mallUnitsTable)
+      .where(eq(mallUnitsTable.id, id))
+      .returning();
+    if (!deleted) {
+      res.status(404).json({ error: "Unit tidak ditemukan" });
+      return;
+    }
+    res.json({ ok: true, deleted });
+  } catch (err) {
+    req.log.error(err, "Failed to delete mall unit");
+    res.status(500).json({ error: "Gagal menghapus unit" });
   }
 });
 

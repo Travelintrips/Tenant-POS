@@ -1,4 +1,4 @@
-modules = ["nodejs-24", "postgresql-16", "python-3.11"]
+modules = ["nodejs-24", "python-3.11", "postgresql-16"]
 
 [deployment]
 router = "application"
@@ -30,6 +30,7 @@ outputType = "webview"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "PORT=8080 pnpm --filter @workspace/api-server run dev & PORT=5000 BASE_PATH=/ pnpm --filter @workspace/admin-portal run dev"
+args = "pnpm install && PORT=8080 pnpm --filter @workspace/api-server run dev & sleep 8 && PORT=5000 BASE_PATH=/ pnpm --filter @workspace/admin-portal run dev"
 waitForPort = 5000
 
 [agent]
@@ -55,8 +56,6 @@ externalPort = 80
 [userenv]
 
 [userenv.shared]
-SUPABASE_URL = "https://nzdweipzckfszczzqtuw.supabase.co"
-SUPABASE_URL_DEV = "https://xssrfshdrtdfupgqwfdw.supabase.co"
 
 [nix]
 channel = "stable-25_05"

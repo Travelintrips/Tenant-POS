@@ -6,7 +6,7 @@ import { requireAnyRole } from "../middlewares/auth";
 
 const router: IRouter = Router();
 
-router.use(requireAnyRole("owner", "admin"));
+router.use("/audit-logs", requireAnyRole("owner", "admin"));
 
 // ─── GET /api/audit-logs ──────────────────────────────────────────────────────
 router.get("/audit-logs", async (req, res) => {
