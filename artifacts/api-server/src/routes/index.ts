@@ -16,6 +16,8 @@ import whatsappAuthRouter from "./whatsapp-auth";
 import tenantPortalRouter from "./tenant-portal";
 import tenantUsersRouter from "./tenant-users";
 import { requireAuth, requireNonTenantUser } from "../middlewares/auth";
+import whatsappRouter from "./whatsapp";
+import { requireAuth } from "../middlewares/auth";
 import { siteContext } from "../middlewares/site-context";
 
 const router: IRouter = Router();
@@ -44,5 +46,6 @@ router.use(laporanRouter);
 router.use(tenantInvoicesRouter);
 router.use(mallUnitsRouter);
 router.use(auditLogsRouter);
+router.use(whatsappRouter);
 
 export default router;
