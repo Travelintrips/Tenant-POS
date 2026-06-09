@@ -1,6 +1,7 @@
 import { Router, type IRouter, type Request, type Response, type NextFunction } from "express";
 import healthRouter from "./health";
 import authRouter from "./auth";
+import configRouter from "./config";
 import tenantsRouter from "./tenants";
 import bookingsRouter from "./bookings";
 import tenantPosRouter from "./tenant-pos";
@@ -19,6 +20,7 @@ router.use((req: Request, res: Response, next: NextFunction) => {
   next();
 });
 
+router.use(configRouter);
 router.use(tenantsRouter);
 router.use(bookingsRouter);
 router.use(tenantPosRouter);

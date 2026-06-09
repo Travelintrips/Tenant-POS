@@ -6,6 +6,7 @@ import NotFound from "@/pages/not-found";
 import Login from "@/pages/login";
 import { SidebarLayout } from "@/components/layout/sidebar-layout";
 import { useAuth } from "@/hooks/use-auth";
+import { RealtimeSync } from "@/components/realtime-sync";
 
 import DataTenant from "@/pages/data-tenant";
 import BookingTenant from "@/pages/booking-tenant";
@@ -30,7 +31,12 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
     return null;
   }
 
-  return <>{children}</>;
+  return (
+    <>
+      <RealtimeSync />
+      {children}
+    </>
+  );
 }
 
 function Router() {
