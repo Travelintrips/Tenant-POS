@@ -67,6 +67,12 @@ if (DEV_LOGIN_ENABLED) {
           return;
         }
         logger.info({ role: sessionUser.role }, "[dev-login] req.login berhasil");
+        logAudit(req, {
+          action: "dev_login",
+          entityType: "user",
+          entityId: dbUser.id,
+          afterData: { email: sessionUser.email, role: sessionUser.role, method: "dev-login" },
+        });
         res.json(sessionUser);
       });
     } catch (err) {

@@ -1,4 +1,5 @@
 import { Router, type IRouter } from "express";
+import { logger } from "../lib/logger";
 import { db } from "@workspace/db";
 import {
   tenantsTable,
@@ -500,7 +501,7 @@ router.post("/tenant-pos/payments", async (req, res) => {
     if (e.status) {
       res.status(e.status).json({ error: e.message });
     } else {
-      console.error(err);
+      logger.error({ err }, "Gagal memproses pembayaran");
       res.status(500).json({ error: "Gagal memproses pembayaran" });
     }
   }
@@ -621,7 +622,7 @@ router.post("/tenant-pos/payments/:id/void", async (req, res) => {
   } catch (err) {
     const e = err as Error & { status?: number };
     if (e.status) res.status(e.status).json({ error: e.message });
-    else { console.error(err); res.status(500).json({ error: "Gagal melakukan void pembayaran" }); }
+    else { logger.error({ err }, "Gagal melakukan void pembayaran"); res.status(500).json({ error: "Gagal melakukan void pembayaran" }); }
   }
 });
 
@@ -674,7 +675,7 @@ router.post("/tenant-pos/payments/:id/refund", async (req, res) => {
     });
     res.json({ success: true, message: "Refund berhasil dicatat" });
   } catch (err) {
-    console.error(err);
+    logger.error({ err }, "Gagal melakukan refund");
     res.status(500).json({ error: "Gagal melakukan refund" });
   }
 });
@@ -839,7 +840,7 @@ router.post("/tenant-pos/shifts/open", async (req, res) => {
 
     res.status(201).json(shift);
   } catch (err) {
-    console.error(err);
+    logger.error({ err }, "Gagal membuka shift");
     res.status(500).json({ error: "Gagal membuka shift" });
   }
 });
@@ -912,7 +913,7 @@ router.post("/tenant-pos/shifts/:id/close", async (req, res) => {
       summary: { transactionCount: txCount?.count ?? 0, transactionTotal: txTotal?.total ?? 0, expectedCash, actualCash, cashDifference },
     });
   } catch (err) {
-    console.error(err);
+    logger.error({ err }, "Gagal menutup shift");
     res.status(500).json({ error: "Gagal menutup shift" });
   }
 });
@@ -1011,7 +1012,7 @@ router.get("/tenant-pos/shifts/:id/report", async (req, res) => {
       payments: payments.map((p) => ({ ...p, amount: Number(p.amount) })),
     });
   } catch (err) {
-    console.error(err);
+    logger.error({ err }, "Gagal mengambil laporan shift");
     res.status(500).json({ error: "Gagal mengambil laporan shift" });
   }
 });

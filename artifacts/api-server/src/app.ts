@@ -35,15 +35,22 @@ app.use(cors({ origin: true, credentials: true }));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+const isProduction = process.env.NODE_ENV === "production";
+const sessionSecret = process.env.SESSION_SECRET ?? "fallback-dev-secret";
+
+if (isProduction && sessionSecret === "fallback-dev-secret") {
+  logger.warn("SESSION_SECRET menggunakan nilai default! Wajib diganti sebelum production.");
+}
+
 app.use(
   session({
-    secret: process.env.SESSION_SECRET ?? "fallback-dev-secret",
+    secret: sessionSecret,
     resave: false,
     saveUninitialized: false,
     cookie: {
       httpOnly: true,
-      secure: false,
-      sameSite: "lax",
+      secure: isProduction,
+      sameSite: isProduction ? "strict" : "lax",
       maxAge: 7 * 24 * 60 * 60 * 1000,
     },
   }),
