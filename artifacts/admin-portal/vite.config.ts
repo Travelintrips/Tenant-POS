@@ -57,6 +57,19 @@ export default defineConfig({
       "/api": {
         target: "http://localhost:8080",
         changeOrigin: true,
+        cookieDomainRewrite: "",
+        configure: (proxy) => {
+          proxy.on("proxyRes", (proxyRes) => {
+            const setCookie = proxyRes.headers["set-cookie"];
+            if (setCookie) {
+              proxyRes.headers["set-cookie"] = setCookie.map((cookie) =>
+                cookie
+                  .replace(/;\s*SameSite=None/gi, "; SameSite=Lax")
+                  .replace(/;\s*Secure/gi, ""),
+              );
+            }
+          });
+        },
       },
       "/uploads": {
         target: "http://localhost:8080",
