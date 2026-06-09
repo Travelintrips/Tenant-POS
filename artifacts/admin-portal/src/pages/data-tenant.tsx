@@ -1,9 +1,8 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -22,7 +21,7 @@ import {
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, Pencil, Trash2, Search } from "lucide-react";
+import { Plus, Pencil, Trash2, Search, Upload, X, ImageIcon } from "lucide-react";
 
 type TenantStatus = "active" | "inactive" | "blacklisted" | "aktif" | "kosong" | "nonaktif";
 
@@ -52,6 +51,7 @@ type TenantForm = {
   areaName: string;
   status: TenantStatus;
   notes: string;
+  logoUrl: string;
 };
 
 const EMPTY_FORM: TenantForm = {
@@ -64,6 +64,7 @@ const EMPTY_FORM: TenantForm = {
   areaName: "",
   status: "active",
   notes: "",
+  logoUrl: "",
 };
 
 const STATUS_LABEL: Record<string, string> = {
@@ -135,9 +136,22 @@ async function deleteTenant(id: number): Promise<void> {
   }
 }
 
+async function uploadLogoFile(file: File): Promise<string> {
+  const fd = new FormData();
+  fd.append("file", file);
+  const res = await fetch(`${BASE}/api/uploads/tenant-logo`, { method: "POST", body: fd });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error((err as { error?: string }).error ?? "Gagal mengunggah logo");
+  }
+  const data = await res.json() as { url: string };
+  return data.url;
+}
+
 export default function DataTenant() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const logoInputRef = useRef<HTMLInputElement>(null);
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<Tenant | null>(null);
@@ -145,6 +159,10 @@ export default function DataTenant() {
   const [deleteTarget, setDeleteTarget] = useState<Tenant | null>(null);
   const [search, setSearch] = useState("");
   const [filterStatus, setFilterStatus] = useState("all");
+
+  const [logoFile, setLogoFile] = useState<File | null>(null);
+  const [logoPreview, setLogoPreview] = useState<string>("");
+  const [isUploadingLogo, setIsUploadingLogo] = useState(false);
 
   const { data: tenants, isLoading, isError } = useQuery<Tenant[]>({
     queryKey: ["/api/tenants"],
@@ -187,6 +205,8 @@ export default function DataTenant() {
   function openAdd() {
     setEditTarget(null);
     setForm(EMPTY_FORM);
+    setLogoFile(null);
+    setLogoPreview("");
     setDialogOpen(true);
   }
 
@@ -202,13 +222,61 @@ export default function DataTenant() {
       areaName: tenant.areaName,
       status: tenant.status,
       notes: tenant.notes ?? "",
+      logoUrl: tenant.logoUrl ?? "",
     });
+    setLogoFile(null);
+    setLogoPreview(tenant.logoUrl ?? "");
     setDialogOpen(true);
   }
 
-  function handleSubmit(e: React.FormEvent) {
+  function handleLogoChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const allowedTypes = ["image/jpeg", "image/jpg", "image/png", "image/webp"];
+    if (!allowedTypes.includes(file.type)) {
+      toast({ title: "Format Tidak Didukung", description: "Gunakan JPG, PNG, atau WEBP.", variant: "destructive" });
+      e.target.value = "";
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      toast({ title: "File Terlalu Besar", description: "Maksimal ukuran logo 5MB.", variant: "destructive" });
+      e.target.value = "";
+      return;
+    }
+    setLogoFile(file);
+    setLogoPreview(URL.createObjectURL(file));
+  }
+
+  function clearLogo() {
+    setLogoFile(null);
+    setLogoPreview("");
+    setForm(f => ({ ...f, logoUrl: "" }));
+    if (logoInputRef.current) logoInputRef.current.value = "";
+  }
+
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    const payload = { ...form, notes: form.notes || null } as TenantForm;
+
+    let finalLogoUrl = form.logoUrl;
+
+    if (logoFile) {
+      setIsUploadingLogo(true);
+      try {
+        finalLogoUrl = await uploadLogoFile(logoFile);
+      } catch (err) {
+        toast({ title: "Upload Logo Gagal", description: (err as Error).message, variant: "destructive" });
+        setIsUploadingLogo(false);
+        return;
+      }
+      setIsUploadingLogo(false);
+    }
+
+    const payload: TenantForm = {
+      ...form,
+      logoUrl: finalLogoUrl,
+      notes: form.notes || "",
+    };
+
     if (editTarget) {
       updateMutation.mutate({ id: editTarget.id, data: payload });
     } else {
@@ -216,7 +284,7 @@ export default function DataTenant() {
     }
   }
 
-  const isSaving = createMutation.isPending || updateMutation.isPending;
+  const isSaving = createMutation.isPending || updateMutation.isPending || isUploadingLogo;
 
   const filtered = (tenants ?? []).filter((t) => {
     const matchSearch =
@@ -299,6 +367,7 @@ export default function DataTenant() {
             <Table>
               <TableHeader>
                 <TableRow>
+                  <TableHead className="w-[40px]">Logo</TableHead>
                   <TableHead className="w-[50px]">ID</TableHead>
                   <TableHead>Nama Usaha</TableHead>
                   <TableHead>Pemilik</TableHead>
@@ -313,7 +382,7 @@ export default function DataTenant() {
                 {isLoading
                   ? Array.from({ length: 5 }).map((_, i) => (
                       <TableRow key={i}>
-                        {Array.from({ length: 8 }).map((_, j) => (
+                        {Array.from({ length: 9 }).map((_, j) => (
                           <TableCell key={j}><Skeleton className="h-4 w-full" /></TableCell>
                         ))}
                       </TableRow>
@@ -321,13 +390,26 @@ export default function DataTenant() {
                   : filtered.length === 0
                   ? (
                     <TableRow>
-                      <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
+                      <TableCell colSpan={9} className="text-center py-8 text-muted-foreground">
                         {tenants?.length === 0 ? "Belum ada tenant terdaftar." : "Tidak ada hasil pencarian."}
                       </TableCell>
                     </TableRow>
                   )
                   : filtered.map((tenant) => (
                       <TableRow key={tenant.id}>
+                        <TableCell>
+                          {tenant.logoUrl ? (
+                            <img
+                              src={tenant.logoUrl}
+                              alt={tenant.businessName}
+                              className="h-8 w-8 rounded-md object-cover border border-border"
+                            />
+                          ) : (
+                            <div className="h-8 w-8 rounded-md bg-muted flex items-center justify-center">
+                              <ImageIcon className="h-4 w-4 text-muted-foreground" />
+                            </div>
+                          )}
+                        </TableCell>
                         <TableCell className="font-mono text-sm">{tenant.id}</TableCell>
                         <TableCell className="font-medium">{tenant.businessName}</TableCell>
                         <TableCell>{tenant.ownerName}</TableCell>
@@ -371,7 +453,55 @@ export default function DataTenant() {
             <DialogTitle>{editTarget ? "Edit Tenant" : "Tambah Tenant Baru"}</DialogTitle>
           </DialogHeader>
           <ScrollArea className="max-h-[70vh] pr-4">
-            <form id="tenant-form" onSubmit={handleSubmit} className="flex flex-col gap-4 pt-2">
+            <form id="tenant-form" onSubmit={(e) => { void handleSubmit(e); }} className="flex flex-col gap-4 pt-2">
+
+              {/* Logo Upload */}
+              <div className="flex flex-col gap-2">
+                <Label>Logo Usaha</Label>
+                <div className="flex items-start gap-3">
+                  {logoPreview ? (
+                    <div className="relative">
+                      <img
+                        src={logoPreview}
+                        alt="Preview logo"
+                        className="h-16 w-16 rounded-lg object-cover border border-border"
+                      />
+                      <button
+                        type="button"
+                        onClick={clearLogo}
+                        className="absolute -top-1.5 -right-1.5 h-5 w-5 rounded-full bg-destructive text-white flex items-center justify-center hover:bg-destructive/90"
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="h-16 w-16 rounded-lg bg-muted border border-dashed border-border flex items-center justify-center shrink-0">
+                      <ImageIcon className="h-6 w-6 text-muted-foreground" />
+                    </div>
+                  )}
+                  <div className="flex flex-col gap-1.5 flex-1">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="gap-2 w-fit"
+                      onClick={() => logoInputRef.current?.click()}
+                    >
+                      <Upload className="h-3.5 w-3.5" />
+                      {logoPreview ? "Ganti Logo" : "Upload Logo"}
+                    </Button>
+                    <input
+                      ref={logoInputRef}
+                      type="file"
+                      accept=".jpg,.jpeg,.png,.webp"
+                      className="hidden"
+                      onChange={handleLogoChange}
+                    />
+                    <p className="text-xs text-muted-foreground">JPG, PNG, WEBP · Maks 5MB</p>
+                  </div>
+                </div>
+              </div>
+
               <div className="grid grid-cols-2 gap-4">
                 <div className="flex flex-col gap-1.5">
                   <Label htmlFor="businessName">Nama Usaha *</Label>
@@ -465,7 +595,7 @@ export default function DataTenant() {
           <DialogFooter className="pt-2">
             <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>Batal</Button>
             <Button type="submit" form="tenant-form" disabled={isSaving}>
-              {isSaving ? "Menyimpan..." : editTarget ? "Simpan Perubahan" : "Tambah Tenant"}
+              {isUploadingLogo ? "Mengunggah logo..." : isSaving ? "Menyimpan..." : editTarget ? "Simpan Perubahan" : "Tambah Tenant"}
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef } from "react";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
@@ -20,7 +20,7 @@ import { Separator } from "@/components/ui/separator";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, Pencil, AlertTriangle, Clock, Search } from "lucide-react";
+import { Plus, Pencil, AlertTriangle, Clock, Search, Upload, FileText, ExternalLink, X } from "lucide-react";
 
 type ContractStatus = "draft" | "active" | "expiring_soon" | "expired" | "terminated";
 type PaymentStatus = "unpaid" | "partial" | "paid" | "overdue" | "UNPAID" | "PARTIAL" | "PAID" | "OVERDUE";
@@ -175,6 +175,15 @@ function daysUntil(endDate: string | null | undefined): number | null {
   return Math.ceil((end.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
 }
 
+function docFileName(url: string): string {
+  const parts = url.split("/");
+  return parts[parts.length - 1] ?? "dokumen";
+}
+
+function isLocalUpload(url: string): boolean {
+  return url.startsWith("/uploads/");
+}
+
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
 async function fetchBookings(): Promise<BookingWithTenant[]> {
@@ -215,6 +224,18 @@ async function updateBooking(id: number, data: object): Promise<BookingWithTenan
   return res.json() as Promise<BookingWithTenant>;
 }
 
+async function uploadDocFile(file: File): Promise<string> {
+  const fd = new FormData();
+  fd.append("file", file);
+  const res = await fetch(`${BASE}/api/uploads/contract-document`, { method: "POST", body: fd });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error((err as { error?: string }).error ?? "Gagal mengunggah dokumen");
+  }
+  const data = await res.json() as { url: string };
+  return data.url;
+}
+
 function SectionLabel({ children }: { children: React.ReactNode }) {
   return <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2 mt-1">{children}</p>;
 }
@@ -231,6 +252,7 @@ function Field({ label, required, children }: { label: string; required?: boolea
 export default function BookingTenant() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const docInputRef = useRef<HTMLInputElement>(null);
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<BookingWithTenant | null>(null);
@@ -239,6 +261,9 @@ export default function BookingTenant() {
   const [filterPayment, setFilterPayment] = useState("all");
   const [filterFloor, setFilterFloor] = useState("");
   const [searchUnit, setSearchUnit] = useState("");
+
+  const [docFile, setDocFile] = useState<File | null>(null);
+  const [isUploadingDoc, setIsUploadingDoc] = useState(false);
 
   const { data: bookings, isLoading, isError } = useQuery<BookingWithTenant[]>({
     queryKey: ["/api/bookings"],
@@ -275,6 +300,7 @@ export default function BookingTenant() {
   function openAdd() {
     setEditTarget(null);
     setForm(EMPTY_FORM);
+    setDocFile(null);
     setDialogOpen(true);
   }
 
@@ -302,10 +328,34 @@ export default function BookingTenant() {
       dueDate: b.dueDate ?? "",
       periodLabel: b.periodLabel ?? "",
     });
+    setDocFile(null);
     setDialogOpen(true);
   }
 
-  function handleSubmit(e: React.FormEvent) {
+  function handleDocChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const allowedTypes = ["application/pdf", "image/jpeg", "image/jpg", "image/png"];
+    if (!allowedTypes.includes(file.type)) {
+      toast({ title: "Format Tidak Didukung", description: "Gunakan PDF, JPG, atau PNG.", variant: "destructive" });
+      e.target.value = "";
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      toast({ title: "File Terlalu Besar", description: "Maksimal ukuran dokumen 5MB.", variant: "destructive" });
+      e.target.value = "";
+      return;
+    }
+    setDocFile(file);
+  }
+
+  function clearDoc() {
+    setDocFile(null);
+    setForm(f => ({ ...f, documentUrl: "" }));
+    if (docInputRef.current) docInputRef.current.value = "";
+  }
+
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!form.startDate || !form.endDate) {
       toast({ title: "Validasi Gagal", description: "Tanggal mulai dan selesai wajib diisi.", variant: "destructive" });
@@ -314,6 +364,20 @@ export default function BookingTenant() {
     if (form.endDate <= form.startDate) {
       toast({ title: "Validasi Gagal", description: "Tanggal selesai tidak boleh sebelum tanggal mulai.", variant: "destructive" });
       return;
+    }
+
+    let finalDocUrl = form.documentUrl;
+
+    if (docFile) {
+      setIsUploadingDoc(true);
+      try {
+        finalDocUrl = await uploadDocFile(docFile);
+      } catch (err) {
+        toast({ title: "Upload Dokumen Gagal", description: (err as Error).message, variant: "destructive" });
+        setIsUploadingDoc(false);
+        return;
+      }
+      setIsUploadingDoc(false);
     }
 
     const totalComputed = [
@@ -342,7 +406,7 @@ export default function BookingTenant() {
       remainingAmount: String(Math.max(0, totalAmount - paidAmount)),
       contractStatus: form.contractStatus,
       paymentStatus: form.paymentStatus,
-      documentUrl: form.documentUrl || null,
+      documentUrl: finalDocUrl || null,
       notes: form.notes || null,
       dueDate: form.dueDate || null,
       periodLabel: form.periodLabel || null,
@@ -356,7 +420,7 @@ export default function BookingTenant() {
     }
   }
 
-  const isSaving = createMutation.isPending || updateMutation.isPending;
+  const isSaving = createMutation.isPending || updateMutation.isPending || isUploadingDoc;
 
   const expiringContracts = useMemo(() =>
     (bookings ?? []).filter((b) => {
@@ -445,7 +509,6 @@ export default function BookingTenant() {
         <CardHeader>
           <div className="flex flex-col gap-3">
             <CardTitle>Daftar Kontrak</CardTitle>
-            {/* Filter toolbar */}
             <div className="flex flex-wrap gap-2">
               <div className="relative">
                 <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
@@ -505,7 +568,7 @@ export default function BookingTenant() {
                   <TableHead className="min-w-[110px]">Terbayar</TableHead>
                   <TableHead>Status Kontrak</TableHead>
                   <TableHead>Pembayaran</TableHead>
-                  <TableHead className="w-[60px] text-right">Aksi</TableHead>
+                  <TableHead className="w-[90px] text-right">Aksi</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -529,8 +592,19 @@ export default function BookingTenant() {
                       const days = daysUntil(booking.endDate);
                       return (
                         <TableRow key={booking.id}>
-                          <TableCell className="font-mono text-xs">
-                            {booking.contractNumber || booking.orderNumber || `#${booking.id}`}
+                          <TableCell>
+                            <div className="font-mono text-xs">{booking.contractNumber || booking.orderNumber || `#${booking.id}`}</div>
+                            {booking.documentUrl && (
+                              <a
+                                href={booking.documentUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center gap-1 text-xs text-blue-600 hover:underline mt-0.5"
+                              >
+                                <FileText className="h-3 w-3" />
+                                Dok. Kontrak
+                              </a>
+                            )}
                           </TableCell>
                           <TableCell className="font-medium">{booking.tenantName ?? "-"}</TableCell>
                           <TableCell>
@@ -585,7 +659,7 @@ export default function BookingTenant() {
             <DialogTitle>{editTarget ? "Edit Kontrak Sewa" : "Tambah Kontrak Sewa Baru"}</DialogTitle>
           </DialogHeader>
           <ScrollArea className="max-h-[70vh] pr-4">
-            <form id="booking-form" onSubmit={handleSubmit} className="flex flex-col gap-4 py-2">
+            <form id="booking-form" onSubmit={(e) => { void handleSubmit(e); }} className="flex flex-col gap-4 py-2">
 
               {/* Seksi 1: Informasi Kontrak */}
               <SectionLabel>Informasi Kontrak</SectionLabel>
@@ -757,13 +831,94 @@ export default function BookingTenant() {
 
               {/* Seksi 5: Dokumen & Catatan */}
               <SectionLabel>Dokumen & Catatan</SectionLabel>
-              <Field label="URL Dokumen Kontrak">
-                <Input
-                  type="url" value={form.documentUrl}
-                  onChange={(e) => setForm(f => ({ ...f, documentUrl: e.target.value }))}
-                  placeholder="https://drive.google.com/..."
-                />
+
+              {/* Dokumen kontrak */}
+              <Field label="Dokumen Kontrak">
+                <div className="flex flex-col gap-2">
+                  {/* Dokumen yang sudah ada */}
+                  {form.documentUrl && !docFile && (
+                    <div className="flex items-center gap-2 p-2 rounded-md bg-muted border border-border text-sm">
+                      <FileText className="h-4 w-4 text-muted-foreground shrink-0" />
+                      <span className="flex-1 truncate text-xs text-muted-foreground">
+                        {isLocalUpload(form.documentUrl)
+                          ? docFileName(form.documentUrl)
+                          : form.documentUrl}
+                      </span>
+                      <div className="flex items-center gap-1 shrink-0">
+                        <a
+                          href={form.documentUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="p-1 rounded hover:bg-accent"
+                          title="Buka dokumen"
+                        >
+                          <ExternalLink className="h-3.5 w-3.5 text-blue-600" />
+                        </a>
+                        <button
+                          type="button"
+                          onClick={clearDoc}
+                          className="p-1 rounded hover:bg-accent"
+                          title="Hapus dokumen"
+                        >
+                          <X className="h-3.5 w-3.5 text-destructive" />
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* File baru dipilih */}
+                  {docFile && (
+                    <div className="flex items-center gap-2 p-2 rounded-md bg-blue-50 border border-blue-200 text-sm">
+                      <FileText className="h-4 w-4 text-blue-600 shrink-0" />
+                      <span className="flex-1 truncate text-xs text-blue-700">{docFile.name}</span>
+                      <button
+                        type="button"
+                        onClick={() => { setDocFile(null); if (docInputRef.current) docInputRef.current.value = ""; }}
+                        className="p-1 rounded hover:bg-blue-100"
+                      >
+                        <X className="h-3.5 w-3.5 text-blue-600" />
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Upload button */}
+                  <div className="flex items-center gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="gap-2"
+                      onClick={() => docInputRef.current?.click()}
+                    >
+                      <Upload className="h-3.5 w-3.5" />
+                      {form.documentUrl || docFile ? "Ganti Dokumen" : "Upload Dokumen"}
+                    </Button>
+                    <span className="text-xs text-muted-foreground">PDF, JPG, PNG · Maks 5MB</span>
+                  </div>
+                  <input
+                    ref={docInputRef}
+                    type="file"
+                    accept=".pdf,.jpg,.jpeg,.png"
+                    className="hidden"
+                    onChange={handleDocChange}
+                  />
+
+                  {/* Atau masukkan URL langsung */}
+                  {!docFile && (
+                    <div className="flex flex-col gap-1">
+                      <span className="text-xs text-muted-foreground">atau tempel URL dokumen:</span>
+                      <Input
+                        type="url"
+                        value={form.documentUrl}
+                        onChange={(e) => setForm(f => ({ ...f, documentUrl: e.target.value }))}
+                        placeholder="https://drive.google.com/..."
+                        className="text-sm"
+                      />
+                    </div>
+                  )}
+                </div>
               </Field>
+
               <Field label="Catatan">
                 <Textarea
                   value={form.notes} rows={3}
@@ -776,7 +931,7 @@ export default function BookingTenant() {
           <DialogFooter className="pt-2">
             <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>Batal</Button>
             <Button type="submit" form="booking-form" disabled={isSaving || !form.tenantId}>
-              {isSaving ? "Menyimpan..." : editTarget ? "Simpan Perubahan" : "Buat Kontrak"}
+              {isUploadingDoc ? "Mengunggah dokumen..." : isSaving ? "Menyimpan..." : editTarget ? "Simpan Perubahan" : "Buat Kontrak"}
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -2,6 +2,7 @@ import express, { type Express } from "express";
 import session from "express-session";
 import cors from "cors";
 import pinoHttp from "pino-http";
+import path from "path";
 import passport from "./lib/auth";
 import router from "./routes";
 import { logger } from "./lib/logger";
@@ -50,6 +51,8 @@ app.use(
 
 app.use(passport.initialize());
 app.use(passport.session());
+
+app.use("/uploads", express.static(path.join(process.cwd(), "uploads")));
 
 app.use("/api", router);
 
