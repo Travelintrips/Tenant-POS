@@ -3,6 +3,24 @@ import passport from "../lib/auth";
 
 const router: IRouter = Router();
 
+if (process.env.NODE_ENV !== "production") {
+  router.post("/auth/dev-login", (req, res) => {
+    const devUser: Express.User = {
+      id: "dev-001",
+      email: "dev@localhost",
+      name: "Dev User",
+      avatar: null,
+    };
+    req.login(devUser, (err) => {
+      if (err) {
+        res.status(500).json({ error: "Dev login gagal" });
+        return;
+      }
+      res.json(devUser);
+    });
+  });
+}
+
 router.get("/auth/google", passport.authenticate("google", { scope: ["profile", "email"] }));
 
 router.get(
