@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Building2, FlaskConical } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -6,47 +6,48 @@ import { Separator } from "@/components/ui/separator";
 import { useQueryClient } from "@tanstack/react-query";
 import { ROLE_LABELS, type UserRole } from "@/hooks/use-auth";
 
-const IS_DEV = import.meta.env.DEV;
-
-const DEV_ACCOUNTS: { role: UserRole; email: string; name: string; color: string }[] = [
-  { role: "owner",   email: "owner@dev.local",   name: "Dev Owner",   color: "bg-purple-100 text-purple-800 hover:bg-purple-200" },
-  { role: "admin",   email: "admin@dev.local",   name: "Dev Admin",   color: "bg-blue-100 text-blue-800 hover:bg-blue-200" },
-  { role: "finance", email: "finance@dev.local", name: "Dev Finance", color: "bg-green-100 text-green-800 hover:bg-green-200" },
-  { role: "cashier", email: "cashier@dev.local", name: "Dev Kasir",   color: "bg-orange-100 text-orange-800 hover:bg-orange-200" },
+const DEV_ACCOUNTS: { role: UserRole; color: string }[] = [
+  { role: "owner",   color: "bg-purple-100 text-purple-800 hover:bg-purple-200" },
+  { role: "admin",   color: "bg-blue-100 text-blue-800 hover:bg-blue-200" },
+  { role: "finance", color: "bg-green-100 text-green-800 hover:bg-green-200" },
+  { role: "cashier", color: "bg-orange-100 text-orange-800 hover:bg-orange-200" },
 ];
-
-async function devLoginRequest(account: (typeof DEV_ACCOUNTS)[number]) {
-  const res = await fetch("/api/auth/dev-login", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    credentials: "include",
-    body: JSON.stringify({ email: account.email, name: account.name, role: account.role }),
-  });
-  if (res.ok) {
-    window.location.href = "/";
-  }
-}
 
 export default function Login() {
   const error = new URLSearchParams(window.location.search).get("error");
   const [loadingRole, setLoadingRole] = useState<UserRole | null>(null);
+  const [devLoginEnabled, setDevLoginEnabled] = useState<boolean | null>(null);
+  const [loginError, setLoginError] = useState<string | null>(null);
   const qc = useQueryClient();
 
-  const handleDevLogin = async (account: (typeof DEV_ACCOUNTS)[number]) => {
-    setLoadingRole(account.role);
+  useEffect(() => {
+    fetch("/api/auth/dev-login-enabled", { credentials: "include" })
+      .then((r) => r.json())
+      .then((data) => setDevLoginEnabled(data.enabled === true))
+      .catch(() => setDevLoginEnabled(false));
+  }, []);
+
+  const handleDevLogin = async (role: UserRole) => {
+    setLoadingRole(role);
+    setLoginError(null);
     try {
       const res = await fetch("/api/auth/dev-login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ email: account.email, name: account.name, role: account.role }),
+        body: JSON.stringify({ role }),
       });
       if (res.ok) {
         const user = await res.json();
         qc.setQueryData(["auth-me"], user);
         window.location.href = "/";
+      } else {
+        const body = await res.json().catch(() => ({}));
+        setLoginError(body.error ?? `Login gagal (${res.status})`);
+        setLoadingRole(null);
       }
-    } catch {
+    } catch (e) {
+      setLoginError("Tidak dapat terhubung ke server");
       setLoadingRole(null);
     }
   };
@@ -66,9 +67,9 @@ export default function Login() {
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-3 pt-4">
-          {error && (
+          {(error || loginError) && (
             <div className="text-sm text-destructive text-center bg-destructive/10 rounded-md py-2 px-3">
-              Login gagal. Silakan coba lagi.
+              {loginError ?? "Login gagal. Silakan coba lagi."}
             </div>
           )}
 
@@ -84,7 +85,7 @@ export default function Login() {
             </Button>
           </a>
 
-          {IS_DEV && (
+          {devLoginEnabled && (
             <>
               <div className="flex items-center gap-2 my-1">
                 <Separator className="flex-1" />
@@ -97,7 +98,7 @@ export default function Login() {
                 {DEV_ACCOUNTS.map((acc) => (
                   <button
                     key={acc.role}
-                    onClick={() => handleDevLogin(acc)}
+                    onClick={() => handleDevLogin(acc.role)}
                     disabled={loadingRole !== null}
                     className={`rounded-md px-3 py-2 text-xs font-medium transition-colors disabled:opacity-60 ${acc.color}`}
                   >
@@ -106,12 +107,12 @@ export default function Login() {
                 ))}
               </div>
               <p className="text-[10px] text-center text-muted-foreground">
-                Akses cepat untuk pengujian lokal. Tidak tersedia di production.
+                Akses cepat untuk pengujian. Tidak tersedia di production.
               </p>
             </>
           )}
 
-          {!IS_DEV && (
+          {devLoginEnabled === false && (
             <p className="text-xs text-center text-muted-foreground">
               Hanya akun yang diizinkan yang dapat mengakses portal ini.
             </p>

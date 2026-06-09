@@ -11,6 +11,8 @@ const app: Express = express();
 
 app.set("trust proxy", 1);
 
+const isReplit = !!process.env.REPLIT_DEV_DOMAIN || !!process.env.REPLIT_DOMAINS;
+
 app.use(
   pinoHttp({
     logger,
@@ -42,8 +44,8 @@ app.use(
     saveUninitialized: false,
     cookie: {
       httpOnly: true,
-      secure: false,
-      sameSite: "lax",
+      secure: isReplit,
+      sameSite: isReplit ? "none" : "lax",
       maxAge: 7 * 24 * 60 * 60 * 1000,
     },
   }),
