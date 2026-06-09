@@ -1092,7 +1092,7 @@ function DetailPanel({ item, onClose, onProses, onBayarInvoice, currentShiftId }
   const isVacant = status === "VACANT";
   const canPay = !isVacant && item.bookingId !== null && status !== "PAID";
 
-  const openInvoices = tenantInvoices.data?.filter(inv => ["unpaid", "partial", "overdue"].includes(inv.status)) ?? [];
+  const openInvoices = Array.isArray(tenantInvoices.data) ? tenantInvoices.data.filter(inv => ["unpaid", "partial", "overdue"].includes(inv.status)) : [];
 
   return (
     <div className="flex flex-col h-full">

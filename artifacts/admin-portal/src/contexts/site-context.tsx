@@ -18,7 +18,7 @@ interface SiteContextValue {
 }
 
 const LS_KEY = "mall_active_site_id";
-const DEFAULT_SITE_CODE = "TOD_M1_BANDARA";
+const DEFAULT_SITE_CODE = "SPORT_CENTER_BANDARA";
 
 const SiteContext = createContext<SiteContextValue>({
   activeSite: null,

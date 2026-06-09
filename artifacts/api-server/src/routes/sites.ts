@@ -1,7 +1,7 @@
 import { Router, type IRouter } from "express";
 import { db } from "@workspace/db";
 import { mallSitesTable, userSiteAccessTable, usersTable, insertMallSiteSchema } from "@workspace/db/schema";
-import { eq, and } from "drizzle-orm";
+import { eq, and, sql } from "drizzle-orm";
 import { requireAuth, requireAnyRole } from "../middlewares/auth";
 import { clearSitesCache } from "../middlewares/site-context";
 import { logAudit } from "../lib/audit";
@@ -20,6 +20,11 @@ router.get("/sites", requireAuth, async (req, res) => {
         .select()
         .from(mallSitesTable)
         .orderBy(mallSitesTable.id);
+      const SITE_ORDER: Record<string, number> = {
+        SPORT_CENTER_BANDARA: 1,
+        TOD_M1_BANDARA: 2,
+      };
+      rows.sort((a, b) => (SITE_ORDER[a.code] ?? 99) - (SITE_ORDER[b.code] ?? 99));
       res.json(rows);
       return;
     }
