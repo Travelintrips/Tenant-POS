@@ -482,6 +482,19 @@ export default function TenantInvoices() {
     onError: (e: Error) => toast({ title: "Gagal Blast WA", description: e.message, variant: "destructive" }),
   });
 
+  const blastLinkMutation = useMutation({
+    mutationFn: () =>
+      apiPost<{ ok: boolean; skipped?: boolean; sent: number; failed: number; total: number; message: string }>(`${BASE}/api/whatsapp/blast-link-unpaid`, {}),
+    onSuccess: (res) => {
+      if (res.skipped) {
+        toast({ title: "Link Tidak Terkirim", description: res.message, variant: "destructive" });
+      } else {
+        toast({ title: "Blast Link Selesai 🔗", description: res.message });
+      }
+    },
+    onError: (e: Error) => toast({ title: "Gagal Blast Link", description: e.message, variant: "destructive" }),
+  });
+
   // ─── Derived ────────────────────────────────────────────────────────────────
 
   const summary = useMemo(() => {
@@ -490,6 +503,7 @@ export default function TenantInvoices() {
       total: all.length,
       unpaid: all.filter(i => i.status === "unpaid").length,
       overdue: all.filter(i => i.status === "overdue").length,
+      unpaidAll: all.filter(i => ["unpaid", "partial", "overdue"].includes(i.status)).length,
       totalOutstanding: all.reduce((s, i) => s + Number(i.outstandingAmount), 0),
     };
   }, [invoices]);
@@ -571,6 +585,16 @@ export default function TenantInvoices() {
           <p className="text-muted-foreground mt-1">Kelola tagihan dan pembayaran invoice tenant.</p>
         </div>
         <div className="flex gap-2 flex-wrap">
+          <Button
+            variant="outline"
+            className="gap-2 border-blue-300 text-blue-700 hover:bg-blue-50"
+            disabled={blastLinkMutation.isPending || summary.unpaidAll === 0}
+            onClick={() => blastLinkMutation.mutate()}
+            title={summary.unpaidAll === 0 ? "Tidak ada invoice belum lunas" : `Kirim link bayar ke ${summary.unpaidAll} invoice belum lunas`}
+          >
+            {blastLinkMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Link2 className="h-4 w-4" />}
+            {blastLinkMutation.isPending ? "Mengirim..." : `Kirim Link (${summary.unpaidAll})`}
+          </Button>
           <Button
             variant="outline"
             className="gap-2 border-green-300 text-green-700 hover:bg-green-50"
