@@ -688,6 +688,16 @@ ALTER TABLE "tenant_payments" ALTER COLUMN "site_id" SET NOT NULL;
 ALTER TABLE "mall_units" ALTER COLUMN "site_id" SET NOT NULL;
     `.trim(),
   },
+  {
+    name: "0012_audit_logs_site_code",
+    sql: `
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='audit_logs' AND column_name='site_code') THEN
+    ALTER TABLE "audit_logs" ADD COLUMN "site_code" text;
+  END IF;
+END $$;
+    `.trim(),
+  },
 ];
 
 const MIGRATIONS_TABLE = "schema_migrations";

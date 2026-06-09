@@ -267,6 +267,7 @@ router.post("/tenant-invoices", async (req, res) => {
   try {
     const invoice = await insertInvoiceSafe({
       ...(req.siteId > 0 ? { siteId: req.siteId } : {}),
+      siteId: req.siteId > 0 ? req.siteId : undefined,
       tenantId: data.tenantId,
       bookingId: data.bookingId ?? null,
       unitCode: data.unitCode ?? null,
@@ -480,6 +481,7 @@ router.post("/tenant-invoices/generate-from-booking/:bookingId", async (req, res
     // Gunakan insertInvoiceSafe agar tidak 500 jika ada race condition pada invoice number
     const invoice = await insertInvoiceSafe({
       ...(req.siteId > 0 ? { siteId: req.siteId } : {}),
+      siteId: req.siteId > 0 ? req.siteId : undefined,
       tenantId: booking.tenantId,
       bookingId,
       unitCode: booking.unitCode ?? null,
@@ -620,6 +622,7 @@ router.post("/tenant-invoices/:id/payment", async (req, res) => {
         .insert(tenantPaymentsTable)
         .values({
           ...(req.siteId > 0 ? { siteId: req.siteId } : {}),
+          siteId: req.siteId > 0 ? req.siteId : undefined,
           invoiceId: id,
           tenantId: invoice.tenantId,
           bookingId: invoice.bookingId ?? null,

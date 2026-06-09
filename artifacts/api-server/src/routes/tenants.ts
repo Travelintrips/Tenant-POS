@@ -129,7 +129,7 @@ router.delete("/tenants/:id", async (req, res) => {
       entityId: id,
       beforeData: deleted,
     });
-    res.json({ ok: true, deleted });
+    res.json({ success: true, deleted });
   } catch (err) {
     req.log.error(err, "Failed to delete tenant");
     res.status(500).json({ error: "Gagal menghapus tenant" });

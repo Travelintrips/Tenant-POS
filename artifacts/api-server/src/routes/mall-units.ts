@@ -238,6 +238,7 @@ router.post("/mall-units", requireAnyRole("owner", "admin"), async (req, res) =>
 
   const bodyWithSite = req.siteId > 0 ? { ...req.body, siteId: req.siteId } : req.body;
   const parsed = insertMallUnitSchema.safeParse(bodyWithSite);
+  const parsed = insertMallUnitSchema.safeParse({ ...req.body, siteId: req.siteId > 0 ? req.siteId : req.body.siteId });
   if (!parsed.success) {
     res.status(400).json({ error: "Data tidak valid", detail: parsed.error.flatten().fieldErrors });
     return;

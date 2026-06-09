@@ -20,6 +20,8 @@ export function createTestApp(role: TestRole = "owner") {
       role,
     };
     (req as any).isAuthenticated = () => true;
+    (req as any).siteId = 1;
+    (req as any).siteCode = "TOD_M1_BANDARA";
     (req as any).log = {
       info: (...a: unknown[]) => { if (process.env.TEST_VERBOSE) console.info("[req.log.info]", ...a); },
       error: (...a: unknown[]) => console.error("[req.log.error]", ...a),

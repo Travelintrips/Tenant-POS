@@ -189,7 +189,7 @@ router.post("/bookings", async (req, res) => {
     return;
   }
 
-  const data = parsed.data;
+  const data = { ...parsed.data, siteId: req.siteId > 0 ? req.siteId : parsed.data.siteId };
 
   if (data.unitCode && data.startDate && data.endDate) {
     const hasOverlap = await checkUnitOverlap(data.unitCode, data.startDate, data.endDate);
