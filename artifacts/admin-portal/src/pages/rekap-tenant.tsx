@@ -107,7 +107,7 @@ export default function RekapTenantPage() {
     queryFn: () =>
       apiFetch("/api/laporan/rekap-tenant", {
         headers: siteIdHeader ? { "x-site-id": String(siteIdHeader) } : {},
-      }),
+      }).then((r) => r.ok ? r.json().then((d: unknown) => Array.isArray(d) ? d : []) : []),
   });
 
   // Unique site list for filter

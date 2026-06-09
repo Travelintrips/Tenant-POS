@@ -108,7 +108,7 @@ export function SidebarLayout({ children }: { children: React.ReactNode }) {
     refetchInterval: 30_000,
     enabled: can("owner", "admin", "finance"),
   });
-  const grouped = groupSites(sites);
+  const grouped = groupSites(Array.isArray(sites) ? sites : []);
 
   return (
     <SidebarProvider>

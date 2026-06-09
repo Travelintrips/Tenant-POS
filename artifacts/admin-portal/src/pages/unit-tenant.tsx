@@ -158,7 +158,7 @@ export default function UnitTenantPage() {
   // Load sites list for the form dropdown
   const { data: allSites = [] } = useQuery<Site[]>({
     queryKey: ["sites"],
-    queryFn: () => apiFetch("/api/sites"),
+    queryFn: () => apiFetch("/api/sites").then((r) => r.ok ? r.json().then((d: unknown) => Array.isArray(d) ? d : []) : []),
   });
 
   const { data: units = [], isLoading } = useQuery<MallUnit[]>({
@@ -166,7 +166,7 @@ export default function UnitTenantPage() {
     queryFn: () =>
       apiFetch("/api/mall-units", {
         headers: siteIdHeader ? { "x-site-id": String(siteIdHeader) } : {},
-      }),
+      }).then((r) => r.ok ? r.json().then((d: unknown) => Array.isArray(d) ? d : []) : []),
   });
 
   // Group units by site
