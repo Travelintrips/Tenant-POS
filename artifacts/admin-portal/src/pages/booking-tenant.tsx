@@ -272,6 +272,7 @@ export default function BookingTenant() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const docInputRef = useRef<HTMLInputElement>(null);
+  const { activeSite } = useSite();
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<BookingWithTenant | null>(null);
@@ -470,13 +471,26 @@ export default function BookingTenant() {
   const totalTerbayar = (bookings ?? []).reduce((s, b) => s + Number(b.paidAmount), 0);
   const totalSisa = totalTagihan - totalTerbayar;
   const jumlahAktif = (bookings ?? []).filter(b => b.contractStatus === "active" || b.contractStatus === "expiring_soon").length;
+  const siteCfg = activeSite ? (SITE_TYPE_CONFIG[activeSite.type] ?? null) : null;
 
   return (
     <div className="flex flex-col gap-6">
       <div className="flex items-start justify-between">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">Kontrak Sewa Tenant</h1>
-          <p className="text-muted-foreground mt-1">Kelola kontrak sewa dan status pembayaran tenant.</p>
+        <div className="flex flex-col gap-1">
+          <div className="flex items-center gap-2">
+            <h1 className="text-2xl font-bold tracking-tight">Kontrak Sewa Tenant</h1>
+            {activeSite && siteCfg && (
+              <span className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-0.5 text-xs font-semibold ${siteCfg.color} ${siteCfg.bg} ${siteCfg.border}`}>
+                {siteCfg.icon}
+                {activeSite.name}
+              </span>
+            )}
+          </div>
+          <p className="text-muted-foreground text-sm">
+            {activeSite
+              ? `Kontrak sewa aktif di ${activeSite.name}`
+              : "Kelola kontrak sewa dan status pembayaran tenant."}
+          </p>
         </div>
         <Button onClick={openAdd} className="gap-2">
           <Plus className="h-4 w-4" />
