@@ -8,12 +8,19 @@ export default defineConfig({
     testTimeout: 30000,
     hookTimeout: 30000,
     pool: "forks",
-    poolOptions: {
-      forks: {
-        singleFork: true,
-      },
-    },
+    singleFork: true,
     include: ["src/__tests__/**/*.test.ts"],
     reporters: ["verbose"],
+    env: {
+      NODE_ENV: "test",
+      PORT: "8080",
+      LOG_LEVEL: "silent",
+    },
+    coverage: {
+      provider: "v8",
+      reporter: ["text", "html"],
+      include: ["src/**/*.ts"],
+      exclude: ["src/__tests__/**", "src/index.ts"],
+    },
   },
 });

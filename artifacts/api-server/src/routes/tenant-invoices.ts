@@ -13,7 +13,7 @@ import { requireAnyRole } from "../middlewares/auth";
 import { logAudit } from "../lib/audit";
 
 const router: IRouter = Router();
-router.use(requireAnyRole("owner", "admin", "finance"));
+router.use("/tenant-invoices", requireAnyRole("owner", "admin", "finance"));
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -30,17 +30,17 @@ async function generateInvoiceNumber(): Promise<string> {
   const yyyymm = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}`;
   const prefix = `INV-TENANT/${yyyymm}/`;
 
-  // Gunakan MAX numerik agar aman terhadap gap dan race condition
+  // Gunakan SUBSTR(str, pos) — sintaks posisional eksplisit.
+  // SUBSTRING(str FROM n) di PostgreSQL diinterpretasikan sebagai regex extraction,
+  // bukan positional, sehingga selalu NULL jika n berupa angka yang tidak cocok sebagai regex.
+  const prefixLen = prefix.length;
   const [row] = await db
     .select({
-      maxSeq: sql<number | null>`MAX(
-        CAST(SUBSTRING(invoice_number FROM ${prefix.length + 1}) AS INTEGER)
-      )`,
+      maxSeq: sql<number | null>`COALESCE(MAX(CAST(SUBSTR(invoice_number, ${prefixLen + 1}) AS INTEGER)), 0)`,
     })
     .from(tenantInvoicesTable)
     .where(
-      sql`invoice_number LIKE ${prefix + "%"}
-          AND invoice_number ~ ${"^INV-TENANT/" + yyyymm + "/[0-9]{5}$"}`,
+      sql`invoice_number LIKE ${prefix + "%"} AND LENGTH(invoice_number) = ${prefixLen + 5}`,
     );
 
   const next = (row?.maxSeq ?? 0) + 1;
@@ -66,8 +66,12 @@ async function insertInvoiceSafe(
         .returning();
       return inserted;
     } catch (err) {
-      const pgErr = err as { code?: string };
-      const isUniqueViolation = pgErr?.code === "23505";
+      // DrizzleQueryError membungkus PG error asli di .cause — periksa keduanya
+      const code =
+        (err as any)?.code ??
+        (err as any)?.cause?.code ??
+        (err as any)?.cause?.routine;
+      const isUniqueViolation = code === "23505" || (err as any)?.cause?.code === "23505";
       if (isUniqueViolation && attempt < maxRetries) {
         // Coba lagi dengan sequence berikutnya
         continue;
@@ -613,6 +617,7 @@ router.post("/tenant-invoices/:id/payment", async (req, res) => {
           invoiceId: id,
           tenantId: invoice.tenantId,
           bookingId: invoice.bookingId ?? null,
+          tenantBookingId: invoice.bookingId ?? null,
           amount: String(amountPaid),
           discountAmount: "0",
           penaltyAmount: "0",

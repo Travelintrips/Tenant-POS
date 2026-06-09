@@ -44,6 +44,10 @@ async function findOrCreateUser(opts: {
   const [created] = await db
     .insert(usersTable)
     .values({ email: opts.email, name: opts.name, avatarUrl: opts.avatar, role })
+    .onConflictDoUpdate({
+      target: usersTable.email,
+      set: { name: opts.name, avatarUrl: opts.avatar, updatedAt: new Date() },
+    })
     .returning();
 
   return created;

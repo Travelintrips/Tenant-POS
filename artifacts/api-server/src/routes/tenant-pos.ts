@@ -15,7 +15,7 @@ import { sseBroker } from "../lib/sse-broker";
 
 const router: IRouter = Router();
 
-router.use(requireAnyRole("owner", "admin", "finance", "cashier"));
+router.use("/tenant-pos", requireAnyRole("owner", "admin", "finance", "cashier"));
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -394,6 +394,7 @@ router.post("/tenant-pos/payments", async (req, res) => {
         .insert(tenantPaymentsTable)
         .values({
           bookingId,
+          tenantBookingId: bookingId,
           tenantId,
           invoiceId: invoiceId ?? null,
           amount: String(amountPaid),
@@ -616,7 +617,7 @@ router.post("/tenant-pos/payments/:id/void", async (req, res) => {
       afterData: { id: result.id, isVoided: true, voidReason: parsed.data.voidReason },
     });
     sseBroker.publish("payment_voided", { paymentId: result.id });
-    res.json({ success: true, message: "Pembayaran berhasil di-void", paymentId: result.id });
+    res.json({ success: true, message: "Pembayaran berhasil di-void", paymentId: result.id, isVoided: true });
   } catch (err) {
     const e = err as Error & { status?: number };
     if (e.status) res.status(e.status).json({ error: e.message });

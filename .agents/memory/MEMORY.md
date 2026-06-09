@@ -5,3 +5,6 @@
 - [schema-column-fix](schema-column-fix.md) — 3 tables needed ALTER TABLE to add missing columns; sync old data booking_id from tenant_booking_id after adding new column
 - [drizzle-kit-tty](drizzle-kit-tty.md) — drizzle-kit push requires interactive TTY for new tables; add SQL migration to lib/db/src/migrator.ts instead
 - [drizzle-timestamptz](drizzle-timestamptz.md) — `timestamptz` is not exported from drizzle-orm@0.45; use `timestamp("col", { withTimezone: true })` instead
+- [pg-substring-from](pg-substring-from.md) — `SUBSTRING(str FROM $1)` with parameterized integer is regex extraction in PG, not positional; use `SUBSTR(str, $1)` instead
+- [drizzle-error-code](drizzle-error-code.md) — DrizzleQueryError wraps PG errors in `.cause`; check `err?.cause?.code` for SQLSTATE codes like "23505"
+- [vitest4-singlefork](vitest4-singlefork.md) — Vitest 4 moved poolOptions to top-level; use `singleFork: true` directly in `test:{}`, not under `poolOptions.forks`

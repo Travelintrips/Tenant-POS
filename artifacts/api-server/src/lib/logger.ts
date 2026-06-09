@@ -8,7 +8,7 @@ export const logger = pino({
     "req.headers.cookie",
     "res.headers['set-cookie']",
   ],
-  ...(config.env !== "production"
+  ...(config.env === "development"
     ? {
         transport: {
           target: "pino-pretty",

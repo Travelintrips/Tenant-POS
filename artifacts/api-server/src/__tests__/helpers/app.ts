@@ -21,12 +21,12 @@ export function createTestApp(role: TestRole = "owner") {
     };
     (req as any).isAuthenticated = () => true;
     (req as any).log = {
-      info: () => {},
-      error: () => {},
-      warn: () => {},
+      info: (...a: unknown[]) => { if (process.env.TEST_VERBOSE) console.info("[req.log.info]", ...a); },
+      error: (...a: unknown[]) => console.error("[req.log.error]", ...a),
+      warn: (...a: unknown[]) => console.warn("[req.log.warn]", ...a),
       debug: () => {},
       trace: () => {},
-      fatal: () => {},
+      fatal: (...a: unknown[]) => console.error("[req.log.fatal]", ...a),
       child: () => (req as any).log,
     };
     next();
