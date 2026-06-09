@@ -1,4 +1,5 @@
 import { apiFetch } from "@/lib/api";
+import { useSite } from "@/contexts/site-context";
 import React, { useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
@@ -7,7 +8,7 @@ import {
   Smartphone, WalletCards, TrendingUp, Users, AlertTriangle, Zap,
   MoreHorizontal, History, Filter, Search, RotateCcw, ChevronDown,
   ChevronRight, MapPin, Wrench, Package, RefreshCw, Info, FileText,
-  Layers, LogIn, LogOut, Ban, ShieldAlert, DollarSign,
+  Layers, LogIn, LogOut, Ban, ShieldAlert, DollarSign, Dumbbell,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -222,27 +223,29 @@ const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
 // ─── API Hooks ────────────────────────────────────────────────────────────────
 
-function useOverview() {
+function useOverview(siteId: number | null) {
   return useQuery<Overview>({
-    queryKey: ["tenant-pos-overview"],
+    queryKey: ["tenant-pos-overview", siteId],
     queryFn: async () => {
       const r = await apiFetch(`${BASE}/api/tenant-pos/overview`, { credentials: "include" });
       if (!r.ok) throw new Error(`Overview error ${r.status}`);
       return r.json();
     },
     refetchInterval: 30_000,
+    enabled: siteId !== null,
   });
 }
 
-function useFloorPlan() {
+function useFloorPlan(siteId: number | null) {
   return useQuery<FloorPlanItem[]>({
-    queryKey: ["tenant-pos-floor-plan"],
+    queryKey: ["tenant-pos-floor-plan", siteId],
     queryFn: async () => {
       const r = await apiFetch(`${BASE}/api/tenant-pos/floor-plan`, { credentials: "include" });
       if (!r.ok) throw new Error(`Floor plan error ${r.status}`);
       return r.json();
     },
     refetchInterval: 30_000,
+    enabled: siteId !== null,
   });
 }
 
@@ -1721,6 +1724,7 @@ function DailyReportModal({ onClose }: { onClose: () => void }) {
 
 export default function TenantPos() {
   const user = useAuth().data;
+  const { activeSite, activeSiteId, sites, setActiveSite } = useSite();
   const [selected, setSelected] = useState<FloorPlanItem | null>(null);
   const [modalItem, setModalItem] = useState<FloorPlanItem | null>(null);
   const [modalInvoice, setModalInvoice] = useState<TenantInvoice | null>(null);
@@ -1729,8 +1733,8 @@ export default function TenantPos() {
   const [showDailyReport, setShowDailyReport] = useState(false);
   const [filters, setFilters] = useState<FilterState>({ search: "", status: "", area: "" });
 
-  const overview = useOverview();
-  const floorPlan = useFloorPlan();
+  const overview = useOverview(activeSiteId);
+  const floorPlan = useFloorPlan(activeSiteId);
   const currentShift = useCurrentShift();
 
   const allItems = floorPlan.data ?? [];
@@ -1773,9 +1777,41 @@ export default function TenantPos() {
 
       <div className="flex flex-1 gap-4 min-h-0">
         <Card className="flex-1 min-w-0 overflow-hidden flex flex-col">
+          {/* ── Tab Lokasi (TOD / Sport Center) ── */}
+          {sites.length > 1 && (
+            <div className="flex border-b bg-slate-50/70 shrink-0 px-3 pt-2 gap-1">
+              {sites.map((site) => {
+                const isActive = activeSite?.id === site.id;
+                const isSport = site.type === "sport_center";
+                return (
+                  <button
+                    key={site.id}
+                    onClick={() => { setActiveSite(site); setSelected(null); handleFilterChange({ search: "", status: "", area: "" }); }}
+                    className={cn(
+                      "flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-t-lg border border-b-0 transition-all -mb-px",
+                      isActive
+                        ? isSport
+                          ? "bg-white border-emerald-300 text-emerald-700 shadow-sm"
+                          : "bg-white border-blue-300 text-blue-700 shadow-sm"
+                        : "bg-transparent border-transparent text-muted-foreground hover:text-slate-700 hover:bg-slate-100"
+                    )}
+                  >
+                    {isSport
+                      ? <Dumbbell className="w-3 h-3" />
+                      : <Building2 className="w-3 h-3" />
+                    }
+                    {site.name}
+                  </button>
+                );
+              })}
+            </div>
+          )}
           <CardHeader className="py-3 px-4 border-b flex-row items-center justify-between space-y-0">
             <div className="flex items-center gap-2">
               <CardTitle className="text-sm font-semibold text-slate-700">Denah Tenant</CardTitle>
+              {activeSite && sites.length === 1 && (
+                <span className="text-[10px] text-muted-foreground">· {activeSite.name}</span>
+              )}
               {hasFilter && !floorPlan.isLoading && (
                 <span className="text-[10px] text-muted-foreground">({filteredItems.length}/{allItems.length} unit)</span>
               )}
