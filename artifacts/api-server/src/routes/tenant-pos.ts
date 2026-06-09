@@ -789,7 +789,7 @@ router.post("/tenant-pos/shifts/open", async (req, res) => {
       .insert(cashierShiftsTable)
       .values({
         cashierName: parsed.data.cashierName,
-        cashierId: currentUser?.id ?? null,
+        cashierId: currentUser?.dbId ?? null,
         notes: parsed.data.notes ?? null,
         status: "open",
         expectedCash: "0",
@@ -847,6 +847,7 @@ router.post("/tenant-pos/shifts/:id/close", async (req, res) => {
       .set({
         status: "closed",
         closedAt: new Date(),
+        expectedCash: String(expectedCash),
         actualCash: String(actualCash),
         cashDifference: String(cashDifference),
         notes: parsed.data.notes ?? shift.notes,
