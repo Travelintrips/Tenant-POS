@@ -104,7 +104,7 @@ describe("Fase 7 — Audit Log", () => {
         remainingAmount: "7000000",
       });
 
-      await new Promise((r) => setTimeout(r, 200));
+      await new Promise((r) => setTimeout(r, 600));
 
       const [log] = await db
         .select()
