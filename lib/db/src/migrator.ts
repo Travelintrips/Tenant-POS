@@ -854,6 +854,22 @@ DO $$ BEGIN
 END $$;
     `.trim(),
   },
+  {
+    name: "0017_cashier_shifts_columns",
+    sql: `
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='cashier_shifts' AND column_name='cashier_id') THEN
+    ALTER TABLE "cashier_shifts" ADD COLUMN "cashier_id" integer;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='cashier_shifts' AND column_name='opened_at') THEN
+    ALTER TABLE "cashier_shifts" ADD COLUMN "opened_at" timestamptz NOT NULL DEFAULT now();
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='cashier_shifts' AND column_name='site_id') THEN
+    ALTER TABLE "cashier_shifts" ADD COLUMN "site_id" integer;
+  END IF;
+END $$;
+    `.trim(),
+  },
 ];
 
 const MIGRATIONS_TABLE = "schema_migrations";

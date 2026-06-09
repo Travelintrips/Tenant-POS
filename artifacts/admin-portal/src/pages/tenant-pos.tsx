@@ -864,33 +864,81 @@ function ModalReceipt({ paymentId, onClose }: { paymentId: number; onClose: () =
 
 function SummaryCards({ overview, loading, error }: { overview?: Overview; loading: boolean; error?: boolean }) {
   const cards = [
-    { label: "Total Tenant Aktif", value: loading ? null : String(overview?.totalActiveTenants ?? 0), sub: "tenant terdaftar", icon: <Users className="w-5 h-5 text-blue-500" />, color: "border-blue-200 bg-blue-50/40", valueColor: "text-blue-700" },
-    { label: "Tagihan Belum Lunas", value: loading ? null : String(overview?.unpaidCount ?? 0), sub: "tagihan pending", icon: <Clock className="w-5 h-5 text-amber-500" />, color: "border-amber-200 bg-amber-50/40", valueColor: "text-amber-700" },
-    { label: "Pembayaran Hari Ini", value: loading ? null : formatRupiah(overview?.paidTodayAmount ?? 0), sub: "total terkumpul", icon: <TrendingUp className="w-5 h-5 text-emerald-500" />, color: "border-emerald-200 bg-emerald-50/40", valueColor: "text-emerald-700" },
-    { label: "Overdue", value: loading ? null : String(overview?.overdueCount ?? 0), sub: "tagihan jatuh tempo", icon: <AlertTriangle className="w-5 h-5 text-red-500" />, color: "border-red-200 bg-red-50/40", valueColor: "text-red-700" },
+    {
+      label: "Tenant Aktif",
+      value: loading ? null : String(overview?.totalActiveTenants ?? 0),
+      sub: "tenant terdaftar",
+      icon: <Users className="w-5 h-5" />,
+      iconBg: "bg-blue-100 text-blue-600",
+      gradient: "from-blue-50/80 to-white",
+      border: "border-blue-100",
+      valueColor: "text-blue-700",
+      accent: "bg-blue-500",
+    },
+    {
+      label: "Belum Lunas",
+      value: loading ? null : String(overview?.unpaidCount ?? 0),
+      sub: "tagihan pending",
+      icon: <Clock className="w-5 h-5" />,
+      iconBg: "bg-amber-100 text-amber-600",
+      gradient: "from-amber-50/80 to-white",
+      border: "border-amber-100",
+      valueColor: "text-amber-700",
+      accent: "bg-amber-500",
+    },
+    {
+      label: "Pendapatan Hari Ini",
+      value: loading ? null : formatRupiah(overview?.paidTodayAmount ?? 0),
+      sub: "total terkumpul",
+      icon: <TrendingUp className="w-5 h-5" />,
+      iconBg: "bg-emerald-100 text-emerald-600",
+      gradient: "from-emerald-50/80 to-white",
+      border: "border-emerald-100",
+      valueColor: "text-emerald-700",
+      accent: "bg-emerald-500",
+    },
+    {
+      label: "Jatuh Tempo",
+      value: loading ? null : String(overview?.overdueCount ?? 0),
+      sub: "tagihan overdue",
+      icon: <AlertTriangle className="w-5 h-5" />,
+      iconBg: "bg-red-100 text-red-600",
+      gradient: "from-red-50/80 to-white",
+      border: "border-red-100",
+      valueColor: "text-red-700",
+      accent: "bg-red-500",
+    },
   ];
 
   if (error) {
     return (
-      <div className="flex items-center gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-        <AlertCircle className="w-4 h-4 shrink-0" />Gagal memuat ringkasan.
+      <div className="flex items-center gap-2.5 rounded-xl border border-red-200 bg-gradient-to-r from-red-50 to-red-50/30 px-4 py-3 text-sm text-red-700 shadow-sm">
+        <AlertCircle className="w-4 h-4 shrink-0" />
+        <span>Gagal memuat ringkasan.</span>
+        <span className="text-xs text-red-500 ml-1">Periksa koneksi atau refresh halaman.</span>
       </div>
     );
   }
 
   return (
-    <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+    <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
       {cards.map((c) => (
-        <Card key={c.label} className={cn("border", c.color)}>
-          <CardContent className="pt-4 pb-4">
-            <div className="flex items-center justify-between mb-2">
-              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">{c.label}</p>
-              {c.icon}
+        <div key={c.label} className={cn("relative rounded-2xl border bg-gradient-to-br shadow-sm overflow-hidden", c.gradient, c.border)}>
+          <div className={cn("absolute top-0 left-0 w-1 h-full rounded-l-2xl", c.accent)} />
+          <div className="px-4 py-3.5 pl-5">
+            <div className="flex items-start justify-between gap-2 mb-2.5">
+              <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-widest leading-none mt-0.5">{c.label}</p>
+              <div className={cn("w-8 h-8 rounded-xl flex items-center justify-center shrink-0", c.iconBg)}>
+                {c.icon}
+              </div>
             </div>
-            {loading ? <Skeleton className="h-7 w-24 mb-1" /> : <p className={cn("text-2xl font-bold tracking-tight", c.valueColor)}>{c.value}</p>}
-            <p className="text-xs text-muted-foreground mt-0.5">{c.sub}</p>
-          </CardContent>
-        </Card>
+            {loading
+              ? <Skeleton className="h-8 w-20 mb-1 rounded-lg" />
+              : <p className={cn("text-[1.6rem] font-black tracking-tight leading-none mb-1", c.valueColor)}>{c.value}</p>
+            }
+            <p className="text-[11px] text-slate-400 font-medium">{c.sub}</p>
+          </div>
+        </div>
       ))}
     </div>
   );
@@ -901,28 +949,51 @@ function SummaryCards({ overview, loading, error }: { overview?: Overview; loadi
 function BoothCard({ item, selected, onClick }: { item: FloorPlanItem; selected: boolean; onClick: () => void }) {
   const status = resolveStatus(item);
   const cfg = statusConfig[status];
+  const isVacant = status === "VACANT";
   return (
     <button
       onClick={onClick}
-      className={cn("relative rounded-xl border-2 p-3 text-left transition-all duration-150 cursor-pointer select-none w-full", cfg.box, selected && "ring-2 ring-offset-2 ring-primary scale-[1.02] shadow-md z-10")}
+      className={cn(
+        "relative rounded-2xl border-2 p-3.5 text-left transition-all duration-200 cursor-pointer select-none w-full min-h-[110px] flex flex-col group",
+        cfg.box,
+        selected
+          ? "ring-2 ring-offset-2 ring-primary shadow-lg scale-[1.02] z-10"
+          : "hover:shadow-md hover:scale-[1.01]"
+      )}
     >
-      <div className="flex items-start justify-between gap-1 mb-1.5">
-        <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wide leading-none">{item.boothNumber}</span>
-        <span className={cn("inline-flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded-full border font-medium shrink-0", cfg.badge)}>
+      {/* Status stripe top */}
+      <div className={cn("absolute top-0 left-0 right-0 h-0.5 rounded-t-2xl opacity-70",
+        status === "PAID" ? "bg-emerald-400" :
+        status === "OVERDUE" ? "bg-red-400" :
+        status === "PARTIAL" ? "bg-blue-400" :
+        status === "UNPAID" ? "bg-amber-400" : "bg-slate-200"
+      )} />
+
+      <div className="flex items-start justify-between gap-1 mb-2">
+        <span className="text-[11px] font-black text-slate-500 uppercase tracking-widest leading-none">{item.boothNumber}</span>
+        <span className={cn("inline-flex items-center gap-0.5 text-[10px] px-2 py-0.5 rounded-full border font-semibold shrink-0", cfg.badge)}>
           {cfg.icon}{cfg.label}
         </span>
       </div>
-      <p className="text-sm font-semibold leading-tight text-slate-800 truncate">
-        {status === "VACANT" ? <span className="text-slate-400 italic text-xs">Kosong</span> : item.businessName}
+
+      <p className={cn("text-[13px] font-bold leading-tight truncate flex-1", isVacant ? "text-slate-300 italic" : "text-slate-800")}>
+        {isVacant ? "Kosong" : item.businessName}
       </p>
-      {status !== "VACANT" && item.bookingId && (
-        <div className="mt-1.5 space-y-0.5">
-          {item.periodLabel && <p className="text-[11px] text-slate-500 truncate">{item.periodLabel}</p>}
-          <p className={cn("text-xs font-semibold", status === "PAID" ? "text-emerald-600" : status === "OVERDUE" ? "text-red-600" : status === "PARTIAL" ? "text-blue-600" : "text-amber-600")}>
+
+      {!isVacant && item.bookingId && (
+        <div className="mt-2 pt-2 border-t border-current/10 space-y-0.5">
+          {item.periodLabel && (
+            <p className="text-[10px] text-slate-400 truncate font-medium">{item.periodLabel}</p>
+          )}
+          <p className={cn("text-[12px] font-bold",
+            status === "PAID" ? "text-emerald-600" :
+            status === "OVERDUE" ? "text-red-600" :
+            status === "PARTIAL" ? "text-blue-600" : "text-amber-600"
+          )}>
             {status === "PAID" ? "✓ Lunas" : `Sisa ${formatRupiah(item.remainingAmount)}`}
           </p>
           {item.openInvoiceCount > 0 && (
-            <p className="text-[10px] text-blue-600 font-medium">{item.openInvoiceCount} invoice terbuka</p>
+            <p className="text-[10px] text-blue-500 font-semibold">{item.openInvoiceCount} invoice terbuka</p>
           )}
         </div>
       )}
@@ -949,22 +1020,34 @@ function TenantFloorPlan({ items: rawItems, selected, onSelect, isFiltered }: {
     return acc;
   }, {});
   return (
-    <div className="h-full overflow-y-auto p-4 space-y-6">
-      {Object.entries(grouped).map(([area, areaItems]) => (
-        <div key={area}>
-          <div className="flex items-center gap-2 mb-3">
-            <Building2 className="w-4 h-4 text-muted-foreground" />
-            <h3 className="text-sm font-semibold text-slate-700 uppercase tracking-wide">{area}</h3>
-            <span className="text-xs text-muted-foreground">({areaItems.length} unit)</span>
-            <div className="flex-1 h-px bg-slate-200 ml-1" />
+    <div className="h-full overflow-y-auto p-5 space-y-6">
+      {Object.entries(grouped).map(([area, areaItems]) => {
+        const paidCount = areaItems.filter(i => resolveStatus(i) === "PAID").length;
+        const overdueCount = areaItems.filter(i => resolveStatus(i) === "OVERDUE").length;
+        return (
+          <div key={area}>
+            <div className="flex items-center gap-2.5 mb-3.5">
+              <div className="w-7 h-7 rounded-lg bg-slate-100 flex items-center justify-center shrink-0">
+                <Building2 className="w-3.5 h-3.5 text-slate-500" />
+              </div>
+              <div className="flex-1">
+                <div className="flex items-center gap-2">
+                  <h3 className="text-sm font-bold text-slate-700 uppercase tracking-widest">{area}</h3>
+                  <span className="text-[11px] font-medium text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">{areaItems.length} unit</span>
+                  {overdueCount > 0 && <span className="text-[11px] font-semibold text-red-600 bg-red-50 border border-red-100 px-2 py-0.5 rounded-full">{overdueCount} overdue</span>}
+                  {paidCount > 0 && <span className="text-[11px] font-semibold text-emerald-600 bg-emerald-50 border border-emerald-100 px-2 py-0.5 rounded-full">{paidCount} lunas</span>}
+                </div>
+              </div>
+              <div className="flex-1 h-px bg-gradient-to-r from-slate-200 to-transparent" />
+            </div>
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-4">
+              {areaItems.map((item) => (
+                <BoothCard key={item.id} item={item} selected={selected?.id === item.id} onClick={() => onSelect(item)} />
+              ))}
+            </div>
           </div>
-          <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3">
-            {areaItems.map((item) => (
-              <BoothCard key={item.id} item={item} selected={selected?.id === item.id} onClick={() => onSelect(item)} />
-            ))}
-          </div>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }
