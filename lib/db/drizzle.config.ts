@@ -1,7 +1,7 @@
 import { defineConfig } from "drizzle-kit";
 import path from "path";
 
-let url = process.env.SUPABASE_PG_URL || process.env.DATABASE_URL;
+let url = process.env.SUPABASE_PG_URL || process.env.SUPABASE_DATABASE_URL_DEV || process.env.DATABASE_URL;
 
 if (!url) {
   throw new Error("SUPABASE_PG_URL or DATABASE_URL must be set");
