@@ -1,3 +1,4 @@
 - [api-zod duplicate exports](api-zod-exports.md) — only export from `./generated/api`, not `./generated/types` (same names clash)
 - [scripts workspace resolution](scripts-workspace-resolution.md) — scripts pkg needs `paths` in tsconfig to resolve `@workspace/*` libs; symlinks not created by pnpm for scripts
 - [invalid hook call fix](invalid-hook-call.md) — avoid generated lib hooks (useListTenants etc); use `useQuery` directly in admin-portal pages
+- [supabase-connection](supabase-connection.md) — app uses SUPABASE_PG_URL (pooler port 6543); drizzle-kit push hangs on pooler, use direct pg script from lib/db/ instead
