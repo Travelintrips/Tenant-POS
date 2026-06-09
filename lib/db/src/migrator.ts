@@ -871,6 +871,47 @@ END $$;
     `.trim(),
   },
   {
+    name: "0019_seed_mall_units",
+    sql: `
+DO $$
+BEGIN
+  -- Seed unit TOD M1 (site_id = 1) jika belum ada
+  IF NOT EXISTS (SELECT 1 FROM mall_units WHERE site_id = 1 LIMIT 1) THEN
+    INSERT INTO mall_units (unit_code, floor, zone, size_m2, status, position_x, position_y, width, height, site_id) VALUES
+    ('T-001', '1', 'Zona A', 24, 'occupied',  0, 0, 2, 2, 1),
+    ('T-002', '1', 'Zona A', 24, 'occupied',  2, 0, 2, 2, 1),
+    ('T-003', '1', 'Zona A', 18, 'occupied',  4, 0, 2, 2, 1),
+    ('T-004', '1', 'Zona B', 30, 'occupied',  0, 2, 2, 2, 1),
+    ('T-005', '1', 'Zona B', 20, 'occupied',  2, 2, 2, 2, 1),
+    ('T-006', '1', 'Zona A', 18, 'occupied',  4, 2, 2, 2, 1),
+    ('T-007', '1', 'Zona B', 20, 'occupied',  6, 2, 2, 2, 1),
+    ('T-008', '1', 'Zona C', 36, 'occupied',  0, 4, 2, 2, 1),
+    ('T-009', '1', 'Zona A', 18, 'occupied',  2, 4, 2, 2, 1),
+    ('T-010', '1', 'Zona A', 16, 'occupied',  4, 4, 2, 2, 1),
+    ('T-011', '1', 'Zona B', 20, 'occupied',  6, 4, 2, 2, 1),
+    ('T-012', '1', 'Zona A', 18, 'occupied',  0, 6, 2, 2, 1),
+    ('T-013', '1', 'Zona B', 24, 'available', 2, 6, 2, 2, 1),
+    ('T-014', '1', 'Zona C', 30, 'available', 4, 6, 2, 2, 1),
+    ('T-015', '1', 'Zona C', 20, 'available', 6, 6, 2, 2, 1),
+    ('T-016', '1', 'Zona C', 20, 'available', 8, 6, 2, 2, 1);
+  END IF;
+
+  -- Seed unit Sport Center (site_id = 3) jika belum ada
+  IF NOT EXISTS (SELECT 1 FROM mall_units WHERE site_id = 3 LIMIT 1) THEN
+    INSERT INTO mall_units (unit_code, floor, zone, size_m2, status, position_x, position_y, width, height, site_id) VALUES
+    ('SC-01', '1', 'Lapangan', 200, 'occupied',  0, 0, 4, 4, 3),
+    ('SC-02', '1', 'Lapangan', 200, 'available', 4, 0, 4, 4, 3),
+    ('SC-03', '1', 'Lapangan', 200, 'available', 8, 0, 4, 4, 3),
+    ('SC-04', '1', 'Fasilitas', 120, 'available', 0, 4, 4, 4, 3),
+    ('SC-05', '1', 'Fasilitas', 80,  'available', 4, 4, 2, 2, 3),
+    ('SC-06', '1', 'Fasilitas', 80,  'available', 6, 4, 2, 2, 3),
+    ('SC-07', '1', 'Tenant',    40,  'available', 8, 4, 2, 2, 3),
+    ('SC-08', '1', 'Tenant',    40,  'available', 8, 6, 2, 2, 3);
+  END IF;
+END $$;
+    `.trim(),
+  },
+  {
     name: "0018_cashier_shifts_remaining_columns",
     sql: `
 DO $$ BEGIN
