@@ -8,3 +8,6 @@
 - [pg-substring-from](pg-substring-from.md) — `SUBSTRING(str FROM $1)` with parameterized integer is regex extraction in PG, not positional; use `SUBSTR(str, $1)` instead
 - [drizzle-error-code](drizzle-error-code.md) — DrizzleQueryError wraps PG errors in `.cause`; check `err?.cause?.code` for SQLSTATE codes like "23505"
 - [vitest4-singlefork](vitest4-singlefork.md) — Vitest 4 moved poolOptions to top-level; use `singleFork: true` directly in `test:{}`, not under `poolOptions.forks`
+- [test-invoice-number-uniqueness](test-invoice-number-uniqueness.md) — test factory invoice numbers must use per-call timestamp+random, not shared RUN_ID slice; base36 date prefix repeats within ~13 hours causing duplicate key failures
+- [vitest-globals-tsconfig](vitest-globals-tsconfig.md) — add `"vitest/globals"` to tsconfig `types` array for api-server; exclude test dirs from admin-portal tsconfig to avoid @testing-library missing module errors
+- [mockup-sandbox-build](mockup-sandbox-build.md) — mockup-sandbox vite.config requires PORT/BASE_PATH but not during `vite build`; gate the throws with `process.argv.includes("build")`
