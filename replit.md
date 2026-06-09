@@ -46,7 +46,7 @@ Mall tenant management system:
 
 ## User preferences
 
-_Populate as you build — explicit user instructions worth remembering across sessions._
+- Selalu gunakan Bahasa Indonesia dalam semua respons kepada pengguna.
 
 ## Gotchas
 
