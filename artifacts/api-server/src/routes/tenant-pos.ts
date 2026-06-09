@@ -15,7 +15,7 @@ import { sseBroker } from "../lib/sse-broker";
 
 const router: IRouter = Router();
 
-router.use(requireAnyRole("owner", "admin", "finance", "cashier"));
+router.use("/tenant-pos", requireAnyRole("owner", "admin", "finance", "cashier"));
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -394,6 +394,7 @@ router.post("/tenant-pos/payments", async (req, res) => {
         .insert(tenantPaymentsTable)
         .values({
           bookingId,
+          tenantBookingId: bookingId,
           tenantId,
           invoiceId: invoiceId ?? null,
           amount: String(amountPaid),

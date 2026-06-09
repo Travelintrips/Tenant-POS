@@ -13,7 +13,7 @@ import { requireAnyRole } from "../middlewares/auth";
 import { logAudit } from "../lib/audit";
 
 const router: IRouter = Router();
-router.use(requireAnyRole("owner", "admin", "finance"));
+router.use("/tenant-invoices", requireAnyRole("owner", "admin", "finance"));
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -535,6 +535,7 @@ router.post("/tenant-invoices/:id/payment", async (req, res) => {
           invoiceId: id,
           tenantId: invoice.tenantId,
           bookingId: invoice.bookingId ?? null,
+          tenantBookingId: invoice.bookingId ?? null,
           amount: String(amountPaid),
           discountAmount: "0",
           penaltyAmount: "0",

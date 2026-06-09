@@ -3,7 +3,7 @@ import { makeAuthAgent } from "./helpers/agent";
 import { createTestTenant, createTestBooking, cleanupAll, TEST_PREFIX } from "./helpers/factory";
 import { db } from "@workspace/db";
 import { auditLogsTable } from "@workspace/db/schema";
-import { eq, desc } from "drizzle-orm";
+import { eq, and, desc } from "drizzle-orm";
 
 let owner: any;
 let admin: any;
@@ -24,7 +24,8 @@ describe("Fase 7 — Audit Log", () => {
     it("owner bisa akses audit logs (200)", async () => {
       const res = await owner.get("/api/audit-logs");
       expect(res.status).toBe(200);
-      expect(Array.isArray(res.body)).toBe(true);
+      expect(res.body).toHaveProperty("data");
+      expect(Array.isArray(res.body.data)).toBe(true);
     });
 
     it("finance tidak bisa akses audit logs (403)", async () => {
@@ -49,7 +50,12 @@ describe("Fase 7 — Audit Log", () => {
       const [log] = await db
         .select()
         .from(auditLogsTable)
-        .where(eq(auditLogsTable.entityType, "tenant"))
+        .where(
+          and(
+            eq(auditLogsTable.entityType, "tenant"),
+            eq(auditLogsTable.entityId, String(tenantId))
+          )
+        )
         .orderBy(desc(auditLogsTable.id))
         .limit(1);
 
@@ -63,7 +69,7 @@ describe("Fase 7 — Audit Log", () => {
     it("audit log tidak menyimpan field password/token/secret", async () => {
       const res = await owner.get("/api/audit-logs?limit=20");
       expect(res.status).toBe(200);
-      const logs = res.body as any[];
+      const logs = res.body.data as any[];
 
       for (const log of logs) {
         const dataStr = JSON.stringify({ before: log.beforeData, after: log.afterData });
@@ -103,7 +109,12 @@ describe("Fase 7 — Audit Log", () => {
       const [log] = await db
         .select()
         .from(auditLogsTable)
-        .where(eq(auditLogsTable.entityType, "booking"))
+        .where(
+          and(
+            eq(auditLogsTable.entityType, "booking"),
+            eq(auditLogsTable.entityId, String(booking.id))
+          )
+        )
         .orderBy(desc(auditLogsTable.id))
         .limit(1);
 
@@ -116,13 +127,14 @@ describe("Fase 7 — Audit Log", () => {
     it("filter berdasarkan action bekerja", async () => {
       const res = await owner.get("/api/audit-logs?action=create_tenant");
       expect(res.status).toBe(200);
-      expect(Array.isArray(res.body)).toBe(true);
+      expect(res.body).toHaveProperty("data");
+      expect(Array.isArray(res.body.data)).toBe(true);
     });
 
     it("filter berdasarkan entityType bekerja", async () => {
-      const res = await owner.get("/api/audit-logs?entityType=tenant");
+      const res = await owner.get("/api/audit-logs?entity_type=tenant");
       expect(res.status).toBe(200);
-      const logs = res.body as any[];
+      const logs = res.body.data as any[];
       for (const log of logs) {
         expect(log.entityType).toBe("tenant");
       }

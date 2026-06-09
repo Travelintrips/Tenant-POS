@@ -7,7 +7,7 @@ import {
   mallUnitsTable,
   cashierShiftsTable,
 } from "@workspace/db/schema";
-import { inArray, sql } from "drizzle-orm";
+import { inArray } from "drizzle-orm";
 
 const RUN_ID = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
 export const TEST_PREFIX = `[TEST:${RUN_ID}]`;
@@ -41,7 +41,7 @@ export async function createTestTenant(overrides: Record<string, unknown> = {}) 
 }
 
 export async function createTestUnit(overrides: Record<string, unknown> = {}) {
-  const code = `T-${RUN_ID.slice(0, 6)}-${ids.mallUnits.size + 1}`;
+  const code = `T-${RUN_ID.slice(0, 6)}-${ids.mallUnits.size + 1}-${Date.now().toString(36)}`;
   const [row] = await db
     .insert(mallUnitsTable)
     .values({
@@ -90,7 +90,7 @@ export async function createTestInvoice(tenantId: number, bookingId?: number, ov
   const now = new Date();
   const yyyymm = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}`;
   const seq = String(ids.invoices.size + 1).padStart(5, "0");
-  const invoiceNumber = `INV-TEST/${yyyymm}/${seq}`;
+  const invoiceNumber = `INV-TEST/${yyyymm}/${seq}-${RUN_ID.slice(0, 4)}`;
 
   const due = new Date(now);
   due.setDate(due.getDate() + 30);
@@ -117,7 +117,7 @@ export async function createTestInvoice(tenantId: number, bookingId?: number, ov
 }
 
 export async function createTestPayment(tenantId: number, bookingId: number, overrides: Record<string, unknown> = {}) {
-  const receiptNumber = `TEST-PAY-${Date.now()}`;
+  const receiptNumber = `TEST-PAY-${Date.now()}-${RUN_ID.slice(0, 4)}`;
   const [row] = await db
     .insert(tenantPaymentsTable)
     .values({
@@ -126,8 +126,8 @@ export async function createTestPayment(tenantId: number, bookingId: number, ove
       tenantBookingId: bookingId,
       receiptNumber,
       amount: "5000000",
-      method: "cash",
-      paymentMethod: "cash",
+      method: "tunai",
+      paymentMethod: "tunai",
       status: "PAID",
       paymentStatus: "PAID",
       isVoided: false,
@@ -157,22 +157,30 @@ export async function createTestShift(overrides: Record<string, unknown> = {}) {
 }
 
 export async function cleanupAll() {
-  if (ids.payments.size > 0) {
-    await db.delete(tenantPaymentsTable).where(inArray(tenantPaymentsTable.id, [...ids.payments]));
-  }
-  if (ids.invoices.size > 0) {
-    await db.delete(tenantInvoicesTable).where(inArray(tenantInvoicesTable.id, [...ids.invoices]));
-  }
-  if (ids.shifts.size > 0) {
-    await db.delete(cashierShiftsTable).where(inArray(cashierShiftsTable.id, [...ids.shifts]));
-  }
-  if (ids.bookings.size > 0) {
-    await db.delete(tenantBookingsTable).where(inArray(tenantBookingsTable.id, [...ids.bookings]));
-  }
-  if (ids.mallUnits.size > 0) {
-    await db.delete(mallUnitsTable).where(inArray(mallUnitsTable.id, [...ids.mallUnits]));
-  }
-  if (ids.tenants.size > 0) {
-    await db.delete(tenantsTable).where(inArray(tenantsTable.id, [...ids.tenants]));
+  const tenantList = [...ids.tenants];
+
+  try {
+    if (tenantList.length > 0) {
+      await db.delete(tenantPaymentsTable).where(inArray(tenantPaymentsTable.tenantId, tenantList));
+      await db.delete(tenantInvoicesTable).where(inArray(tenantInvoicesTable.tenantId, tenantList));
+      await db.delete(tenantBookingsTable).where(inArray(tenantBookingsTable.tenantId, tenantList));
+      await db.delete(tenantsTable).where(inArray(tenantsTable.id, tenantList));
+    }
+
+    if (ids.mallUnits.size > 0) {
+      await db.delete(mallUnitsTable).where(inArray(mallUnitsTable.id, [...ids.mallUnits]));
+    }
+    if (ids.shifts.size > 0) {
+      await db.delete(cashierShiftsTable).where(inArray(cashierShiftsTable.id, [...ids.shifts]));
+    }
+  } catch (err) {
+    console.warn("cleanupAll warning:", (err as Error).message);
+  } finally {
+    ids.tenants.clear();
+    ids.bookings.clear();
+    ids.invoices.clear();
+    ids.payments.clear();
+    ids.mallUnits.clear();
+    ids.shifts.clear();
   }
 }

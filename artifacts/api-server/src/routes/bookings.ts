@@ -13,7 +13,7 @@ import { z } from "zod/v4";
 
 const router: IRouter = Router();
 
-router.use(requireAnyRole("owner", "admin", "finance"));
+router.use("/bookings", requireAnyRole("owner", "admin", "finance"));
 
 const NUMERIC_FIELDS = [
   "rentAmount","depositAmount","serviceChargeAmount","electricityChargeAmount",

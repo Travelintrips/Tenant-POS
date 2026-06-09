@@ -7,7 +7,7 @@ import { logAudit } from "../lib/audit";
 
 const router: IRouter = Router();
 
-router.use(requireAnyRole("owner", "admin"));
+router.use("/tenants", requireAnyRole("owner", "admin"));
 
 router.get("/tenants", async (req, res) => {
   try {

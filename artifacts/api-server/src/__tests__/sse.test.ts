@@ -76,9 +76,9 @@ describe("Fase 10 — Realtime / SSE", () => {
   });
 
   describe("Health check sebagai proxy realtime readiness", () => {
-    it("GET /healthz merespons dengan cepat", async () => {
+    it("GET /api/healthz merespons dengan cepat", async () => {
       const start = Date.now();
-      const res = await request(app as any).get("/healthz");
+      const res = await request(app as any).get("/api/healthz");
       const elapsed = Date.now() - start;
       expect(res.status).toBe(200);
       expect(elapsed).toBeLessThan(5000);

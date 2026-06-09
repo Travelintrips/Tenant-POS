@@ -121,7 +121,7 @@ describe("Fase 2 — Kontrak Booking", () => {
         .post(`/api/bookings/${booking.id}/terminate`)
         .send({ reason: "Test terminasi" });
       expect(res.status).toBe(200);
-      expect(res.body.contractStatus).toBe("terminated");
+      expect(res.body.booking.contractStatus).toBe("terminated");
     });
 
     it("finance tidak bisa terminasi booking (403)", async () => {

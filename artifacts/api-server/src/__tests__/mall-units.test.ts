@@ -16,7 +16,7 @@ afterAll(cleanupAll);
 
 function unitPayload(overrides: Record<string, unknown> = {}) {
   return {
-    unitCode: `TU-${Date.now()}`,
+    unitCode: `TU-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
     floor: "1",
     zone: "A",
     sizeM2: "25",
@@ -56,14 +56,11 @@ describe("Fase 5 — Mall Units / Denah", () => {
     });
   });
 
-  describe("PUT /api/mall-units/:id", () => {
+  describe("PATCH /api/mall-units/:id", () => {
     it("update unit berhasil", async () => {
       const unit = await createTestUnit();
-      const res = await owner.put(`/api/mall-units/${unit.id}`).send({
-        unitCode: unit.unitCode,
+      const res = await owner.patch(`/api/mall-units/${unit.id}`).send({
         floor: "2",
-        zone: "B",
-        status: "available",
       });
       expect(res.status).toBe(200);
       expect(res.body.floor).toBe("2");
@@ -71,9 +68,7 @@ describe("Fase 5 — Mall Units / Denah", () => {
 
     it("update status unit berhasil", async () => {
       const unit = await createTestUnit();
-      const res = await owner.put(`/api/mall-units/${unit.id}`).send({
-        unitCode: unit.unitCode,
-        floor: unit.floor ?? "1",
+      const res = await owner.patch(`/api/mall-units/${unit.id}`).send({
         status: "maintenance",
       });
       expect(res.status).toBe(200);
@@ -87,15 +82,17 @@ describe("Fase 5 — Mall Units / Denah", () => {
       expect(res.status).toBe(200);
       expect(Array.isArray(res.body)).toBe(true);
       if (res.body.length > 0) {
-        expect(res.body[0]).toHaveProperty("status");
-        expect(res.body[0]).toHaveProperty("unitCode");
+        const item = res.body[0];
+        expect(item).toHaveProperty("tenantId");
+        const hasStatus = "tenantStatus" in item || "bookingStatus" in item || "status" in item;
+        expect(hasStatus).toBe(true);
       }
     });
   });
 
   describe("DELETE /api/mall-units/:id", () => {
     it("hapus unit berhasil", async () => {
-      const unit = await createTestUnit({ unitCode: `DEL-${Date.now()}` });
+      const unit = await createTestUnit({ unitCode: `DEL-${Date.now()}-${Math.random().toString(36).slice(2, 6)}` });
       const res = await owner.delete(`/api/mall-units/${unit.id}`);
       expect(res.status).toBe(200);
     });

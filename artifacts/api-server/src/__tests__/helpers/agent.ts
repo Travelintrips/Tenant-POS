@@ -3,11 +3,13 @@ import app from "../../app";
 
 export type TestRole = "owner" | "admin" | "finance" | "cashier";
 
+const WORKER_ID = `${process.pid}-${Date.now().toString(36)}`;
+
 const TEST_EMAILS: Record<TestRole, string> = {
-  owner: "test-owner@mall-test.local",
-  admin: "test-admin@mall-test.local",
-  finance: "test-finance@mall-test.local",
-  cashier: "test-cashier@mall-test.local",
+  owner: `tw-owner-${WORKER_ID}@test.local`,
+  admin: `tw-admin-${WORKER_ID}@test.local`,
+  finance: `tw-finance-${WORKER_ID}@test.local`,
+  cashier: `tw-cashier-${WORKER_ID}@test.local`,
 };
 
 export async function makeAuthAgent(role: TestRole = "owner") {
