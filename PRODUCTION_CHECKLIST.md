@@ -239,5 +239,104 @@ BERSIH — tidak ada console.* di source production
 | File | Perubahan |
 |------|-----------|
 | `artifacts/api-server/src/app.ts` | `cookie.secure` & `sameSite` dinamis berdasarkan `NODE_ENV`; guard warn jika `SESSION_SECRET` default di production |
-| `artifacts/api-server/src/routes/auth.ts` | Tambah `logAudit` untuk aksi `dev_login` saat login berhasil |
-| `artifacts/api-server/src/routes/tenant-pos.ts` | Import `logger`; ganti 6× `console.error` → `logger.error` |
+| `artifacts/api-server/src/routes/auth.ts` | Tambah `logAudit` untuk aksi `dev_login`; tambah `devLoginRateLimiter`, `googleAuthRateLimiter`, `authMeRateLimiter` |
+| `artifacts/api-server/src/routes/uploads.ts` | Tambah `uploadRateLimiter` pada kedua endpoint upload |
+| `artifacts/api-server/src/routes/tenant-pos.ts` | Import `logger`; ganti 6× `console.error` → `logger.error`; tambah `paymentRateLimiter` pada create/void/refund |
+| `artifacts/api-server/src/middlewares/rate-limit.ts` | **Baru** — factory `makeRateLimiter` + 5 limiter siap pakai |
+| `artifacts/api-server/src/__tests__/rate-limit.test.ts` | **Baru** — 13 test case isolasi rate limit |
+
+---
+
+## 10. Rate Limiting
+
+**Package:** `express-rate-limit` v7 (types built-in, tidak butuh @types terpisah)  
+**File middleware:** `artifacts/api-server/src/middlewares/rate-limit.ts`
+
+### Desain
+
+```typescript
+// Semua limiter di-skip ketika:
+//   NODE_ENV === "test"   → test normal tidak flaky
+//   RATE_LIMIT_DISABLED === "true" → override manual jika perlu
+
+makeRateLimiter({ name, max, windowMs, skip? })
+```
+
+- `skip` default: `() => NODE_ENV === "test" || RATE_LIMIT_DISABLED === "true"`
+- Test khusus rate limit menggunakan `skip: () => false` — isolated, tidak terpengaruh env
+- `keyGenerator`: ambil IP dari `x-forwarded-for` lalu fallback ke `req.ip`
+- `standardHeaders: true` → kirim `RateLimit-*` headers (RFC draft)
+- `legacyHeaders: false` → tidak kirim `X-RateLimit-*` yang deprecated
+
+### Endpoint yang Dilindungi
+
+| Endpoint | Limiter | Limit | Window |
+|----------|---------|-------|--------|
+| `POST /api/auth/dev-login` | `devLoginRateLimiter` | **30 req** | 15 menit |
+| `GET /api/auth/google` | `googleAuthRateLimiter` | **20 req** | 15 menit |
+| `GET /api/auth/google/callback` | `googleAuthRateLimiter` | **20 req** | 15 menit |
+| `GET /api/auth/me` | `authMeRateLimiter` | **300 req** | 15 menit |
+| `POST /api/uploads/tenant-logo` | `uploadRateLimiter` | **30 req** | 15 menit |
+| `POST /api/uploads/contract-document` | `uploadRateLimiter` | **30 req** | 15 menit |
+| `POST /api/tenant-pos/payments` | `paymentRateLimiter` | **60 req** | 15 menit |
+| `POST /api/tenant-pos/payments/:id/void` | `paymentRateLimiter` | **60 req** | 15 menit |
+| `POST /api/tenant-pos/payments/:id/refund` | `paymentRateLimiter` | **60 req** | 15 menit |
+
+### Response Jika Terkena Limit
+
+```json
+HTTP 429 Too Many Requests
+Content-Type: application/json
+
+{
+  "error": "Too many requests",
+  "message": "Terlalu banyak percobaan. Silakan coba lagi beberapa saat."
+}
+```
+
+### Logging Rate Limit Hit
+
+```typescript
+logger.warn({
+  path: req.path,
+  ip: "...",
+  userAgent: "...",
+}, "[rate-limit] limit terlampaui");
+```
+
+**Yang TIDAK di-log:** cookie, session token, Authorization header, body request.
+
+### Environment Variables untuk Rate Limit
+
+| Variabel | Default | Fungsi |
+|----------|---------|--------|
+| `RATE_LIMIT_DISABLED` | tidak diset | Set ke `"true"` untuk menonaktifkan semua limiter (staging debugging / load test) |
+| `NODE_ENV=test` | diset vitest | Otomatis nonaktifkan semua limiter saat `pnpm test` |
+
+### Rekomendasi Nilai Limit Production vs Staging
+
+| Endpoint | Staging | Production |
+|----------|---------|------------|
+| dev-login | 30/15m | N/A (route tidak terdaftar) |
+| google-oauth | 20/15m | **10/15m** (lebih ketat) |
+| auth/me | 300/15m | 300/15m |
+| upload | 30/15m | 30/15m |
+| payment | 60/15m | **30/15m** (lebih ketat, sesuai shift kasir) |
+
+> ⚠️ Nilai di atas per-IP. Jika deployment berada di belakang reverse proxy/load balancer, pastikan `trust proxy` dikonfigurasi di Express agar `x-forwarded-for` dibaca dengan benar:
+> ```typescript
+> app.set("trust proxy", 1); // tambahkan di app.ts jika pakai proxy
+> ```
+
+### Hasil Test Rate Limit
+
+```
+✅ 13 test baru di rate-limit.test.ts
+   - dev-login: normal 200 ✓ | kena 429 setelah limit ✓ | RateLimit headers ada ✓
+   - upload: normal 200 ✓ | kena 429 setelah limit ✓
+   - payment: normal 200 ✓ | kena 429 setelah limit ✓
+   - auth/me: 10 request berturut-turut semua 200 (limit 300) ✓
+   - production sim: dev-login 404 jika route tidak terdaftar ✓
+   - production sim: dev-login-enabled mengembalikan false ✓
+   - response format 429 JSON benar ✓ | RATE_LIMIT_RESPONSE export valid ✓
+```
