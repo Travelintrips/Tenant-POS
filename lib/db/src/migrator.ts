@@ -870,6 +870,34 @@ DO $$ BEGIN
 END $$;
     `.trim(),
   },
+  {
+    name: "0018_cashier_shifts_remaining_columns",
+    sql: `
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='cashier_shifts' AND column_name='closed_at') THEN
+    ALTER TABLE "cashier_shifts" ADD COLUMN "closed_at" timestamptz;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='cashier_shifts' AND column_name='expected_cash') THEN
+    ALTER TABLE "cashier_shifts" ADD COLUMN "expected_cash" numeric NOT NULL DEFAULT '0';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='cashier_shifts' AND column_name='actual_cash') THEN
+    ALTER TABLE "cashier_shifts" ADD COLUMN "actual_cash" numeric;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='cashier_shifts' AND column_name='cash_difference') THEN
+    ALTER TABLE "cashier_shifts" ADD COLUMN "cash_difference" numeric;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='cashier_shifts' AND column_name='notes') THEN
+    ALTER TABLE "cashier_shifts" ADD COLUMN "notes" text;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='cashier_shifts' AND column_name='status') THEN
+    ALTER TABLE "cashier_shifts" ADD COLUMN "status" text NOT NULL DEFAULT 'open';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='cashier_shifts' AND column_name='updated_at') THEN
+    ALTER TABLE "cashier_shifts" ADD COLUMN "updated_at" timestamptz NOT NULL DEFAULT now();
+  END IF;
+END $$;
+    `.trim(),
+  },
 ];
 
 const MIGRATIONS_TABLE = "schema_migrations";

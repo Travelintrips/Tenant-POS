@@ -1014,40 +1014,13 @@ function TenantFloorPlan({ items: rawItems, selected, onSelect, isFiltered }: {
       </div>
     );
   }
-  const grouped = items.reduce<Record<string, FloorPlanItem[]>>((acc, item) => {
-    if (!acc[item.areaName]) acc[item.areaName] = [];
-    acc[item.areaName].push(item);
-    return acc;
-  }, {});
   return (
-    <div className="h-full overflow-y-auto p-5 space-y-6">
-      {Object.entries(grouped).map(([area, areaItems]) => {
-        const paidCount = areaItems.filter(i => resolveStatus(i) === "PAID").length;
-        const overdueCount = areaItems.filter(i => resolveStatus(i) === "OVERDUE").length;
-        return (
-          <div key={area}>
-            <div className="flex items-center gap-2.5 mb-3.5">
-              <div className="w-7 h-7 rounded-lg bg-slate-100 flex items-center justify-center shrink-0">
-                <Building2 className="w-3.5 h-3.5 text-slate-500" />
-              </div>
-              <div className="flex-1">
-                <div className="flex items-center gap-2">
-                  <h3 className="text-sm font-bold text-slate-700 uppercase tracking-widest">{area}</h3>
-                  <span className="text-[11px] font-medium text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">{areaItems.length} unit</span>
-                  {overdueCount > 0 && <span className="text-[11px] font-semibold text-red-600 bg-red-50 border border-red-100 px-2 py-0.5 rounded-full">{overdueCount} overdue</span>}
-                  {paidCount > 0 && <span className="text-[11px] font-semibold text-emerald-600 bg-emerald-50 border border-emerald-100 px-2 py-0.5 rounded-full">{paidCount} lunas</span>}
-                </div>
-              </div>
-              <div className="flex-1 h-px bg-gradient-to-r from-slate-200 to-transparent" />
-            </div>
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-4">
-              {areaItems.map((item) => (
-                <BoothCard key={item.id} item={item} selected={selected?.id === item.id} onClick={() => onSelect(item)} />
-              ))}
-            </div>
-          </div>
-        );
-      })}
+    <div className="h-full overflow-y-auto p-4">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+        {items.map((item) => (
+          <BoothCard key={item.id} item={item} selected={selected?.id === item.id} onClick={() => onSelect(item)} />
+        ))}
+      </div>
     </div>
   );
 }
@@ -1091,41 +1064,28 @@ const STATUS_FILTER_OPTS = [
   { value: "OVERDUE", label: "Jatuh Tempo", active: "bg-red-600 text-white border-red-600", inactive: "bg-white text-red-700 border-red-200 hover:border-red-400" },
 ];
 
-function FilterBar({ filters, onChange, availableAreas, totalCount, filteredCount }: {
-  filters: FilterState; onChange: (f: Partial<FilterState>) => void; availableAreas: string[]; totalCount: number; filteredCount: number;
+function FilterBar({ filters, onChange, totalCount, filteredCount }: {
+  filters: FilterState; onChange: (f: Partial<FilterState>) => void; totalCount: number; filteredCount: number;
 }) {
-  const hasFilter = !!(filters.search || filters.status || filters.area);
+  const hasFilter = !!(filters.search || filters.status);
   return (
-    <div className="flex flex-col gap-2 px-3 pt-2.5 pb-2 border-b bg-slate-50/60">
-      <div className="flex items-center gap-2">
-        <div className="relative flex-1">
-          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
-          <input value={filters.search} onChange={(e) => onChange({ search: e.target.value })} placeholder="Cari nama bisnis, owner, nomor booth..." className="w-full pl-8 pr-8 py-1.5 rounded-lg border border-slate-200 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary/30 placeholder:text-slate-400" />
-          {filters.search && <button onClick={() => onChange({ search: "" })} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"><X className="w-3.5 h-3.5" /></button>}
-        </div>
-        {availableAreas.length > 1 && (
-          <div className="relative">
-            <select value={filters.area} onChange={(e) => onChange({ area: e.target.value })} className="appearance-none pl-2.5 pr-7 py-1.5 rounded-lg border border-slate-200 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary/30 cursor-pointer">
-              <option value="">Semua Area</option>
-              {availableAreas.map((a) => <option key={a} value={a}>{a}</option>)}
-            </select>
-            <ChevronDown className="absolute right-1.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
-          </div>
-        )}
-        {hasFilter && <button onClick={() => onChange({ search: "", status: "", area: "" })} className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-slate-200 text-xs font-medium text-slate-600 bg-white hover:bg-slate-100 transition-colors whitespace-nowrap"><RotateCcw className="w-3 h-3" />Reset</button>}
+    <div className="flex items-center gap-2 px-3 py-2 border-b bg-slate-50/60">
+      <div className="relative flex-1">
+        <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
+        <input value={filters.search} onChange={(e) => onChange({ search: e.target.value })} placeholder="Cari nama bisnis, owner, nomor booth..." className="w-full pl-8 pr-8 py-1.5 rounded-lg border border-slate-200 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary/30 placeholder:text-slate-400" />
+        {filters.search && <button onClick={() => onChange({ search: "" })} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"><X className="w-3.5 h-3.5" /></button>}
       </div>
-      <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-1 flex-wrap">
-          {STATUS_FILTER_OPTS.map((opt) => (
-            <button key={opt.value} onClick={() => onChange({ status: opt.value })} className={cn("px-2.5 py-0.5 rounded-full text-xs font-medium border transition-all", filters.status === opt.value ? opt.active : opt.inactive)}>
-              {opt.label}
-            </button>
-          ))}
-        </div>
-        <span className="text-xs text-muted-foreground whitespace-nowrap shrink-0">
-          {hasFilter ? <span><span className="font-semibold text-primary">{filteredCount}</span> dari {totalCount}</span> : <span>{totalCount} tenant</span>}
-        </span>
+      <div className="flex items-center gap-1">
+        {STATUS_FILTER_OPTS.map((opt) => (
+          <button key={opt.value} onClick={() => onChange({ status: opt.value })} className={cn("px-2.5 py-1 rounded-full text-xs font-medium border transition-all whitespace-nowrap", filters.status === opt.value ? opt.active : opt.inactive)}>
+            {opt.label}
+          </button>
+        ))}
       </div>
+      <span className="text-xs text-muted-foreground whitespace-nowrap shrink-0">
+        {hasFilter ? <span><span className="font-semibold text-primary">{filteredCount}</span>/{totalCount}</span> : <span>{totalCount} unit</span>}
+      </span>
+      {hasFilter && <button onClick={() => onChange({ search: "", status: "", area: "" })} className="flex items-center gap-1 px-2 py-1 rounded-lg border border-slate-200 text-xs font-medium text-slate-600 bg-white hover:bg-slate-100 transition-colors whitespace-nowrap"><RotateCcw className="w-3 h-3" /></button>}
     </div>
   );
 }
@@ -2236,7 +2196,7 @@ export default function TenantPos() {
   };
 
   return (
-    <div className="flex flex-col h-[calc(100vh-8rem)] gap-4">
+    <div className="flex flex-col h-[calc(100vh-4.5rem)] gap-3">
       <div className="flex items-start justify-between">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">POS Kasir</h1>
@@ -2335,7 +2295,7 @@ export default function TenantPos() {
             </div>
           </CardHeader>
           {!floorPlan.isLoading && !floorPlan.isError && (
-            <FilterBar filters={filters} onChange={handleFilterChange} availableAreas={availableAreas} totalCount={allItems.length} filteredCount={filteredItems.length} />
+            <FilterBar filters={filters} onChange={handleFilterChange} totalCount={allItems.length} filteredCount={filteredItems.length} />
           )}
           <CardContent className="p-0 flex-1 min-h-0 overflow-hidden">
             {floorPlan.isLoading ? (
