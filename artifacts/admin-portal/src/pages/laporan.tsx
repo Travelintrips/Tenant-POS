@@ -1,3 +1,4 @@
+import { apiFetch } from "@/lib/api";
 import React, { useState, useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
@@ -141,21 +142,21 @@ function downloadCsv(content: string, filename: string) {
 function useLiveOverview() {
   return useQuery<Overview>({
     queryKey: ["laporan-overview"],
-    queryFn: () => fetch(`${BASE}/api/tenant-pos/overview`, { credentials: "include" }).then((r) => r.json()),
+    queryFn: () => apiFetch(`${BASE}/api/tenant-pos/overview`, { credentials: "include" }).then((r) => r.json()),
     refetchInterval: 30_000,
   });
 }
 function useRecentPayments() {
   return useQuery<RecentPayment[]>({
     queryKey: ["laporan-recent-payments"],
-    queryFn: () => fetch(`${BASE}/api/tenant-pos/recent-payments?limit=15`, { credentials: "include" }).then((r) => r.json()),
+    queryFn: () => apiFetch(`${BASE}/api/tenant-pos/recent-payments?limit=15`, { credentials: "include" }).then((r) => r.json()),
     refetchInterval: 30_000,
   });
 }
 function useKPI() {
   return useQuery<KPIData>({
     queryKey: ["laporan-kpi"],
-    queryFn: () => fetch(`${API}/laporan/kpi`, { credentials: "include" }).then((r) => r.json()),
+    queryFn: () => apiFetch(`${API}/laporan/kpi`, { credentials: "include" }).then((r) => r.json()),
     refetchInterval: 60_000,
   });
 }
@@ -168,13 +169,13 @@ function usePiutang(filter: FilterState) {
   if (filter.sampai) params.set("sampai", filter.sampai);
   return useQuery<PiutangData>({
     queryKey: ["laporan-piutang", filter],
-    queryFn: () => fetch(`${API}/laporan/piutang?${params}`, { credentials: "include" }).then((r) => r.json()),
+    queryFn: () => apiFetch(`${API}/laporan/piutang?${params}`, { credentials: "include" }).then((r) => r.json()),
   });
 }
 function useAging() {
   return useQuery<AgingData>({
     queryKey: ["laporan-aging"],
-    queryFn: () => fetch(`${API}/laporan/aging`, { credentials: "include" }).then((r) => r.json()),
+    queryFn: () => apiFetch(`${API}/laporan/aging`, { credentials: "include" }).then((r) => r.json()),
     refetchInterval: 60_000,
   });
 }
@@ -185,20 +186,20 @@ function usePaymentMethods(filter: FilterState, tahun: string) {
   if (filter.sampai) params.set("sampai", filter.sampai);
   return useQuery<PaymentMethodData>({
     queryKey: ["laporan-payment-methods", tahun, filter.bulan, filter.dari, filter.sampai],
-    queryFn: () => fetch(`${API}/laporan/payment-methods?${params}`, { credentials: "include" }).then((r) => r.json()),
+    queryFn: () => apiFetch(`${API}/laporan/payment-methods?${params}`, { credentials: "include" }).then((r) => r.json()),
   });
 }
 function useTenantsList() {
   return useQuery<TenantItem[]>({
     queryKey: ["laporan-tenants-list"],
-    queryFn: () => fetch(`${API}/laporan/tenants-list`, { credentials: "include" }).then((r) => r.json()),
+    queryFn: () => apiFetch(`${API}/laporan/tenants-list`, { credentials: "include" }).then((r) => r.json()),
     staleTime: 5 * 60 * 1000,
   });
 }
 function useFloorsList() {
   return useQuery<string[]>({
     queryKey: ["laporan-floors-list"],
-    queryFn: () => fetch(`${API}/laporan/floors-list`, { credentials: "include" }).then((r) => r.json()),
+    queryFn: () => apiFetch(`${API}/laporan/floors-list`, { credentials: "include" }).then((r) => r.json()),
     staleTime: 5 * 60 * 1000,
   });
 }
@@ -850,7 +851,7 @@ function RekapTransaksiSection({ filter, tahun }: { filter: FilterState; tahun: 
   const rekapQuery = useQuery<RekapData>({
     queryKey: ["laporan-rekap", tahun, filter],
     queryFn: async () => {
-      const res = await fetch(`${API}/laporan/rekap-payments?${params}`);
+      const res = await apiFetch(`${API}/laporan/rekap-payments?${params}`);
       if (!res.ok) throw new Error("Gagal memuat rekap pembayaran");
       return res.json();
     },
@@ -1042,7 +1043,7 @@ export default function Laporan() {
   const summaryQuery = useQuery<SummaryData>({
     queryKey: ["laporan-summary", tahun],
     queryFn: async () => {
-      const res = await fetch(`${API}/laporan/summary?tahun=${tahun}`);
+      const res = await apiFetch(`${API}/laporan/summary?tahun=${tahun}`);
       if (!res.ok) throw new Error("Gagal memuat ringkasan");
       return res.json();
     },
@@ -1050,7 +1051,7 @@ export default function Laporan() {
   const prevSummaryQuery = useQuery<SummaryData>({
     queryKey: ["laporan-summary", prevYear],
     queryFn: async () => {
-      const res = await fetch(`${API}/laporan/summary?tahun=${prevYear}`);
+      const res = await apiFetch(`${API}/laporan/summary?tahun=${prevYear}`);
       if (!res.ok) throw new Error();
       return res.json();
     },

@@ -1,3 +1,4 @@
+import { apiFetch } from "@/lib/api";
 import React, { useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
@@ -225,7 +226,7 @@ function useOverview() {
   return useQuery<Overview>({
     queryKey: ["tenant-pos-overview"],
     queryFn: async () => {
-      const r = await fetch(`${BASE}/api/tenant-pos/overview`, { credentials: "include" });
+      const r = await apiFetch(`${BASE}/api/tenant-pos/overview`, { credentials: "include" });
       if (!r.ok) throw new Error(`Overview error ${r.status}`);
       return r.json();
     },
@@ -237,7 +238,7 @@ function useFloorPlan() {
   return useQuery<FloorPlanItem[]>({
     queryKey: ["tenant-pos-floor-plan"],
     queryFn: async () => {
-      const r = await fetch(`${BASE}/api/tenant-pos/floor-plan`, { credentials: "include" });
+      const r = await apiFetch(`${BASE}/api/tenant-pos/floor-plan`, { credentials: "include" });
       if (!r.ok) throw new Error(`Floor plan error ${r.status}`);
       return r.json();
     },
@@ -249,7 +250,7 @@ function usePaymentHistory(bookingId: number | null) {
   return useQuery<PaymentHistoryItem[]>({
     queryKey: ["payment-history", bookingId],
     queryFn: () =>
-      fetch(`${BASE}/api/tenant-pos/bookings/${bookingId}/payments`, { credentials: "include" }).then((r) => r.json()),
+      apiFetch(`${BASE}/api/tenant-pos/bookings/${bookingId}/payments`, { credentials: "include" }).then((r) => r.json()),
     enabled: bookingId !== null,
   });
 }
@@ -258,7 +259,7 @@ function useTenantInvoices(tenantId: number | null) {
   return useQuery<TenantInvoice[]>({
     queryKey: ["tenant-invoices-pos", tenantId],
     queryFn: () =>
-      fetch(`${BASE}/api/tenant-pos/tenants/${tenantId}/invoices`, { credentials: "include" }).then((r) => r.json()),
+      apiFetch(`${BASE}/api/tenant-pos/tenants/${tenantId}/invoices`, { credentials: "include" }).then((r) => r.json()),
     enabled: tenantId !== null,
   });
 }
@@ -267,7 +268,7 @@ function useCurrentShift() {
   return useQuery<CashierShift | null>({
     queryKey: ["pos-current-shift"],
     queryFn: async () => {
-      const r = await fetch(`${BASE}/api/tenant-pos/shifts/current`, { credentials: "include" });
+      const r = await apiFetch(`${BASE}/api/tenant-pos/shifts/current`, { credentials: "include" });
       if (!r.ok) throw new Error("Gagal mengambil data shift");
       return r.json();
     },
@@ -279,7 +280,7 @@ function useDailyReport(date: string) {
   return useQuery<DailyReport>({
     queryKey: ["pos-daily-report", date],
     queryFn: async () => {
-      const r = await fetch(`${BASE}/api/tenant-pos/daily-report?date=${date}`, { credentials: "include" });
+      const r = await apiFetch(`${BASE}/api/tenant-pos/daily-report?date=${date}`, { credentials: "include" });
       if (!r.ok) throw new Error("Gagal mengambil laporan");
       return r.json();
     },
@@ -290,7 +291,7 @@ function useReceiptData(paymentId: number | null) {
   return useQuery<ReceiptData>({
     queryKey: ["receipt", paymentId],
     queryFn: () =>
-      fetch(`${BASE}/api/tenant-pos/payments/${paymentId}/receipt`, { credentials: "include" }).then((r) => {
+      apiFetch(`${BASE}/api/tenant-pos/payments/${paymentId}/receipt`, { credentials: "include" }).then((r) => {
         if (!r.ok) throw new Error("Gagal mengambil data receipt");
         return r.json();
       }),
@@ -356,7 +357,7 @@ function ShiftOpenDialog({ open, onClose, defaultName }: { open: boolean; onClos
 
   const mutation = useMutation({
     mutationFn: async () => {
-      const r = await fetch(`${BASE}/api/tenant-pos/shifts/open`, {
+      const r = await apiFetch(`${BASE}/api/tenant-pos/shifts/open`, {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
@@ -423,7 +424,7 @@ function ShiftCloseDialog({ open, onClose, shift }: { open: boolean; onClose: ()
   const mutation = useMutation({
     mutationFn: async () => {
       if (!shift) throw new Error("Tidak ada shift aktif");
-      const r = await fetch(`${BASE}/api/tenant-pos/shifts/${shift.id}/close`, {
+      const r = await apiFetch(`${BASE}/api/tenant-pos/shifts/${shift.id}/close`, {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
@@ -531,7 +532,7 @@ function VoidPaymentDialog({ payment, onClose }: {
   const mutation = useMutation({
     mutationFn: async () => {
       if (!payment) throw new Error("Tidak ada data");
-      const r = await fetch(`${BASE}/api/tenant-pos/payments/${payment.id}/void`, {
+      const r = await apiFetch(`${BASE}/api/tenant-pos/payments/${payment.id}/void`, {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
@@ -614,7 +615,7 @@ function RefundPaymentDialog({ payment, onClose }: {
   const mutation = useMutation({
     mutationFn: async () => {
       if (!payment) throw new Error("Tidak ada data");
-      const r = await fetch(`${BASE}/api/tenant-pos/payments/${payment.id}/refund`, {
+      const r = await apiFetch(`${BASE}/api/tenant-pos/payments/${payment.id}/refund`, {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
@@ -1331,7 +1332,7 @@ function ModalPembayaran({ item, invoice, shiftId, cashierName, onClose, onSucce
 
   const mutation = useMutation<PaymentResponse, Error>({
     mutationFn: async () => {
-      const r = await fetch(`${BASE}/api/tenant-pos/payments`, {
+      const r = await apiFetch(`${BASE}/api/tenant-pos/payments`, {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },

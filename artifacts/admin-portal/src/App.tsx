@@ -16,6 +16,7 @@ import TenantPos from "@/pages/tenant-pos";
 import Laporan from "@/pages/laporan";
 import TenantInvoices from "@/pages/tenant-invoices";
 import AuditLogs from "@/pages/audit-logs";
+import CompareSites from "@/pages/compare-sites";
 
 const queryClient = new QueryClient();
 
@@ -115,6 +116,13 @@ function Router() {
         <AuthGuard roles={["owner", "admin"]}>
           <SidebarLayout>
             <AuditLogs />
+          </SidebarLayout>
+        </AuthGuard>
+      </Route>
+      <Route path="/compare-sites">
+        <AuthGuard roles={["owner", "admin", "finance"]}>
+          <SidebarLayout>
+            <CompareSites />
           </SidebarLayout>
         </AuthGuard>
       </Route>

@@ -14,7 +14,7 @@ import {
   SidebarInset,
   SidebarTrigger
 } from "@/components/ui/sidebar";
-import { Building2, Store, CalendarRange, Calculator, BarChart3, LogOut, FileText, Shield, ChevronDown } from "lucide-react";
+import { Building2, Store, CalendarRange, Calculator, BarChart3, LogOut, FileText, Shield, ChevronDown, GitCompare } from "lucide-react";
 import { Separator } from "@/components/ui/separator";
 import { useAuth, useLogout, ROLE_LABELS, type UserRole } from "@/hooks/use-auth";
 import { Button } from "@/components/ui/button";
@@ -181,6 +181,18 @@ export function SidebarLayout({ children }: { children: React.ReactNode }) {
                     <Link href="/laporan">
                       <BarChart3 className="mr-2 h-4 w-4" />
                       <span>Rekap Pembayaran</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+                <SidebarMenuItem>
+                  <SidebarMenuButton
+                    asChild
+                    isActive={location === "/compare-sites"}
+                    data-testid="nav-compare-sites"
+                  >
+                    <Link href="/compare-sites">
+                      <GitCompare className="mr-2 h-4 w-4" />
+                      <span>Perbandingan Lokasi</span>
                     </Link>
                   </SidebarMenuButton>
                 </SidebarMenuItem>
