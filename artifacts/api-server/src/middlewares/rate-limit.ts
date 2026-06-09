@@ -1,4 +1,4 @@
-import rateLimit, { type Options } from "express-rate-limit";
+import rateLimit, { type Options, ipKeyGenerator } from "express-rate-limit";
 import type { Request, Response } from "express";
 import { logger } from "../lib/logger";
 
@@ -23,10 +23,7 @@ export function makeRateLimiter(options: {
     max: options.max,
     standardHeaders: true,
     legacyHeaders: false,
-    keyGenerator: (req: Request) =>
-      (req.headers["x-forwarded-for"] as string | undefined)
-        ?.split(",")[0]
-        ?.trim() ?? req.ip ?? "unknown",
+    keyGenerator: (req: Request) => ipKeyGenerator(req),
     handler: (_req: Request, res: Response) => {
       res.status(429).json(RATE_LIMIT_RESPONSE);
     },
@@ -42,10 +39,7 @@ function onRateLimitHit(req: Request) {
   logger.warn(
     {
       path: req.path,
-      ip:
-        (req.headers["x-forwarded-for"] as string | undefined)
-          ?.split(",")[0]
-          ?.trim() ?? req.ip,
+      ip: ipKeyGenerator(req),
       userAgent: req.headers["user-agent"],
     },
     "[rate-limit] limit terlampaui",
@@ -63,10 +57,7 @@ function makeLoggingRateLimiter(options: {
     max: options.max,
     standardHeaders: true,
     legacyHeaders: false,
-    keyGenerator: (req: Request) =>
-      (req.headers["x-forwarded-for"] as string | undefined)
-        ?.split(",")[0]
-        ?.trim() ?? req.ip ?? "unknown",
+    keyGenerator: (req: Request) => ipKeyGenerator(req),
     handler: (req: Request, res: Response) => {
       onRateLimitHit(req);
       res.status(429).json(RATE_LIMIT_RESPONSE);
