@@ -33,6 +33,7 @@ function coerceNumericFields(body: Record<string, unknown>): Record<string, unkn
 
 const bookingSelect = {
   id: tenantBookingsTable.id,
+  siteId: tenantBookingsTable.siteId,
   tenantId: tenantBookingsTable.tenantId,
   tenantName: tenantsTable.businessName,
   boothNumber: tenantsTable.boothNumber,
@@ -149,10 +150,14 @@ async function checkUnitOverlap(
 
 router.get("/bookings", async (req, res) => {
   try {
+    const siteId = req.siteId;
+    const siteConditions = siteId > 0 ? [eq(tenantBookingsTable.siteId, siteId)] : [];
+
     const rows = await db
       .select(bookingSelect)
       .from(tenantBookingsTable)
       .leftJoin(tenantsTable, eq(tenantBookingsTable.tenantId, tenantsTable.id))
+      .where(siteConditions.length > 0 ? and(...siteConditions) : undefined)
       .orderBy(tenantBookingsTable.id);
 
     const enriched = rows.map((r) => ({
@@ -175,7 +180,8 @@ router.post("/bookings", async (req, res) => {
     return;
   }
 
-  const coerced = coerceNumericFields(req.body);
+  const bodyWithSite = req.siteId > 0 ? { ...req.body, siteId: req.siteId } : req.body;
+  const coerced = coerceNumericFields(bodyWithSite);
   const parsed = insertTenantBookingSchema.safeParse(coerced);
   if (!parsed.success) {
     const msg = parsed.error.issues.map((i) => i.message).join("; ");
@@ -227,11 +233,14 @@ router.get("/bookings/:id", async (req, res) => {
     return;
   }
   try {
+    const idConditions: ReturnType<typeof eq>[] = [eq(tenantBookingsTable.id, id)];
+    if (req.siteId > 0) idConditions.push(eq(tenantBookingsTable.siteId, req.siteId) as any);
+
     const [row] = await db
       .select(bookingSelect)
       .from(tenantBookingsTable)
       .leftJoin(tenantsTable, eq(tenantBookingsTable.tenantId, tenantsTable.id))
-      .where(eq(tenantBookingsTable.id, id));
+      .where(and(...idConditions));
 
     if (!row) {
       res.status(404).json({ error: "Kontrak tidak ditemukan" });

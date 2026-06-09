@@ -43,11 +43,20 @@ function getSessionUser(req: any): { role: string; name: string; id?: string; db
 router.get("/tenant-pos/overview", async (req, res) => {
   try {
     const today = new Date().toISOString().slice(0, 10);
+    const siteId = req.siteId;
+
+    const tenantSiteFilter = siteId > 0 ? eq(tenantsTable.siteId, siteId) : undefined;
+    const bookingSiteFilter = siteId > 0 ? eq(tenantBookingsTable.siteId, siteId) : undefined;
+    const paymentSiteFilter = siteId > 0 ? eq(tenantPaymentsTable.siteId, siteId) : undefined;
+    const shiftSiteFilter = siteId > 0 ? eq(cashierShiftsTable.siteId, siteId) : undefined;
 
     const [totalActive] = await db
       .select({ count: sql<number>`count(*)::int` })
       .from(tenantsTable)
-      .where(sql`${tenantsTable.status} IN ('aktif', 'active')`);
+      .where(and(
+        sql`${tenantsTable.status} IN ('aktif', 'active')`,
+        tenantSiteFilter
+      ));
 
     const [unpaid] = await db
       .select({ count: sql<number>`count(*)::int` })
@@ -55,14 +64,18 @@ router.get("/tenant-pos/overview", async (req, res) => {
       .where(
         and(
           eq(tenantBookingsTable.bookingStatus, "aktif"),
-          sql`upper(${tenantBookingsTable.paymentStatus}) IN ('UNPAID', 'PARTIAL')`
+          sql`upper(${tenantBookingsTable.paymentStatus}) IN ('UNPAID', 'PARTIAL')`,
+          bookingSiteFilter
         )
       );
 
     const [overdue] = await db
       .select({ count: sql<number>`count(*)::int` })
       .from(tenantBookingsTable)
-      .where(sql`upper(${tenantBookingsTable.paymentStatus}) = 'OVERDUE'`);
+      .where(and(
+        sql`upper(${tenantBookingsTable.paymentStatus}) = 'OVERDUE'`,
+        bookingSiteFilter
+      ));
 
     const [paidToday] = await db
       .select({ total: sql<number>`coalesce(sum(amount::numeric), 0)::int` })
@@ -70,7 +83,8 @@ router.get("/tenant-pos/overview", async (req, res) => {
       .where(
         and(
           sql`${tenantPaymentsTable.paidAt}::date = ${today}`,
-          eq(tenantPaymentsTable.isVoided, false)
+          eq(tenantPaymentsTable.isVoided, false),
+          paymentSiteFilter
         )
       );
 
@@ -81,7 +95,7 @@ router.get("/tenant-pos/overview", async (req, res) => {
         openedAt: cashierShiftsTable.openedAt,
       })
       .from(cashierShiftsTable)
-      .where(eq(cashierShiftsTable.status, "open"))
+      .where(and(eq(cashierShiftsTable.status, "open"), shiftSiteFilter))
       .orderBy(desc(cashierShiftsTable.openedAt))
       .limit(1);
 
@@ -101,6 +115,10 @@ router.get("/tenant-pos/overview", async (req, res) => {
 // ─── GET /api/tenant-pos/floor-plan ──────────────────────────────────────────
 router.get("/tenant-pos/floor-plan", async (req, res) => {
   try {
+    const siteId = req.siteId;
+    const tenantSiteFilter = siteId > 0 ? eq(tenantsTable.siteId, siteId) : undefined;
+    const invoiceSiteFilter = siteId > 0 ? eq(tenantInvoicesTable.siteId, siteId) : undefined;
+
     const rows = await db
       .select({
         tenantId: tenantsTable.id,
@@ -131,6 +149,7 @@ router.get("/tenant-pos/floor-plan", async (req, res) => {
           eq(tenantBookingsTable.bookingStatus, "aktif")
         )
       )
+      .where(tenantSiteFilter)
       .orderBy(tenantsTable.areaName, tenantsTable.id);
 
     const invoiceCounts = await db
@@ -139,7 +158,10 @@ router.get("/tenant-pos/floor-plan", async (req, res) => {
         openCount: sql<number>`count(*)::int`,
       })
       .from(tenantInvoicesTable)
-      .where(sql`${tenantInvoicesTable.status} IN ('unpaid', 'partial', 'overdue')`)
+      .where(and(
+        sql`${tenantInvoicesTable.status} IN ('unpaid', 'partial', 'overdue')`,
+        invoiceSiteFilter
+      ))
       .groupBy(tenantInvoicesTable.tenantId);
 
     const invoiceCountMap = new Map<number, number>(
@@ -184,15 +206,16 @@ router.get("/tenant-pos/tenants/:tenantId/invoices", async (req, res) => {
     return;
   }
   try {
+    const invConditions: ReturnType<typeof eq>[] = [
+      eq(tenantInvoicesTable.tenantId, tenantId) as any,
+      sql`${tenantInvoicesTable.status} IN ('unpaid', 'partial', 'overdue')` as any,
+    ];
+    if (req.siteId > 0) invConditions.push(eq(tenantInvoicesTable.siteId, req.siteId) as any);
+
     const invoices = await db
       .select()
       .from(tenantInvoicesTable)
-      .where(
-        and(
-          eq(tenantInvoicesTable.tenantId, tenantId),
-          sql`${tenantInvoicesTable.status} IN ('unpaid', 'partial', 'overdue')`
-        )
-      )
+      .where(and(...invConditions))
       .orderBy(tenantInvoicesTable.dueDate, tenantInvoicesTable.id);
 
     res.json(
@@ -274,6 +297,7 @@ router.get("/tenant-pos/bookings/:bookingId/payments", async (req, res) => {
 router.get("/tenant-pos/recent-payments", async (req, res) => {
   try {
     const limitParam = Math.min(Number(req.query.limit ?? 20), 50);
+    const recentSiteFilter = req.siteId > 0 ? eq(tenantPaymentsTable.siteId, req.siteId) : undefined;
     const rows = await db
       .select({
         id: tenantPaymentsTable.id,
@@ -294,6 +318,7 @@ router.get("/tenant-pos/recent-payments", async (req, res) => {
       .from(tenantPaymentsTable)
       .innerJoin(tenantBookingsTable, eq(tenantPaymentsTable.bookingId, tenantBookingsTable.id))
       .innerJoin(tenantsTable, eq(tenantBookingsTable.tenantId, tenantsTable.id))
+      .where(recentSiteFilter)
       .orderBy(desc(tenantPaymentsTable.paidAt))
       .limit(limitParam);
 
@@ -395,6 +420,7 @@ router.post("/tenant-pos/payments", paymentRateLimiter, async (req, res) => {
       const [payment] = await tx
         .insert(tenantPaymentsTable)
         .values({
+          ...(req.siteId > 0 ? { siteId: req.siteId } : {}),
           bookingId,
           tenantBookingId: bookingId,
           tenantId,
@@ -831,6 +857,7 @@ router.post("/tenant-pos/shifts/open", async (req, res) => {
     const [shift] = await db
       .insert(cashierShiftsTable)
       .values({
+        ...(req.siteId > 0 ? { siteId: req.siteId } : {}),
         cashierName: parsed.data.cashierName,
         cashierId: currentUser?.dbId ?? null,
         notes: parsed.data.notes ?? null,
@@ -924,6 +951,7 @@ router.get("/tenant-pos/daily-report", async (req, res) => {
   try {
     const dateParam = (req.query.date as string) ?? new Date().toISOString().slice(0, 10);
 
+    const dailySiteFilter = req.siteId > 0 ? eq(tenantPaymentsTable.siteId, req.siteId) : undefined;
     const payments = await db
       .select({
         id: tenantPaymentsTable.id,
@@ -938,7 +966,7 @@ router.get("/tenant-pos/daily-report", async (req, res) => {
       .from(tenantPaymentsTable)
       .innerJoin(tenantBookingsTable, eq(tenantPaymentsTable.bookingId, tenantBookingsTable.id))
       .innerJoin(tenantsTable, eq(tenantBookingsTable.tenantId, tenantsTable.id))
-      .where(sql`${tenantPaymentsTable.paidAt}::date = ${dateParam}`)
+      .where(and(sql`${tenantPaymentsTable.paidAt}::date = ${dateParam}`, dailySiteFilter))
       .orderBy(tenantPaymentsTable.paidAt);
 
     const valid = payments.filter((p) => !p.isVoided);

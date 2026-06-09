@@ -31,6 +31,14 @@ router.get("/laporan/summary", async (req, res) => {
     return res.status(400).json({ error: "Parameter tahun tidak valid" });
   }
 
+  const siteId = req.siteId;
+  const paymentSiteClause = siteId > 0
+    ? sql`AND ${tenantPaymentsTable.siteId} = ${siteId}`
+    : sql``;
+  const bookingSiteClause = siteId > 0
+    ? sql`AND ${tenantBookingsTable.siteId} = ${siteId}`
+    : sql``;
+
   const rows = await db
     .select({
       bulanNum: sql<number>`EXTRACT(MONTH FROM ${tenantPaymentsTable.paidAt})::int`,
@@ -40,7 +48,8 @@ router.get("/laporan/summary", async (req, res) => {
     .from(tenantPaymentsTable)
     .where(
       sql`EXTRACT(YEAR FROM ${tenantPaymentsTable.paidAt}) = ${tahun}
-        AND (${tenantPaymentsTable.isVoided} = false OR ${tenantPaymentsTable.isVoided} IS NULL)`
+        AND (${tenantPaymentsTable.isVoided} = false OR ${tenantPaymentsTable.isVoided} IS NULL)
+        ${paymentSiteClause}`
     )
     .groupBy(sql`EXTRACT(MONTH FROM ${tenantPaymentsTable.paidAt})`)
     .orderBy(sql`EXTRACT(MONTH FROM ${tenantPaymentsTable.paidAt})`);
@@ -73,7 +82,8 @@ router.get("/laporan/summary", async (req, res) => {
     })
     .from(tenantBookingsTable)
     .where(
-      sql`UPPER(${tenantBookingsTable.paymentStatus}) IN ('UNPAID', 'PARTIAL', 'OVERDUE')`
+      sql`UPPER(${tenantBookingsTable.paymentStatus}) IN ('UNPAID', 'PARTIAL', 'OVERDUE')
+        ${bookingSiteClause}`
     );
 
   return res.json({
@@ -92,10 +102,17 @@ router.get("/laporan/summary", async (req, res) => {
  * GET /api/laporan/kpi
  * KPI utama: revenue bulan ini, paid, outstanding, overdue, jumlah tenant overdue, collection rate
  */
-router.get("/laporan/kpi", async (_req, res) => {
+router.get("/laporan/kpi", async (req, res) => {
   const now = new Date();
   const thisYear = now.getFullYear();
   const thisMonth = now.getMonth() + 1;
+  const kpiSiteId = req.siteId;
+  const kpiPaySiteClause = kpiSiteId > 0
+    ? sql`AND ${tenantPaymentsTable.siteId} = ${kpiSiteId}`
+    : sql``;
+  const kpiInvSiteClause = kpiSiteId > 0
+    ? sql`AND ${tenantInvoicesTable.siteId} = ${kpiSiteId}`
+    : sql``;
 
   // Revenue bulan ini (net of refunds, excluding void)
   const revenueThisMonth = await db
@@ -106,7 +123,8 @@ router.get("/laporan/kpi", async (_req, res) => {
     .where(
       sql`EXTRACT(YEAR FROM ${tenantPaymentsTable.paidAt}) = ${thisYear}
         AND EXTRACT(MONTH FROM ${tenantPaymentsTable.paidAt}) = ${thisMonth}
-        AND (${tenantPaymentsTable.isVoided} = false OR ${tenantPaymentsTable.isVoided} IS NULL)`
+        AND (${tenantPaymentsTable.isVoided} = false OR ${tenantPaymentsTable.isVoided} IS NULL)
+        ${kpiPaySiteClause}`
     );
 
   // Total paid bulan ini (gross)
@@ -118,7 +136,8 @@ router.get("/laporan/kpi", async (_req, res) => {
     .where(
       sql`EXTRACT(YEAR FROM ${tenantPaymentsTable.paidAt}) = ${thisYear}
         AND EXTRACT(MONTH FROM ${tenantPaymentsTable.paidAt}) = ${thisMonth}
-        AND (${tenantPaymentsTable.isVoided} = false OR ${tenantPaymentsTable.isVoided} IS NULL)`
+        AND (${tenantPaymentsTable.isVoided} = false OR ${tenantPaymentsTable.isVoided} IS NULL)
+        ${kpiPaySiteClause}`
     );
 
   // Total outstanding dari invoice
@@ -127,7 +146,7 @@ router.get("/laporan/kpi", async (_req, res) => {
       total: sql<number>`COALESCE(SUM(${tenantInvoicesTable.outstandingAmount}), 0)::numeric`,
     })
     .from(tenantInvoicesTable)
-    .where(sql`${tenantInvoicesTable.status} NOT IN ('paid', 'cancelled')`);
+    .where(sql`${tenantInvoicesTable.status} NOT IN ('paid', 'cancelled') ${kpiInvSiteClause}`);
 
   // Total overdue (invoice melewati due_date dan belum lunas)
   const overdueRow = await db
@@ -139,7 +158,8 @@ router.get("/laporan/kpi", async (_req, res) => {
     .from(tenantInvoicesTable)
     .where(
       sql`${tenantInvoicesTable.status} NOT IN ('paid', 'cancelled')
-        AND ${tenantInvoicesTable.dueDate} < CURRENT_DATE`
+        AND ${tenantInvoicesTable.dueDate} < CURRENT_DATE
+        ${kpiInvSiteClause}`
     );
 
   // Collection rate: paid / (paid + outstanding) x 100
@@ -149,7 +169,7 @@ router.get("/laporan/kpi", async (_req, res) => {
       totalPaid: sql<number>`COALESCE(SUM(${tenantInvoicesTable.paidAmount}), 0)::numeric`,
     })
     .from(tenantInvoicesTable)
-    .where(sql`${tenantInvoicesTable.status} != 'cancelled'`);
+    .where(sql`${tenantInvoicesTable.status} != 'cancelled' ${kpiInvSiteClause}`);
 
   const totalBilledAmt = Number(totalBilled[0]?.totalAmount ?? 0);
   const totalPaidAmt = Number(totalBilled[0]?.totalPaid ?? 0);
@@ -187,8 +207,11 @@ router.get("/laporan/piutang", async (req, res) => {
 
   // Build where dynamically using sql tag
   let whereClause = sql`ti.status != 'cancelled'`;
+  if (req.siteId > 0) {
+    whereClause = sql`${whereClause} AND ti.site_id = ${req.siteId}`;
+  }
   if (tenant_id && !isNaN(parseInt(String(tenant_id), 10))) {
-    whereClause = sql`ti.status != 'cancelled' AND ti.tenant_id = ${parseInt(String(tenant_id), 10)}`;
+    whereClause = sql`${whereClause} AND ti.tenant_id = ${parseInt(String(tenant_id), 10)}`;
   }
   if (status) {
     const s = String(status);
@@ -276,7 +299,8 @@ router.get("/laporan/piutang", async (req, res) => {
  * GET /api/laporan/aging
  * Aging receivable buckets dari tenant_invoices
  */
-router.get("/laporan/aging", async (_req, res) => {
+router.get("/laporan/aging", async (req, res) => {
+  const agingSiteClause = req.siteId > 0 ? sql`AND site_id = ${req.siteId}` : sql``;
   const result = await db.execute(sql`
     SELECT
       SUM(CASE WHEN due_date >= CURRENT_DATE THEN outstanding_amount ELSE 0 END)::numeric AS belum_jatuh_tempo,
@@ -290,7 +314,7 @@ router.get("/laporan/aging", async (_req, res) => {
       COUNT(CASE WHEN due_date < CURRENT_DATE AND (CURRENT_DATE - due_date) BETWEEN 61 AND 90 THEN 1 END)::int AS count_61_90,
       COUNT(CASE WHEN due_date < CURRENT_DATE AND (CURRENT_DATE - due_date) > 90 THEN 1 END)::int AS count_gt90
     FROM tenant_invoices
-    WHERE status NOT IN ('paid', 'cancelled')
+    WHERE status NOT IN ('paid', 'cancelled') ${agingSiteClause}
   `);
 
   const r = (((result as any).rows ?? result) as any[])[0] ?? {};
@@ -315,6 +339,10 @@ router.get("/laporan/payment-methods", async (req, res) => {
   const bulan = bulanRaw ? parseInt(String(bulanRaw), 10) : null;
 
   let whereClause = sql`(${tenantPaymentsTable.isVoided} = false OR ${tenantPaymentsTable.isVoided} IS NULL)`;
+
+  if (req.siteId > 0) {
+    whereClause = sql`${whereClause} AND ${tenantPaymentsTable.siteId} = ${req.siteId}`;
+  }
 
   if (dari && sampai) {
     whereClause = sql`${whereClause}
@@ -405,6 +433,10 @@ router.get("/laporan/rekap-payments", async (req, res) => {
 
   // Build where clause - always exclude void
   let whereClause = sql`(tp.is_voided = false OR tp.is_voided IS NULL)`;
+
+  if (req.siteId > 0) {
+    whereClause = sql`${whereClause} AND tp.site_id = ${req.siteId}`;
+  }
 
   if (dari && sampai) {
     whereClause = sql`${whereClause}
@@ -516,10 +548,12 @@ router.get("/laporan/rekap-payments", async (req, res) => {
  * GET /api/laporan/tenants-list
  * Daftar tenant untuk dropdown filter
  */
-router.get("/laporan/tenants-list", async (_req, res) => {
+router.get("/laporan/tenants-list", async (req, res) => {
+  const siteFilter = req.siteId > 0 ? eq(tenantsTable.siteId, req.siteId) : undefined;
   const rows = await db
     .select({ id: tenantsTable.id, businessName: tenantsTable.businessName })
     .from(tenantsTable)
+    .where(siteFilter)
     .orderBy(tenantsTable.businessName);
   return res.json(rows);
 });
@@ -528,10 +562,11 @@ router.get("/laporan/tenants-list", async (_req, res) => {
  * GET /api/laporan/floors-list
  * Daftar lantai unik untuk dropdown filter
  */
-router.get("/laporan/floors-list", async (_req, res) => {
+router.get("/laporan/floors-list", async (req, res) => {
+  const floorsSiteClause = req.siteId > 0 ? sql`AND site_id = ${req.siteId}` : sql``;
   const rows = await db.execute(sql`
     SELECT DISTINCT floor FROM tenant_bookings
-    WHERE floor IS NOT NULL AND floor != ''
+    WHERE floor IS NOT NULL AND floor != '' ${floorsSiteClause}
     ORDER BY floor
   `);
   const floorsArr = ((rows as any).rows ?? rows) as any[];

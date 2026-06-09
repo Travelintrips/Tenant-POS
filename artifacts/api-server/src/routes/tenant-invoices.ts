@@ -168,6 +168,9 @@ router.get("/tenant-invoices", async (req, res) => {
       .$dynamic();
 
     const conditions = [];
+    if (req.siteId > 0) {
+      conditions.push(eq(tenantInvoicesTable.siteId, req.siteId));
+    }
     if (status && status !== "all") {
       conditions.push(eq(tenantInvoicesTable.status, String(status)));
     }
@@ -263,6 +266,7 @@ router.post("/tenant-invoices", async (req, res) => {
 
   try {
     const invoice = await insertInvoiceSafe({
+      ...(req.siteId > 0 ? { siteId: req.siteId } : {}),
       tenantId: data.tenantId,
       bookingId: data.bookingId ?? null,
       unitCode: data.unitCode ?? null,
@@ -475,6 +479,7 @@ router.post("/tenant-invoices/generate-from-booking/:bookingId", async (req, res
 
     // Gunakan insertInvoiceSafe agar tidak 500 jika ada race condition pada invoice number
     const invoice = await insertInvoiceSafe({
+      ...(req.siteId > 0 ? { siteId: req.siteId } : {}),
       tenantId: booking.tenantId,
       bookingId,
       unitCode: booking.unitCode ?? null,
@@ -614,6 +619,7 @@ router.post("/tenant-invoices/:id/payment", async (req, res) => {
       const [payment] = await tx
         .insert(tenantPaymentsTable)
         .values({
+          ...(req.siteId > 0 ? { siteId: req.siteId } : {}),
           invoiceId: id,
           tenantId: invoice.tenantId,
           bookingId: invoice.bookingId ?? null,

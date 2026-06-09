@@ -68,11 +68,21 @@ function computeUnitStatus(opts: {
 // ─── GET /api/mall-units ──────────────────────────────────────────────────────
 router.get("/mall-units", async (req, res) => {
   try {
-    const units = await db.select().from(mallUnitsTable).orderBy(mallUnitsTable.floor, mallUnitsTable.positionY, mallUnitsTable.positionX);
+    const siteId = req.siteId;
+    const unitSiteFilter = siteId > 0 ? eq(mallUnitsTable.siteId, siteId) : undefined;
+    const units = await db.select().from(mallUnitsTable)
+      .where(unitSiteFilter)
+      .orderBy(mallUnitsTable.floor, mallUnitsTable.positionY, mallUnitsTable.positionX);
 
     const todayStr = today();
 
-    // Get all relevant bookings
+    // Get all relevant bookings (filtered by site)
+    const bookingConditions: ReturnType<typeof eq>[] = [
+      sql`${tenantBookingsTable.contractStatus} NOT IN ('terminated')` as any,
+      sql`${tenantBookingsTable.endDate} >= ${todayStr} OR ${tenantBookingsTable.endDate} IS NULL` as any,
+    ];
+    if (siteId > 0) bookingConditions.push(eq(tenantBookingsTable.siteId, siteId) as any);
+
     const bookings = await db
       .select({
         id: tenantBookingsTable.id,
@@ -89,17 +99,14 @@ router.get("/mall-units", async (req, res) => {
         remainingAmount: tenantBookingsTable.remainingAmount,
       })
       .from(tenantBookingsTable)
-      .where(
-        and(
-          sql`${tenantBookingsTable.contractStatus} NOT IN ('terminated')`,
-          sql`${tenantBookingsTable.endDate} >= ${todayStr} OR ${tenantBookingsTable.endDate} IS NULL`,
-        )
-      );
+      .where(and(...bookingConditions));
 
-    // Get tenants
-    const tenants = await db.select().from(tenantsTable);
+    // Get tenants (filtered by site)
+    const tenantSiteFilter = siteId > 0 ? eq(tenantsTable.siteId, siteId) : undefined;
+    const tenants = await db.select().from(tenantsTable).where(tenantSiteFilter);
 
-    // Get latest invoices per booking
+    // Get latest invoices per booking (filtered by site)
+    const invoiceSiteFilter = siteId > 0 ? eq(tenantInvoicesTable.siteId, siteId) : undefined;
     const invoices = await db
       .select({
         bookingId: tenantInvoicesTable.bookingId,
@@ -110,6 +117,7 @@ router.get("/mall-units", async (req, res) => {
         dueDate: tenantInvoicesTable.dueDate,
       })
       .from(tenantInvoicesTable)
+      .where(invoiceSiteFilter)
       .orderBy(desc(tenantInvoicesTable.createdAt));
 
     // Build maps
@@ -202,9 +210,11 @@ router.get("/mall-units", async (req, res) => {
 // ─── GET /api/mall-units/floors ───────────────────────────────────────────────
 router.get("/mall-units/floors", async (req, res) => {
   try {
+    const siteFilter = req.siteId > 0 ? eq(mallUnitsTable.siteId, req.siteId) : undefined;
     const rows = await db
       .selectDistinct({ floor: mallUnitsTable.floor })
       .from(mallUnitsTable)
+      .where(siteFilter)
       .orderBy(mallUnitsTable.floor);
     res.json(rows.map(r => r.floor));
   } catch (err) {
@@ -226,7 +236,8 @@ router.post("/mall-units", requireAnyRole("owner", "admin"), async (req, res) =>
     }
   }
 
-  const parsed = insertMallUnitSchema.safeParse(req.body);
+  const bodyWithSite = req.siteId > 0 ? { ...req.body, siteId: req.siteId } : req.body;
+  const parsed = insertMallUnitSchema.safeParse(bodyWithSite);
   if (!parsed.success) {
     res.status(400).json({ error: "Data tidak valid", detail: parsed.error.flatten().fieldErrors });
     return;
@@ -352,7 +363,11 @@ if (process.env.NODE_ENV !== "production") {
         { unitCode: "E-02", floor: "2", zone: "Entertainment", sizeM2: "80", positionX: 10, positionY: 5, width: 8, height: 4, status: "available" },
       ];
 
-      const inserted = await db.insert(mallUnitsTable).values(seedData).returning();
+      const siteId = req.siteId;
+      const seedWithSite = siteId > 0
+        ? seedData.map((d) => ({ ...d, siteId }))
+        : seedData;
+      const inserted = await db.insert(mallUnitsTable).values(seedWithSite).returning();
       res.json({ ok: true, message: `${inserted.length} unit berhasil diseed`, count: inserted.length });
     } catch (err) {
       req.log.error(err, "Failed to seed mall units");
