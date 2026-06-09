@@ -1,5 +1,4 @@
-import { pgTable, serial, integer, text, timestamp } from "drizzle-orm/pg-core";
-import { usersTable } from "./users";
+import { pgTable, serial, text, integer, timestamp } from "drizzle-orm/pg-core";
 import { tenantsTable } from "./tenants";
 import { mallSitesTable } from "./mall-sites";
 
@@ -11,9 +10,7 @@ export type TenantAccessStatus = (typeof TENANT_ACCESS_STATUSES)[number];
 
 export const tenantUserAccessTable = pgTable("tenant_user_access", {
   id: serial("id").primaryKey(),
-  userId: integer("user_id")
-    .notNull()
-    .references(() => usersTable.id),
+  userId: text("user_id").notNull(),
   tenantId: integer("tenant_id")
     .notNull()
     .references(() => tenantsTable.id),

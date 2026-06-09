@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { db } from "@workspace/db";
 import {
   tenantsTable,
@@ -23,11 +24,11 @@ const ids = {
   payments: new Set<number>(),
   mallUnits: new Set<number>(),
   shifts: new Set<number>(),
-  users: new Set<number>(),
+  users: new Set<string>(),
 };
 
-export function track(type: keyof typeof ids, id: number) {
-  ids[type].add(id);
+export function track(type: keyof typeof ids, id: number | string) {
+  (ids[type] as Set<any>).add(id);
 }
 
 let _defaultSiteId: number | null = null;
@@ -101,6 +102,7 @@ export async function createTestBooking(tenantId: number, overrides: Record<stri
     .values({
       siteId,
       tenantId,
+      orderNumber: `ORD-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
       unitCode: `U-${RUN_ID.slice(0, 4)}`,
       startDate: today.toISOString().slice(0, 10),
       endDate: future.toISOString().slice(0, 10),
@@ -215,6 +217,7 @@ export async function createTestTenantUser(
   const [user] = await db
     .insert(usersTable)
     .values({
+      id: randomUUID(),
       name: `${TEST_PREFIX} Tenant User`,
       phoneNumber: phone,
       role: "tenant_user",
@@ -250,6 +253,7 @@ export async function createRegisteredPhoneUser(
   const [user] = await db
     .insert(usersTable)
     .values({
+      id: randomUUID(),
       name: "Test Tenant Phone",
       phoneNumber: phone,
       role: "tenant_user",
@@ -273,9 +277,6 @@ export async function cleanupAll() {
   try {
     if (userList.length > 0) {
       await db.delete(tenantUserAccessTable).where(inArray(tenantUserAccessTable.userId, userList));
-      await db.delete(otpTokensTable).where(
-        // clean up by phone: best effort
-      );
     }
     if (tenantList.length > 0) {
       await db.delete(tenantPaymentsTable).where(inArray(tenantPaymentsTable.tenantId, tenantList));

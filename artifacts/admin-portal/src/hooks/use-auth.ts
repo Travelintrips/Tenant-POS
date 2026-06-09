@@ -21,7 +21,7 @@ export interface TenantAccessEntry {
 
 export interface AuthUser {
   id: string;
-  dbId: number;
+  dbId: string;
   email: string | null;
   name: string;
   phoneNumber: string | null;

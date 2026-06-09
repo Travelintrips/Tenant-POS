@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { useAuth, useLogout } from "@/hooks/use-auth";
-import { apiFetch } from "@/lib/api";
+import { apiFetchJson } from "@/lib/api";
 import {
   Card, CardContent, CardHeader, CardTitle,
 } from "@/components/ui/card";
@@ -61,25 +61,25 @@ export default function TenantPortal() {
 
   const { data: meData, isLoading: meLoading } = useQuery({
     queryKey: ["tenant-portal-me"],
-    queryFn: () => apiFetch("/api/tenant-portal/me"),
+    queryFn: () => apiFetchJson<Record<string, any>>("/api/tenant-portal/me"),
     enabled: !!user && user.role === "tenant_user",
   });
 
   const { data: bookings = [], isLoading: bookingsLoading } = useQuery({
     queryKey: ["tenant-portal-bookings"],
-    queryFn: () => apiFetch("/api/tenant-portal/bookings"),
+    queryFn: () => apiFetchJson<any[]>("/api/tenant-portal/bookings"),
     enabled: !!user && user.role === "tenant_user",
   });
 
   const { data: invoices = [], isLoading: invoicesLoading } = useQuery({
     queryKey: ["tenant-portal-invoices"],
-    queryFn: () => apiFetch("/api/tenant-portal/invoices"),
+    queryFn: () => apiFetchJson<any[]>("/api/tenant-portal/invoices"),
     enabled: !!user && user.role === "tenant_user",
   });
 
   const { data: payments = [], isLoading: paymentsLoading } = useQuery({
     queryKey: ["tenant-portal-payments"],
-    queryFn: () => apiFetch("/api/tenant-portal/payments"),
+    queryFn: () => apiFetchJson<any[]>("/api/tenant-portal/payments"),
     enabled: !!user && user.role === "tenant_user",
   });
 

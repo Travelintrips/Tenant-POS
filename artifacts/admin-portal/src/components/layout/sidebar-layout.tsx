@@ -30,10 +30,11 @@ import {
 import { useSite, type MallSite } from "@/contexts/site-context";
 
 const ROLE_COLORS: Record<UserRole, string> = {
-  owner:   "bg-purple-100 text-purple-800",
-  admin:   "bg-blue-100 text-blue-800",
-  finance: "bg-green-100 text-green-800",
-  cashier: "bg-orange-100 text-orange-800",
+  owner:       "bg-purple-100 text-purple-800",
+  admin:       "bg-blue-100 text-blue-800",
+  finance:     "bg-green-100 text-green-800",
+  cashier:     "bg-orange-100 text-orange-800",
+  tenant_user: "bg-teal-100 text-teal-800",
 };
 
 const SITE_TYPE_CONFIG: Record<string, { label: string; icon: React.ReactNode; color: string; bg: string }> = {

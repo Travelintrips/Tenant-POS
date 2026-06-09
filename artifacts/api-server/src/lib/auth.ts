@@ -3,30 +3,32 @@ import { Strategy as GoogleStrategy } from "passport-google-oauth20";
 import { db } from "@workspace/db";
 import { usersTable, tenantUserAccessTable } from "@workspace/db/schema";
 import { eq, sql } from "drizzle-orm";
+import { randomUUID } from "node:crypto";
 import { normalizePhoneNumber } from "../services/otp-service";
 
 declare global {
   namespace Express {
     interface User {
       id: string;
-      dbId: number;
+      dbId: string;
       email: string | null;
       name: string;
       phoneNumber: string | null;
       avatar: string | null;
       role: string;
       allowedSites?: number[];
-      tenantAccess?: Array<{ tenantId: number; siteId: number; accessLevel: string }>;
+      tenantAccess?: Array<{ tenantId: number; siteId: number; accessLevel: string; status?: string }>;
     }
   }
 }
 
-async function getTenantAccess(userId: number) {
+async function getTenantAccess(userId: string) {
   const rows = await db
     .select({
       tenantId: tenantUserAccessTable.tenantId,
       siteId: tenantUserAccessTable.siteId,
       accessLevel: tenantUserAccessTable.accessLevel,
+      status: tenantUserAccessTable.status,
     })
     .from(tenantUserAccessTable)
     .where(eq(tenantUserAccessTable.userId, userId));
@@ -37,7 +39,7 @@ export async function findOrCreateUser(opts: {
   email: string;
   name: string;
   avatar: string | null;
-}): Promise<{ id: number; email: string | null; name: string; avatarUrl: string | null; role: string; phoneNumber: string | null }> {
+}): Promise<{ id: string; email: string | null; name: string; avatarUrl: string | null; role: string; phoneNumber: string | null }> {
   const [existing] = await db
     .select()
     .from(usersTable)
@@ -46,9 +48,9 @@ export async function findOrCreateUser(opts: {
   if (existing) {
     await db
       .update(usersTable)
-      .set({ name: opts.name, avatarUrl: opts.avatar, updatedAt: new Date() })
+      .set({ name: opts.name, updatedAt: new Date() })
       .where(eq(usersTable.id, existing.id));
-    return { ...existing, avatarUrl: opts.avatar, phoneNumber: existing.phoneNumber ?? null };
+    return { ...existing, phoneNumber: existing.phoneNumber ?? null };
   }
 
   const [{ count }] = await db
@@ -56,13 +58,14 @@ export async function findOrCreateUser(opts: {
     .from(usersTable);
 
   const role = count === 0 ? "owner" : "admin";
+  const newId = randomUUID();
 
   const [created] = await db
     .insert(usersTable)
-    .values({ email: opts.email, name: opts.name, avatarUrl: opts.avatar, role, status: "active" })
+    .values({ id: newId, email: opts.email, name: opts.name, avatarUrl: opts.avatar, role, status: "active" })
     .onConflictDoUpdate({
       target: usersTable.email,
-      set: { name: opts.name, avatarUrl: opts.avatar, updatedAt: new Date() },
+      set: { name: opts.name, updatedAt: new Date() },
     })
     .returning();
 
@@ -72,7 +75,7 @@ export async function findOrCreateUser(opts: {
 export async function findOrCreateUserByPhone(opts: {
   phoneNumber: string;
   name?: string;
-}): Promise<{ id: number; email: string | null; name: string; avatarUrl: string | null; role: string; phoneNumber: string | null } | null> {
+}): Promise<{ id: string; email: string | null; name: string; avatarUrl: string | null; role: string; phoneNumber: string | null } | null> {
   const normalized = normalizePhoneNumber(opts.phoneNumber);
 
   const [existing] = await db
@@ -92,7 +95,7 @@ export async function findOrCreateUserByPhone(opts: {
 }
 
 export async function buildSessionUser(dbUser: {
-  id: number;
+  id: string;
   email: string | null;
   name: string;
   avatarUrl: string | null;

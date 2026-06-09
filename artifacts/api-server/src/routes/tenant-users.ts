@@ -91,9 +91,10 @@ router.post(
       .where(eq(usersTable.phoneNumber, normalizedPhone));
 
     if (!user) {
+      const { randomUUID } = await import("node:crypto");
       const [created] = await db
         .insert(usersTable)
-        .values({ name, phoneNumber: normalizedPhone, role: "tenant_user", status: "active" })
+        .values({ id: randomUUID(), name, phoneNumber: normalizedPhone, role: "tenant_user", status: "active" })
         .returning();
       user = created;
       logAudit(req, {
@@ -139,8 +140,8 @@ router.patch(
   requireAnyRole("owner", "admin"),
   async (req, res) => {
     const tenantId = Number(req.params.tenantId);
-    const userId = Number(req.params.userId);
-    if (isNaN(tenantId) || isNaN(userId)) {
+    const userId = String(req.params.userId);
+    if (isNaN(tenantId) || !userId) {
       res.status(400).json({ error: "ID tidak valid" });
       return;
     }
@@ -168,8 +169,7 @@ router.patch(
         logAudit(req, {
           action: "tenant_user_deactivated",
           entityType: "user",
-          entityId: userId,
-          afterData: { tenantId, status },
+          afterData: { tenantId, userId, status },
         });
       }
     }
@@ -200,8 +200,8 @@ router.delete(
   requireAnyRole("owner", "admin"),
   async (req, res) => {
     const tenantId = Number(req.params.tenantId);
-    const userId = Number(req.params.userId);
-    if (isNaN(tenantId) || isNaN(userId)) {
+    const userId = String(req.params.userId);
+    if (isNaN(tenantId) || !userId) {
       res.status(400).json({ error: "ID tidak valid" });
       return;
     }
@@ -225,8 +225,7 @@ router.delete(
     logAudit(req, {
       action: "tenant_user_deactivated",
       entityType: "user",
-      entityId: userId,
-      afterData: { tenantId, status: "inactive" },
+      afterData: { tenantId, userId, status: "inactive" },
     });
 
     res.json({ ok: true });

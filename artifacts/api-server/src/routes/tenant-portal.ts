@@ -35,7 +35,7 @@ router.get("/tenant-portal/me", async (req, res) => {
     .innerJoin(mallSitesTable, eq(tenantUserAccessTable.siteId, mallSitesTable.id))
     .where(
       and(
-        eq(tenantUserAccessTable.userId, user.dbId),
+        eq(tenantUserAccessTable.userId, String(user.dbId)),
         eq(tenantUserAccessTable.status, "active"),
       ),
     );

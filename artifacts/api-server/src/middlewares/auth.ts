@@ -81,7 +81,9 @@ export function requireTenantAccess(tenantId: number) {
       next();
       return;
     }
-    const allowed = user.tenantAccess?.some((a) => a.tenantId === tenantId && a.status !== "inactive");
+    const allowed = user.tenantAccess?.some(
+      (a) => a.tenantId === tenantId && (a.status == null || a.status !== "inactive"),
+    );
     if (!allowed) {
       res.status(403).json({ error: "Anda tidak memiliki akses ke tenant ini." });
       return;

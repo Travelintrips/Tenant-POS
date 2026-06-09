@@ -40,9 +40,10 @@ if (DEV_LOGIN_ENABLED) {
         .where(eq(usersTable.phoneNumber, normalized));
 
       if (!existing) {
-        const [created] = await db
+        const { randomUUID } = await import("node:crypto");
+      const [created] = await db
           .insert(usersTable)
-          .values({ name, phoneNumber: normalized, role: "tenant_user", status: "active" })
+          .values({ id: randomUUID(), name, phoneNumber: normalized, role: "tenant_user", status: "active" })
           .returning();
         existing = created;
 
@@ -182,8 +183,8 @@ router.get("/users", requireAuth, requireAnyRole("owner", "admin"), async (_req,
 });
 
 router.patch("/users/:id/role", requireAuth, requireAnyRole("owner"), async (req, res) => {
-  const id = Number(req.params.id);
-  if (isNaN(id)) {
+  const id = String(req.params.id);
+  if (!id) {
     res.status(400).json({ error: "ID tidak valid" });
     return;
   }

@@ -120,3 +120,24 @@ export const paymentRateLimiter = makeLoggingRateLimiter({
   max: 60,
   windowMs: 15 * 60 * 1000,
 });
+
+/** 5 request OTP / 15 menit per nomor+IP */
+export const otpRequestRateLimiter = makeLoggingRateLimiter({
+  name: "otp-request",
+  max: 5,
+  windowMs: 15 * 60 * 1000,
+});
+
+/** 20 request OTP / 15 menit per IP */
+export const otpRequestIpRateLimiter = makeLoggingRateLimiter({
+  name: "otp-request-ip",
+  max: 20,
+  windowMs: 15 * 60 * 1000,
+});
+
+/** 10 verifikasi OTP / 15 menit per IP */
+export const otpVerifyRateLimiter = makeLoggingRateLimiter({
+  name: "otp-verify",
+  max: 10,
+  windowMs: 15 * 60 * 1000,
+});

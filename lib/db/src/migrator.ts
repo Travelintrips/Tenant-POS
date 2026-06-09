@@ -720,10 +720,17 @@ END $$;
 -- 2. Buat email nullable (untuk user WhatsApp yang tidak punya email)
 ALTER TABLE "users" ALTER COLUMN "email" DROP NOT NULL;
 
+-- 2b. Tambahkan DEFAULT gen_random_uuid() ke users.id supaya INSERT tanpa id berhasil
+DO $$ BEGIN
+  IF (SELECT column_default FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'users' AND column_name = 'id') IS NULL THEN
+    ALTER TABLE "users" ALTER COLUMN "id" SET DEFAULT gen_random_uuid()::text;
+  END IF;
+END $$;
+
 -- 3. Buat tabel tenant_user_access
 CREATE TABLE IF NOT EXISTS "tenant_user_access" (
   "id" serial PRIMARY KEY NOT NULL,
-  "user_id" integer NOT NULL REFERENCES "users"("id"),
+  "user_id" text NOT NULL,
   "tenant_id" integer NOT NULL REFERENCES "tenants"("id"),
   "site_id" integer NOT NULL REFERENCES "mall_sites"("id"),
   "access_level" text NOT NULL DEFAULT 'viewer',
@@ -756,6 +763,40 @@ DO $$ BEGIN
     SELECT 1 FROM pg_indexes WHERE tablename = 'otp_tokens' AND indexname = 'otp_tokens_phone_idx'
   ) THEN
     CREATE INDEX otp_tokens_phone_idx ON "otp_tokens" ("phone_number");
+  END IF;
+END $$;
+    `.trim(),
+  },
+  {
+    name: "0014_users_avatar_url",
+    sql: `
+-- Tambah kolom avatar_url ke users (kolom ini ada di schema Drizzle tapi belum di DB)
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='users' AND column_name='avatar_url') THEN
+    ALTER TABLE "users" ADD COLUMN "avatar_url" text;
+  END IF;
+END $$;
+
+-- Pastikan order_number di tenant_bookings punya DEFAULT '' agar INSERT tanpa field ini tidak gagal
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='tenant_bookings' AND column_name='order_number' AND column_default IS NULL) THEN
+    ALTER TABLE "tenant_bookings" ALTER COLUMN "order_number" SET DEFAULT '';
+  END IF;
+END $$;
+    `.trim(),
+  },
+  {
+    name: "0015_role_enum_to_text",
+    sql: `
+-- Konversi kolom role dari ENUM ke text agar semua nilai role bisa disimpan.
+-- Jika sudah text, ALTER TABLE ini diabaikan oleh IF NOT EXISTS check di bawah.
+DO $$ BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'users' AND column_name = 'role'
+      AND udt_name = 'user_role'
+  ) THEN
+    ALTER TABLE "users" ALTER COLUMN "role" TYPE text USING "role"::text;
   END IF;
 END $$;
     `.trim(),
