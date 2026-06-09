@@ -12,6 +12,7 @@ import auditLogsRouter from "./audit-logs";
 import uploadsRouter from "./uploads";
 import eventsRouter from "./events";
 import sitesRouter from "./sites";
+import whatsappRouter from "./whatsapp";
 import { requireAuth } from "../middlewares/auth";
 import { siteContext } from "../middlewares/site-context";
 
@@ -36,5 +37,6 @@ router.use(laporanRouter);
 router.use(tenantInvoicesRouter);
 router.use(mallUnitsRouter);
 router.use(auditLogsRouter);
+router.use(whatsappRouter);
 
 export default router;
