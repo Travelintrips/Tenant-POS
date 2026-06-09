@@ -251,6 +251,35 @@ END $$;
     `.trim(),
   },
   {
+    name: "0005_mall_units",
+    sql: `
+CREATE TABLE IF NOT EXISTS "mall_units" (
+  "id" serial PRIMARY KEY NOT NULL,
+  "unit_code" text NOT NULL,
+  "floor" text NOT NULL DEFAULT '1',
+  "zone" text,
+  "size_m2" numeric,
+  "status" text NOT NULL DEFAULT 'available',
+  "position_x" integer NOT NULL DEFAULT 0,
+  "position_y" integer NOT NULL DEFAULT 0,
+  "width" integer NOT NULL DEFAULT 2,
+  "height" integer NOT NULL DEFAULT 2,
+  "notes" text,
+  "created_at" timestamptz NOT NULL DEFAULT now(),
+  "updated_at" timestamptz NOT NULL DEFAULT now()
+);
+
+DO $$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_indexes
+    WHERE tablename = 'mall_units' AND indexname = 'mall_units_unit_code_unique'
+  ) THEN
+    CREATE UNIQUE INDEX mall_units_unit_code_unique ON "mall_units" ("unit_code");
+  END IF;
+END $$;
+    `.trim(),
+  },
+  {
     name: "0004_tenant_invoices",
     sql: `
 -- Buat tabel tenant_invoices

@@ -1302,7 +1302,6 @@ function ModalPembayaran({ item, invoice, shiftId, onClose, onSuccess }: {
   const [metode, setMetode] = useState<MetodeBayar>("tunai");
   const [tanggalBayar, setTanggalBayar] = useState(todayString());
   const [referenceNumber, setReferenceNumber] = useState("");
-  const [proofUrl, setProofUrl] = useState("");
   const [catatan, setCatatan] = useState("");
   const [showConfirm, setShowConfirm] = useState(false);
   const [result, setResult] = useState<PaymentResponse | null>(null);
@@ -1336,7 +1335,6 @@ function ModalPembayaran({ item, invoice, shiftId, onClose, onSuccess }: {
           paymentMethod: metode,
           paymentDate: tanggalBayar,
           referenceNumber: referenceNumber || undefined,
-          proofUrl: proofUrl || undefined,
           shiftId: shiftId ?? undefined,
           notes: catatan || undefined,
         }),
@@ -1536,19 +1534,9 @@ function ModalPembayaran({ item, invoice, shiftId, onClose, onSuccess }: {
               {needsReference && (
                 <div className="flex flex-col gap-1.5">
                   <Label htmlFor="referenceNumber">
-                    Nomor Referensi / Transfer<span className="text-muted-foreground text-xs ml-1">(opsional)</span>
+                    Nomor Referensi / Transfer{metode !== "tunai" && <span className="text-muted-foreground text-xs ml-1">(opsional)</span>}
                   </Label>
                   <Input id="referenceNumber" placeholder="Masukkan nomor transaksi/referensi..." value={referenceNumber} onChange={(e) => setReferenceNumber(e.target.value)} disabled={mutation.isPending} />
-                </div>
-              )}
-
-              {/* Bukti Pembayaran URL */}
-              {needsReference && (
-                <div className="flex flex-col gap-1.5">
-                  <Label htmlFor="proofUrl">
-                    URL Bukti Pembayaran<span className="text-muted-foreground text-xs ml-1">(opsional)</span>
-                  </Label>
-                  <Input id="proofUrl" type="url" placeholder="https://... (link screenshot/bukti transfer)" value={proofUrl} onChange={(e) => setProofUrl(e.target.value)} disabled={mutation.isPending} />
                 </div>
               )}
 

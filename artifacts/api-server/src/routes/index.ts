@@ -7,6 +7,7 @@ import bookingsRouter from "./bookings";
 import tenantPosRouter from "./tenant-pos";
 import laporanRouter from "./laporan";
 import tenantInvoicesRouter from "./tenant-invoices";
+import mallUnitsRouter from "./mall-units";
 import { requireAuth } from "../middlewares/auth";
 
 const router: IRouter = Router();
@@ -22,5 +23,6 @@ router.use(bookingsRouter);
 router.use(tenantPosRouter);
 router.use(laporanRouter);
 router.use(tenantInvoicesRouter);
+router.use(mallUnitsRouter);
 
 export default router;
