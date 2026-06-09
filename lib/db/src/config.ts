@@ -1,14 +1,14 @@
+const rawUrl =
+  process.env["DATABASE_URL"] ??
+  process.env["SUPABASE_PG_URL"] ??
+  process.env["SUPABASE_DATABASE_URL_DEV"] ??
+  (() => {
+    throw new Error("DATABASE_URL harus diset");
+  })();
+
+const isSupabase = rawUrl.includes("supabase");
+
 export const dbConfig = {
-  url:
-    process.env["SUPABASE_PG_URL"] ??
-    process.env["SUPABASE_DATABASE_URL_DEV"] ??
-    process.env["DATABASE_URL"] ??
-    (() => {
-      throw new Error(
-        "Salah satu dari SUPABASE_PG_URL, SUPABASE_DATABASE_URL_DEV, atau DATABASE_URL harus diset",
-      );
-    })(),
-  ssl: {
-    rejectUnauthorized: false,
-  },
+  url: rawUrl,
+  ssl: isSupabase ? { rejectUnauthorized: false } : false,
 } as const;
