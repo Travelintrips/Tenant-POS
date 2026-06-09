@@ -14,7 +14,7 @@ import {
   SidebarInset,
   SidebarTrigger
 } from "@/components/ui/sidebar";
-import { Building2, Store, CalendarRange, Calculator, BarChart3, LogOut, FileText, Shield, ChevronDown, GitCompare, Dumbbell, MapPin, Check } from "lucide-react";
+import { Building2, Store, CalendarRange, Calculator, BarChart3, LogOut, FileText, Shield, ChevronDown, GitCompare, Dumbbell, MapPin, Check, Layers } from "lucide-react";
 import { Separator } from "@/components/ui/separator";
 import { useAuth, useLogout, ROLE_LABELS, type UserRole } from "@/hooks/use-auth";
 import { Button } from "@/components/ui/button";
@@ -27,7 +27,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { useSite, type MallSite } from "@/contexts/site-context";
+import { useSite, type MallSite, ALL_SITES_SENTINEL } from "@/contexts/site-context";
 
 const ROLE_COLORS: Record<UserRole, string> = {
   owner:       "bg-purple-100 text-purple-800",
@@ -49,6 +49,12 @@ const SITE_TYPE_CONFIG: Record<string, { label: string; icon: React.ReactNode; c
     icon: <Dumbbell className="h-3.5 w-3.5" />,
     color: "text-emerald-700",
     bg: "bg-emerald-50 border-emerald-200",
+  },
+  all: {
+    label: "Semua",
+    icon: <Layers className="h-3.5 w-3.5" />,
+    color: "text-slate-600",
+    bg: "bg-slate-50 border-slate-200",
   },
 };
 
@@ -127,6 +133,20 @@ export function SidebarLayout({ children }: { children: React.ReactNode }) {
                 <DropdownMenuLabel className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider px-2 py-1">
                   Pilih Lokasi
                 </DropdownMenuLabel>
+                {/* Semua lokasi */}
+                <DropdownMenuItem
+                  onClick={() => setActiveSite(ALL_SITES_SENTINEL)}
+                  className={`flex items-center gap-2 px-3 py-2 rounded-md cursor-pointer ${
+                    activeSite?.code === "ALL"
+                      ? "bg-primary/10 text-primary font-semibold"
+                      : "hover:bg-accent"
+                  }`}
+                >
+                  <span className="shrink-0 text-slate-500"><Layers className="h-3.5 w-3.5" /></span>
+                  <span className="flex-1 truncate text-sm">Semua</span>
+                  {activeSite?.code === "ALL" && <Check className="h-3.5 w-3.5 text-primary shrink-0" />}
+                </DropdownMenuItem>
+                <DropdownMenuSeparator className="my-1" />
                 {grouped.map((group, gi) => (
                   <React.Fragment key={group.label}>
                     {gi > 0 && <DropdownMenuSeparator className="my-1" />}

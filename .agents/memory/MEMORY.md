@@ -3,6 +3,7 @@
 - [scripts-no-drizzle-operators](scripts-workspace-resolution.md) — scripts pkg cannot import drizzle-orm operators (eq, sql) directly; filter in JS after full select, or re-export from @workspace/db
 - [invalid hook call fix](invalid-hook-call.md) — avoid generated lib hooks (useListTenants etc); use `useQuery` directly in admin-portal pages
 - [supabase-connection](supabase-connection.md) — app uses SUPABASE_PG_URL (pooler port 6543); drizzle-kit push hangs on pooler, use direct pg script from lib/db/ instead
+- [db-priority](db-priority.md) — lib/db reads SUPABASE_DATABASE_URL before DATABASE_URL; psql $DATABASE_URL hits local Postgres, but the running API uses Supabase — always update Supabase for runtime data changes
 - [schema-column-fix](schema-column-fix.md) — 3 tables needed ALTER TABLE to add missing columns; sync old data booking_id from tenant_booking_id after adding new column
 - [drizzle-kit-tty](drizzle-kit-tty.md) — drizzle-kit push requires interactive TTY for new tables; add SQL migration to lib/db/src/migrator.ts instead
 - [drizzle-timestamptz](drizzle-timestamptz.md) — `timestamptz` is not exported from drizzle-orm@0.45; use `timestamp("col", { withTimezone: true })` instead

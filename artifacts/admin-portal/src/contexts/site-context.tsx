@@ -9,6 +9,14 @@ export interface MallSite {
   status: string;
 }
 
+export const ALL_SITES_SENTINEL: MallSite = {
+  id: 0,
+  code: "ALL",
+  name: "Semua",
+  type: "all",
+  status: "active",
+};
+
 interface SiteContextValue {
   activeSite: MallSite | null;
   activeSiteId: number | null;
@@ -43,7 +51,14 @@ export function SiteProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (sites.length === 0) return;
 
-    const storedId = Number(localStorage.getItem(LS_KEY));
+    const stored = localStorage.getItem(LS_KEY);
+
+    if (stored === "ALL") {
+      setActiveSiteState(ALL_SITES_SENTINEL);
+      return;
+    }
+
+    const storedId = Number(stored);
     const found = storedId ? sites.find((s) => s.id === storedId) : null;
     const defaultSite = sites.find((s) => s.code === DEFAULT_SITE_CODE) ?? sites[0];
 
@@ -53,18 +68,21 @@ export function SiteProvider({ children }: { children: React.ReactNode }) {
   const setActiveSite = useCallback(
     (site: MallSite) => {
       setActiveSiteState(site);
-      localStorage.setItem(LS_KEY, String(site.id));
+      localStorage.setItem(LS_KEY, site.code === "ALL" ? "ALL" : String(site.id));
       // Invalidate all data queries so they reload for the new site
       queryClient.invalidateQueries();
     },
     [queryClient],
   );
 
+  // activeSiteId: 0 for "ALL" (enables queries; API returns all-sites data), null while loading
+  const activeSiteId = activeSite === null ? null : activeSite.code === "ALL" ? 0 : activeSite.id;
+
   return (
     <SiteContext.Provider
       value={{
         activeSite,
-        activeSiteId: activeSite?.id ?? null,
+        activeSiteId,
         sites,
         isLoading,
         setActiveSite,

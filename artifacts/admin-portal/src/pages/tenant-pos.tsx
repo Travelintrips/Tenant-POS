@@ -1,5 +1,5 @@
 import { apiFetch } from "@/lib/api";
-import { useSite } from "@/contexts/site-context";
+import { useSite, ALL_SITES_SENTINEL } from "@/contexts/site-context";
 import React, { useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
@@ -2171,9 +2171,22 @@ export default function TenantPos() {
 
       <div className="flex flex-1 gap-4 min-h-0">
         <Card className="flex-1 min-w-0 overflow-hidden flex flex-col">
-          {/* ── Tab Lokasi (TOD / Sport Center) ── */}
+          {/* ── Tab Lokasi (Semua / Sport Center / TOD M1) ── */}
           {sites.length > 1 && (
             <div className="flex border-b bg-slate-50/70 shrink-0 px-3 pt-2 gap-1">
+              {/* Tab Semua */}
+              <button
+                onClick={() => { setActiveSite(ALL_SITES_SENTINEL); setSelected(null); handleFilterChange({ search: "", status: "", area: "" }); }}
+                className={cn(
+                  "flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-t-lg border border-b-0 transition-all -mb-px",
+                  activeSite?.code === "ALL"
+                    ? "bg-white border-slate-300 text-slate-700 shadow-sm"
+                    : "bg-transparent border-transparent text-muted-foreground hover:text-slate-700 hover:bg-slate-100"
+                )}
+              >
+                <Layers className="w-3 h-3" />
+                Semua
+              </button>
               {sites.map((site) => {
                 const isActive = activeSite?.id === site.id;
                 const isSport = site.type === "sport_center";

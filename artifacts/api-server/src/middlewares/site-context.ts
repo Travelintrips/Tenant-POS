@@ -69,7 +69,14 @@ export async function siteContext(req: Request, res: Response, next: NextFunctio
       const found = sites.find((s) => s.id === id);
       if (found) resolvedSite = found;
     } else if (headerSiteCode) {
-      const found = sites.find((s) => s.code === String(headerSiteCode));
+      const code = String(headerSiteCode);
+      if (code === "ALL") {
+        // "Semua" mode — no site filter; routes handle siteId=0 as "all sites"
+        req.siteId = 0;
+        req.siteCode = "ALL";
+        return next();
+      }
+      const found = sites.find((s) => s.code === code);
       if (found) resolvedSite = found;
     } else if (querySiteId) {
       const id = Number(querySiteId);

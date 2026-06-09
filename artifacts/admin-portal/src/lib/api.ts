@@ -19,7 +19,9 @@ export function apiFetch(url: string, options?: RequestInit): Promise<Response> 
   const headers: Record<string, string> = {
     ...(options?.headers as Record<string, string> | undefined),
   };
-  if (siteId) {
+  if (siteId === "ALL") {
+    headers["x-site-code"] = "ALL";
+  } else if (siteId) {
     headers["x-site-id"] = siteId;
   }
   return fetch(url, { credentials: "include", ...options, headers });
