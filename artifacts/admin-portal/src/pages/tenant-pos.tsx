@@ -1767,7 +1767,7 @@ export default function TenantPos() {
           <CardHeader className="py-3 px-4 border-b flex-row items-center justify-between space-y-0">
             <div className="flex items-center gap-2">
               <CardTitle className="text-sm font-semibold text-slate-700">Denah Tenant</CardTitle>
-              {filterStatus && !floorPlan.isLoading && (
+              {filters.status && !floorPlan.isLoading && (
                 <span className="text-[10px] text-muted-foreground">
                   ({filteredItems.length}/{(floorPlan.data ?? []).length} unit)
                 </span>
@@ -1778,10 +1778,10 @@ export default function TenantPos() {
               {([null, "PAID", "UNPAID", "PARTIAL", "OVERDUE", "VACANT"] as const).map((s) => (
                 <button
                   key={String(s)}
-                  onClick={() => setFilterStatus(s === filterStatus ? null : s)}
+                  onClick={() => handleFilterChange({ status: s === null ? "" : (s === filters.status ? "" : s) })}
                   className={cn(
                     "text-[10px] px-2 py-0.5 rounded-full border font-medium transition-all",
-                    filterStatus === s
+                    filters.status === (s ?? "")
                       ? "bg-primary text-white border-primary"
                       : "text-muted-foreground border-muted hover:border-slate-300"
                   )}
@@ -1816,7 +1816,7 @@ export default function TenantPos() {
                 <p className="font-medium text-sm">Tidak ada unit dengan status ini</p>
                 <button
                   className="text-xs text-primary mt-2 hover:underline"
-                  onClick={() => setFilterStatus(null)}
+                  onClick={() => handleFilterChange({ status: "" })}
                 >
                   Tampilkan semua
                 </button>

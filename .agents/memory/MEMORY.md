@@ -2,3 +2,4 @@
 - [scripts workspace resolution](scripts-workspace-resolution.md) — scripts pkg needs `paths` in tsconfig to resolve `@workspace/*` libs; symlinks not created by pnpm for scripts
 - [invalid hook call fix](invalid-hook-call.md) — avoid generated lib hooks (useListTenants etc); use `useQuery` directly in admin-portal pages
 - [supabase-connection](supabase-connection.md) — app uses SUPABASE_PG_URL (pooler port 6543); drizzle-kit push hangs on pooler, use direct pg script from lib/db/ instead
+- [schema-column-fix](schema-column-fix.md) — 3 tables needed ALTER TABLE to add missing columns; sync old data booking_id from tenant_booking_id after adding new column

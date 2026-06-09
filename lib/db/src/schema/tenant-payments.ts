@@ -2,25 +2,34 @@ import { pgTable, serial, integer, text, numeric, timestamp } from "drizzle-orm/
 import { relations } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
+import { tenantsTable } from "./tenants";
 import { tenantBookingsTable } from "./tenant-bookings";
 
 export const tenantPaymentsTable = pgTable("tenant_payments", {
   id: serial("id").primaryKey(),
   companyId: integer("company_id"),
-  tenantBookingId: integer("tenant_booking_id").notNull().references(() => tenantBookingsTable.id),
+  tenantBookingId: integer("tenant_booking_id").references(() => tenantBookingsTable.id),
+  bookingId: integer("booking_id").references(() => tenantBookingsTable.id),
+  tenantId: integer("tenant_id").references(() => tenantsTable.id),
   paymentNumber: text("payment_number"),
+  receiptNumber: text("receipt_number"),
   proofImageUrl: text("proof_image_url"),
   amount: numeric("amount").notNull(),
+  discountAmount: numeric("discount_amount").notNull().default("0"),
+  penaltyAmount: numeric("penalty_amount").notNull().default("0"),
   method: text("method").notNull().default("tunai"),
+  paymentMethod: text("payment_method").notNull().default("tunai"),
   notes: text("notes"),
   status: text("status").notNull().default("PAID"),
+  paymentStatus: text("payment_status").notNull().default("PAID"),
   paidAt: timestamp("paid_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
 export const tenantPaymentsRelations = relations(tenantPaymentsTable, ({ one }) => ({
-  booking: one(tenantBookingsTable, { fields: [tenantPaymentsTable.tenantBookingId], references: [tenantBookingsTable.id] }),
+  booking: one(tenantBookingsTable, { fields: [tenantPaymentsTable.bookingId], references: [tenantBookingsTable.id] }),
+  tenant: one(tenantsTable, { fields: [tenantPaymentsTable.tenantId], references: [tenantsTable.id] }),
 }));
 
 export const tenantBookingPaymentsRelations = relations(tenantBookingsTable, ({ many }) => ({
