@@ -9,6 +9,7 @@ import {
   MoreHorizontal, History, Filter, Search, RotateCcw, ChevronDown,
   ChevronRight, MapPin, Wrench, Package, RefreshCw, Info, FileText,
   Layers, LogIn, LogOut, Ban, ShieldAlert, DollarSign, Dumbbell,
+  Plus, UserPlus,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -20,6 +21,12 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
+} from "@/components/ui/dialog";
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
@@ -1720,6 +1727,168 @@ function DailyReportModal({ onClose }: { onClose: () => void }) {
   );
 }
 
+// ─── Tambah Tenant (Quick Add) ────────────────────────────────────────────────
+
+const CATEGORIES_POS = ["Kuliner", "F&B", "Fashion", "Elektronik", "Kesehatan", "Kecantikan", "Olahraga", "Pendidikan", "Lainnya"];
+
+type TenantFormPOS = {
+  businessName: string;
+  ownerName: string;
+  email: string;
+  phone: string;
+  category: string;
+  boothNumber: string;
+  areaName: string;
+  status: "active" | "inactive";
+  notes: string;
+};
+
+const EMPTY_TENANT_FORM: TenantFormPOS = {
+  businessName: "",
+  ownerName: "",
+  email: "",
+  phone: "",
+  category: "",
+  boothNumber: "",
+  areaName: "",
+  status: "active",
+  notes: "",
+};
+
+async function createTenantPOS(data: TenantFormPOS): Promise<void> {
+  const r = await apiFetch(`${BASE}/api/tenants`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+  if (!r.ok) {
+    const err = await r.json().catch(() => ({}));
+    throw new Error((err as { error?: string }).error ?? `HTTP ${r.status}`);
+  }
+}
+
+function ModalTambahTenant({
+  open,
+  siteName,
+  onClose,
+  onSuccess,
+}: {
+  open: boolean;
+  siteName: string;
+  onClose: () => void;
+  onSuccess: () => void;
+}) {
+  const [form, setForm] = useState<TenantFormPOS>(EMPTY_TENANT_FORM);
+  const { toast } = useToast();
+  const qc = useQueryClient();
+
+  const mutation = useMutation({
+    mutationFn: () => createTenantPOS(form),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["tenant-pos-floor-plan"] });
+      qc.invalidateQueries({ queryKey: ["tenant-pos-overview"] });
+      toast({ title: "Tenant berhasil ditambahkan", description: `${form.businessName} telah terdaftar di ${siteName}.` });
+      setForm(EMPTY_TENANT_FORM);
+      onSuccess();
+    },
+    onError: (err: Error) => {
+      toast({ title: "Gagal menambahkan tenant", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const set = (k: keyof TenantFormPOS, v: string) => setForm((f) => ({ ...f, [k]: v }));
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!form.businessName.trim()) { toast({ title: "Nama usaha wajib diisi", variant: "destructive" }); return; }
+    if (!form.ownerName.trim()) { toast({ title: "Nama pemilik wajib diisi", variant: "destructive" }); return; }
+    if (!form.areaName.trim()) { toast({ title: "Nama area wajib diisi", variant: "destructive" }); return; }
+    mutation.mutate();
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => { if (!o) { setForm(EMPTY_TENANT_FORM); onClose(); } }}>
+      <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <UserPlus className="w-5 h-5 text-primary" />
+            Tambah Tenant Baru
+          </DialogTitle>
+          <p className="text-sm text-muted-foreground">Lokasi: <span className="font-medium text-foreground">{siteName}</span></p>
+        </DialogHeader>
+
+        <form onSubmit={handleSubmit} className="space-y-4 pt-2">
+          <div className="grid grid-cols-2 gap-3">
+            <div className="col-span-2 space-y-1.5">
+              <Label htmlFor="pt-businessName">Nama Usaha <span className="text-destructive">*</span></Label>
+              <Input id="pt-businessName" value={form.businessName} onChange={(e) => set("businessName", e.target.value)} placeholder="Contoh: Warung Bu Sari" />
+            </div>
+
+            <div className="col-span-2 space-y-1.5">
+              <Label htmlFor="pt-ownerName">Nama Pemilik <span className="text-destructive">*</span></Label>
+              <Input id="pt-ownerName" value={form.ownerName} onChange={(e) => set("ownerName", e.target.value)} placeholder="Nama lengkap pemilik" />
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="pt-phone">No. HP</Label>
+              <Input id="pt-phone" value={form.phone} onChange={(e) => set("phone", e.target.value)} placeholder="08xx..." />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="pt-email">Email</Label>
+              <Input id="pt-email" type="email" value={form.email} onChange={(e) => set("email", e.target.value)} placeholder="email@..." />
+            </div>
+
+            <div className="space-y-1.5">
+              <Label>Kategori</Label>
+              <Select value={form.category} onValueChange={(v) => set("category", v)}>
+                <SelectTrigger><SelectValue placeholder="Pilih kategori..." /></SelectTrigger>
+                <SelectContent>
+                  {CATEGORIES_POS.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="pt-status">Status</Label>
+              <Select value={form.status} onValueChange={(v) => set("status", v as "active" | "inactive")}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="active">Aktif</SelectItem>
+                  <SelectItem value="inactive">Non-Aktif</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="pt-boothNumber">Nomor Booth</Label>
+              <Input id="pt-boothNumber" value={form.boothNumber} onChange={(e) => set("boothNumber", e.target.value)} placeholder="Contoh: A-01" />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="pt-areaName">Nama Area <span className="text-destructive">*</span></Label>
+              <Input id="pt-areaName" value={form.areaName} onChange={(e) => set("areaName", e.target.value)} placeholder="Contoh: Lantai 1" />
+            </div>
+
+            <div className="col-span-2 space-y-1.5">
+              <Label htmlFor="pt-notes">Catatan</Label>
+              <Input id="pt-notes" value={form.notes} onChange={(e) => set("notes", e.target.value)} placeholder="Catatan tambahan (opsional)" />
+            </div>
+          </div>
+
+          <DialogFooter className="pt-2">
+            <Button type="button" variant="outline" onClick={() => { setForm(EMPTY_TENANT_FORM); onClose(); }} disabled={mutation.isPending}>
+              Batal
+            </Button>
+            <Button type="submit" disabled={mutation.isPending} className="gap-2">
+              <Plus className="w-4 h-4" />
+              {mutation.isPending ? "Menyimpan..." : "Tambah Tenant"}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function TenantPos() {
@@ -1731,6 +1900,7 @@ export default function TenantPos() {
   const [showOpenShift, setShowOpenShift] = useState(false);
   const [showCloseShift, setShowCloseShift] = useState(false);
   const [showDailyReport, setShowDailyReport] = useState(false);
+  const [showTambahTenant, setShowTambahTenant] = useState(false);
   const [filters, setFilters] = useState<FilterState>({ search: "", status: "", area: "" });
 
   const overview = useOverview(activeSiteId);
@@ -1816,21 +1986,32 @@ export default function TenantPos() {
                 <span className="text-[10px] text-muted-foreground">({filteredItems.length}/{allItems.length} unit)</span>
               )}
             </div>
-            <div className="flex items-center gap-1 flex-wrap justify-end">
-              <Filter className="w-3.5 h-3.5 text-muted-foreground mr-0.5" />
-              {([null, "PAID", "UNPAID", "PARTIAL", "OVERDUE", "VACANT"] as const).map((s) => (
-                <button
-                  key={String(s)}
-                  onClick={() => handleFilterChange({ status: s === null ? "" : (s === filters.status ? "" : s) })}
-                  className={cn("text-[10px] px-2 py-0.5 rounded-full border font-medium transition-all",
-                    filters.status === (s ?? "")
-                      ? "bg-primary text-white border-primary"
-                      : "text-muted-foreground border-muted hover:border-slate-300"
-                  )}
-                >
-                  {s === null ? "Semua" : s === "PAID" ? "Lunas" : s === "UNPAID" ? "Belum Bayar" : s === "PARTIAL" ? "Sebagian" : s === "OVERDUE" ? "Jatuh Tempo" : "Kosong"}
-                </button>
-              ))}
+            <div className="flex items-center gap-2 flex-wrap justify-end">
+              <div className="flex items-center gap-1">
+                <Filter className="w-3.5 h-3.5 text-muted-foreground mr-0.5" />
+                {([null, "PAID", "UNPAID", "PARTIAL", "OVERDUE", "VACANT"] as const).map((s) => (
+                  <button
+                    key={String(s)}
+                    onClick={() => handleFilterChange({ status: s === null ? "" : (s === filters.status ? "" : s) })}
+                    className={cn("text-[10px] px-2 py-0.5 rounded-full border font-medium transition-all",
+                      filters.status === (s ?? "")
+                        ? "bg-primary text-white border-primary"
+                        : "text-muted-foreground border-muted hover:border-slate-300"
+                    )}
+                  >
+                    {s === null ? "Semua" : s === "PAID" ? "Lunas" : s === "UNPAID" ? "Belum Bayar" : s === "PARTIAL" ? "Sebagian" : s === "OVERDUE" ? "Jatuh Tempo" : "Kosong"}
+                  </button>
+                ))}
+              </div>
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7 text-xs gap-1 text-primary border-primary/30 hover:bg-primary/5"
+                onClick={() => setShowTambahTenant(true)}
+              >
+                <Plus className="w-3 h-3" />
+                Tambah Tenant
+              </Button>
             </div>
           </CardHeader>
           {!floorPlan.isLoading && !floorPlan.isError && (
@@ -1844,6 +2025,24 @@ export default function TenantPos() {
                 <AlertTriangle className="w-10 h-10 mb-3 opacity-60" />
                 <p className="font-medium">Gagal memuat data denah</p>
                 <Button variant="outline" size="sm" className="mt-3" onClick={() => floorPlan.refetch()}>Coba Lagi</Button>
+              </div>
+            ) : allItems.length === 0 ? (
+              <div className="flex flex-col items-center justify-center h-full text-center p-10 text-muted-foreground">
+                <div className="w-16 h-16 rounded-2xl bg-primary/5 border-2 border-dashed border-primary/20 flex items-center justify-center mb-4">
+                  <Building2 className="w-8 h-8 text-primary/30" />
+                </div>
+                <p className="font-semibold text-slate-700 text-base">Belum ada tenant</p>
+                <p className="text-sm mt-1 max-w-xs">
+                  {activeSite ? `Lokasi "${activeSite.name}" belum memiliki tenant terdaftar.` : "Belum ada tenant terdaftar di lokasi ini."}
+                </p>
+                <Button
+                  size="sm"
+                  className="mt-4 gap-2"
+                  onClick={() => setShowTambahTenant(true)}
+                >
+                  <Plus className="w-4 h-4" />
+                  Tambah Tenant Pertama
+                </Button>
               </div>
             ) : filteredItems.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-full text-center p-10 text-muted-foreground">
@@ -1894,6 +2093,14 @@ export default function TenantPos() {
 
       {/* Daily Report */}
       {showDailyReport && <DailyReportModal onClose={() => setShowDailyReport(false)} />}
+
+      {/* Tambah Tenant */}
+      <ModalTambahTenant
+        open={showTambahTenant}
+        siteName={activeSite?.name ?? "Lokasi Ini"}
+        onClose={() => setShowTambahTenant(false)}
+        onSuccess={() => setShowTambahTenant(false)}
+      />
     </div>
   );
 }
