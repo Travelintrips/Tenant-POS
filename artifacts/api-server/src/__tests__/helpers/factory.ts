@@ -7,6 +7,9 @@ import {
   mallUnitsTable,
   cashierShiftsTable,
   mallSitesTable,
+  usersTable,
+  tenantUserAccessTable,
+  otpTokensTable,
 } from "@workspace/db/schema";
 import { eq, inArray } from "drizzle-orm";
 
@@ -20,6 +23,7 @@ const ids = {
   payments: new Set<number>(),
   mallUnits: new Set<number>(),
   shifts: new Set<number>(),
+  users: new Set<number>(),
 };
 
 export function track(type: keyof typeof ids, id: number) {
@@ -27,7 +31,7 @@ export function track(type: keyof typeof ids, id: number) {
 }
 
 let _defaultSiteId: number | null = null;
-async function getDefaultSiteId(): Promise<number> {
+export async function getDefaultSiteId(): Promise<number> {
   if (_defaultSiteId !== null) return _defaultSiteId;
   const [site] = await db
     .select({ id: mallSitesTable.id })
@@ -37,6 +41,19 @@ async function getDefaultSiteId(): Promise<number> {
   if (!site) throw new Error("Default site TOD_M1_BANDARA not found in DB");
   _defaultSiteId = site.id;
   return _defaultSiteId;
+}
+
+let _sportSiteId: number | null = null;
+export async function getSportSiteId(): Promise<number> {
+  if (_sportSiteId !== null) return _sportSiteId;
+  const [site] = await db
+    .select({ id: mallSitesTable.id })
+    .from(mallSitesTable)
+    .where(eq(mallSitesTable.code, "SPORT_CENTER_BANDARA"))
+    .limit(1);
+  if (!site) throw new Error("Sport site SPORT_CENTER_BANDARA not found in DB");
+  _sportSiteId = site.id;
+  return _sportSiteId;
 }
 
 export async function createTestTenant(overrides: Record<string, unknown> = {}) {
@@ -189,17 +206,86 @@ export async function createTestShift(overrides: Record<string, unknown> = {}) {
   return row;
 }
 
+export async function createTestTenantUser(
+  tenantId: number,
+  siteId: number,
+  overrides: Record<string, unknown> = {},
+) {
+  const phone = `62800${Date.now().toString().slice(-7)}`;
+  const [user] = await db
+    .insert(usersTable)
+    .values({
+      name: `${TEST_PREFIX} Tenant User`,
+      phoneNumber: phone,
+      role: "tenant_user",
+      status: "active",
+      ...overrides,
+    } as any)
+    .returning();
+  ids.users.add(user.id);
+
+  const [access] = await db
+    .insert(tenantUserAccessTable)
+    .values({ userId: user.id, tenantId, siteId, accessLevel: "viewer", status: "active" })
+    .returning();
+
+  return { user, access };
+}
+
+export async function createRegisteredPhoneUser(
+  phone: string,
+  tenantId: number,
+  siteId: number,
+) {
+  const [existing] = await db
+    .select()
+    .from(usersTable)
+    .where(eq(usersTable.phoneNumber, phone));
+
+  if (existing) {
+    ids.users.add(existing.id);
+    return existing;
+  }
+
+  const [user] = await db
+    .insert(usersTable)
+    .values({
+      name: "Test Tenant Phone",
+      phoneNumber: phone,
+      role: "tenant_user",
+      status: "active",
+    } as any)
+    .returning();
+  ids.users.add(user.id);
+
+  await db
+    .insert(tenantUserAccessTable)
+    .values({ userId: user.id, tenantId, siteId, accessLevel: "viewer", status: "active" })
+    .onConflictDoNothing();
+
+  return user;
+}
+
 export async function cleanupAll() {
   const tenantList = [...ids.tenants];
+  const userList = [...ids.users];
 
   try {
+    if (userList.length > 0) {
+      await db.delete(tenantUserAccessTable).where(inArray(tenantUserAccessTable.userId, userList));
+      await db.delete(otpTokensTable).where(
+        // clean up by phone: best effort
+      );
+    }
     if (tenantList.length > 0) {
       await db.delete(tenantPaymentsTable).where(inArray(tenantPaymentsTable.tenantId, tenantList));
       await db.delete(tenantInvoicesTable).where(inArray(tenantInvoicesTable.tenantId, tenantList));
       await db.delete(tenantBookingsTable).where(inArray(tenantBookingsTable.tenantId, tenantList));
       await db.delete(tenantsTable).where(inArray(tenantsTable.id, tenantList));
     }
-
+    if (userList.length > 0) {
+      await db.delete(usersTable).where(inArray(usersTable.id, userList));
+    }
     if (ids.mallUnits.size > 0) {
       await db.delete(mallUnitsTable).where(inArray(mallUnitsTable.id, [...ids.mallUnits]));
     }
@@ -215,6 +301,7 @@ export async function cleanupAll() {
     ids.payments.clear();
     ids.mallUnits.clear();
     ids.shifts.clear();
+    ids.users.clear();
   }
 }
 

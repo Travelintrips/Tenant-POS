@@ -1,23 +1,33 @@
 import { useState, useEffect } from "react";
-import { Building2, FlaskConical } from "lucide-react";
+import { Building2, FlaskConical, MessageCircle, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { useQueryClient } from "@tanstack/react-query";
 import { ROLE_LABELS, type UserRole } from "@/hooks/use-auth";
 
-const DEV_ACCOUNTS: { role: UserRole; color: string }[] = [
-  { role: "owner",   color: "bg-purple-100 text-purple-800 hover:bg-purple-200" },
-  { role: "admin",   color: "bg-blue-100 text-blue-800 hover:bg-blue-200" },
-  { role: "finance", color: "bg-green-100 text-green-800 hover:bg-green-200" },
-  { role: "cashier", color: "bg-orange-100 text-orange-800 hover:bg-orange-200" },
+const DEV_ACCOUNTS: { role: UserRole; label: string; color: string }[] = [
+  { role: "owner",       label: "Pemilik",      color: "bg-purple-100 text-purple-800 hover:bg-purple-200" },
+  { role: "admin",       label: "Admin",         color: "bg-blue-100 text-blue-800 hover:bg-blue-200" },
+  { role: "finance",     label: "Keuangan",      color: "bg-green-100 text-green-800 hover:bg-green-200" },
+  { role: "cashier",     label: "Kasir",          color: "bg-orange-100 text-orange-800 hover:bg-orange-200" },
+  { role: "tenant_user", label: "Tenant User",   color: "bg-teal-100 text-teal-800 hover:bg-teal-200" },
 ];
+
+type Step = "phone" | "otp";
 
 export default function Login() {
   const error = new URLSearchParams(window.location.search).get("error");
   const [loadingRole, setLoadingRole] = useState<UserRole | null>(null);
   const [devLoginEnabled, setDevLoginEnabled] = useState<boolean | null>(null);
   const [loginError, setLoginError] = useState<string | null>(null);
+  const [step, setStep] = useState<Step>("phone");
+  const [phoneNumber, setPhoneNumber] = useState("");
+  const [otp, setOtp] = useState("");
+  const [otpLoading, setOtpLoading] = useState(false);
+  const [devOtp, setDevOtp] = useState<string | null>(null);
   const qc = useQueryClient();
 
   useEffect(() => {
@@ -40,15 +50,75 @@ export default function Login() {
       if (res.ok) {
         const user = await res.json();
         qc.setQueryData(["auth-me"], user);
-        window.location.href = "/";
+        if (user.role === "tenant_user") {
+          window.location.href = "/tenant-portal";
+        } else {
+          window.location.href = "/";
+        }
       } else {
         const body = await res.json().catch(() => ({}));
         setLoginError(body.error ?? `Login gagal (${res.status})`);
         setLoadingRole(null);
       }
-    } catch (e) {
+    } catch {
       setLoginError("Tidak dapat terhubung ke server");
       setLoadingRole(null);
+    }
+  };
+
+  const handleRequestOtp = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!phoneNumber.trim()) return;
+    setOtpLoading(true);
+    setLoginError(null);
+    try {
+      const res = await fetch("/api/auth/whatsapp/request-otp", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ phoneNumber }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setLoginError(data.error ?? "Gagal mengirim OTP");
+      } else {
+        if (data.devOtp) setDevOtp(data.devOtp);
+        setStep("otp");
+      }
+    } catch {
+      setLoginError("Tidak dapat terhubung ke server");
+    } finally {
+      setOtpLoading(false);
+    }
+  };
+
+  const handleVerifyOtp = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!otp.trim()) return;
+    setOtpLoading(true);
+    setLoginError(null);
+    try {
+      const res = await fetch("/api/auth/whatsapp/verify-otp", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ phoneNumber, otp }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setLoginError(data.error ?? "Verifikasi gagal");
+      } else {
+        qc.setQueryData(["auth-me"], data);
+        if (data.role === "tenant_user") {
+          window.location.href = "/tenant-portal";
+        } else {
+          window.location.href = "/";
+        }
+      }
+    } catch {
+      setLoginError("Tidak dapat terhubung ke server");
+    } finally {
+      setOtpLoading(false);
     }
   };
 
@@ -73,17 +143,67 @@ export default function Login() {
             </div>
           )}
 
-          <a href="/api/auth/google">
-            <Button className="w-full gap-2" size="lg">
-              <svg className="h-4 w-4" viewBox="0 0 24 24">
-                <path fill="currentColor" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
-                <path fill="currentColor" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
-                <path fill="currentColor" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" />
-                <path fill="currentColor" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" />
-              </svg>
-              Masuk dengan Google
-            </Button>
-          </a>
+          {step === "phone" ? (
+            <form onSubmit={handleRequestOtp} className="flex flex-col gap-3">
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="phone">Nomor WhatsApp</Label>
+                <Input
+                  id="phone"
+                  type="tel"
+                  placeholder="08123456789"
+                  value={phoneNumber}
+                  onChange={(e) => setPhoneNumber(e.target.value)}
+                  disabled={otpLoading}
+                  autoComplete="tel"
+                />
+              </div>
+              <Button type="submit" className="w-full gap-2" size="lg" disabled={otpLoading || !phoneNumber.trim()}>
+                {otpLoading ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <MessageCircle className="h-4 w-4" />
+                )}
+                Kirim Kode OTP
+              </Button>
+            </form>
+          ) : (
+            <form onSubmit={handleVerifyOtp} className="flex flex-col gap-3">
+              <p className="text-sm text-muted-foreground text-center">
+                Kode OTP dikirim ke <span className="font-medium text-foreground">{phoneNumber}</span>
+              </p>
+              {devOtp && (
+                <div className="text-xs text-center bg-yellow-50 border border-yellow-200 rounded-md py-2 px-3 text-yellow-800">
+                  <span className="font-semibold">Dev OTP:</span> {devOtp}
+                </div>
+              )}
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="otp">Kode OTP (6 digit)</Label>
+                <Input
+                  id="otp"
+                  type="text"
+                  inputMode="numeric"
+                  pattern="[0-9]{6}"
+                  maxLength={6}
+                  placeholder="123456"
+                  value={otp}
+                  onChange={(e) => setOtp(e.target.value.replace(/\D/g, ""))}
+                  disabled={otpLoading}
+                  autoComplete="one-time-code"
+                />
+              </div>
+              <Button type="submit" className="w-full gap-2" size="lg" disabled={otpLoading || otp.length !== 6}>
+                {otpLoading && <Loader2 className="h-4 w-4 animate-spin" />}
+                Verifikasi & Masuk
+              </Button>
+              <button
+                type="button"
+                onClick={() => { setStep("phone"); setOtp(""); setDevOtp(null); setLoginError(null); }}
+                className="text-xs text-center text-muted-foreground hover:text-foreground underline"
+              >
+                Ganti nomor
+              </button>
+            </form>
+          )}
 
           {devLoginEnabled && (
             <>
@@ -102,7 +222,7 @@ export default function Login() {
                     disabled={loadingRole !== null}
                     className={`rounded-md px-3 py-2 text-xs font-medium transition-colors disabled:opacity-60 ${acc.color}`}
                   >
-                    {loadingRole === acc.role ? "Masuk..." : ROLE_LABELS[acc.role]}
+                    {loadingRole === acc.role ? "Masuk..." : acc.label}
                   </button>
                 ))}
               </div>

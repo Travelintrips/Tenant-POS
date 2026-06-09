@@ -17,6 +17,7 @@ import Laporan from "@/pages/laporan";
 import TenantInvoices from "@/pages/tenant-invoices";
 import AuditLogs from "@/pages/audit-logs";
 import CompareSites from "@/pages/compare-sites";
+import TenantPortal from "@/pages/tenant-portal";
 
 const queryClient = new QueryClient();
 
@@ -30,6 +31,7 @@ function getDefaultRoute(role: UserRole): string {
   switch (role) {
     case "cashier": return "tenant-pos";
     case "finance": return "laporan";
+    case "tenant_user": return "tenant-portal";
     default: return "data-tenant";
   }
 }
@@ -64,6 +66,9 @@ function Router() {
       </Route>
       <Route path="/unauthorized">
         <Unauthorized />
+      </Route>
+      <Route path="/tenant-portal">
+        <TenantPortal />
       </Route>
       <Route path="/">
         {() => {

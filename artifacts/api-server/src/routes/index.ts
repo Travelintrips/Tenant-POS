@@ -12,17 +12,24 @@ import auditLogsRouter from "./audit-logs";
 import uploadsRouter from "./uploads";
 import eventsRouter from "./events";
 import sitesRouter from "./sites";
-import { requireAuth } from "../middlewares/auth";
+import whatsappAuthRouter from "./whatsapp-auth";
+import tenantPortalRouter from "./tenant-portal";
+import tenantUsersRouter from "./tenant-users";
+import { requireAuth, requireNonTenantUser } from "../middlewares/auth";
 import { siteContext } from "../middlewares/site-context";
 
 const router: IRouter = Router();
 
 router.use(healthRouter);
 router.use(authRouter);
+router.use(whatsappAuthRouter);
 
 router.use(requireAuth);
 
-// Resolusi site aktif berdasarkan header x-site-id / x-site-code / ?siteId
+router.use("/tenant-portal", tenantPortalRouter);
+
+router.use(requireNonTenantUser);
+
 router.use(siteContext);
 
 router.use(eventsRouter);
@@ -30,6 +37,7 @@ router.use(uploadsRouter);
 router.use(configRouter);
 router.use(sitesRouter);
 router.use(tenantsRouter);
+router.use(tenantUsersRouter);
 router.use(bookingsRouter);
 router.use(tenantPosRouter);
 router.use(laporanRouter);

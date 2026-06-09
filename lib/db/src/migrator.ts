@@ -698,6 +698,68 @@ DO $$ BEGIN
 END $$;
     `.trim(),
   },
+  {
+    name: "0013_whatsapp_tenant_user",
+    sql: `
+-- 1. Tambah kolom baru ke users (aman, tidak drop data)
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='users' AND column_name='phone_number') THEN
+    ALTER TABLE "users" ADD COLUMN "phone_number" text;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='users' AND column_name='phone_verified_at') THEN
+    ALTER TABLE "users" ADD COLUMN "phone_verified_at" timestamptz;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='users' AND column_name='status') THEN
+    ALTER TABLE "users" ADD COLUMN "status" text NOT NULL DEFAULT 'active';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='users' AND column_name='last_login_at') THEN
+    ALTER TABLE "users" ADD COLUMN "last_login_at" timestamptz;
+  END IF;
+END $$;
+
+-- 2. Buat email nullable (untuk user WhatsApp yang tidak punya email)
+ALTER TABLE "users" ALTER COLUMN "email" DROP NOT NULL;
+
+-- 3. Buat tabel tenant_user_access
+CREATE TABLE IF NOT EXISTS "tenant_user_access" (
+  "id" serial PRIMARY KEY NOT NULL,
+  "user_id" integer NOT NULL REFERENCES "users"("id"),
+  "tenant_id" integer NOT NULL REFERENCES "tenants"("id"),
+  "site_id" integer NOT NULL REFERENCES "mall_sites"("id"),
+  "access_level" text NOT NULL DEFAULT 'viewer',
+  "status" text NOT NULL DEFAULT 'active',
+  "created_at" timestamptz NOT NULL DEFAULT now(),
+  "updated_at" timestamptz NOT NULL DEFAULT now()
+);
+
+DO $$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_indexes WHERE tablename = 'tenant_user_access' AND indexname = 'tenant_user_access_user_tenant_site_idx'
+  ) THEN
+    CREATE INDEX tenant_user_access_user_tenant_site_idx ON "tenant_user_access" ("user_id", "tenant_id", "site_id");
+  END IF;
+END $$;
+
+-- 4. Buat tabel otp_tokens
+CREATE TABLE IF NOT EXISTS "otp_tokens" (
+  "id" serial PRIMARY KEY NOT NULL,
+  "phone_number" text NOT NULL,
+  "otp_hash" text NOT NULL,
+  "expires_at" timestamptz NOT NULL,
+  "attempts" integer NOT NULL DEFAULT 0,
+  "used_at" timestamptz,
+  "created_at" timestamptz NOT NULL DEFAULT now()
+);
+
+DO $$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_indexes WHERE tablename = 'otp_tokens' AND indexname = 'otp_tokens_phone_idx'
+  ) THEN
+    CREATE INDEX otp_tokens_phone_idx ON "otp_tokens" ("phone_number");
+  END IF;
+END $$;
+    `.trim(),
+  },
 ];
 
 const MIGRATIONS_TABLE = "schema_migrations";

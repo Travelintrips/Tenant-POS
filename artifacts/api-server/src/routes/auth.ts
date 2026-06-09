@@ -1,13 +1,14 @@
 import { Router, type IRouter } from "express";
 import passport from "../lib/auth";
 import { db } from "@workspace/db";
-import { usersTable, USER_ROLES, type UserRole } from "@workspace/db/schema";
-import { eq, asc } from "drizzle-orm";
-import { findOrCreateUser } from "../lib/auth";
+import { usersTable, USER_ROLES, type UserRole, tenantUserAccessTable, mallSitesTable, tenantsTable } from "@workspace/db/schema";
+import { eq, asc, and } from "drizzle-orm";
+import { findOrCreateUser, buildSessionUser, getTenantAccess } from "../lib/auth";
 import { requireAnyRole, requireAuth } from "../middlewares/auth";
 import { logAudit } from "../lib/audit";
 import { logger } from "../lib/logger";
 import { devLoginRateLimiter, googleAuthRateLimiter, authMeRateLimiter } from "../middlewares/rate-limit";
+import { normalizePhoneNumber } from "../services/otp-service";
 
 const router: IRouter = Router();
 
@@ -27,6 +28,41 @@ if (DEV_LOGIN_ENABLED) {
     const { role } = req.body as { role?: string; email?: string; name?: string };
 
     const effectiveRole: UserRole = (USER_ROLES.includes(role as UserRole) ? role : "admin") as UserRole;
+
+    if (effectiveRole === "tenant_user") {
+      const phoneNumber = (req.body as any).phoneNumber as string | undefined;
+      const normalized = normalizePhoneNumber(phoneNumber ?? "628000000001");
+      const name = (req.body as any).name ?? "Dev Tenant User";
+
+      let [existing] = await db
+        .select()
+        .from(usersTable)
+        .where(eq(usersTable.phoneNumber, normalized));
+
+      if (!existing) {
+        const [created] = await db
+          .insert(usersTable)
+          .values({ name, phoneNumber: normalized, role: "tenant_user", status: "active" })
+          .returning();
+        existing = created;
+
+        const [site] = await db.select().from(mallSitesTable).limit(1);
+        const [tenant] = await db.select().from(tenantsTable).limit(1);
+        if (site && tenant) {
+          await db
+            .insert(tenantUserAccessTable)
+            .values({ userId: existing.id, tenantId: tenant.id, siteId: site.id, accessLevel: "viewer", status: "active" })
+            .onConflictDoNothing();
+        }
+      }
+
+      const sessionUser = await buildSessionUser({ ...existing, phoneNumber: existing.phoneNumber ?? null });
+      req.login(sessionUser, (err) => {
+        if (err) { res.status(500).json({ error: "Login gagal" }); return; }
+        res.json(sessionUser);
+      });
+      return;
+    }
 
     const preset = DEV_ROLE_EMAILS[effectiveRole] ?? {
       email: req.body.email ?? `dev-${effectiveRole}@mall.local`,
@@ -50,14 +86,7 @@ if (DEV_LOGIN_ENABLED) {
         dbUser.role = effectiveRole;
       }
 
-      const sessionUser: Express.User = {
-        id: `dev:${preset.email}`,
-        dbId: dbUser.id,
-        email: dbUser.email,
-        name: dbUser.name,
-        avatar: dbUser.avatarUrl,
-        role: dbUser.role,
-      };
+      const sessionUser = await buildSessionUser(dbUser, `dev:${preset.email}`);
 
       logger.info({ role: sessionUser.role, email: sessionUser.email }, "[dev-login] user siap, memanggil req.login");
 
@@ -98,19 +127,29 @@ router.get(
   },
 );
 
-router.get("/auth/me", authMeRateLimiter, (req, res) => {
+router.get("/auth/me", authMeRateLimiter, async (req, res) => {
   logger.info({ isAuthenticated: req.isAuthenticated(), hasUser: !!req.user }, "[auth/me] dipanggil");
   if (!req.isAuthenticated() || !req.user) {
     res.status(401).json({ error: "Tidak terautentikasi" });
     return;
   }
+  const user = req.user;
+
+  let tenantAccess = user.tenantAccess;
+  if (user.role === "tenant_user" && !tenantAccess) {
+    tenantAccess = await getTenantAccess(user.dbId);
+  }
+
   res.json({
-    id: req.user.id,
-    dbId: req.user.dbId,
-    email: req.user.email,
-    name: req.user.name,
-    avatar: req.user.avatar,
-    role: req.user.role,
+    id: user.id,
+    dbId: user.dbId,
+    email: user.email ?? null,
+    name: user.name,
+    phoneNumber: user.phoneNumber ?? null,
+    avatar: user.avatar,
+    role: user.role,
+    allowedSites: user.allowedSites ?? [],
+    ...(user.role === "tenant_user" ? { tenantAccess: tenantAccess ?? [] } : {}),
   });
 });
 
@@ -128,6 +167,8 @@ router.get("/users", requireAuth, requireAnyRole("owner", "admin"), async (_req,
         email: usersTable.email,
         name: usersTable.name,
         role: usersTable.role,
+        phoneNumber: usersTable.phoneNumber,
+        status: usersTable.status,
         avatarUrl: usersTable.avatarUrl,
         createdAt: usersTable.createdAt,
         updatedAt: usersTable.updatedAt,

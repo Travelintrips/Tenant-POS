@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 
-export const USER_ROLES = ["owner", "admin", "finance", "cashier"] as const;
+export const USER_ROLES = ["owner", "admin", "finance", "cashier", "tenant_user"] as const;
 export type UserRole = (typeof USER_ROLES)[number];
 
 export const ROLE_LABELS: Record<UserRole, string> = {
@@ -8,15 +8,27 @@ export const ROLE_LABELS: Record<UserRole, string> = {
   admin: "Admin",
   finance: "Keuangan",
   cashier: "Kasir",
+  tenant_user: "Tenant",
 };
+
+export interface TenantAccessEntry {
+  tenantId: number;
+  siteId: number;
+  accessLevel: string;
+  tenantName?: string;
+  siteName?: string;
+}
 
 export interface AuthUser {
   id: string;
   dbId: number;
-  email: string;
+  email: string | null;
   name: string;
+  phoneNumber: string | null;
   avatar: string | null;
   role: UserRole;
+  allowedSites?: number[];
+  tenantAccess?: TenantAccessEntry[];
 }
 
 export function useAuth() {
@@ -53,4 +65,8 @@ export function useLogout() {
 export function hasRole(user: AuthUser | null | undefined, ...roles: UserRole[]): boolean {
   if (!user) return false;
   return roles.includes(user.role);
+}
+
+export function isAdminRole(user: AuthUser | null | undefined): boolean {
+  return hasRole(user, "owner", "admin", "finance", "cashier");
 }
