@@ -33,6 +33,8 @@ export const tenantInvoicesTable = pgTable("tenant_invoices", {
   outstandingAmount: numeric("outstanding_amount").notNull().default("0"),
   status: text("status").notNull().default("draft"),
   notes: text("notes"),
+  paymentToken: text("payment_token"),
+  lastOverdueReminderAt: timestamp("last_overdue_reminder_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });

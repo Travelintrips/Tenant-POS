@@ -18,6 +18,8 @@ import TenantInvoices from "@/pages/tenant-invoices";
 import AuditLogs from "@/pages/audit-logs";
 import CompareSites from "@/pages/compare-sites";
 import TenantPortal from "@/pages/tenant-portal";
+import TinjauPembayaran from "@/pages/tinjau-pembayaran";
+import PaymentProofUpload from "@/pages/payment-proof-upload";
 
 const queryClient = new QueryClient();
 
@@ -69,6 +71,9 @@ function Router() {
       </Route>
       <Route path="/tenant-portal">
         <TenantPortal />
+      </Route>
+      <Route path="/bayar/:token">
+        <PaymentProofUpload />
       </Route>
       <Route path="/">
         {() => {
@@ -128,6 +133,13 @@ function Router() {
         <AuthGuard roles={["owner", "admin", "finance"]}>
           <SidebarLayout>
             <CompareSites />
+          </SidebarLayout>
+        </AuthGuard>
+      </Route>
+      <Route path="/tinjau-pembayaran">
+        <AuthGuard roles={["owner", "admin", "finance"]}>
+          <SidebarLayout>
+            <TinjauPembayaran />
           </SidebarLayout>
         </AuthGuard>
       </Route>

@@ -786,6 +786,59 @@ END $$;
     `.trim(),
   },
   {
+    name: "0016_payment_proof_approval",
+    sql: `
+-- Tambah payment_token ke tenant_invoices (link publik untuk upload bukti)
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='tenant_invoices' AND column_name='payment_token') THEN
+    ALTER TABLE "tenant_invoices" ADD COLUMN "payment_token" text;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='tenant_invoices' AND column_name='last_overdue_reminder_at') THEN
+    ALTER TABLE "tenant_invoices" ADD COLUMN "last_overdue_reminder_at" timestamptz;
+  END IF;
+END $$;
+
+-- Isi payment_token untuk invoice yang sudah ada (gunakan gen_random_uuid)
+UPDATE "tenant_invoices" SET payment_token = gen_random_uuid()::text WHERE payment_token IS NULL;
+
+-- Set default untuk row baru
+DO $$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name='tenant_invoices' AND column_name='payment_token'
+    AND column_default IS NOT NULL
+  ) THEN
+    ALTER TABLE "tenant_invoices" ALTER COLUMN "payment_token" SET DEFAULT gen_random_uuid()::text;
+  END IF;
+END $$;
+
+-- Unique index untuk payment_token
+DO $$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_indexes WHERE tablename = 'tenant_invoices' AND indexname = 'tenant_invoices_payment_token_uq'
+  ) THEN
+    CREATE UNIQUE INDEX tenant_invoices_payment_token_uq ON "tenant_invoices" ("payment_token") WHERE payment_token IS NOT NULL;
+  END IF;
+END $$;
+
+-- Tambah kolom approval ke tenant_payments
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='tenant_payments' AND column_name='approval_status') THEN
+    ALTER TABLE "tenant_payments" ADD COLUMN "approval_status" text NOT NULL DEFAULT 'approved';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='tenant_payments' AND column_name='rejection_reason') THEN
+    ALTER TABLE "tenant_payments" ADD COLUMN "rejection_reason" text;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='tenant_payments' AND column_name='approved_by') THEN
+    ALTER TABLE "tenant_payments" ADD COLUMN "approved_by" text;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='tenant_payments' AND column_name='approved_at') THEN
+    ALTER TABLE "tenant_payments" ADD COLUMN "approved_at" timestamptz;
+  END IF;
+END $$;
+    `.trim(),
+  },
+  {
     name: "0015_role_enum_to_text",
     sql: `
 -- Konversi kolom role dari ENUM ke text agar semua nilai role bisa disimpan.

@@ -14,7 +14,7 @@ import {
   SidebarInset,
   SidebarTrigger
 } from "@/components/ui/sidebar";
-import { Building2, Store, CalendarRange, Calculator, BarChart3, LogOut, FileText, Shield, ChevronDown, GitCompare, Dumbbell, MapPin, Check, Layers } from "lucide-react";
+import { Building2, Store, CalendarRange, Calculator, BarChart3, LogOut, FileText, Shield, ChevronDown, GitCompare, Dumbbell, MapPin, Check, Layers, ClipboardCheck } from "lucide-react";
 import { Separator } from "@/components/ui/separator";
 import { useAuth, useLogout, ROLE_LABELS, type UserRole } from "@/hooks/use-auth";
 import { Button } from "@/components/ui/button";
@@ -28,6 +28,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useSite, type MallSite, ALL_SITES_SENTINEL } from "@/contexts/site-context";
+import { useQuery } from "@tanstack/react-query";
 
 const ROLE_COLORS: Record<UserRole, string> = {
   owner:       "bg-purple-100 text-purple-800",
@@ -95,6 +96,18 @@ export function SidebarLayout({ children }: { children: React.ReactNode }) {
 
   const role = user?.role as UserRole | undefined;
   const can = (...roles: UserRole[]) => !!role && roles.includes(role);
+
+  const { data: pendingCount = 0 } = useQuery<number>({
+    queryKey: ["pending-payments-sidebar-count"],
+    queryFn: async () => {
+      const res = await fetch("/api/pending-payments/count");
+      if (!res.ok) return 0;
+      const d = await res.json();
+      return d.count ?? 0;
+    },
+    refetchInterval: 30_000,
+    enabled: can("owner", "admin", "finance"),
+  });
   const grouped = groupSites(sites);
 
   return (
@@ -253,6 +266,27 @@ export function SidebarLayout({ children }: { children: React.ReactNode }) {
                       <Link href="/tenant-invoices">
                         <FileText className="mr-2 h-4 w-4" />
                         <span>Invoice Tenant</span>
+                      </Link>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                )}
+                {can("owner", "admin", "finance") && (
+                  <SidebarMenuItem>
+                    <SidebarMenuButton
+                      asChild
+                      isActive={location === "/tinjau-pembayaran"}
+                      data-testid="nav-tinjau-pembayaran"
+                    >
+                      <Link href="/tinjau-pembayaran" className="flex items-center justify-between w-full">
+                        <span className="flex items-center">
+                          <ClipboardCheck className="mr-2 h-4 w-4" />
+                          <span>Tinjau Pembayaran</span>
+                        </span>
+                        {pendingCount > 0 && (
+                          <Badge className="ml-auto h-5 min-w-5 text-[10px] bg-amber-500 hover:bg-amber-500 text-white px-1.5 border-0">
+                            {pendingCount}
+                          </Badge>
+                        )}
                       </Link>
                     </SidebarMenuButton>
                   </SidebarMenuItem>

@@ -32,6 +32,7 @@ router.post("/whatsapp/invoice/:id/send", async (req, res) => {
         totalAmount: tenantInvoicesTable.totalAmount,
         status: tenantInvoicesTable.status,
         tenantId: tenantInvoicesTable.tenantId,
+        paymentToken: tenantInvoicesTable.paymentToken,
         ownerName: tenantsTable.ownerName,
         businessName: tenantsTable.businessName,
         phone: tenantsTable.phone,
@@ -51,6 +52,14 @@ router.post("/whatsapp/invoice/:id/send", async (req, res) => {
       ? new Date(invoice.dueDate).toLocaleDateString("id-ID", { day: "numeric", month: "long", year: "numeric" })
       : "-";
 
+    const appDomain =
+      process.env.REPLIT_DEV_DOMAIN ??
+      process.env.REPLIT_DOMAINS?.split(",")[0] ??
+      process.env.APP_URL;
+    const paymentLink = invoice.paymentToken && appDomain
+      ? `https://${appDomain}/bayar/${invoice.paymentToken}`
+      : undefined;
+
     const result = await sendInvoiceNotification({
       ownerName: invoice.ownerName,
       businessName: invoice.businessName,
@@ -59,6 +68,7 @@ router.post("/whatsapp/invoice/:id/send", async (req, res) => {
       totalAmount: invoice.totalAmount,
       dueDate: dueStr,
       phone: invoice.phone,
+      paymentLink,
     });
 
     if (result.skipped) {
