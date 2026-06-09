@@ -7,8 +7,11 @@ import {
 } from "@workspace/db/schema";
 import { eq, sql, desc, and, gte, lt, lte } from "drizzle-orm";
 import { z } from "zod";
+import { requireAnyRole } from "../middlewares/auth";
 
 const router: IRouter = Router();
+
+router.use(requireAnyRole("owner", "admin", "finance"));
 
 const BULAN_LABEL = ["Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Ags", "Sep", "Okt", "Nov", "Des"];
 
