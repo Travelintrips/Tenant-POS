@@ -94,8 +94,8 @@ export async function createTestInvoice(
 ) {
   const now = new Date();
   const yyyymm = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}`;
-  const seq = String(ids.invoices.size + 1).padStart(5, "0");
-  const invoiceNumber = `INV-TEST/${yyyymm}/${seq}-${RUN_ID.slice(0, 4)}`;
+  const unique = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+  const invoiceNumber = `INV-TEST/${yyyymm}/${unique}`;
 
   const due = new Date(now);
   due.setDate(due.getDate() + 30);
