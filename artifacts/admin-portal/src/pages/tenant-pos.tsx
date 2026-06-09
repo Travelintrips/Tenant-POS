@@ -1056,8 +1056,8 @@ function DetailPanel({ item, onClose, onProses, onBayarInvoice, currentShiftId }
   onBayarInvoice: (item: FloorPlanItem, invoice: TenantInvoice) => void;
   currentShiftId: number | null;
 }) {
-  const { user } = useAuth();
-  const canVoidRefund = !!user && ["owner", "admin", "finance"].includes((user as any).role ?? "");
+  const { data: user } = useAuth();
+  const canVoidRefund = !!user && ["owner", "admin", "finance"].includes(user.role);
   const paymentHistory = usePaymentHistory(item?.bookingId ?? null);
   const tenantInvoices = useTenantInvoices(item?.tenantId ?? null);
   const [receiptPaymentId, setReceiptPaymentId] = useState<number | null>(null);
@@ -1313,9 +1313,15 @@ function ModalPembayaran({ item, invoice, shiftId, cashierName, onClose, onSucce
   const nominalNum = parseInt(nominal.replace(/\D/g, "")) || 0;
   const diskonNum  = parseInt(diskon.replace(/\D/g, ""))  || 0;
   const dendaNum   = parseInt(denda.replace(/\D/g, ""))   || 0;
-  const finalBill  = item.totalAmount - diskonNum + dendaNum;
-  const sisaSetelah = Math.max(finalBill - item.paidAmount - nominalNum, 0);
-  const kembalian  = Math.max(item.paidAmount + nominalNum - finalBill, 0);
+  const finalBill  = invoice
+    ? invoice.outstandingAmount - diskonNum + dendaNum
+    : item.totalAmount - diskonNum + dendaNum;
+  const sisaSetelah = invoice
+    ? Math.max(finalBill - nominalNum, 0)
+    : Math.max(finalBill - item.paidAmount - nominalNum, 0);
+  const kembalian  = invoice
+    ? Math.max(nominalNum - finalBill, 0)
+    : Math.max(item.paidAmount + nominalNum - finalBill, 0);
   const isOverdue  = item.paymentStatus === "OVERDUE";
   const metodeLabel = METODE_OPTIONS.find((m) => m.value === metode)?.label ?? metode;
   const errNominal = nominalNum <= 0 ? "Nominal harus lebih dari 0" : "";
@@ -1713,7 +1719,7 @@ function DailyReportModal({ onClose }: { onClose: () => void }) {
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function TenantPos() {
-  const { user } = useAuth();
+  const { data: user } = useAuth();
   const [selected, setSelected] = useState<FloorPlanItem | null>(null);
   const [modalItem, setModalItem] = useState<FloorPlanItem | null>(null);
   const [modalInvoice, setModalInvoice] = useState<TenantInvoice | null>(null);

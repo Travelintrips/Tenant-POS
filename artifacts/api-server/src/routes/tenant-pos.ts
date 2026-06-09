@@ -28,9 +28,9 @@ async function generateReceiptNumber(): Promise<string> {
   return `${prefix}${seq}`;
 }
 
-function getSessionUser(req: any): { role: string; name: string; id?: number } | null {
+function getSessionUser(req: any): { role: string; name: string; id?: string; dbId?: number } | null {
   if (req.user && typeof req.user === "object") {
-    return req.user as { role: string; name: string; id?: number };
+    return req.user as { role: string; name: string; id?: string; dbId?: number };
   }
   return null;
 }
@@ -186,7 +186,7 @@ router.get("/tenant-pos/tenants/:tenantId/invoices", async (req, res) => {
       .where(
         and(
           eq(tenantInvoicesTable.tenantId, tenantId),
-          sql`${tenantInvoicesTable.status} IN ('unpaid', 'partial', 'overdue', 'paid')`
+          sql`${tenantInvoicesTable.status} IN ('unpaid', 'partial', 'overdue')`
         )
       )
       .orderBy(tenantInvoicesTable.dueDate, tenantInvoicesTable.id);
@@ -359,11 +359,26 @@ router.post("/tenant-pos/payments", async (req, res) => {
           )
         );
 
+      // Fetch invoice BEFORE insert to compute change correctly
+      let preInsertInvoice: typeof tenantInvoicesTable.$inferSelect | null = null;
+      if (invoiceId) {
+        const [inv] = await tx
+          .select()
+          .from(tenantInvoicesTable)
+          .where(eq(tenantInvoicesTable.id, invoiceId))
+          .for("update");
+        preInsertInvoice = inv ?? null;
+      }
+
       const previousPaidAmount = prevPaid?.total ?? 0;
       const finalBill = Number(booking.totalAmount) - discountAmount + penaltyAmount;
       const newPaidAmount = previousPaidAmount + amountPaid;
       const remainingAmount = Math.max(finalBill - newPaidAmount, 0);
-      const change = Math.max(newPaidAmount - finalBill, 0);
+      // When paying a specific invoice, change is relative to invoice outstanding
+      const effectiveBill = preInsertInvoice
+        ? Number(preInsertInvoice.outstandingAmount) - discountAmount + penaltyAmount
+        : finalBill;
+      const change = Math.max(amountPaid - effectiveBill, 0);
 
       let paymentStatus: "PAID" | "PARTIAL" | "UNPAID";
       if (newPaidAmount >= finalBill) paymentStatus = "PAID";
@@ -406,40 +421,32 @@ router.post("/tenant-pos/payments", async (req, res) => {
         .where(eq(tenantBookingsTable.id, bookingId))
         .returning();
 
-      if (invoiceId) {
-        const [invoice] = await tx
-          .select()
-          .from(tenantInvoicesTable)
-          .where(eq(tenantInvoicesTable.id, invoiceId))
-          .for("update");
+      if (invoiceId && preInsertInvoice) {
+        const [prevInvPaid] = await tx
+          .select({ total: sql<number>`coalesce(sum(amount::numeric), 0)::int` })
+          .from(tenantPaymentsTable)
+          .where(
+            and(
+              eq(tenantPaymentsTable.invoiceId, invoiceId),
+              eq(tenantPaymentsTable.isVoided, false)
+            )
+          );
 
-        if (invoice) {
-          const [prevInvPaid] = await tx
-            .select({ total: sql<number>`coalesce(sum(amount::numeric), 0)::int` })
-            .from(tenantPaymentsTable)
-            .where(
-              and(
-                eq(tenantPaymentsTable.invoiceId, invoiceId),
-                eq(tenantPaymentsTable.isVoided, false)
-              )
-            );
+        // prevInvPaid already includes the newly inserted payment (same tx)
+        const invoicePaid = prevInvPaid?.total ?? 0;
+        const invTotal = Number(preInsertInvoice.totalAmount);
+        const invOutstanding = Math.max(invTotal - invoicePaid, 0);
+        const invStatus = invoicePaid >= invTotal ? "paid" : invoicePaid > 0 ? "partial" : "unpaid";
 
-          // prevInvPaid already includes the newly inserted payment (same tx)
-          const invoicePaid = prevInvPaid?.total ?? 0;
-          const invTotal = Number(invoice.totalAmount);
-          const invOutstanding = Math.max(invTotal - invoicePaid, 0);
-          const invStatus = invoicePaid >= invTotal ? "paid" : invoicePaid > 0 ? "partial" : "unpaid";
-
-          await tx
-            .update(tenantInvoicesTable)
-            .set({
-              paidAmount: String(invoicePaid),
-              outstandingAmount: String(invOutstanding),
-              status: invStatus,
-              updatedAt: new Date(),
-            })
-            .where(eq(tenantInvoicesTable.id, invoiceId));
-        }
+        await tx
+          .update(tenantInvoicesTable)
+          .set({
+            paidAmount: String(invoicePaid),
+            outstandingAmount: String(invOutstanding),
+            status: invStatus,
+            updatedAt: new Date(),
+          })
+          .where(eq(tenantInvoicesTable.id, invoiceId));
       }
 
       if (shiftId && paymentMethod === "tunai") {
