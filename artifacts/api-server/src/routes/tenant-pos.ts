@@ -29,7 +29,10 @@ async function generateReceiptNumber(): Promise<string> {
 }
 
 function getSessionUser(req: any): { role: string; name: string; id?: number } | null {
-  return (req.session as any)?.user ?? null;
+  if (req.user && typeof req.user === "object") {
+    return req.user as { role: string; name: string; id?: number };
+  }
+  return null;
 }
 
 // ─── GET /api/tenant-pos/overview ────────────────────────────────────────────
@@ -824,7 +827,18 @@ router.post("/tenant-pos/shifts/:id/close", async (req, res) => {
 
     if (!shift) { res.status(404).json({ error: "Shift tidak ditemukan atau sudah ditutup" }); return; }
 
-    const expectedCash = Number(shift.expectedCash);
+    // Recompute expected cash from non-voided cash payments in this shift
+    const [cashSum] = await db
+      .select({ total: sql<string>`coalesce(sum(amount::numeric), 0)` })
+      .from(tenantPaymentsTable)
+      .where(
+        and(
+          eq(tenantPaymentsTable.shiftId, shiftId),
+          eq(tenantPaymentsTable.isVoided, false),
+          sql`lower(${tenantPaymentsTable.paymentMethod}) = 'tunai'`,
+        ),
+      );
+    const expectedCash = Number(cashSum?.total ?? "0");
     const actualCash = parsed.data.actualCash;
     const cashDifference = actualCash - expectedCash;
 
@@ -901,6 +915,62 @@ router.get("/tenant-pos/daily-report", async (req, res) => {
   } catch (err) {
     req.log.error(err, "Failed to get daily report");
     res.status(500).json({ error: "Gagal mengambil laporan harian" });
+  }
+});
+
+// ─── GET /api/tenant-pos/shifts/:id/report ───────────────────────────────────
+router.get("/tenant-pos/shifts/:id/report", async (req, res) => {
+  const shiftId = Number(req.params.id);
+  if (isNaN(shiftId)) { res.status(400).json({ error: "ID tidak valid" }); return; }
+
+  try {
+    const [shift] = await db
+      .select()
+      .from(cashierShiftsTable)
+      .where(eq(cashierShiftsTable.id, shiftId));
+
+    if (!shift) { res.status(404).json({ error: "Shift tidak ditemukan" }); return; }
+
+    const payments = await db
+      .select({
+        id: tenantPaymentsTable.id,
+        amount: tenantPaymentsTable.amount,
+        paymentMethod: tenantPaymentsTable.paymentMethod,
+        receiptNumber: tenantPaymentsTable.receiptNumber,
+        referenceNumber: tenantPaymentsTable.referenceNumber,
+        paidAt: tenantPaymentsTable.paidAt,
+        isVoided: tenantPaymentsTable.isVoided,
+        businessName: tenantsTable.businessName,
+        boothNumber: tenantsTable.boothNumber,
+      })
+      .from(tenantPaymentsTable)
+      .leftJoin(tenantBookingsTable, eq(tenantPaymentsTable.bookingId, tenantBookingsTable.id))
+      .leftJoin(tenantsTable, eq(tenantBookingsTable.tenantId, tenantsTable.id))
+      .where(eq(tenantPaymentsTable.shiftId, shiftId))
+      .orderBy(tenantPaymentsTable.paidAt);
+
+    const valid = payments.filter((p) => !p.isVoided);
+    const totalAmount = valid.reduce((sum, p) => sum + Number(p.amount), 0);
+    const byMethod: Record<string, number> = {};
+    for (const p of valid) {
+      byMethod[p.paymentMethod ?? "other"] = (byMethod[p.paymentMethod ?? "other"] ?? 0) + Number(p.amount);
+    }
+    const expectedCash = valid
+      .filter((p) => (p.paymentMethod ?? "").toLowerCase() === "tunai")
+      .reduce((sum, p) => sum + Number(p.amount), 0);
+
+    res.json({
+      shift,
+      totalAmount,
+      totalCount: valid.length,
+      voidedCount: payments.filter((p) => p.isVoided).length,
+      byMethod,
+      expectedCash,
+      payments: payments.map((p) => ({ ...p, amount: Number(p.amount) })),
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Gagal mengambil laporan shift" });
   }
 });
 

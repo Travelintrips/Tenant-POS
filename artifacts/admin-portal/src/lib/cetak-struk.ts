@@ -80,6 +80,14 @@ export function cetakStrukPDF(data: DataStruk) {
       font-weight: bold;
       margin: 4px 0;
     }
+    .change-row {
+      display: flex;
+      justify-content: space-between;
+      font-size: 13px;
+      font-weight: bold;
+      margin: 4px 0;
+      color: #1d4ed8;
+    }
     .badge {
       display: inline-block;
       padding: 2px 8px;
@@ -150,6 +158,8 @@ export function cetakStrukPDF(data: DataStruk) {
     <span class="label">Kasir</span>
     <span class="value">${data.kasir}</span>
   </div>
+  ${data.invoiceNumber ? `<div class="row"><span class="label">No. Invoice</span><span class="value">${data.invoiceNumber}</span></div>` : ""}
+  ${data.referenceNumber ? `<div class="row"><span class="label">No. Referensi</span><span class="value">${data.referenceNumber}</span></div>` : ""}
 
   <hr class="divider" />
 
@@ -184,6 +194,8 @@ export function cetakStrukPDF(data: DataStruk) {
     <span class="label">Sewa/Bulan</span>
     <span class="value">${formatRp(data.sewaBulanan)}</span>
   </div>
+  ${data.diskon && data.diskon > 0 ? `<div class="row"><span class="label">Diskon</span><span class="value" style="color:#16a34a;">- ${formatRp(data.diskon)}</span></div>` : ""}
+  ${data.denda && data.denda > 0 ? `<div class="row"><span class="label">Denda</span><span class="value" style="color:#dc2626;">+ ${formatRp(data.denda)}</span></div>` : ""}
   <div class="row">
     <span class="label">Metode</span>
     <span class="value">${data.metodeBayar}</span>
@@ -195,6 +207,14 @@ export function cetakStrukPDF(data: DataStruk) {
     <span>TOTAL BAYAR</span>
     <span>${formatRp(data.jumlahBayar)}</span>
   </div>
+
+  ${data.kembalian && data.kembalian > 0 ? `
+  <hr class="divider" />
+  <div class="change-row">
+    <span>KEMBALIAN</span>
+    <span>${formatRp(data.kembalian)}</span>
+  </div>
+  ` : ""}
 
   <hr class="divider-solid" />
 
