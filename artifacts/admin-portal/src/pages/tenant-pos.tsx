@@ -1287,10 +1287,11 @@ function DetailPanel({ item, onClose, onProses, onBayarInvoice, currentShiftId }
 
 // ─── Modal Pembayaran ─────────────────────────────────────────────────────────
 
-function ModalPembayaran({ item, invoice, shiftId, onClose, onSuccess }: {
+function ModalPembayaran({ item, invoice, shiftId, cashierName, onClose, onSuccess }: {
   item: FloorPlanItem;
   invoice?: TenantInvoice | null;
   shiftId?: number | null;
+  cashierName?: string;
   onClose: () => void;
   onSuccess: (updatedItem: { paidAmount: number; remainingAmount: number; paymentStatus: string }) => void;
 }) {
@@ -1411,7 +1412,7 @@ function ModalPembayaran({ item, invoice, shiftId, onClose, onSuccess }: {
                 sewaBulanan: item.totalAmount,
                 jumlahBayar: nominalNum,
                 metodeBayar: metodeLabel,
-                kasir: "Admin",
+                kasir: cashierName ?? "Kasir",
                 status: isOverdue ? "tunggakan" : "lunas",
                 invoiceNumber: invoice?.invoiceNumber,
                 referenceNumber: referenceNumber || undefined,
@@ -2043,6 +2044,7 @@ export default function TenantPos() {
           item={modalItem}
           invoice={modalInvoice}
           shiftId={currentShift.data?.id ?? null}
+          cashierName={currentShift.data?.cashierName ?? undefined}
           onClose={() => { setModalItem(null); setModalInvoice(null); }}
           onSuccess={(updated) => {
             if (selected?.id === modalItem.id) {

@@ -424,7 +424,8 @@ router.post("/tenant-pos/payments", async (req, res) => {
               )
             );
 
-          const invoicePaid = (prevInvPaid?.total ?? 0) + amountPaid;
+          // prevInvPaid already includes the newly inserted payment (same tx)
+          const invoicePaid = prevInvPaid?.total ?? 0;
           const invTotal = Number(invoice.totalAmount);
           const invOutstanding = Math.max(invTotal - invoicePaid, 0);
           const invStatus = invoicePaid >= invTotal ? "paid" : invoicePaid > 0 ? "partial" : "unpaid";
