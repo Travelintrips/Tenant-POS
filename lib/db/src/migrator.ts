@@ -407,6 +407,91 @@ BEGIN
 END $$;
     `.trim(),
   },
+  {
+    name: "0005_pos_kasir_upgrade",
+    sql: `
+-- Buat tabel cashier_shifts
+CREATE TABLE IF NOT EXISTS "cashier_shifts" (
+  "id" serial PRIMARY KEY NOT NULL,
+  "cashier_name" text NOT NULL,
+  "cashier_id" integer,
+  "opened_at" timestamptz NOT NULL DEFAULT now(),
+  "closed_at" timestamptz,
+  "expected_cash" numeric NOT NULL DEFAULT '0',
+  "actual_cash" numeric,
+  "cash_difference" numeric,
+  "notes" text,
+  "status" text NOT NULL DEFAULT 'open',
+  "created_at" timestamptz NOT NULL DEFAULT now(),
+  "updated_at" timestamptz NOT NULL DEFAULT now()
+);
+
+-- Tambah kolom baru ke tenant_payments
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='tenant_payments' AND column_name='is_voided') THEN
+    ALTER TABLE "tenant_payments" ADD COLUMN "is_voided" boolean NOT NULL DEFAULT false;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='tenant_payments' AND column_name='voided_at') THEN
+    ALTER TABLE "tenant_payments" ADD COLUMN "voided_at" timestamptz;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='tenant_payments' AND column_name='void_reason') THEN
+    ALTER TABLE "tenant_payments" ADD COLUMN "void_reason" text;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='tenant_payments' AND column_name='voided_by') THEN
+    ALTER TABLE "tenant_payments" ADD COLUMN "voided_by" text;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='tenant_payments' AND column_name='reference_number') THEN
+    ALTER TABLE "tenant_payments" ADD COLUMN "reference_number" text;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='tenant_payments' AND column_name='proof_url') THEN
+    ALTER TABLE "tenant_payments" ADD COLUMN "proof_url" text;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='tenant_payments' AND column_name='shift_id') THEN
+    ALTER TABLE "tenant_payments" ADD COLUMN "shift_id" integer;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='tenant_payments' AND column_name='refund_amount') THEN
+    ALTER TABLE "tenant_payments" ADD COLUMN "refund_amount" numeric NOT NULL DEFAULT '0';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='tenant_payments' AND column_name='refund_reason') THEN
+    ALTER TABLE "tenant_payments" ADD COLUMN "refund_reason" text;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='tenant_payments' AND column_name='refund_status') THEN
+    ALTER TABLE "tenant_payments" ADD COLUMN "refund_status" text;
+  END IF;
+END $$;
+
+-- Tambah kolom receipt_number ke tenant_payments jika belum ada
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='tenant_payments' AND column_name='receipt_number') THEN
+    ALTER TABLE "tenant_payments" ADD COLUMN "receipt_number" text;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='tenant_payments' AND column_name='payment_method') THEN
+    ALTER TABLE "tenant_payments" ADD COLUMN "payment_method" text NOT NULL DEFAULT 'tunai';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='tenant_payments' AND column_name='payment_status') THEN
+    ALTER TABLE "tenant_payments" ADD COLUMN "payment_status" text NOT NULL DEFAULT 'PAID';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='tenant_payments' AND column_name='booking_id') THEN
+    ALTER TABLE "tenant_payments" ADD COLUMN "booking_id" integer;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='tenant_payments' AND column_name='tenant_id') THEN
+    ALTER TABLE "tenant_payments" ADD COLUMN "tenant_id" integer;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='tenant_payments' AND column_name='discount_amount') THEN
+    ALTER TABLE "tenant_payments" ADD COLUMN "discount_amount" numeric NOT NULL DEFAULT '0';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='tenant_payments' AND column_name='penalty_amount') THEN
+    ALTER TABLE "tenant_payments" ADD COLUMN "penalty_amount" numeric NOT NULL DEFAULT '0';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='tenant_payments' AND column_name='paid_at') THEN
+    ALTER TABLE "tenant_payments" ADD COLUMN "paid_at" timestamptz;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='tenant_payments' AND column_name='invoice_id') THEN
+    ALTER TABLE "tenant_payments" ADD COLUMN "invoice_id" integer;
+  END IF;
+END $$;
+    `.trim(),
+  },
 ];
 
 const MIGRATIONS_TABLE = "schema_migrations";

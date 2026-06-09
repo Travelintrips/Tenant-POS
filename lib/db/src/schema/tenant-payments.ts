@@ -1,4 +1,4 @@
-import { pgTable, serial, integer, text, numeric, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, serial, integer, text, numeric, timestamp, boolean } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
@@ -24,6 +24,16 @@ export const tenantPaymentsTable = pgTable("tenant_payments", {
   status: text("status").notNull().default("PAID"),
   paymentStatus: text("payment_status").notNull().default("PAID"),
   paidAt: timestamp("paid_at", { withTimezone: true }),
+  isVoided: boolean("is_voided").notNull().default(false),
+  voidedAt: timestamp("voided_at", { withTimezone: true }),
+  voidReason: text("void_reason"),
+  voidedBy: text("voided_by"),
+  referenceNumber: text("reference_number"),
+  proofUrl: text("proof_url"),
+  shiftId: integer("shift_id"),
+  refundAmount: numeric("refund_amount").notNull().default("0"),
+  refundReason: text("refund_reason"),
+  refundStatus: text("refund_status"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
