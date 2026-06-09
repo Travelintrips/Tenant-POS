@@ -1,0 +1,339 @@
+Saya ingin mengubah sistem login Google menjadi login dengan nomor WhatsApp, dan menambahkan akun pengguna tenant.
+
+Kondisi saat ini:
+- Login page masih ada tombol “Masuk dengan Google”
+- Dev login owner/admin/finance/cashier sudah berjalan
+- Role saat ini: owner, admin, finance, cashier
+- Sistem sudah multi-site:
+  1. Sport Center Bandara
+  2. TOD M1 Bandara
+- Data tenant, booking, invoice, payment, laporan sudah ada
+- Ada table tenants untuk penyewa/kios
+- Saya ingin tenant/penyewa bisa login dan hanya melihat datanya sendiri
+
+Tujuan:
+1. Ganti login Google menjadi login dengan nomor WhatsApp.
+2. Tambahkan role baru tenant_user.
+3. Tenant user hanya bisa melihat data milik tenant yang terhubung dengan akunnya.
+4. Admin tetap bisa membuat/mengelola akun tenant.
+5. Jangan merusak dev login owner/admin/finance/cashier.
+6. Jangan hapus Google OAuth permanen dulu, cukup disable/hide dari UI atau jadikan optional untuk nanti.
+
+FASE 1 — Schema dan Relasi User Tenant
+
+1. Tambahkan field ke table users jika belum ada:
+   - phone_number
+   - phone_verified_at
+   - status: active, inactive, blocked
+   - last_login_at
+
+2. Tambahkan role baru:
+   - tenant_user
+
+3. Buat table tenant_user_access:
+   - id
+   - user_id
+   - tenant_id
+   - site_id
+   - access_level: owner, staff, viewer
+   - status: active, inactive
+   - created_at
+   - updated_at
+
+Fungsi:
+- 1 user bisa terhubung ke 1 atau lebih tenant.
+- 1 tenant bisa punya lebih dari 1 user.
+- site_id wajib agar tidak tercampur antara Sport Center Bandara dan TOD M1 Bandara.
+
+4. Tambahkan migration aman:
+   - jangan drop data existing
+   - jangan reset database
+   - seed tidak boleh membuat data duplikat
+
+FASE 2 — Login dengan Nomor WhatsApp
+
+Buat flow login WhatsApp berbasis OTP.
+
+Endpoint baru:
+1. POST /api/auth/whatsapp/request-otp
+Body:
+{
+  "phoneNumber": "08123456789"
+}
+
+Logic:
+- Normalisasi nomor ke format Indonesia, misalnya 628123456789.
+- Cek user dengan phone_number tersebut.
+- Jika user tidak ada atau inactive, jangan bocorkan detail. Return message umum:
+  “Jika nomor terdaftar, kode OTP akan dikirim.”
+- Generate OTP 6 digit.
+- Simpan OTP hash, bukan plaintext.
+- OTP expired dalam 5 menit.
+- Batasi request OTP dengan rate limit.
+- Untuk development, boleh return devOtp di response jika ENABLE_DEV_LOGIN=true atau NODE_ENV=development.
+- Untuk production, OTP harus dikirim via provider WhatsApp, nanti bisa Fonnte atau provider lain.
+
+2. POST /api/auth/whatsapp/verify-otp
+Body:
+{
+  "phoneNumber": "08123456789",
+  "otp": "123456"
+}
+
+Logic:
+- Verifikasi OTP.
+- Jika benar, login session user menggunakan req.login.
+- Update last_login_at dan phone_verified_at jika belum ada.
+- Return user dan role.
+
+3. POST /api/auth/logout
+Tetap berjalan.
+
+4. GET /api/auth/me
+Harus return:
+- id
+- name
+- phoneNumber
+- email jika ada
+- role
+- allowedSites
+- tenantAccess jika role tenant_user
+
+FASE 3 — UI Login
+
+Ubah halaman login:
+1. Tombol “Masuk dengan Google” diganti menjadi:
+   “Masuk dengan WhatsApp”
+
+2. Form:
+   - Input nomor WhatsApp
+   - Tombol “Kirim Kode OTP”
+   - Setelah OTP dikirim, tampilkan input kode OTP
+   - Tombol “Verifikasi & Masuk”
+
+3. Tetap tampilkan DEV MODE:
+   - Pemilik
+   - Admin
+   - Keuangan
+   - Kasir
+   - Tambahkan juga tombol dev login:
+     “Tenant User”
+
+4. Jika login tenant_user berhasil:
+   - redirect ke halaman portal tenant, misalnya:
+     /tenant-portal
+   - jangan masuk ke halaman admin utama
+
+5. Jika login owner/admin/finance/cashier:
+   - tetap masuk ke admin portal seperti sekarang
+
+FASE 4 — Portal Tenant
+
+Buat halaman baru:
+- /tenant-portal
+
+Isi halaman tenant:
+1. Ringkasan tenant:
+   - nama usaha
+   - pemilik
+   - nomor unit
+   - site/lokasi
+   - status kontrak
+
+2. Kontrak/booking milik tenant:
+   - contract_number
+   - unit_code
+   - start_date
+   - end_date
+   - status kontrak
+   - link dokumen kontrak jika ada
+
+3. Invoice milik tenant:
+   - invoice_number
+   - periode
+   - due_date
+   - total_amount
+   - paid_amount
+   - outstanding_amount
+   - status
+
+4. Riwayat pembayaran milik tenant:
+   - payment_number
+   - tanggal
+   - metode pembayaran
+   - amount
+   - status
+   - struk jika ada
+
+5. Jangan tampilkan:
+   - data tenant lain
+   - laporan semua tenant
+   - audit logs
+   - user management
+   - booking tenant lain
+   - invoice tenant lain
+
+FASE 5 — Permission Backend untuk Tenant User
+
+Tambahkan middleware:
+- requireTenantUser
+- requireTenantAccess
+- getTenantIdsForUser
+
+Aturan:
+1. tenant_user hanya boleh akses tenant_id yang ada di tenant_user_access.
+2. tenant_user hanya boleh akses site_id yang sesuai aksesnya.
+3. tenant_user tidak boleh akses:
+   - /api/tenants semua data
+   - /api/bookings semua data
+   - /api/laporan global
+   - /api/audit-logs
+   - /api/users
+   - /api/mall-units admin
+4. Buat endpoint khusus tenant portal:
+   - GET /api/tenant-portal/me
+   - GET /api/tenant-portal/bookings
+   - GET /api/tenant-portal/invoices
+   - GET /api/tenant-portal/payments
+
+Semua endpoint tenant portal wajib filter berdasarkan user login dan tenant_user_access.
+
+FASE 6 — Admin Kelola Akun Tenant
+
+Tambahkan di halaman Data Tenant:
+1. Tombol “Akun Tenant”
+2. Admin bisa:
+   - tambah user tenant
+   - isi nama
+   - nomor WhatsApp
+   - hubungkan ke tenant
+   - pilih access_level: owner/staff/viewer
+   - aktif/nonaktifkan user tenant
+
+Endpoint:
+- GET /api/tenants/:tenantId/users
+- POST /api/tenants/:tenantId/users
+- PATCH /api/tenants/:tenantId/users/:userId
+- DELETE atau deactivate /api/tenants/:tenantId/users/:userId
+
+Permission:
+- owner/admin boleh kelola akun tenant
+- finance boleh lihat jika diperlukan, tapi tidak harus bisa edit
+- cashier tidak boleh
+- tenant_user tidak boleh kelola user lain pada fase ini
+
+FASE 7 — WhatsApp OTP Provider
+
+Untuk sekarang buat provider abstraction:
+- src/services/otp-service.ts
+- src/services/whatsapp-provider.ts
+
+Mode:
+1. development:
+   - OTP ditampilkan di response atau log aman
+2. production:
+   - jika FONNTE_API_KEY tersedia, kirim OTP via Fonnte
+   - jika belum tersedia, return error konfigurasi yang jelas
+
+Env baru:
+- ENABLE_WHATSAPP_LOGIN=true
+- OTP_EXPIRY_MINUTES=5
+- OTP_MAX_ATTEMPTS=5
+- FONNTE_API_KEY=
+- FONNTE_SENDER=
+
+Jangan hardcode API key.
+
+FASE 8 — Rate Limit dan Security
+
+Tambahkan rate limit:
+1. request OTP:
+   - 5 request / 15 menit per nomor
+   - 20 request / 15 menit per IP
+
+2. verify OTP:
+   - 10 request / 15 menit per nomor/IP
+
+3. OTP:
+   - simpan hash
+   - expired 5 menit
+   - maksimal salah 5 kali
+   - setelah berhasil, OTP tidak bisa dipakai ulang
+
+4. Audit log:
+   - whatsapp_otp_requested
+   - whatsapp_login_success
+   - whatsapp_login_failed
+   - tenant_user_created
+   - tenant_user_deactivated
+
+Jangan log OTP plaintext.
+
+FASE 9 — Test Wajib
+
+Tambahkan test backend:
+1. request OTP untuk nomor terdaftar berhasil.
+2. verify OTP benar membuat session.
+3. verify OTP salah gagal.
+4. OTP expired gagal.
+5. OTP tidak bisa dipakai dua kali.
+6. nomor tidak terdaftar tidak membocorkan data.
+7. tenant_user hanya bisa lihat invoice miliknya.
+8. tenant_user tidak bisa lihat invoice tenant lain.
+9. tenant_user tidak bisa akses /api/tenants global.
+10. tenant_user tidak bisa akses /api/laporan global.
+11. admin bisa membuat akun tenant.
+12. cashier tidak bisa membuat akun tenant.
+13. data tenant user tetap filter berdasarkan site_id.
+14. Sport Center tenant user tidak bisa melihat TOD M1 tenant.
+15. TOD M1 tenant user tidak bisa melihat Sport Center tenant.
+
+FASE 10 — Frontend Test / Manual Verification
+
+Pastikan:
+1. Halaman login menampilkan login WhatsApp.
+2. Tombol Google tidak tampil sebagai login utama.
+3. Request OTP menampilkan step input OTP.
+4. OTP benar masuk ke /tenant-portal untuk role tenant_user.
+5. Tenant portal tidak blank.
+6. Tenant portal hanya menampilkan data tenant sendiri.
+7. Admin tetap bisa login dari dev mode.
+8. Owner/admin tetap bisa akses admin portal.
+9. Cashier tetap hanya akses POS.
+
+FASE 11 — Dokumentasi
+
+Update:
+- MULTI_SITE.md
+- PRODUCTION_CHECKLIST.md
+
+Buat file baru:
+- WHATSAPP_LOGIN.md
+- TENANT_PORTAL.md
+
+Isi:
+1. Cara login WhatsApp.
+2. Env yang dibutuhkan.
+3. Cara membuat akun tenant.
+4. Cara menghubungkan user ke tenant.
+5. Aturan akses tenant_user.
+6. Risiko keamanan OTP.
+7. Cara aktifkan provider WhatsApp production.
+
+FASE 12 — Quality Gate
+
+Jalankan:
+- pnpm run typecheck
+- pnpm run build
+- pnpm test
+
+Output akhir:
+1. File yang dibuat/diubah.
+2. Migration yang dibuat.
+3. Endpoint baru.
+4. Env baru.
+5. Cara login WhatsApp.
+6. Cara membuat akun tenant.
+7. Hasil test pass/fail.
+8. Apakah aman untuk staging.
+9. Apa yang masih belum boleh production.

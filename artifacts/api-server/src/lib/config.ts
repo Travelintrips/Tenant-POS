@@ -18,22 +18,11 @@ export const config = {
 
   db: {
     url:
-      process.env["SUPABASE_PG_URL"] ??
-      process.env["SUPABASE_DATABASE_URL_DEV"] ??
+      process.env["SUPABASE_DATABASE_URL"] ??
       process.env["DATABASE_URL"] ??
       (() => {
-        throw new Error(
-          "Salah satu dari SUPABASE_PG_URL, SUPABASE_DATABASE_URL_DEV, atau DATABASE_URL harus diset",
-        );
+        throw new Error("SUPABASE_DATABASE_URL atau DATABASE_URL harus diset");
       })(),
-  },
-
-  supabase: {
-    url: optional("SUPABASE_URL"),
-    anonKey: optional("SUPABASE_ANON_KEY"),
-    serviceRoleKey: optional("SUPABASE_SERVICE_ROLE_KEY"),
-    urlDev: optional("SUPABASE_URL_DEV"),
-    serviceRoleKeyDev: optional("SUPABASE_SERVICE_ROLE_KEY_DEV"),
   },
 
   auth: {

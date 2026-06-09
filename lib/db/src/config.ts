@@ -1,9 +1,8 @@
 const rawUrl =
+  process.env["SUPABASE_DATABASE_URL"] ??
   process.env["DATABASE_URL"] ??
-  process.env["SUPABASE_PG_URL"] ??
-  process.env["SUPABASE_DATABASE_URL_DEV"] ??
   (() => {
-    throw new Error("DATABASE_URL harus diset");
+    throw new Error("SUPABASE_DATABASE_URL atau DATABASE_URL harus diset");
   })();
 
 const isSupabase = rawUrl.includes("supabase");
