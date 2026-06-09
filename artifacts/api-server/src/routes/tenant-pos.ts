@@ -1,5 +1,6 @@
 import { Router, type IRouter } from "express";
 import { logger } from "../lib/logger";
+import { paymentRateLimiter } from "../middlewares/rate-limit";
 import { db } from "@workspace/db";
 import {
   tenantsTable,
@@ -319,7 +320,7 @@ const paymentBodySchema = z.object({
   notes: z.string().optional(),
 });
 
-router.post("/tenant-pos/payments", async (req, res) => {
+router.post("/tenant-pos/payments", paymentRateLimiter, async (req, res) => {
   const parsed = paymentBodySchema.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: "Data tidak valid", detail: parsed.error.flatten().fieldErrors });

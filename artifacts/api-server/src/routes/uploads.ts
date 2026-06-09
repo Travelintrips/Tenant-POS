@@ -69,7 +69,7 @@ function runMulter(
 
 const router: IRouter = Router();
 
-router.post("/uploads/tenant-logo", requireAuth, async (req, res) => {
+router.post("/uploads/tenant-logo", uploadRateLimiter, requireAuth, async (req, res) => {
   try {
     await runMulter(uploadLogo, "file")(req, res);
   } catch (err) {
@@ -90,7 +90,7 @@ router.post("/uploads/tenant-logo", requireAuth, async (req, res) => {
   res.json({ url });
 });
 
-router.post("/uploads/contract-document", requireAuth, async (req, res) => {
+router.post("/uploads/contract-document", uploadRateLimiter, requireAuth, async (req, res) => {
   try {
     await runMulter(uploadDoc, "file")(req, res);
   } catch (err) {

@@ -23,7 +23,7 @@ const DEV_ROLE_EMAILS: Record<string, { email: string; name: string }> = {
 };
 
 if (DEV_LOGIN_ENABLED) {
-  router.post("/auth/dev-login", async (req, res) => {
+  router.post("/auth/dev-login", devLoginRateLimiter, async (req, res) => {
     const { role } = req.body as { role?: string; email?: string; name?: string };
 
     const effectiveRole: UserRole = (USER_ROLES.includes(role as UserRole) ? role : "admin") as UserRole;
@@ -87,17 +87,18 @@ router.get("/auth/dev-login-enabled", (_req, res) => {
   res.json({ enabled: DEV_LOGIN_ENABLED });
 });
 
-router.get("/auth/google", passport.authenticate("google", { scope: ["profile", "email"] }));
+router.get("/auth/google", googleAuthRateLimiter, passport.authenticate("google", { scope: ["profile", "email"] }));
 
 router.get(
   "/auth/google/callback",
+  googleAuthRateLimiter,
   passport.authenticate("google", { failureRedirect: "/login?error=1" }),
   (_req, res) => {
     res.redirect("/");
   },
 );
 
-router.get("/auth/me", (req, res) => {
+router.get("/auth/me", authMeRateLimiter, (req, res) => {
   logger.info({ isAuthenticated: req.isAuthenticated(), hasUser: !!req.user }, "[auth/me] dipanggil");
   if (!req.isAuthenticated() || !req.user) {
     res.status(401).json({ error: "Tidak terautentikasi" });
