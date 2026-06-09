@@ -121,91 +121,44 @@ export function SidebarLayout({ children }: { children: React.ReactNode }) {
             </span>
           </div>
 
-          {/* Site switcher premium — grouped dengan separator */}
-          {(sites.length > 1 || can("owner")) && activeSite && (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="w-full justify-between h-9 text-xs font-medium border-sidebar-border bg-sidebar hover:bg-sidebar-accent group"
-                >
-                  <div className="flex items-center gap-1.5 min-w-0">
-                    <span className={`shrink-0 ${SITE_TYPE_CONFIG[activeSite.type]?.color ?? "text-muted-foreground"}`}>
-                      <SiteIcon type={activeSite.type} />
-                    </span>
-                    <span className="truncate font-semibold">{activeSite.name}</span>
-                  </div>
-                  <div className="flex items-center gap-1 shrink-0">
-                    <SiteTypeBadge type={activeSite.type} />
-                    <ChevronDown className="h-3 w-3 text-muted-foreground group-hover:text-foreground transition-colors" />
-                  </div>
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="start" className="w-[230px] p-1">
-                <DropdownMenuLabel className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider px-2 py-1">
-                  Pilih Lokasi
-                </DropdownMenuLabel>
-                {/* Semua lokasi */}
-                <DropdownMenuItem
-                  onClick={() => setActiveSite(ALL_SITES_SENTINEL)}
-                  className={`flex items-center gap-2 px-3 py-2 rounded-md cursor-pointer ${
-                    activeSite?.code === "ALL"
-                      ? "bg-primary/10 text-primary font-semibold"
-                      : "hover:bg-accent"
-                  }`}
-                >
-                  <span className="shrink-0 text-slate-500"><Layers className="h-3.5 w-3.5" /></span>
-                  <span className="flex-1 truncate text-sm">Semua</span>
-                  {activeSite?.code === "ALL" && <Check className="h-3.5 w-3.5 text-primary shrink-0" />}
-                </DropdownMenuItem>
-                <DropdownMenuSeparator className="my-1" />
-                {grouped.map((group, gi) => (
-                  <React.Fragment key={group.label}>
-                    {gi > 0 && <DropdownMenuSeparator className="my-1" />}
-                    <DropdownMenuLabel className="flex items-center gap-1.5 px-2 py-1 text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">
-                      {group.label === "Sport Center"
-                        ? <Dumbbell className="h-3 w-3 text-emerald-500" />
-                        : <Building2 className="h-3 w-3 text-blue-500" />
-                      }
-                      {group.label}
-                    </DropdownMenuLabel>
-                    {group.sites.map((site) => {
-                      const isActive = activeSite.id === site.id;
-                      return (
-                        <DropdownMenuItem
-                          key={site.id}
-                          onClick={() => setActiveSite(site)}
-                          className={`flex items-center gap-2 px-3 py-2 rounded-md cursor-pointer ${
-                            isActive
-                              ? "bg-primary/10 text-primary font-semibold"
-                              : "hover:bg-accent"
-                          }`}
-                        >
-                          <span className={`shrink-0 ${SITE_TYPE_CONFIG[site.type]?.color ?? ""}`}>
-                            <SiteIcon type={site.type} />
-                          </span>
-                          <span className="flex-1 truncate text-sm">{site.name}</span>
-                          {isActive && <Check className="h-3.5 w-3.5 text-primary shrink-0" />}
-                        </DropdownMenuItem>
-                      );
-                    })}
-                  </React.Fragment>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          )}
-
-          {/* Tampilkan nama site tunggal tanpa dropdown */}
-          {sites.length === 1 && activeSite && (
-            <div className={`flex items-center gap-1.5 px-2 py-1.5 rounded-md border ${SITE_TYPE_CONFIG[activeSite.type]?.bg ?? "bg-muted"}`}>
-              <span className={`shrink-0 ${SITE_TYPE_CONFIG[activeSite.type]?.color ?? "text-muted-foreground"}`}>
-                <SiteIcon type={activeSite.type} />
-              </span>
-              <span className={`text-xs font-semibold truncate ${SITE_TYPE_CONFIG[activeSite.type]?.color ?? ""}`}>
-                {activeSite.name}
-              </span>
-              <SiteTypeBadge type={activeSite.type} />
+          {/* Site switcher — tab buttons per lokasi */}
+          {activeSite && (
+            <div className="flex flex-col gap-1">
+              {sites.length > 1 && (
+                <div className="flex gap-1 flex-wrap">
+                  {sites.map((site) => {
+                    const isActive = activeSite.code !== "ALL" && activeSite.id === site.id;
+                    const cfg = SITE_TYPE_CONFIG[site.type];
+                    return (
+                      <button
+                        key={site.id}
+                        onClick={() => setActiveSite(site)}
+                        className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-semibold transition-all flex-1 min-w-0 ${
+                          isActive
+                            ? `${cfg?.bg ?? "bg-primary/10 border-primary/30"} ${cfg?.color ?? "text-primary"} shadow-sm`
+                            : "bg-sidebar border-sidebar-border text-muted-foreground hover:bg-sidebar-accent hover:text-foreground"
+                        }`}
+                      >
+                        <span className="shrink-0">
+                          <SiteIcon type={site.type} />
+                        </span>
+                        <span className="truncate">{site.name}</span>
+                        {isActive && <Check className="h-3 w-3 shrink-0 ml-auto" />}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+              {sites.length === 1 && (
+                <div className={`flex items-center gap-1.5 px-2 py-1.5 rounded-md border ${SITE_TYPE_CONFIG[activeSite.type]?.bg ?? "bg-muted"}`}>
+                  <span className={`shrink-0 ${SITE_TYPE_CONFIG[activeSite.type]?.color ?? "text-muted-foreground"}`}>
+                    <SiteIcon type={activeSite.type} />
+                  </span>
+                  <span className={`text-xs font-semibold truncate ${SITE_TYPE_CONFIG[activeSite.type]?.color ?? ""}`}>
+                    {activeSite.name}
+                  </span>
+                </div>
+              )}
             </div>
           )}
         </SidebarHeader>
