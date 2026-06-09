@@ -6,7 +6,6 @@ import {
   tenantInvoicesTable,
   tenantPaymentsTable,
 } from "@workspace/db/schema";
-import { eq, sql } from "drizzle-orm";
 
 const today = new Date();
 function addDays(d: Date, days: number) {
@@ -19,11 +18,10 @@ function subDays(d: Date, days: number) { return addDays(d, -days); }
 async function main() {
   console.log("⏳ Mengecek data yang sudah ada...");
 
-  const [{ count }] = await db
-    .select({ count: sql<number>`count(*)::int` })
-    .from(tenantsTable);
+  const existing = await db.select().from(tenantsTable);
 
-  if (count > 0) {
+  if (existing.length > 0) {
+    const count = existing.length;
     console.log(`✅ Data sudah ada (${count} tenant). Seed dilewati untuk menghindari duplikasi.`);
     console.log("   Untuk reset: hapus data manual lalu jalankan seed ulang.");
     process.exit(0);
