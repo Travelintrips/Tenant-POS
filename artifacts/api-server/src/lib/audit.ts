@@ -59,6 +59,8 @@ export function logAudit(req: Request, opts: AuditOptions): void {
     entityId: opts.entityId !== undefined && opts.entityId !== null ? String(opts.entityId) : null,
     beforeData: opts.beforeData ? (stripSensitive(opts.beforeData) as Record<string, unknown>) : null,
     afterData: opts.afterData ? (stripSensitive(opts.afterData) as Record<string, unknown>) : null,
+    siteId: (req as any).siteId ?? null,
+    siteCode: (req as any).siteCode ?? null,
     ipAddress: ip,
     userAgent: req.headers["user-agent"] ?? null,
   };

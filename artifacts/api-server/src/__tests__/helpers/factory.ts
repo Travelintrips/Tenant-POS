@@ -6,8 +6,9 @@ import {
   tenantPaymentsTable,
   mallUnitsTable,
   cashierShiftsTable,
+  mallSitesTable,
 } from "@workspace/db/schema";
-import { inArray } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 
 const RUN_ID = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
 export const TEST_PREFIX = `[TEST:${RUN_ID}]`;
@@ -25,37 +26,55 @@ export function track(type: keyof typeof ids, id: number) {
   ids[type].add(id);
 }
 
+let _defaultSiteId: number | null = null;
+async function getDefaultSiteId(): Promise<number> {
+  if (_defaultSiteId !== null) return _defaultSiteId;
+  const [site] = await db
+    .select({ id: mallSitesTable.id })
+    .from(mallSitesTable)
+    .where(eq(mallSitesTable.code, "TOD_M1_BANDARA"))
+    .limit(1);
+  if (!site) throw new Error("Default site TOD_M1_BANDARA not found in DB");
+  _defaultSiteId = site.id;
+  return _defaultSiteId;
+}
+
 export async function createTestTenant(overrides: Record<string, unknown> = {}) {
+  const siteId = await getDefaultSiteId();
   const [row] = await db
     .insert(tenantsTable)
     .values({
+      siteId,
       businessName: `${TEST_PREFIX} Toko Uji`,
       ownerName: "Pemilik Uji",
       status: "active",
       areaName: "",
       ...overrides,
-    })
+    } as any)
     .returning();
   ids.tenants.add(row.id);
   return row;
 }
 
 export async function createTestUnit(overrides: Record<string, unknown> = {}) {
+  const siteId = await getDefaultSiteId();
   const code = `T-${RUN_ID.slice(0, 6)}-${ids.mallUnits.size + 1}-${Date.now().toString(36)}`;
   const [row] = await db
     .insert(mallUnitsTable)
     .values({
+      siteId,
       unitCode: (overrides.unitCode as string) ?? code,
       floor: "1",
       status: "available",
       ...overrides,
-    })
+    } as any)
     .returning();
   ids.mallUnits.add(row.id);
   return row;
 }
 
 export async function createTestBooking(tenantId: number, overrides: Record<string, unknown> = {}) {
+  const siteId = await getDefaultSiteId();
   const today = new Date();
   const future = new Date(today);
   future.setFullYear(today.getFullYear() + 1);
@@ -63,6 +82,7 @@ export async function createTestBooking(tenantId: number, overrides: Record<stri
   const [row] = await db
     .insert(tenantBookingsTable)
     .values({
+      siteId,
       tenantId,
       unitCode: `U-${RUN_ID.slice(0, 4)}`,
       startDate: today.toISOString().slice(0, 10),
@@ -92,6 +112,7 @@ export async function createTestInvoice(
   bookingId?: number,
   overrides: Record<string, unknown> = {},
 ) {
+  const siteId = await getDefaultSiteId();
   const now = new Date();
   const yyyymm = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}`;
   const unique = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
@@ -103,6 +124,7 @@ export async function createTestInvoice(
   const [row] = await db
     .insert(tenantInvoicesTable)
     .values({
+      siteId,
       invoiceNumber,
       tenantId,
       bookingId: bookingId ?? null,
@@ -126,10 +148,12 @@ export async function createTestPayment(
   bookingId: number,
   overrides: Record<string, unknown> = {},
 ) {
+  const siteId = await getDefaultSiteId();
   const receiptNumber = `TEST-PAY-${Date.now()}-${RUN_ID.slice(0, 4)}`;
   const [row] = await db
     .insert(tenantPaymentsTable)
     .values({
+      siteId,
       tenantId,
       bookingId,
       tenantBookingId: bookingId,

@@ -395,6 +395,7 @@ router.post("/tenant-pos/payments", paymentRateLimiter, async (req, res) => {
       const [payment] = await tx
         .insert(tenantPaymentsTable)
         .values({
+          siteId: req.siteId > 0 ? req.siteId : undefined,
           bookingId,
           tenantBookingId: bookingId,
           tenantId,
