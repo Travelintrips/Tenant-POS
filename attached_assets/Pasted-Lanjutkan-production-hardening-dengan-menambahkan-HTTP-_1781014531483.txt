@@ -1,0 +1,93 @@
+Lanjutkan production hardening dengan menambahkan HTTP security headers menggunakan Helmet.js. Jangan tambah fitur bisnis baru.
+
+Kondisi saat ini:
+
+* Typecheck lulus
+* Build lulus
+* Test 121/121 pass
+* Rate limiting sudah aktif untuk auth, upload, dan payment
+* PRODUCTION_CHECKLIST.md sudah diperbarui
+* Dev login sudah bisa dimatikan di production
+* Cookie session production sudah secure
+
+Tugas:
+
+1. Install package:
+
+* helmet
+
+2. Tambahkan middleware Helmet di Express app utama, kemungkinan di:
+
+* artifacts/api-server/src/app.ts
+
+3. Gunakan konfigurasi yang aman tapi tidak merusak frontend/Vite/Replit preview.
+
+Security headers minimal:
+
+* X-Content-Type-Options
+* X-Frame-Options atau frameguard
+* Referrer-Policy
+* Cross-Origin-Opener-Policy jika aman
+* Cross-Origin-Resource-Policy jika aman
+* Hide X-Powered-By
+
+4. Content Security Policy:
+
+* Jangan langsung aktifkan CSP terlalu ketat kalau berisiko merusak frontend, Replit preview, Google OAuth, upload preview, atau chart.
+* Jika CSP diaktifkan, buat mode aman:
+
+  * development: CSP disabled atau report-only
+  * production: CSP basic yang tidak merusak app
+* Hindari blocking script/style Vite di development.
+
+5. Pastikan static uploads tetap bisa diakses:
+
+* logo tenant
+* dokumen kontrak PDF/gambar
+* jangan sampai Helmet memblokir preview file yang valid.
+
+6. Pastikan Google OAuth flow tidak rusak:
+
+* redirect ke Google tetap bisa
+* callback tetap bisa
+* session cookie tetap bekerja
+
+7. Pastikan SSE /api/events tidak rusak:
+
+* EventSource tetap connect
+* heartbeat tetap jalan
+
+8. Pastikan API response JSON tetap normal.
+
+9. Tambahkan test:
+
+* response API memiliki security headers penting
+* X-Powered-By tidak muncul
+* /api/auth/me tetap berjalan
+* /api/events tidak rusak
+* upload static valid tidak rusak jika bisa dites
+* Helmet tidak mengubah response error rate limit 429
+
+10. Update PRODUCTION_CHECKLIST.md:
+    Tambahkan bagian:
+
+* HTTP security headers aktif
+* Helmet aktif
+* CSP mode
+* risiko CSP jika nanti frontend dipisah domain
+* catatan Google OAuth callback domain
+
+11. Jalankan:
+
+* pnpm run typecheck
+* pnpm run build
+* pnpm test
+
+12. Berikan ringkasan:
+
+* package yang ditambahkan
+* header yang aktif
+* apakah CSP aktif atau disabled/report-only
+* test pass/fail
+* apakah aman untuk staging
+* risiko yang masih tersisa

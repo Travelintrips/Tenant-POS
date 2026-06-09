@@ -1,6 +1,7 @@
 import express, { type Express } from "express";
 import session from "express-session";
 import cors from "cors";
+import helmet from "helmet";
 import pinoHttp from "pino-http";
 import path from "path";
 import passport from "./lib/auth";
@@ -28,6 +29,30 @@ app.use(
         };
       },
     },
+  }),
+);
+
+// ─── Security headers (Helmet) ─────────────────────────────────────────────
+// CSP dinonaktifkan di sini karena frontend (admin-portal) berjalan di domain/
+// port berbeda dan mengelola CSP-nya sendiri via Vite. Aktifkan CSP di sini
+// hanya jika API dan frontend digabung dalam satu origin.
+//
+// crossOriginEmbedderPolicy: false agar static uploads (gambar/PDF) tetap bisa
+// di-load cross-origin oleh frontend tanpa butuh header COEP dari subresource.
+//
+// crossOriginResourcePolicy: cross-origin agar logo/dokumen bisa di-fetch dari
+// frontend yang berjalan di port/domain berbeda (development maupun production).
+//
+// frameguard sameorigin: API tidak perlu di-embed iframe, tapi sameorigin lebih
+// aman daripada deny untuk kasus reverse-proxy single-domain.
+app.use(
+  helmet({
+    contentSecurityPolicy: false,
+    crossOriginEmbedderPolicy: false,
+    crossOriginResourcePolicy: { policy: "cross-origin" },
+    crossOriginOpenerPolicy: { policy: "same-origin" },
+    referrerPolicy: { policy: "strict-origin-when-cross-origin" },
+    frameguard: { action: "sameorigin" },
   }),
 );
 
