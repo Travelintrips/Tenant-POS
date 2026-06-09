@@ -1,4 +1,4 @@
-import { apiFetch } from "@/lib/api";
+import { apiFetch, apiFetchJson } from "@/lib/api";
 import { useState, useMemo } from "react";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
@@ -156,15 +156,16 @@ export default function UnitTenantPage() {
   const siteIdHeader = isAllSites ? undefined : activeSite?.id;
 
   // Load sites list for the form dropdown
+  // NOTE: key "sites-all" to avoid colliding with SiteProvider's "sites" cache entry
   const { data: allSites = [] } = useQuery<Site[]>({
-    queryKey: ["sites"],
-    queryFn: () => apiFetch("/api/sites"),
+    queryKey: ["sites-all"],
+    queryFn: () => apiFetchJson<Site[]>("/api/sites"),
   });
 
   const { data: units = [], isLoading } = useQuery<MallUnit[]>({
     queryKey: ["mall-units", siteIdHeader],
     queryFn: () =>
-      apiFetch("/api/mall-units", {
+      apiFetchJson<MallUnit[]>("/api/mall-units", {
         headers: siteIdHeader ? { "x-site-id": String(siteIdHeader) } : {},
       }),
   });
