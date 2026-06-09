@@ -712,20 +712,36 @@ export default function TenantInvoices() {
                         </span>
                       </TableCell>
                       <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
-                        <div className="flex items-center justify-end gap-1">
+                        <div className="flex items-center justify-end gap-1 flex-wrap">
                           {inv.status !== "paid" && inv.status !== "cancelled" && (
                             <Button size="sm" variant="outline" className="h-7 px-2 text-xs gap-1" onClick={() => openPayment(inv)}>
                               <CreditCard className="h-3 w-3" />
                               Bayar
                             </Button>
                           )}
-                          {inv.status !== "cancelled" && inv.phone && (
+                          {inv.status !== "paid" && inv.status !== "cancelled" && inv.phone && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-7 px-2 text-xs gap-1 text-emerald-700 border-emerald-200 hover:bg-emerald-50 hover:text-emerald-800"
+                              title="Kirim link upload bukti bayar via WhatsApp"
+                              disabled={sendingLinkId === inv.id}
+                              onClick={() => sendLinkMutation.mutate(inv.id)}
+                            >
+                              {sendingLinkId === inv.id
+                                ? <Loader2 className="h-3 w-3 animate-spin" />
+                                : <Link2 className="h-3 w-3" />
+                              }
+                              Kirim Link
+                            </Button>
+                          )}
+                          {inv.status === "overdue" && inv.phone && (
                             <Button
                               size="sm" variant="ghost"
-                              className={`h-7 w-7 p-0 ${inv.status === "overdue" ? "text-red-500 hover:text-red-600" : "text-green-600 hover:text-green-700"}`}
-                              title={inv.status === "overdue" ? "Kirim pengingat overdue via WA" : "Kirim notifikasi invoice via WA"}
+                              className="h-7 w-7 p-0 text-red-500 hover:text-red-600"
+                              title="Kirim pengingat overdue via WA"
                               disabled={waSendMutation.isPending}
-                              onClick={() => waSendMutation.mutate({ id: inv.id, type: inv.status === "overdue" ? "overdue-reminder" : "send" })}
+                              onClick={() => waSendMutation.mutate({ id: inv.id, type: "overdue-reminder" })}
                             >
                               <MessageCircle className="h-3.5 w-3.5" />
                             </Button>
