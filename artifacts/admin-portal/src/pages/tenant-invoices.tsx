@@ -1,3 +1,4 @@
+import { apiFetch as apiFetchBase } from "@/lib/api";
 import { useState, useMemo, useRef } from "react";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
@@ -134,17 +135,16 @@ function todayStr(): string {
 // ─── API helpers ──────────────────────────────────────────────────────────────
 
 async function apiFetch<T>(url: string): Promise<T> {
-  const res = await fetch(url, { credentials: "include" });
+  const res = await apiFetchBase(url);
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json() as Promise<T>;
 }
 
 async function apiPost<T>(url: string, body: object): Promise<T> {
-  const res = await fetch(url, {
+  const res = await apiFetchBase(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
-    credentials: "include",
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({})) as { error?: string };

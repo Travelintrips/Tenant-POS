@@ -8,6 +8,7 @@
     "seed:tenant-pos": "tsx ./src/seed-tenant-pos.ts",
     "seed:demo": "tsx ./src/seed-demo.ts",
     "seed:reset": "tsx ./src/clear-and-seed.ts",
+    "fill-data": "tsx ./src/fill-data.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {

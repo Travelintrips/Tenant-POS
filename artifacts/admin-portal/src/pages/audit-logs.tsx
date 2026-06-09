@@ -1,3 +1,4 @@
+import { apiFetch } from "@/lib/api";
 import React, { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -206,7 +207,7 @@ export default function AuditLogs() {
   const { data, isLoading, refetch } = useQuery<AuditLogsResponse>({
     queryKey: ["audit-logs", dari, sampai, userEmail, action, entityType, page],
     queryFn: async () => {
-      const res = await fetch(`/api/audit-logs?${params.toString()}`);
+      const res = await apiFetch(`/api/audit-logs?${params.toString()}`);
       if (!res.ok) throw new Error("Gagal memuat audit log");
       return res.json();
     },

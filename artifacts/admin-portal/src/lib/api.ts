@@ -1,6 +1,7 @@
 /**
  * apiFetch — wrapper di sekitar fetch() yang otomatis mengirim
  * header x-site-id berdasarkan active site yang tersimpan di localStorage.
+ * Juga otomatis menyertakan credentials: "include" untuk sesi auth.
  *
  * Digunakan oleh semua halaman untuk semua request ke /api/*.
  * Saat user mengganti site, SiteProvider invalidates semua query
@@ -21,5 +22,15 @@ export function apiFetch(url: string, options?: RequestInit): Promise<Response> 
   if (siteId) {
     headers["x-site-id"] = siteId;
   }
-  return fetch(url, { ...options, headers });
+  return fetch(url, { credentials: "include", ...options, headers });
+}
+
+/** Shorthand: apiFetch + parse JSON */
+export async function apiFetchJson<T>(url: string, options?: RequestInit): Promise<T> {
+  const res = await apiFetch(url, options);
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`HTTP ${res.status}: ${text}`);
+  }
+  return res.json() as Promise<T>;
 }

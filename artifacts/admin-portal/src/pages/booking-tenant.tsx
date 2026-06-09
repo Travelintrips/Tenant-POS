@@ -1,3 +1,4 @@
+import { apiFetch } from "@/lib/api";
 import { useState, useMemo, useRef } from "react";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
@@ -187,19 +188,19 @@ function isLocalUpload(url: string): boolean {
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
 async function fetchBookings(): Promise<BookingWithTenant[]> {
-  const res = await fetch(`${BASE}/api/bookings`, { credentials: "include" });
+  const res = await apiFetch(`${BASE}/api/bookings`, { credentials: "include" });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json() as Promise<BookingWithTenant[]>;
 }
 
 async function fetchTenants(): Promise<Tenant[]> {
-  const res = await fetch(`${BASE}/api/tenants`, { credentials: "include" });
+  const res = await apiFetch(`${BASE}/api/tenants`, { credentials: "include" });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json() as Promise<Tenant[]>;
 }
 
 async function createBooking(data: object): Promise<BookingWithTenant> {
-  const res = await fetch(`${BASE}/api/bookings`, { credentials: "include",
+  const res = await apiFetch(`${BASE}/api/bookings`, { credentials: "include",
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(data),
@@ -212,7 +213,7 @@ async function createBooking(data: object): Promise<BookingWithTenant> {
 }
 
 async function updateBooking(id: number, data: object): Promise<BookingWithTenant> {
-  const res = await fetch(`${BASE}/api/bookings/${id}`, { credentials: "include",
+  const res = await apiFetch(`${BASE}/api/bookings/${id}`, { credentials: "include",
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(data),
@@ -227,7 +228,7 @@ async function updateBooking(id: number, data: object): Promise<BookingWithTenan
 async function uploadDocFile(file: File): Promise<string> {
   const fd = new FormData();
   fd.append("file", file);
-  const res = await fetch(`${BASE}/api/uploads/contract-document`, { method: "POST", credentials: "include", body: fd });
+  const res = await apiFetch(`${BASE}/api/uploads/contract-document`, { method: "POST", credentials: "include", body: fd });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
     throw new Error((err as { error?: string }).error ?? "Gagal mengunggah dokumen");
