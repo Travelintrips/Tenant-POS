@@ -1,12 +1,14 @@
 import { pgTable, serial, integer, text, numeric, timestamp } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
+import { mallSitesTable } from "./mall-sites";
 
 export const UNIT_STATUSES = ["available", "booked", "occupied", "overdue", "expired", "maintenance"] as const;
 export type UnitStatus = (typeof UNIT_STATUSES)[number];
 
 export const mallUnitsTable = pgTable("mall_units", {
   id: serial("id").primaryKey(),
+  siteId: integer("site_id").references(() => mallSitesTable.id),
   unitCode: text("unit_code").notNull().unique(),
   floor: text("floor").notNull().default("1"),
   zone: text("zone"),

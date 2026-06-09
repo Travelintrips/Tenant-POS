@@ -1,9 +1,11 @@
 import { pgTable, serial, integer, text, numeric, timestamp } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
+import { mallSitesTable } from "./mall-sites";
 
 export const cashierShiftsTable = pgTable("cashier_shifts", {
   id: serial("id").primaryKey(),
+  siteId: integer("site_id").references(() => mallSitesTable.id),
   cashierName: text("cashier_name").notNull(),
   cashierId: integer("cashier_id"),
   openedAt: timestamp("opened_at", { withTimezone: true }).notNull().defaultNow(),

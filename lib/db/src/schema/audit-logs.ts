@@ -2,6 +2,8 @@ import { pgTable, serial, integer, text, jsonb, timestamp } from "drizzle-orm/pg
 
 export const auditLogsTable = pgTable("audit_logs", {
   id: serial("id").primaryKey(),
+  siteId: integer("site_id"),
+  siteCode: text("site_code"),
   userId: integer("user_id"),
   userEmail: text("user_email"),
   userName: text("user_name"),

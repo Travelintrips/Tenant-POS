@@ -4,12 +4,14 @@ import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 import { tenantsTable } from "./tenants";
 import { tenantBookingsTable } from "./tenant-bookings";
+import { mallSitesTable } from "./mall-sites";
 
 export const INVOICE_STATUSES = ["draft", "unpaid", "partial", "paid", "overdue", "cancelled"] as const;
 export type InvoiceStatus = (typeof INVOICE_STATUSES)[number];
 
 export const tenantInvoicesTable = pgTable("tenant_invoices", {
   id: serial("id").primaryKey(),
+  siteId: integer("site_id").references(() => mallSitesTable.id),
   invoiceNumber: text("invoice_number").notNull().unique(),
   tenantId: integer("tenant_id").notNull().references(() => tenantsTable.id),
   bookingId: integer("booking_id").references(() => tenantBookingsTable.id),

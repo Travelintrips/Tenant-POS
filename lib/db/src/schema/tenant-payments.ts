@@ -4,9 +4,11 @@ import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 import { tenantsTable } from "./tenants";
 import { tenantBookingsTable } from "./tenant-bookings";
+import { mallSitesTable } from "./mall-sites";
 
 export const tenantPaymentsTable = pgTable("tenant_payments", {
   id: serial("id").primaryKey(),
+  siteId: integer("site_id").references(() => mallSitesTable.id),
   companyId: integer("company_id"),
   tenantBookingId: integer("tenant_booking_id").references(() => tenantBookingsTable.id),
   bookingId: integer("booking_id").references(() => tenantBookingsTable.id),

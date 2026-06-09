@@ -3,6 +3,7 @@ import { relations } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 import { tenantsTable } from "./tenants";
+import { mallSitesTable } from "./mall-sites";
 
 export const BILLING_CYCLES = ["monthly", "quarterly", "yearly", "custom"] as const;
 export type BillingCycle = (typeof BILLING_CYCLES)[number];
@@ -15,6 +16,7 @@ export type PaymentStatus = (typeof PAYMENT_STATUSES)[number];
 
 export const tenantBookingsTable = pgTable("tenant_bookings", {
   id: serial("id").primaryKey(),
+  siteId: integer("site_id").references(() => mallSitesTable.id),
   companyId: integer("company_id"),
   orderNumber: text("order_number").notNull().default(""),
   contractNumber: text("contract_number"),

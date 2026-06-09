@@ -1,12 +1,14 @@
 import { pgTable, serial, integer, text, timestamp } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
+import { mallSitesTable } from "./mall-sites";
 
 export const TENANT_STATUSES = ["active", "inactive", "blacklisted", "aktif", "kosong", "nonaktif"] as const;
 export type TenantStatus = (typeof TENANT_STATUSES)[number];
 
 export const tenantsTable = pgTable("tenants", {
   id: serial("id").primaryKey(),
+  siteId: integer("site_id").references(() => mallSitesTable.id),
   companyId: integer("company_id"),
   userId: integer("user_id"),
   businessName: text("business_name").notNull(),
