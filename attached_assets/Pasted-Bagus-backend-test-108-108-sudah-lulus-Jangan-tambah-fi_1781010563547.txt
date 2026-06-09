@@ -1,0 +1,78 @@
+Bagus, backend test 108/108 sudah lulus. Jangan tambah fitur baru dulu, termasuk notifikasi SSE tambahan.
+
+Sekarang lanjutkan final stabilization sebelum production/staging.
+
+Tugas:
+
+1. Jalankan full quality gate:
+   - pnpm run typecheck
+   - pnpm run build
+   - pnpm test
+   - pnpm --filter @workspace/api-server run test
+   - pnpm --filter @workspace/web run test jika frontend test tersedia
+   - pnpm --filter @workspace/web run build jika package frontend bernama web, client, atau sesuai workspace yang ada
+
+2. Audit package.json:
+   - pastikan tidak ada script duplikat
+   - pastikan tidak ada dependency testing yang salah tempat
+   - pastikan root package.json valid
+   - pastikan package api-server package.json valid
+   - pastikan frontend package.json valid
+
+3. Audit test setup:
+   - pastikan test tidak memakai database production
+   - pastikan test database/env terpisah
+   - pastikan cleanup test aman
+   - pastikan test bisa dijalankan ulang tanpa duplicate data
+   - pastikan tidak ada hardcoded email/ID yang bisa bentrok
+
+4. Audit migration/schema:
+   - cek mismatch antara Drizzle schema dan database actual
+   - khusus tenant_payments.tenantBookingId yang tadi sempat beda antara schema dan DB
+   - jika ada mismatch, buat migration/schema fix yang benar
+   - jangan hanya workaround di route
+
+5. Audit invoice generator:
+   - pastikan generateInvoiceNumber aman dari duplicate
+   - pastikan retry unique constraint jalan
+   - pastikan err.cause.code 23505 ditangani
+   - pastikan nomor invoice tetap format INV-TENANT/YYYYMM/00001
+   - pastikan generate invoice kedua untuk booking/periode yang sama tidak membuat data kacau
+
+6. Audit payment flow:
+   - create payment wajib mengisi tenantBookingId jika DB memang NOT NULL
+   - payment full mengubah invoice paid
+   - payment partial mengubah invoice partial
+   - void payment tidak masuk laporan
+   - refund mengurangi net revenue
+   - audit log tercatat
+
+7. Audit frontend secara manual:
+   - login dev owner/admin/finance/cashier
+   - buka /data-tenant
+   - buka /booking-tenant
+   - buka /tenant-pos
+   - buka /tenant-invoices
+   - buka /laporan
+   - buka /audit-logs
+   - pastikan tidak ada blank page
+   - pastikan role restriction bekerja
+   - pastikan cashier tidak melihat menu yang tidak boleh
+
+8. Buat file FINAL_AUDIT.md berisi:
+   - status backend test 108/108
+   - akar bug yang sudah diperbaiki
+   - command yang berhasil dijalankan
+   - file penting yang diubah
+   - sisa risiko
+   - langkah deploy/staging
+   - env yang wajib diset
+
+9. Setelah selesai, jangan tambah fitur baru.
+   Berikan ringkasan final:
+   - total test pass/fail
+   - typecheck status
+   - build status
+   - frontend manual check status
+   - apakah aman untuk staging
+   - apa yang belum aman untuk production

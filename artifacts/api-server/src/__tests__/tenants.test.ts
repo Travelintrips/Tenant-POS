@@ -1,7 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { makeAuthAgent } from "./helpers/agent";
 import { createTestTenant, cleanupAll, TEST_PREFIX } from "./helpers/factory";
-import type { TestSuperAgent } from "supertest";
 
 let owner: any;
 let cashier: any;
