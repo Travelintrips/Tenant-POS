@@ -1755,6 +1755,56 @@ const EMPTY_TENANT_FORM: TenantFormPOS = {
   notes: "",
 };
 
+// Tipe ringkas untuk daftar tenant di modal
+type TenantListItem = {
+  id: number;
+  siteId: number | null;
+  businessName: string;
+  ownerName: string;
+  email: string | null;
+  phone: string | null;
+  category: string | null;
+  boothNumber: string | null;
+  areaName: string;
+  status: string;
+  notes: string | null;
+  logoUrl: string | null;
+};
+
+// Fetch semua tenant tanpa filter site (plain fetch, tanpa x-site-id)
+async function fetchAllTenantsList(): Promise<TenantListItem[]> {
+  const r = await fetch(`${BASE}/api/tenants`, { credentials: "include" });
+  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  return r.json();
+}
+
+// Assign tenant existing ke site aktif (ubah siteId via PUT)
+async function assignTenantToSite(tenant: TenantListItem, siteId: number): Promise<void> {
+  const r = await apiFetch(`${BASE}/api/tenants/${tenant.id}`, {
+    method: "PUT",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      siteId,
+      businessName: tenant.businessName,
+      ownerName: tenant.ownerName,
+      email: tenant.email ?? "",
+      phone: tenant.phone ?? "",
+      category: tenant.category ?? "",
+      boothNumber: tenant.boothNumber ?? "",
+      areaName: tenant.areaName,
+      status: tenant.status,
+      notes: tenant.notes ?? "",
+      logoUrl: tenant.logoUrl ?? "",
+    }),
+  });
+  if (!r.ok) {
+    const err = await r.json().catch(() => ({}));
+    throw new Error((err as { error?: string }).error ?? `HTTP ${r.status}`);
+  }
+}
+
+// Buat tenant baru di site aktif
 async function createTenantPOS(data: TenantFormPOS): Promise<void> {
   const r = await apiFetch(`${BASE}/api/tenants`, {
     method: "POST",
@@ -1768,28 +1818,74 @@ async function createTenantPOS(data: TenantFormPOS): Promise<void> {
   }
 }
 
+type ModalTambahTab = "pilih" | "baru";
+
 function ModalTambahTenant({
   open,
+  siteId,
   siteName,
   onClose,
   onSuccess,
 }: {
   open: boolean;
+  siteId: number | null;
   siteName: string;
   onClose: () => void;
   onSuccess: () => void;
 }) {
+  const [tab, setTab] = useState<ModalTambahTab>("pilih");
+  const [search, setSearch] = useState("");
+  const [selectedTenant, setSelectedTenant] = useState<TenantListItem | null>(null);
   const [form, setForm] = useState<TenantFormPOS>(EMPTY_TENANT_FORM);
   const { toast } = useToast();
   const qc = useQueryClient();
 
-  const mutation = useMutation({
+  // Fetch semua tenant
+  const { data: allTenants = [], isLoading: loadingTenants } = useQuery<TenantListItem[]>({
+    queryKey: ["all-tenants-list"],
+    queryFn: fetchAllTenantsList,
+    enabled: open,
+  });
+
+  // Pisahkan: sudah di site ini vs lokasi lain
+  const tenantsLainSite = allTenants.filter((t) => t.siteId !== siteId);
+  const tenantsDisini = allTenants.filter((t) => t.siteId === siteId);
+
+  const filtered = (tenantsLainSite.length > 0 ? tenantsLainSite : allTenants).filter((t) => {
+    const q = search.toLowerCase();
+    return (
+      t.businessName.toLowerCase().includes(q) ||
+      t.ownerName.toLowerCase().includes(q) ||
+      (t.boothNumber?.toLowerCase().includes(q) ?? false) ||
+      (t.category?.toLowerCase().includes(q) ?? false)
+    );
+  });
+
+  // Mutation assign tenant existing
+  const assignMutation = useMutation({
+    mutationFn: () => assignTenantToSite(selectedTenant!, siteId!),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["tenant-pos-floor-plan"] });
+      qc.invalidateQueries({ queryKey: ["tenant-pos-overview"] });
+      qc.invalidateQueries({ queryKey: ["all-tenants-list"] });
+      toast({ title: "Tenant dipindahkan", description: `${selectedTenant?.businessName} sekarang terdaftar di ${siteName}.` });
+      handleClose();
+      onSuccess();
+    },
+    onError: (err: Error) => {
+      toast({ title: "Gagal memindahkan tenant", description: err.message, variant: "destructive" });
+    },
+  });
+
+  // Mutation buat tenant baru
+  const createMutation = useMutation({
     mutationFn: () => createTenantPOS(form),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["tenant-pos-floor-plan"] });
       qc.invalidateQueries({ queryKey: ["tenant-pos-overview"] });
-      toast({ title: "Tenant berhasil ditambahkan", description: `${form.businessName} telah terdaftar di ${siteName}.` });
-      setForm(EMPTY_TENANT_FORM);
+      qc.invalidateQueries({ queryKey: ["all-tenants-list"] });
+      toast({ title: "Tenant berhasil ditambahkan", description: `${form.businessName} terdaftar di ${siteName}.` });
+      handleClose();
       onSuccess();
     },
     onError: (err: Error) => {
@@ -1797,93 +1893,221 @@ function ModalTambahTenant({
     },
   });
 
-  const set = (k: keyof TenantFormPOS, v: string) => setForm((f) => ({ ...f, [k]: v }));
+  const handleClose = () => {
+    setTab("pilih");
+    setSearch("");
+    setSelectedTenant(null);
+    setForm(EMPTY_TENANT_FORM);
+    onClose();
+  };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const setF = (k: keyof TenantFormPOS, v: string) => setForm((f) => ({ ...f, [k]: v }));
+
+  const handleSubmitBaru = (e: React.FormEvent) => {
     e.preventDefault();
     if (!form.businessName.trim()) { toast({ title: "Nama usaha wajib diisi", variant: "destructive" }); return; }
     if (!form.ownerName.trim()) { toast({ title: "Nama pemilik wajib diisi", variant: "destructive" }); return; }
     if (!form.areaName.trim()) { toast({ title: "Nama area wajib diisi", variant: "destructive" }); return; }
-    mutation.mutate();
+    createMutation.mutate();
   };
 
+  const isPending = assignMutation.isPending || createMutation.isPending;
+
   return (
-    <Dialog open={open} onOpenChange={(o) => { if (!o) { setForm(EMPTY_TENANT_FORM); onClose(); } }}>
-      <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
-        <DialogHeader>
+    <Dialog open={open} onOpenChange={(o) => { if (!o) handleClose(); }}>
+      <DialogContent className="max-w-lg max-h-[90vh] overflow-hidden flex flex-col">
+        <DialogHeader className="shrink-0">
           <DialogTitle className="flex items-center gap-2">
             <UserPlus className="w-5 h-5 text-primary" />
-            Tambah Tenant Baru
+            Tambah Tenant ke Denah
           </DialogTitle>
-          <p className="text-sm text-muted-foreground">Lokasi: <span className="font-medium text-foreground">{siteName}</span></p>
+          <p className="text-sm text-muted-foreground">
+            Lokasi: <span className="font-medium text-foreground">{siteName}</span>
+          </p>
         </DialogHeader>
 
-        <form onSubmit={handleSubmit} className="space-y-4 pt-2">
-          <div className="grid grid-cols-2 gap-3">
-            <div className="col-span-2 space-y-1.5">
-              <Label htmlFor="pt-businessName">Nama Usaha <span className="text-destructive">*</span></Label>
-              <Input id="pt-businessName" value={form.businessName} onChange={(e) => set("businessName", e.target.value)} placeholder="Contoh: Warung Bu Sari" />
-            </div>
+        {/* ── Tabs ── */}
+        <div className="flex border-b shrink-0 -mx-1">
+          <button
+            onClick={() => setTab("pilih")}
+            className={cn(
+              "px-4 py-2 text-sm font-medium border-b-2 transition-colors",
+              tab === "pilih"
+                ? "border-primary text-primary"
+                : "border-transparent text-muted-foreground hover:text-foreground"
+            )}
+          >
+            Pilih dari Daftar Tenant
+          </button>
+          <button
+            onClick={() => setTab("baru")}
+            className={cn(
+              "px-4 py-2 text-sm font-medium border-b-2 transition-colors",
+              tab === "baru"
+                ? "border-primary text-primary"
+                : "border-transparent text-muted-foreground hover:text-foreground"
+            )}
+          >
+            + Buat Tenant Baru
+          </button>
+        </div>
 
-            <div className="col-span-2 space-y-1.5">
-              <Label htmlFor="pt-ownerName">Nama Pemilik <span className="text-destructive">*</span></Label>
-              <Input id="pt-ownerName" value={form.ownerName} onChange={(e) => set("ownerName", e.target.value)} placeholder="Nama lengkap pemilik" />
-            </div>
+        {/* ── Tab: Pilih dari Daftar ── */}
+        {tab === "pilih" && (
+          <div className="flex flex-col flex-1 min-h-0 gap-3 pt-1">
+            <Input
+              placeholder="Cari nama usaha, pemilik, booth..."
+              value={search}
+              onChange={(e) => { setSearch(e.target.value); setSelectedTenant(null); }}
+              className="shrink-0"
+            />
 
-            <div className="space-y-1.5">
-              <Label htmlFor="pt-phone">No. HP</Label>
-              <Input id="pt-phone" value={form.phone} onChange={(e) => set("phone", e.target.value)} placeholder="08xx..." />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="pt-email">Email</Label>
-              <Input id="pt-email" type="email" value={form.email} onChange={(e) => set("email", e.target.value)} placeholder="email@..." />
-            </div>
+            {loadingTenants ? (
+              <div className="flex-1 flex items-center justify-center text-sm text-muted-foreground">
+                <RefreshCw className="w-4 h-4 animate-spin mr-2" /> Memuat daftar tenant...
+              </div>
+            ) : filtered.length === 0 ? (
+              <div className="flex-1 flex flex-col items-center justify-center text-center text-muted-foreground py-6">
+                <Users className="w-8 h-8 mb-2 opacity-30" />
+                <p className="text-sm">
+                  {tenantsLainSite.length === 0 && allTenants.length > 0
+                    ? "Semua tenant sudah berada di lokasi ini"
+                    : search
+                    ? "Tenant tidak ditemukan"
+                    : "Belum ada tenant di sistem"}
+                </p>
+                <button
+                  className="mt-3 text-xs text-primary hover:underline"
+                  onClick={() => setTab("baru")}
+                >
+                  Buat tenant baru
+                </button>
+              </div>
+            ) : (
+              <>
+                {tenantsLainSite.length > 0 && !search && (
+                  <p className="text-[11px] text-muted-foreground shrink-0 -mt-1">
+                    Menampilkan {tenantsLainSite.length} tenant dari lokasi lain. Pilih untuk dipindahkan ke <strong>{siteName}</strong>.
+                  </p>
+                )}
+                <div className="flex-1 overflow-y-auto space-y-1.5 pr-1">
+                  {filtered.map((t) => {
+                    const isSelected = selectedTenant?.id === t.id;
+                    return (
+                      <button
+                        key={t.id}
+                        onClick={() => setSelectedTenant(isSelected ? null : t)}
+                        className={cn(
+                          "w-full text-left rounded-lg border px-3 py-2.5 transition-all",
+                          isSelected
+                            ? "border-primary bg-primary/5 ring-1 ring-primary"
+                            : "hover:border-slate-300 hover:bg-slate-50/70"
+                        )}
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <p className="font-semibold text-sm truncate">{t.businessName}</p>
+                            <p className="text-xs text-muted-foreground truncate">{t.ownerName}</p>
+                            <div className="flex items-center gap-2 mt-1 flex-wrap">
+                              {t.boothNumber && (
+                                <span className="text-[10px] font-mono bg-slate-100 px-1.5 py-0.5 rounded">{t.boothNumber}</span>
+                              )}
+                              {t.areaName && (
+                                <span className="text-[10px] text-muted-foreground">{t.areaName}</span>
+                              )}
+                              {t.category && (
+                                <span className="text-[10px] text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded">{t.category}</span>
+                              )}
+                            </div>
+                          </div>
+                          {isSelected && (
+                            <CheckCircle2 className="w-4 h-4 text-primary shrink-0 mt-0.5" />
+                          )}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </>
+            )}
 
-            <div className="space-y-1.5">
-              <Label>Kategori</Label>
-              <Select value={form.category} onValueChange={(v) => set("category", v)}>
-                <SelectTrigger><SelectValue placeholder="Pilih kategori..." /></SelectTrigger>
-                <SelectContent>
-                  {CATEGORIES_POS.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="pt-status">Status</Label>
-              <Select value={form.status} onValueChange={(v) => set("status", v as "active" | "inactive")}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="active">Aktif</SelectItem>
-                  <SelectItem value="inactive">Non-Aktif</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="space-y-1.5">
-              <Label htmlFor="pt-boothNumber">Nomor Booth</Label>
-              <Input id="pt-boothNumber" value={form.boothNumber} onChange={(e) => set("boothNumber", e.target.value)} placeholder="Contoh: A-01" />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="pt-areaName">Nama Area <span className="text-destructive">*</span></Label>
-              <Input id="pt-areaName" value={form.areaName} onChange={(e) => set("areaName", e.target.value)} placeholder="Contoh: Lantai 1" />
-            </div>
-
-            <div className="col-span-2 space-y-1.5">
-              <Label htmlFor="pt-notes">Catatan</Label>
-              <Input id="pt-notes" value={form.notes} onChange={(e) => set("notes", e.target.value)} placeholder="Catatan tambahan (opsional)" />
-            </div>
+            <DialogFooter className="shrink-0 pt-2 border-t">
+              <Button variant="outline" onClick={handleClose} disabled={isPending}>Batal</Button>
+              <Button
+                onClick={() => assignMutation.mutate()}
+                disabled={!selectedTenant || !siteId || isPending}
+                className="gap-2"
+              >
+                <MapPin className="w-4 h-4" />
+                {isPending ? "Memindahkan..." : `Tambahkan ke ${siteName}`}
+              </Button>
+            </DialogFooter>
           </div>
+        )}
 
-          <DialogFooter className="pt-2">
-            <Button type="button" variant="outline" onClick={() => { setForm(EMPTY_TENANT_FORM); onClose(); }} disabled={mutation.isPending}>
-              Batal
-            </Button>
-            <Button type="submit" disabled={mutation.isPending} className="gap-2">
-              <Plus className="w-4 h-4" />
-              {mutation.isPending ? "Menyimpan..." : "Tambah Tenant"}
-            </Button>
-          </DialogFooter>
-        </form>
+        {/* ── Tab: Buat Tenant Baru ── */}
+        {tab === "baru" && (
+          <form onSubmit={handleSubmitBaru} className="flex flex-col flex-1 min-h-0">
+            <div className="flex-1 overflow-y-auto">
+              <div className="grid grid-cols-2 gap-3 py-3">
+                <div className="col-span-2 space-y-1.5">
+                  <Label htmlFor="pt-businessName">Nama Usaha <span className="text-destructive">*</span></Label>
+                  <Input id="pt-businessName" value={form.businessName} onChange={(e) => setF("businessName", e.target.value)} placeholder="Contoh: Warung Bu Sari" />
+                </div>
+                <div className="col-span-2 space-y-1.5">
+                  <Label htmlFor="pt-ownerName">Nama Pemilik <span className="text-destructive">*</span></Label>
+                  <Input id="pt-ownerName" value={form.ownerName} onChange={(e) => setF("ownerName", e.target.value)} placeholder="Nama lengkap pemilik" />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="pt-phone">No. HP</Label>
+                  <Input id="pt-phone" value={form.phone} onChange={(e) => setF("phone", e.target.value)} placeholder="08xx..." />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="pt-email">Email</Label>
+                  <Input id="pt-email" type="email" value={form.email} onChange={(e) => setF("email", e.target.value)} placeholder="email@..." />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Kategori</Label>
+                  <Select value={form.category} onValueChange={(v) => setF("category", v)}>
+                    <SelectTrigger><SelectValue placeholder="Pilih kategori..." /></SelectTrigger>
+                    <SelectContent>
+                      {CATEGORIES_POS.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Status</Label>
+                  <Select value={form.status} onValueChange={(v) => setF("status", v as "active" | "inactive")}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="active">Aktif</SelectItem>
+                      <SelectItem value="inactive">Non-Aktif</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="pt-boothNumber">Nomor Booth</Label>
+                  <Input id="pt-boothNumber" value={form.boothNumber} onChange={(e) => setF("boothNumber", e.target.value)} placeholder="Contoh: A-01" />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="pt-areaName">Nama Area <span className="text-destructive">*</span></Label>
+                  <Input id="pt-areaName" value={form.areaName} onChange={(e) => setF("areaName", e.target.value)} placeholder="Contoh: Lantai 1" />
+                </div>
+                <div className="col-span-2 space-y-1.5">
+                  <Label htmlFor="pt-notes">Catatan</Label>
+                  <Input id="pt-notes" value={form.notes} onChange={(e) => setF("notes", e.target.value)} placeholder="Catatan tambahan (opsional)" />
+                </div>
+              </div>
+            </div>
+            <DialogFooter className="pt-3 border-t shrink-0">
+              <Button type="button" variant="outline" onClick={handleClose} disabled={isPending}>Batal</Button>
+              <Button type="submit" disabled={isPending} className="gap-2">
+                <Plus className="w-4 h-4" />
+                {isPending ? "Menyimpan..." : "Buat & Tambahkan"}
+              </Button>
+            </DialogFooter>
+          </form>
+        )}
       </DialogContent>
     </Dialog>
   );
@@ -2097,6 +2321,7 @@ export default function TenantPos() {
       {/* Tambah Tenant */}
       <ModalTambahTenant
         open={showTambahTenant}
+        siteId={activeSiteId}
         siteName={activeSite?.name ?? "Lokasi Ini"}
         onClose={() => setShowTambahTenant(false)}
         onSuccess={() => setShowTambahTenant(false)}
