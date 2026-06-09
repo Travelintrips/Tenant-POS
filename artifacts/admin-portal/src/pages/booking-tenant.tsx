@@ -529,7 +529,7 @@ export default function BookingTenant() {
           { label: "Total Terbayar", value: formatRupiah(totalTerbayar), sub: "sudah diterima" },
           { label: "Sisa Tagihan", value: formatRupiah(totalSisa), sub: "belum lunas", accent: true },
         ].map((item) => (
-          <Card key={item.label}>
+          <Card key={item.label} className={siteCfg ? `border-l-4 ${siteCfg.border}` : ""}>
             <CardContent className="pt-5 pb-4">
               <p className="text-xs text-muted-foreground uppercase tracking-wide">{item.label}</p>
               <p className={`text-xl font-bold mt-1 ${(item as { accent?: boolean }).accent ? "text-orange-500" : ""}`}>{item.value}</p>
@@ -542,7 +542,15 @@ export default function BookingTenant() {
       <Card>
         <CardHeader>
           <div className="flex flex-col gap-3">
-            <CardTitle>Daftar Kontrak</CardTitle>
+            <div className="flex items-center gap-2">
+              <CardTitle>Daftar Kontrak</CardTitle>
+              {activeSite && siteCfg && (
+                <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold ${siteCfg.color} ${siteCfg.bg} ${siteCfg.border}`}>
+                  {siteCfg.icon}
+                  {activeSite.name}
+                </span>
+              )}
+            </div>
             <div className="flex flex-wrap gap-2">
               <div className="relative">
                 <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
