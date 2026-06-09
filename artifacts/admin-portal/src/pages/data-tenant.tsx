@@ -4,6 +4,7 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -22,7 +23,25 @@ import {
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, Pencil, Trash2, Search, Upload, X, ImageIcon } from "lucide-react";
+import { Plus, Pencil, Trash2, Search, Upload, X, ImageIcon, Building2, Dumbbell, MapPin } from "lucide-react";
+import { useSite } from "@/contexts/site-context";
+
+const SITE_TYPE_CONFIG: Record<string, { label: string; color: string; bg: string; border: string; icon: React.ReactNode }> = {
+  mall_tenant: {
+    label: "Mal",
+    color: "text-blue-700",
+    bg: "bg-blue-50",
+    border: "border-blue-200",
+    icon: <Building2 className="h-4 w-4" />,
+  },
+  sport_center: {
+    label: "Sport Center",
+    color: "text-emerald-700",
+    bg: "bg-emerald-50",
+    border: "border-emerald-200",
+    icon: <Dumbbell className="h-4 w-4" />,
+  },
+};
 
 type TenantStatus = "active" | "inactive" | "blacklisted" | "aktif" | "kosong" | "nonaktif";
 
@@ -155,6 +174,7 @@ export default function DataTenant() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const logoInputRef = useRef<HTMLInputElement>(null);
+  const { activeSite } = useSite();
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<Tenant | null>(null);
@@ -303,12 +323,27 @@ export default function DataTenant() {
   const countInactive = tenants?.filter((t) => t.status === "inactive" || t.status === "kosong" || t.status === "nonaktif").length ?? 0;
   const countBlacklisted = tenants?.filter((t) => t.status === "blacklisted").length ?? 0;
 
+  const siteCfg = activeSite ? (SITE_TYPE_CONFIG[activeSite.type] ?? null) : null;
+
   return (
     <div className="flex flex-col gap-6">
+      {/* Header dengan info lokasi */}
       <div className="flex items-start justify-between">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">Data Tenant</h1>
-          <p className="text-muted-foreground mt-1">Daftar seluruh tenant yang terdaftar di mall.</p>
+        <div className="flex flex-col gap-1">
+          <div className="flex items-center gap-2">
+            <h1 className="text-2xl font-bold tracking-tight">Data Tenant</h1>
+            {activeSite && siteCfg && (
+              <span className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-0.5 text-xs font-semibold ${siteCfg.color} ${siteCfg.bg} ${siteCfg.border}`}>
+                {siteCfg.icon}
+                {activeSite.name}
+              </span>
+            )}
+          </div>
+          <p className="text-muted-foreground text-sm">
+            {activeSite
+              ? `Tenant terdaftar di ${activeSite.name}`
+              : "Daftar seluruh tenant yang terdaftar."}
+          </p>
         </div>
         <Button onClick={openAdd} className="gap-2">
           <Plus className="h-4 w-4" />
@@ -319,14 +354,15 @@ export default function DataTenant() {
       {/* Summary */}
       <div className="grid grid-cols-3 gap-4">
         {[
-          { label: "Tenant Aktif", value: countActive, color: "text-green-600" },
-          { label: "Non-Aktif", value: countInactive, color: "text-gray-500" },
-          { label: "Blacklist", value: countBlacklisted, color: "text-red-600" },
+          { label: "Tenant Aktif", value: countActive, color: "text-green-600", sub: "unit terisi" },
+          { label: "Non-Aktif", value: countInactive, color: "text-gray-500", sub: "unit kosong" },
+          { label: "Blacklist", value: countBlacklisted, color: "text-red-600", sub: "diblokir" },
         ].map((item) => (
-          <Card key={item.label}>
+          <Card key={item.label} className={siteCfg ? `border-l-4 ${siteCfg.border}` : ""}>
             <CardContent className="pt-5 pb-4">
               <p className="text-xs text-muted-foreground uppercase tracking-wide">{item.label}</p>
               <p className={`text-2xl font-bold mt-1 ${item.color}`}>{item.value}</p>
+              <p className="text-xs text-muted-foreground mt-0.5">{item.sub}</p>
             </CardContent>
           </Card>
         ))}

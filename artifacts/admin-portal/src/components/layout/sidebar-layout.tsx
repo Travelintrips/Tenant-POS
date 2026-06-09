@@ -14,7 +14,7 @@ import {
   SidebarInset,
   SidebarTrigger
 } from "@/components/ui/sidebar";
-import { Building2, Store, CalendarRange, Calculator, BarChart3, LogOut, FileText, Shield, ChevronDown, GitCompare } from "lucide-react";
+import { Building2, Store, CalendarRange, Calculator, BarChart3, LogOut, FileText, Shield, ChevronDown, GitCompare, Dumbbell, MapPin, Check } from "lucide-react";
 import { Separator } from "@/components/ui/separator";
 import { useAuth, useLogout, ROLE_LABELS, type UserRole } from "@/hooks/use-auth";
 import { Button } from "@/components/ui/button";
@@ -23,9 +23,11 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { useSite } from "@/contexts/site-context";
+import { useSite, type MallSite } from "@/contexts/site-context";
 
 const ROLE_COLORS: Record<UserRole, string> = {
   owner:   "bg-purple-100 text-purple-800",
@@ -34,10 +36,49 @@ const ROLE_COLORS: Record<UserRole, string> = {
   cashier: "bg-orange-100 text-orange-800",
 };
 
-const SITE_TYPE_LABELS: Record<string, string> = {
-  mall_tenant: "Mal",
-  sport_center: "Sport",
+const SITE_TYPE_CONFIG: Record<string, { label: string; icon: React.ReactNode; color: string; bg: string }> = {
+  mall_tenant: {
+    label: "Mal",
+    icon: <Building2 className="h-3.5 w-3.5" />,
+    color: "text-blue-700",
+    bg: "bg-blue-50 border-blue-200",
+  },
+  sport_center: {
+    label: "Sport",
+    icon: <Dumbbell className="h-3.5 w-3.5" />,
+    color: "text-emerald-700",
+    bg: "bg-emerald-50 border-emerald-200",
+  },
 };
+
+function SiteIcon({ type, className }: { type: string; className?: string }) {
+  const cfg = SITE_TYPE_CONFIG[type];
+  if (!cfg) return <MapPin className={className ?? "h-3.5 w-3.5"} />;
+  return <span className={className}>{cfg.icon}</span>;
+}
+
+function SiteTypeBadge({ type }: { type: string }) {
+  const cfg = SITE_TYPE_CONFIG[type];
+  if (!cfg) return <Badge variant="secondary" className="text-[9px] px-1.5 py-0 h-4 font-normal">{type}</Badge>;
+  return (
+    <span className={`inline-flex items-center gap-0.5 rounded-full border px-1.5 py-0 text-[9px] font-semibold tracking-wide ${cfg.color} ${cfg.bg}`}>
+      {cfg.icon}
+      {cfg.label}
+    </span>
+  );
+}
+
+// Kelompokkan sites berdasarkan tipe
+function groupSites(sites: MallSite[]) {
+  const groups: { label: string; sites: MallSite[] }[] = [];
+  const mal = sites.filter(s => s.type === "mall_tenant");
+  const sport = sites.filter(s => s.type === "sport_center");
+  const other = sites.filter(s => s.type !== "mall_tenant" && s.type !== "sport_center");
+  if (mal.length) groups.push({ label: "Mal", sites: mal });
+  if (sport.length) groups.push({ label: "Sport Center", sites: sport });
+  if (other.length) groups.push({ label: "Lainnya", sites: other });
+  return groups;
+}
 
 export function SidebarLayout({ children }: { children: React.ReactNode }) {
   const [location] = useLocation();
@@ -47,6 +88,7 @@ export function SidebarLayout({ children }: { children: React.ReactNode }) {
 
   const role = user?.role as UserRole | undefined;
   const can = (...roles: UserRole[]) => !!role && roles.includes(role);
+  const grouped = groupSites(sites);
 
   return (
     <SidebarProvider>
@@ -59,36 +101,62 @@ export function SidebarLayout({ children }: { children: React.ReactNode }) {
             </span>
           </div>
 
-          {/* Site switcher — tampil jika ada lebih dari 1 site atau untuk owner */}
+          {/* Site switcher premium — grouped dengan separator */}
           {(sites.length > 1 || can("owner")) && activeSite && (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button
                   variant="outline"
                   size="sm"
-                  className="w-full justify-between h-8 text-xs font-medium border-sidebar-border bg-sidebar hover:bg-sidebar-accent"
+                  className="w-full justify-between h-9 text-xs font-medium border-sidebar-border bg-sidebar hover:bg-sidebar-accent group"
                 >
-                  <span className="truncate">{activeSite.name}</span>
+                  <div className="flex items-center gap-1.5 min-w-0">
+                    <span className={`shrink-0 ${SITE_TYPE_CONFIG[activeSite.type]?.color ?? "text-muted-foreground"}`}>
+                      <SiteIcon type={activeSite.type} />
+                    </span>
+                    <span className="truncate font-semibold">{activeSite.name}</span>
+                  </div>
                   <div className="flex items-center gap-1 shrink-0">
-                    <Badge variant="secondary" className="text-[9px] px-1 py-0 h-4 font-normal">
-                      {SITE_TYPE_LABELS[activeSite.type] ?? activeSite.type}
-                    </Badge>
-                    <ChevronDown className="h-3 w-3 text-muted-foreground" />
+                    <SiteTypeBadge type={activeSite.type} />
+                    <ChevronDown className="h-3 w-3 text-muted-foreground group-hover:text-foreground transition-colors" />
                   </div>
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="start" className="w-[200px]">
-                {sites.map((site) => (
-                  <DropdownMenuItem
-                    key={site.id}
-                    onClick={() => setActiveSite(site)}
-                    className={activeSite.id === site.id ? "bg-accent" : ""}
-                  >
-                    <span className="flex-1 truncate">{site.name}</span>
-                    <Badge variant="secondary" className="text-[9px] px-1 py-0 h-4 font-normal ml-1">
-                      {SITE_TYPE_LABELS[site.type] ?? site.type}
-                    </Badge>
-                  </DropdownMenuItem>
+              <DropdownMenuContent align="start" className="w-[230px] p-1">
+                <DropdownMenuLabel className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider px-2 py-1">
+                  Pilih Lokasi
+                </DropdownMenuLabel>
+                {grouped.map((group, gi) => (
+                  <React.Fragment key={group.label}>
+                    {gi > 0 && <DropdownMenuSeparator className="my-1" />}
+                    <DropdownMenuLabel className="flex items-center gap-1.5 px-2 py-1 text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">
+                      {group.label === "Sport Center"
+                        ? <Dumbbell className="h-3 w-3 text-emerald-500" />
+                        : <Building2 className="h-3 w-3 text-blue-500" />
+                      }
+                      {group.label}
+                    </DropdownMenuLabel>
+                    {group.sites.map((site) => {
+                      const isActive = activeSite.id === site.id;
+                      return (
+                        <DropdownMenuItem
+                          key={site.id}
+                          onClick={() => setActiveSite(site)}
+                          className={`flex items-center gap-2 px-3 py-2 rounded-md cursor-pointer ${
+                            isActive
+                              ? "bg-primary/10 text-primary font-semibold"
+                              : "hover:bg-accent"
+                          }`}
+                        >
+                          <span className={`shrink-0 ${SITE_TYPE_CONFIG[site.type]?.color ?? ""}`}>
+                            <SiteIcon type={site.type} />
+                          </span>
+                          <span className="flex-1 truncate text-sm">{site.name}</span>
+                          {isActive && <Check className="h-3.5 w-3.5 text-primary shrink-0" />}
+                        </DropdownMenuItem>
+                      );
+                    })}
+                  </React.Fragment>
                 ))}
               </DropdownMenuContent>
             </DropdownMenu>
@@ -96,11 +164,14 @@ export function SidebarLayout({ children }: { children: React.ReactNode }) {
 
           {/* Tampilkan nama site tunggal tanpa dropdown */}
           {sites.length === 1 && activeSite && (
-            <div className="flex items-center gap-1.5 px-1 py-0.5">
-              <span className="text-xs text-muted-foreground truncate">{activeSite.name}</span>
-              <Badge variant="secondary" className="text-[9px] px-1 py-0 h-4 font-normal shrink-0">
-                {SITE_TYPE_LABELS[activeSite.type] ?? activeSite.type}
-              </Badge>
+            <div className={`flex items-center gap-1.5 px-2 py-1.5 rounded-md border ${SITE_TYPE_CONFIG[activeSite.type]?.bg ?? "bg-muted"}`}>
+              <span className={`shrink-0 ${SITE_TYPE_CONFIG[activeSite.type]?.color ?? "text-muted-foreground"}`}>
+                <SiteIcon type={activeSite.type} />
+              </span>
+              <span className={`text-xs font-semibold truncate ${SITE_TYPE_CONFIG[activeSite.type]?.color ?? ""}`}>
+                {activeSite.name}
+              </span>
+              <SiteTypeBadge type={activeSite.type} />
             </div>
           )}
         </SidebarHeader>
