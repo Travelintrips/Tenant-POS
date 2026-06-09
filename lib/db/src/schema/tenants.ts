@@ -2,6 +2,9 @@ import { pgTable, serial, integer, text, timestamp } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
+export const TENANT_STATUSES = ["active", "inactive", "blacklisted", "aktif", "kosong", "nonaktif"] as const;
+export type TenantStatus = (typeof TENANT_STATUSES)[number];
+
 export const tenantsTable = pgTable("tenants", {
   id: serial("id").primaryKey(),
   companyId: integer("company_id"),
@@ -16,7 +19,8 @@ export const tenantsTable = pgTable("tenants", {
   areaName: text("area_name").notNull().default(""),
   logoUrl: text("logo_url"),
   address: text("address"),
-  status: text("status").notNull().default("aktif"),
+  status: text("status").notNull().default("active"),
+  notes: text("notes"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
