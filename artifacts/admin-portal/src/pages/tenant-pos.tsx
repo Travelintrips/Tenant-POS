@@ -5,9 +5,6 @@ import {
   Clock, Phone, Mail, Calendar, CreditCard, Printer, Banknote,
   Smartphone, WalletCards, TrendingUp, Users, AlertTriangle, Zap,
   MoreHorizontal, History, Filter, Search, RotateCcw, ChevronDown,
-  MoreHorizontal, History, Filter,
-  Search, RotateCcw, ChevronDown,
-
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -1770,7 +1767,7 @@ export default function TenantPos() {
           <CardHeader className="py-3 px-4 border-b flex-row items-center justify-between space-y-0">
             <div className="flex items-center gap-2">
               <CardTitle className="text-sm font-semibold text-slate-700">Denah Tenant</CardTitle>
-              {filterStatus && !floorPlan.isLoading && (
+              {filters.status && !floorPlan.isLoading && (
                 <span className="text-[10px] text-muted-foreground">
                   ({filteredItems.length}/{(floorPlan.data ?? []).length} unit)
                 </span>
@@ -1778,23 +1775,21 @@ export default function TenantPos() {
             </div>
             <div className="flex items-center gap-1 flex-wrap justify-end">
               <Filter className="w-3.5 h-3.5 text-muted-foreground mr-0.5" />
-              {([null, "PAID", "UNPAID", "PARTIAL", "OVERDUE", "VACANT"] as const).map((s) => (
+              {(["", "PAID", "UNPAID", "PARTIAL", "OVERDUE", "VACANT"] as const).map((s) => (
                 <button
-                  key={String(s)}
-                  onClick={() => setFilterStatus(s === filterStatus ? null : s)}
+                  key={s}
+                  onClick={() => handleFilterChange({ status: s === filters.status ? "" : s })}
                   className={cn(
                     "text-[10px] px-2 py-0.5 rounded-full border font-medium transition-all",
-                    filterStatus === s
+                    filters.status === s
                       ? "bg-primary text-white border-primary"
                       : "text-muted-foreground border-muted hover:border-slate-300"
                   )}
                 >
-                  {s === null ? "Semua" : s === "PAID" ? "Lunas" : s === "UNPAID" ? "Belum Bayar" : s === "PARTIAL" ? "Sebagian" : s === "OVERDUE" ? "Jatuh Tempo" : "Kosong"}
+                  {s === "" ? "Semua" : s === "PAID" ? "Lunas" : s === "UNPAID" ? "Belum Bayar" : s === "PARTIAL" ? "Sebagian" : s === "OVERDUE" ? "Jatuh Tempo" : "Kosong"}
                 </button>
               ))}
             </div>
-          <CardHeader className="py-2.5 px-4 border-b shrink-0">
-            <CardTitle className="text-sm font-semibold text-slate-700">Denah Tenant</CardTitle>
           </CardHeader>
           {!floorPlan.isLoading && !floorPlan.isError && (
             <FilterBar
@@ -1821,7 +1816,7 @@ export default function TenantPos() {
                 <p className="font-medium text-sm">Tidak ada unit dengan status ini</p>
                 <button
                   className="text-xs text-primary mt-2 hover:underline"
-                  onClick={() => setFilterStatus(null)}
+                  onClick={() => handleFilterChange({ status: "" })}
                 >
                   Tampilkan semua
                 </button>
