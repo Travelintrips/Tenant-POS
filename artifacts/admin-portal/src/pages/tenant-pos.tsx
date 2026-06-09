@@ -1058,9 +1058,7 @@ function DetailPanel({ item, onClose, onProses, onBayarInvoice, currentShiftId }
   onBayarInvoice: (item: FloorPlanItem, invoice: TenantInvoice) => void;
   currentShiftId: number | null;
 }) {
-  const authQuery = useAuth();
-  const user = authQuery.data;
-  const { data: user } = useAuth();
+  const user = useAuth().data;
   const canVoidRefund = !!user && ["owner", "admin", "finance"].includes(user.role);
   const paymentHistory = usePaymentHistory(item?.bookingId ?? null);
   const tenantInvoices = useTenantInvoices(item?.tenantId ?? null);
@@ -1723,9 +1721,7 @@ function DailyReportModal({ onClose }: { onClose: () => void }) {
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function TenantPos() {
-  const authQuery = useAuth();
-  const user = authQuery.data;
-  const { data: user } = useAuth();
+  const user = useAuth().data;
   const [selected, setSelected] = useState<FloorPlanItem | null>(null);
   const [modalItem, setModalItem] = useState<FloorPlanItem | null>(null);
   const [modalInvoice, setModalInvoice] = useState<TenantInvoice | null>(null);
