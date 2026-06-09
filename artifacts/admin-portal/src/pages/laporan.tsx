@@ -141,21 +141,21 @@ function downloadCsv(content: string, filename: string) {
 function useLiveOverview() {
   return useQuery<Overview>({
     queryKey: ["laporan-overview"],
-    queryFn: () => fetch(`${BASE}/api/tenant-pos/overview`).then((r) => r.json()),
+    queryFn: () => fetch(`${BASE}/api/tenant-pos/overview`, { credentials: "include" }).then((r) => r.json()),
     refetchInterval: 30_000,
   });
 }
 function useRecentPayments() {
   return useQuery<RecentPayment[]>({
     queryKey: ["laporan-recent-payments"],
-    queryFn: () => fetch(`${BASE}/api/tenant-pos/recent-payments?limit=15`).then((r) => r.json()),
+    queryFn: () => fetch(`${BASE}/api/tenant-pos/recent-payments?limit=15`, { credentials: "include" }).then((r) => r.json()),
     refetchInterval: 30_000,
   });
 }
 function useKPI() {
   return useQuery<KPIData>({
     queryKey: ["laporan-kpi"],
-    queryFn: () => fetch(`${API}/laporan/kpi`).then((r) => r.json()),
+    queryFn: () => fetch(`${API}/laporan/kpi`, { credentials: "include" }).then((r) => r.json()),
     refetchInterval: 60_000,
   });
 }
@@ -168,13 +168,13 @@ function usePiutang(filter: FilterState) {
   if (filter.sampai) params.set("sampai", filter.sampai);
   return useQuery<PiutangData>({
     queryKey: ["laporan-piutang", filter],
-    queryFn: () => fetch(`${API}/laporan/piutang?${params}`).then((r) => r.json()),
+    queryFn: () => fetch(`${API}/laporan/piutang?${params}`, { credentials: "include" }).then((r) => r.json()),
   });
 }
 function useAging() {
   return useQuery<AgingData>({
     queryKey: ["laporan-aging"],
-    queryFn: () => fetch(`${API}/laporan/aging`).then((r) => r.json()),
+    queryFn: () => fetch(`${API}/laporan/aging`, { credentials: "include" }).then((r) => r.json()),
     refetchInterval: 60_000,
   });
 }
@@ -185,20 +185,20 @@ function usePaymentMethods(filter: FilterState, tahun: string) {
   if (filter.sampai) params.set("sampai", filter.sampai);
   return useQuery<PaymentMethodData>({
     queryKey: ["laporan-payment-methods", tahun, filter.bulan, filter.dari, filter.sampai],
-    queryFn: () => fetch(`${API}/laporan/payment-methods?${params}`).then((r) => r.json()),
+    queryFn: () => fetch(`${API}/laporan/payment-methods?${params}`, { credentials: "include" }).then((r) => r.json()),
   });
 }
 function useTenantsList() {
   return useQuery<TenantItem[]>({
     queryKey: ["laporan-tenants-list"],
-    queryFn: () => fetch(`${API}/laporan/tenants-list`).then((r) => r.json()),
+    queryFn: () => fetch(`${API}/laporan/tenants-list`, { credentials: "include" }).then((r) => r.json()),
     staleTime: 5 * 60 * 1000,
   });
 }
 function useFloorsList() {
   return useQuery<string[]>({
     queryKey: ["laporan-floors-list"],
-    queryFn: () => fetch(`${API}/laporan/floors-list`).then((r) => r.json()),
+    queryFn: () => fetch(`${API}/laporan/floors-list`, { credentials: "include" }).then((r) => r.json()),
     staleTime: 5 * 60 * 1000,
   });
 }

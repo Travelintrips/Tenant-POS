@@ -356,7 +356,7 @@ function ShiftOpenDialog({ open, onClose, defaultName }: { open: boolean; onClos
 
   const mutation = useMutation({
     mutationFn: async () => {
-      const r = await fetch(`${BASE}/api/tenant-pos/shifts/open`, {
+      const r = await fetch(`${BASE}/api/tenant-pos/shifts/open`, { credentials: "include",
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
@@ -423,7 +423,7 @@ function ShiftCloseDialog({ open, onClose, shift }: { open: boolean; onClose: ()
   const mutation = useMutation({
     mutationFn: async () => {
       if (!shift) throw new Error("Tidak ada shift aktif");
-      const r = await fetch(`${BASE}/api/tenant-pos/shifts/${shift.id}/close`, {
+      const r = await fetch(`${BASE}/api/tenant-pos/shifts/${shift.id}/close`, { credentials: "include",
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
@@ -531,7 +531,7 @@ function VoidPaymentDialog({ payment, onClose }: {
   const mutation = useMutation({
     mutationFn: async () => {
       if (!payment) throw new Error("Tidak ada data");
-      const r = await fetch(`${BASE}/api/tenant-pos/payments/${payment.id}/void`, {
+      const r = await fetch(`${BASE}/api/tenant-pos/payments/${payment.id}/void`, { credentials: "include",
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
@@ -614,7 +614,7 @@ function RefundPaymentDialog({ payment, onClose }: {
   const mutation = useMutation({
     mutationFn: async () => {
       if (!payment) throw new Error("Tidak ada data");
-      const r = await fetch(`${BASE}/api/tenant-pos/payments/${payment.id}/refund`, {
+      const r = await fetch(`${BASE}/api/tenant-pos/payments/${payment.id}/refund`, { credentials: "include",
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
@@ -1331,7 +1331,7 @@ function ModalPembayaran({ item, invoice, shiftId, cashierName, onClose, onSucce
 
   const mutation = useMutation<PaymentResponse, Error>({
     mutationFn: async () => {
-      const r = await fetch(`${BASE}/api/tenant-pos/payments`, {
+      const r = await fetch(`${BASE}/api/tenant-pos/payments`, { credentials: "include",
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",

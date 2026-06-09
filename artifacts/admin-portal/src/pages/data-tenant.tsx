@@ -97,7 +97,7 @@ const CATEGORIES = ["Kuliner", "Fashion", "F&B", "Elektronik", "Kesehatan", "Kec
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
 async function fetchTenants(): Promise<Tenant[]> {
-  const res = await fetch(`${BASE}/api/tenants`);
+  const res = await fetch(`${BASE}/api/tenants`, { credentials: "include" });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json() as Promise<Tenant[]>;
 }
@@ -105,6 +105,7 @@ async function fetchTenants(): Promise<Tenant[]> {
 async function createTenant(data: TenantForm): Promise<Tenant> {
   const res = await fetch(`${BASE}/api/tenants`, {
     method: "POST",
+    credentials: "include",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(data),
   });
@@ -118,6 +119,7 @@ async function createTenant(data: TenantForm): Promise<Tenant> {
 async function updateTenant(id: number, data: TenantForm): Promise<Tenant> {
   const res = await fetch(`${BASE}/api/tenants/${id}`, {
     method: "PUT",
+    credentials: "include",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(data),
   });
@@ -129,7 +131,7 @@ async function updateTenant(id: number, data: TenantForm): Promise<Tenant> {
 }
 
 async function deleteTenant(id: number): Promise<void> {
-  const res = await fetch(`${BASE}/api/tenants/${id}`, { method: "DELETE" });
+  const res = await fetch(`${BASE}/api/tenants/${id}`, { method: "DELETE", credentials: "include" });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
     throw new Error((err as { error?: string }).error ?? "Gagal menghapus tenant");
@@ -139,7 +141,7 @@ async function deleteTenant(id: number): Promise<void> {
 async function uploadLogoFile(file: File): Promise<string> {
   const fd = new FormData();
   fd.append("file", file);
-  const res = await fetch(`${BASE}/api/uploads/tenant-logo`, { method: "POST", body: fd });
+  const res = await fetch(`${BASE}/api/uploads/tenant-logo`, { method: "POST", credentials: "include", body: fd });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
     throw new Error((err as { error?: string }).error ?? "Gagal mengunggah logo");
