@@ -8,6 +8,8 @@ import {
   ChevronRight, MapPin,
   Wrench, Package, RefreshCw, Info, FileText, Layers,
   LogIn, LogOut, Ban, ShieldAlert, DollarSign,
+  ChevronRight, MapPin, Wrench, Package, RefreshCw, Info, FileText,
+  Layers, LogIn, LogOut, Ban, ShieldAlert, DollarSign,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -1056,6 +1058,8 @@ function DetailPanel({ item, onClose, onProses, onBayarInvoice, currentShiftId }
   onBayarInvoice: (item: FloorPlanItem, invoice: TenantInvoice) => void;
   currentShiftId: number | null;
 }) {
+  const authQuery = useAuth();
+  const user = authQuery.data;
   const { data: user } = useAuth();
   const canVoidRefund = !!user && ["owner", "admin", "finance"].includes(user.role);
   const paymentHistory = usePaymentHistory(item?.bookingId ?? null);
@@ -1719,6 +1723,8 @@ function DailyReportModal({ onClose }: { onClose: () => void }) {
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function TenantPos() {
+  const authQuery = useAuth();
+  const user = authQuery.data;
   const { data: user } = useAuth();
   const [selected, setSelected] = useState<FloorPlanItem | null>(null);
   const [modalItem, setModalItem] = useState<FloorPlanItem | null>(null);
