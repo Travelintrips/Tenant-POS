@@ -22,7 +22,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import {
   Plus, FileText, Printer, CreditCard, X, Search, Zap, AlertCircle,
-  CheckCircle2, Clock, Ban, CircleDashed,
+  CheckCircle2, Clock, Ban, CircleDashed, MessageCircle, Send,
 } from "lucide-react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -440,6 +440,32 @@ export default function TenantInvoices() {
     onError: (e: Error) => toast({ title: "Gagal", description: e.message, variant: "destructive" }),
   });
 
+  const waSendMutation = useMutation({
+    mutationFn: ({ id, type }: { id: number; type: "send" | "overdue-reminder" }) =>
+      apiPost<{ ok: boolean; skipped?: boolean; message: string }>(`${BASE}/api/whatsapp/invoice/${id}/${type}`, {}),
+    onSuccess: (res) => {
+      if (res.skipped) {
+        toast({ title: "WA Tidak Terkirim", description: res.message, variant: "destructive" });
+      } else {
+        toast({ title: "WhatsApp Terkirim", description: res.message });
+      }
+    },
+    onError: (e: Error) => toast({ title: "Gagal Kirim WA", description: e.message, variant: "destructive" }),
+  });
+
+  const waBlastMutation = useMutation({
+    mutationFn: () =>
+      apiPost<{ ok: boolean; skipped?: boolean; sent: number; failed: number; total: number; message: string }>(`${BASE}/api/whatsapp/blast-overdue`, {}),
+    onSuccess: (res) => {
+      if (res.skipped) {
+        toast({ title: "WA Tidak Terkirim", description: res.message, variant: "destructive" });
+      } else {
+        toast({ title: "Blast WA Selesai", description: res.message });
+      }
+    },
+    onError: (e: Error) => toast({ title: "Gagal Blast WA", description: e.message, variant: "destructive" }),
+  });
+
   // ─── Derived ────────────────────────────────────────────────────────────────
 
   const summary = useMemo(() => {
@@ -528,7 +554,17 @@ export default function TenantInvoices() {
           <h1 className="text-2xl font-bold tracking-tight">Invoice Tenant</h1>
           <p className="text-muted-foreground mt-1">Kelola tagihan dan pembayaran invoice tenant.</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap">
+          <Button
+            variant="outline"
+            className="gap-2 border-green-300 text-green-700 hover:bg-green-50"
+            disabled={waBlastMutation.isPending || summary.overdue === 0}
+            onClick={() => waBlastMutation.mutate()}
+            title={summary.overdue === 0 ? "Tidak ada invoice overdue" : `Kirim pengingat ke ${summary.overdue} invoice overdue`}
+          >
+            <Send className="h-4 w-4" />
+            {waBlastMutation.isPending ? "Mengirim..." : `Blast WA Overdue (${summary.overdue})`}
+          </Button>
           <Button variant="outline" onClick={() => { setGenerateForm({ bookingId: "", notes: "" }); setGenerateOpen(true); }} className="gap-2">
             <Zap className="h-4 w-4" />
             Generate dari Booking
@@ -665,6 +701,17 @@ export default function TenantInvoices() {
                             <Button size="sm" variant="outline" className="h-7 px-2 text-xs gap-1" onClick={() => openPayment(inv)}>
                               <CreditCard className="h-3 w-3" />
                               Bayar
+                            </Button>
+                          )}
+                          {inv.status !== "cancelled" && inv.phone && (
+                            <Button
+                              size="sm" variant="ghost"
+                              className={`h-7 w-7 p-0 ${inv.status === "overdue" ? "text-red-500 hover:text-red-600" : "text-green-600 hover:text-green-700"}`}
+                              title={inv.status === "overdue" ? "Kirim pengingat overdue via WA" : "Kirim notifikasi invoice via WA"}
+                              disabled={waSendMutation.isPending}
+                              onClick={() => waSendMutation.mutate({ id: inv.id, type: inv.status === "overdue" ? "overdue-reminder" : "send" })}
+                            >
+                              <MessageCircle className="h-3.5 w-3.5" />
                             </Button>
                           )}
                           <Button size="sm" variant="ghost" className="h-7 w-7 p-0" title="Print" onClick={() => printInvoice(inv)}>
@@ -1004,11 +1051,22 @@ export default function TenantInvoices() {
               </div>
             </ScrollArea>
           ) : null}
-          <DialogFooter>
+          <DialogFooter className="flex-wrap gap-2">
             <Button variant="outline" onClick={() => { if (detailData) printInvoice(detailData); }} className="gap-2">
               <Printer className="h-4 w-4" />
               Print Invoice
             </Button>
+            {detailData && detailData.status !== "cancelled" && detailData.phone && (
+              <Button
+                variant="outline"
+                className={`gap-2 ${detailData.status === "overdue" ? "border-red-300 text-red-600 hover:bg-red-50" : "border-green-300 text-green-700 hover:bg-green-50"}`}
+                disabled={waSendMutation.isPending}
+                onClick={() => waSendMutation.mutate({ id: detailData.id, type: detailData.status === "overdue" ? "overdue-reminder" : "send" })}
+              >
+                <MessageCircle className="h-4 w-4" />
+                {waSendMutation.isPending ? "Mengirim..." : detailData.status === "overdue" ? "Kirim Pengingat WA" : "Kirim Notif WA"}
+              </Button>
+            )}
             {detailData && detailData.status !== "paid" && detailData.status !== "cancelled" && (
               <Button onClick={() => { setDetailOpen(false); openPayment(detailData); }} className="gap-2">
                 <CreditCard className="h-4 w-4" />
