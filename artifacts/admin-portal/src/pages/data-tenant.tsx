@@ -371,7 +371,15 @@ export default function DataTenant() {
       <Card>
         <CardHeader>
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <CardTitle>Daftar Tenant</CardTitle>
+            <div className="flex items-center gap-2">
+                <CardTitle>Daftar Tenant</CardTitle>
+                {activeSite && siteCfg && (
+                  <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold ${siteCfg.color} ${siteCfg.bg} ${siteCfg.border}`}>
+                    {siteCfg.icon}
+                    {activeSite.name}
+                  </span>
+                )}
+              </div>
             <div className="flex gap-2">
               <div className="relative">
                 <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
