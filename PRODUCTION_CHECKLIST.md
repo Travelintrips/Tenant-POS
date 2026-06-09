@@ -1,8 +1,8 @@
 # PRODUCTION HARDENING CHECKLIST — Mall Admin Portal
 
 Tanggal: 9 Juni 2026  
-Versi: post-login-audit hardening  
-Status build: ✅ typecheck lulus · ✅ build lulus · ✅ 108/108 test pass
+Versi: post-login-audit hardening + rate limiting  
+Status build: ✅ typecheck lulus · ✅ build lulus · ✅ 121/121 test pass
 
 ---
 
