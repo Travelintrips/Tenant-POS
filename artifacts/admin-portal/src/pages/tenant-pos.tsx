@@ -1057,6 +1057,7 @@ function DetailPanel({ item, onClose, onProses, onBayarInvoice, currentShiftId }
 }) {
   const authQuery = useAuth();
   const user = authQuery.data;
+  const { data: user } = useAuth();
   const canVoidRefund = !!user && ["owner", "admin", "finance"].includes(user.role);
   const paymentHistory = usePaymentHistory(item?.bookingId ?? null);
   const tenantInvoices = useTenantInvoices(item?.tenantId ?? null);
@@ -1287,10 +1288,11 @@ function DetailPanel({ item, onClose, onProses, onBayarInvoice, currentShiftId }
 
 // ─── Modal Pembayaran ─────────────────────────────────────────────────────────
 
-function ModalPembayaran({ item, invoice, shiftId, onClose, onSuccess }: {
+function ModalPembayaran({ item, invoice, shiftId, cashierName, onClose, onSuccess }: {
   item: FloorPlanItem;
   invoice?: TenantInvoice | null;
   shiftId?: number | null;
+  cashierName?: string;
   onClose: () => void;
   onSuccess: (updatedItem: { paidAmount: number; remainingAmount: number; paymentStatus: string }) => void;
 }) {
@@ -1304,6 +1306,7 @@ function ModalPembayaran({ item, invoice, shiftId, onClose, onSuccess }: {
   const [metode, setMetode] = useState<MetodeBayar>("tunai");
   const [tanggalBayar, setTanggalBayar] = useState(todayString());
   const [referenceNumber, setReferenceNumber] = useState("");
+  const [proofUrl, setProofUrl] = useState("");
   const [catatan, setCatatan] = useState("");
   const [showConfirm, setShowConfirm] = useState(false);
   const [result, setResult] = useState<PaymentResponse | null>(null);
@@ -1311,9 +1314,15 @@ function ModalPembayaran({ item, invoice, shiftId, onClose, onSuccess }: {
   const nominalNum = parseInt(nominal.replace(/\D/g, "")) || 0;
   const diskonNum  = parseInt(diskon.replace(/\D/g, ""))  || 0;
   const dendaNum   = parseInt(denda.replace(/\D/g, ""))   || 0;
-  const finalBill  = item.totalAmount - diskonNum + dendaNum;
-  const sisaSetelah = Math.max(finalBill - item.paidAmount - nominalNum, 0);
-  const kembalian  = Math.max(item.paidAmount + nominalNum - finalBill, 0);
+  const finalBill  = invoice
+    ? invoice.outstandingAmount - diskonNum + dendaNum
+    : item.totalAmount - diskonNum + dendaNum;
+  const sisaSetelah = invoice
+    ? Math.max(finalBill - nominalNum, 0)
+    : Math.max(finalBill - item.paidAmount - nominalNum, 0);
+  const kembalian  = invoice
+    ? Math.max(nominalNum - finalBill, 0)
+    : Math.max(item.paidAmount + nominalNum - finalBill, 0);
   const isOverdue  = item.paymentStatus === "OVERDUE";
   const metodeLabel = METODE_OPTIONS.find((m) => m.value === metode)?.label ?? metode;
   const errNominal = nominalNum <= 0 ? "Nominal harus lebih dari 0" : "";
@@ -1337,6 +1346,7 @@ function ModalPembayaran({ item, invoice, shiftId, onClose, onSuccess }: {
           paymentMethod: metode,
           paymentDate: tanggalBayar,
           referenceNumber: referenceNumber || undefined,
+          proofUrl: proofUrl || undefined,
           shiftId: shiftId ?? undefined,
           notes: catatan || undefined,
         }),
@@ -1409,7 +1419,7 @@ function ModalPembayaran({ item, invoice, shiftId, onClose, onSuccess }: {
                 sewaBulanan: item.totalAmount,
                 jumlahBayar: nominalNum,
                 metodeBayar: metodeLabel,
-                kasir: "Admin",
+                kasir: cashierName ?? "Kasir",
                 status: isOverdue ? "tunggakan" : "lunas",
                 invoiceNumber: invoice?.invoiceNumber,
                 referenceNumber: referenceNumber || undefined,
@@ -1539,6 +1549,16 @@ function ModalPembayaran({ item, invoice, shiftId, onClose, onSuccess }: {
                     Nomor Referensi / Transfer<span className="text-muted-foreground text-xs ml-1">(opsional)</span>
                   </Label>
                   <Input id="referenceNumber" placeholder="Masukkan nomor transaksi/referensi..." value={referenceNumber} onChange={(e) => setReferenceNumber(e.target.value)} disabled={mutation.isPending} />
+                </div>
+              )}
+
+              {/* Bukti Pembayaran URL */}
+              {needsReference && (
+                <div className="flex flex-col gap-1.5">
+                  <Label htmlFor="proofUrl">
+                    URL Bukti Pembayaran<span className="text-muted-foreground text-xs ml-1">(opsional)</span>
+                  </Label>
+                  <Input id="proofUrl" type="url" placeholder="https://... (link screenshot/bukti transfer)" value={proofUrl} onChange={(e) => setProofUrl(e.target.value)} disabled={mutation.isPending} />
                 </div>
               )}
 
@@ -1702,6 +1722,7 @@ function DailyReportModal({ onClose }: { onClose: () => void }) {
 export default function TenantPos() {
   const authQuery = useAuth();
   const user = authQuery.data;
+  const { data: user } = useAuth();
   const [selected, setSelected] = useState<FloorPlanItem | null>(null);
   const [modalItem, setModalItem] = useState<FloorPlanItem | null>(null);
   const [modalInvoice, setModalInvoice] = useState<TenantInvoice | null>(null);
@@ -1749,6 +1770,14 @@ export default function TenantPos() {
           <StatusLegend />
         </div>
       </div>
+      {/* Shift Panel */}
+      {!currentShift.isLoading && (
+        <ShiftPanel
+          shift={currentShift.data}
+          onOpenShift={() => setShowOpenShift(true)}
+          onCloseShift={() => setShowCloseShift(true)}
+        />
+      )}
 
       <SummaryCards overview={overview.data} loading={overview.isLoading} error={overview.isError} />
 
@@ -1821,6 +1850,7 @@ export default function TenantPos() {
           item={modalItem}
           invoice={modalInvoice}
           shiftId={currentShift.data?.id ?? null}
+          cashierName={currentShift.data?.cashierName ?? undefined}
           onClose={() => { setModalItem(null); setModalInvoice(null); }}
           onSuccess={(updated) => {
             if (selected?.id === modalItem.id) {

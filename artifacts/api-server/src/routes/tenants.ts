@@ -3,6 +3,7 @@ import { db } from "@workspace/db";
 import { tenantsTable, insertTenantSchema } from "@workspace/db/schema";
 import { eq, asc } from "drizzle-orm";
 import { requireAnyRole } from "../middlewares/auth";
+import { logAudit } from "../lib/audit";
 
 const router: IRouter = Router();
 
@@ -32,6 +33,12 @@ router.post("/tenants", async (req, res) => {
       .insert(tenantsTable)
       .values(parsed.data)
       .returning();
+    logAudit(req, {
+      action: "create_tenant",
+      entityType: "tenant",
+      entityId: tenant.id,
+      afterData: tenant,
+    });
     res.status(201).json(tenant);
   } catch (err) {
     req.log.error(err, "Failed to create tenant");
@@ -73,6 +80,7 @@ router.put("/tenants/:id", async (req, res) => {
     return;
   }
   try {
+    const [before] = await db.select().from(tenantsTable).where(eq(tenantsTable.id, id));
     const [tenant] = await db
       .update(tenantsTable)
       .set({ ...parsed.data, updatedAt: new Date() })
@@ -82,6 +90,13 @@ router.put("/tenants/:id", async (req, res) => {
       res.status(404).json({ error: "Tenant tidak ditemukan" });
       return;
     }
+    logAudit(req, {
+      action: "update_tenant",
+      entityType: "tenant",
+      entityId: id,
+      beforeData: before,
+      afterData: tenant,
+    });
     res.json(tenant);
   } catch (err) {
     req.log.error(err, "Failed to update tenant");
@@ -104,6 +119,12 @@ router.delete("/tenants/:id", async (req, res) => {
       res.status(404).json({ error: "Tenant tidak ditemukan" });
       return;
     }
+    logAudit(req, {
+      action: "delete_tenant",
+      entityType: "tenant",
+      entityId: id,
+      beforeData: deleted,
+    });
     res.json({ success: true });
   } catch (err) {
     req.log.error(err, "Failed to delete tenant");

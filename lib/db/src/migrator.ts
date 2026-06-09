@@ -521,6 +521,52 @@ DO $$ BEGIN
 END $$;
     `.trim(),
   },
+  {
+    name: "0006_audit_logs",
+    sql: `
+CREATE TABLE IF NOT EXISTS "audit_logs" (
+  "id" serial PRIMARY KEY NOT NULL,
+  "user_id" integer,
+  "user_email" text,
+  "user_name" text,
+  "action" text NOT NULL,
+  "entity_type" text NOT NULL,
+  "entity_id" text,
+  "before_data" jsonb,
+  "after_data" jsonb,
+  "ip_address" text,
+  "user_agent" text,
+  "created_at" timestamptz NOT NULL DEFAULT now()
+);
+
+DO $$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_indexes
+    WHERE tablename = 'audit_logs' AND indexname = 'audit_logs_action_idx'
+  ) THEN
+    CREATE INDEX audit_logs_action_idx ON "audit_logs" ("action");
+  END IF;
+END $$;
+
+DO $$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_indexes
+    WHERE tablename = 'audit_logs' AND indexname = 'audit_logs_entity_idx'
+  ) THEN
+    CREATE INDEX audit_logs_entity_idx ON "audit_logs" ("entity_type", "entity_id");
+  END IF;
+END $$;
+
+DO $$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_indexes
+    WHERE tablename = 'audit_logs' AND indexname = 'audit_logs_created_idx'
+  ) THEN
+    CREATE INDEX audit_logs_created_idx ON "audit_logs" ("created_at" DESC);
+  END IF;
+END $$;
+    `.trim(),
+  },
 ];
 
 const MIGRATIONS_TABLE = "schema_migrations";
