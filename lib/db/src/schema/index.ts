@@ -8,3 +8,5 @@ export * from "./cashier-shifts";
 export * from "./users";
 export * from "./mall-units";
 export * from "./audit-logs";
+export * from "./tenant-user-access";
+export * from "./otp-tokens";
