@@ -513,7 +513,7 @@ const voidBodySchema = z.object({
   voidReason: z.string().min(3, "Alasan void wajib diisi (min 3 karakter)"),
 });
 
-router.post("/tenant-pos/payments/:id/void", async (req, res) => {
+router.post("/tenant-pos/payments/:id/void", paymentRateLimiter, async (req, res) => {
   const currentUser = getSessionUser(req);
   if (!currentUser || !["owner", "admin", "finance"].includes(currentUser.role)) {
     res.status(403).json({ error: "Hanya owner/admin/finance yang dapat melakukan void" });
@@ -633,7 +633,7 @@ const refundBodySchema = z.object({
   refundReason: z.string().min(3, "Alasan refund wajib diisi"),
 });
 
-router.post("/tenant-pos/payments/:id/refund", async (req, res) => {
+router.post("/tenant-pos/payments/:id/refund", paymentRateLimiter, async (req, res) => {
   const currentUser = getSessionUser(req);
   if (!currentUser || !["owner", "admin", "finance"].includes(currentUser.role)) {
     res.status(403).json({ error: "Hanya owner/admin/finance yang dapat melakukan refund" });
