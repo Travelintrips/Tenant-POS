@@ -11,7 +11,9 @@ import mallUnitsRouter from "./mall-units";
 import auditLogsRouter from "./audit-logs";
 import uploadsRouter from "./uploads";
 import eventsRouter from "./events";
+import sitesRouter from "./sites";
 import { requireAuth } from "../middlewares/auth";
+import { siteContext } from "../middlewares/site-context";
 
 const router: IRouter = Router();
 
@@ -20,9 +22,13 @@ router.use(authRouter);
 
 router.use(requireAuth);
 
+// Resolusi site aktif berdasarkan header x-site-id / x-site-code / ?siteId
+router.use(siteContext);
+
 router.use(eventsRouter);
 router.use(uploadsRouter);
 router.use(configRouter);
+router.use(sitesRouter);
 router.use(tenantsRouter);
 router.use(bookingsRouter);
 router.use(tenantPosRouter);

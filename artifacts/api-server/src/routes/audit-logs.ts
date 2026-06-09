@@ -1,7 +1,7 @@
 import { Router, type IRouter } from "express";
 import { db } from "@workspace/db";
 import { auditLogsTable } from "@workspace/db/schema";
-import { eq, and, gte, lte, desc, ilike, or, sql } from "drizzle-orm";
+import { eq, and, gte, lte, desc, ilike, sql } from "drizzle-orm";
 import { requireAnyRole } from "../middlewares/auth";
 
 const router: IRouter = Router();
@@ -24,6 +24,12 @@ router.get("/audit-logs", async (req, res) => {
   const offset = Math.max(Number(offsetRaw ?? 0), 0);
 
   const conditions: ReturnType<typeof eq>[] = [];
+
+  // Owner melihat semua site; non-owner hanya site aktif
+  const user = req.user as { role?: string } | undefined;
+  if (user?.role !== "owner" && req.siteId > 0) {
+    conditions.push(eq(auditLogsTable.siteId, req.siteId) as any);
+  }
 
   if (dari) {
     conditions.push(gte(auditLogsTable.createdAt, new Date(String(dari))) as any);

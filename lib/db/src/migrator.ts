@@ -573,6 +573,121 @@ END $$;
 ALTER TABLE "tenant_payments" ALTER COLUMN "tenant_booking_id" DROP NOT NULL;
     `.trim(),
   },
+  {
+    name: "0011_multi_site",
+    sql: `
+-- 1. Buat tabel mall_sites
+CREATE TABLE IF NOT EXISTS "mall_sites" (
+  "id" serial PRIMARY KEY NOT NULL,
+  "code" text NOT NULL,
+  "name" text NOT NULL,
+  "type" text NOT NULL DEFAULT 'mall_tenant',
+  "address" text,
+  "status" text NOT NULL DEFAULT 'active',
+  "created_at" timestamptz NOT NULL DEFAULT now(),
+  "updated_at" timestamptz NOT NULL DEFAULT now()
+);
+
+DO $$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_indexes WHERE tablename = 'mall_sites' AND indexname = 'mall_sites_code_unique'
+  ) THEN
+    CREATE UNIQUE INDEX mall_sites_code_unique ON "mall_sites" ("code");
+  END IF;
+END $$;
+
+-- 2. Seed dua site
+INSERT INTO "mall_sites" ("code", "name", "type", "status")
+VALUES ('TOD_M1_BANDARA', 'TOD M1 Bandara', 'mall_tenant', 'active')
+ON CONFLICT DO NOTHING;
+
+INSERT INTO "mall_sites" ("code", "name", "type", "status")
+VALUES ('SPORT_CENTER_BANDARA', 'Sport Center Bandara', 'sport_center', 'active')
+ON CONFLICT DO NOTHING;
+
+-- 3. Buat tabel user_site_access
+CREATE TABLE IF NOT EXISTS "user_site_access" (
+  "id" serial PRIMARY KEY NOT NULL,
+  "user_id" integer NOT NULL,
+  "site_id" integer NOT NULL,
+  "role" text NOT NULL DEFAULT 'admin',
+  "created_at" timestamptz NOT NULL DEFAULT now()
+);
+
+DO $$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_indexes WHERE tablename = 'user_site_access' AND indexname = 'user_site_access_user_site_unique'
+  ) THEN
+    CREATE UNIQUE INDEX user_site_access_user_site_unique ON "user_site_access" ("user_id", "site_id");
+  END IF;
+END $$;
+
+-- 4a. Tambah site_id ke tenants
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='tenants' AND column_name='site_id') THEN
+    ALTER TABLE "tenants" ADD COLUMN "site_id" integer;
+  END IF;
+END $$;
+
+-- 4b. Tambah site_id ke tenant_bookings
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='tenant_bookings' AND column_name='site_id') THEN
+    ALTER TABLE "tenant_bookings" ADD COLUMN "site_id" integer;
+  END IF;
+END $$;
+
+-- 4c. Tambah site_id ke tenant_invoices
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='tenant_invoices' AND column_name='site_id') THEN
+    ALTER TABLE "tenant_invoices" ADD COLUMN "site_id" integer;
+  END IF;
+END $$;
+
+-- 4d. Tambah site_id ke tenant_payments
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='tenant_payments' AND column_name='site_id') THEN
+    ALTER TABLE "tenant_payments" ADD COLUMN "site_id" integer;
+  END IF;
+END $$;
+
+-- 4e. Tambah site_id ke mall_units
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='mall_units' AND column_name='site_id') THEN
+    ALTER TABLE "mall_units" ADD COLUMN "site_id" integer;
+  END IF;
+END $$;
+
+-- 4f. Tambah site_id ke audit_logs
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='audit_logs' AND column_name='site_id') THEN
+    ALTER TABLE "audit_logs" ADD COLUMN "site_id" integer;
+  END IF;
+END $$;
+
+-- 4g. Tambah site_id ke cashier_shifts
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='cashier_shifts' AND column_name='site_id') THEN
+    ALTER TABLE "cashier_shifts" ADD COLUMN "site_id" integer;
+  END IF;
+END $$;
+
+-- 5. Isi semua data lama dengan TOD_M1_BANDARA
+UPDATE "tenants" SET "site_id" = (SELECT id FROM mall_sites WHERE code = 'TOD_M1_BANDARA') WHERE "site_id" IS NULL;
+UPDATE "tenant_bookings" SET "site_id" = (SELECT id FROM mall_sites WHERE code = 'TOD_M1_BANDARA') WHERE "site_id" IS NULL;
+UPDATE "tenant_invoices" SET "site_id" = (SELECT id FROM mall_sites WHERE code = 'TOD_M1_BANDARA') WHERE "site_id" IS NULL;
+UPDATE "tenant_payments" SET "site_id" = (SELECT id FROM mall_sites WHERE code = 'TOD_M1_BANDARA') WHERE "site_id" IS NULL;
+UPDATE "mall_units" SET "site_id" = (SELECT id FROM mall_sites WHERE code = 'TOD_M1_BANDARA') WHERE "site_id" IS NULL;
+UPDATE "audit_logs" SET "site_id" = (SELECT id FROM mall_sites WHERE code = 'TOD_M1_BANDARA') WHERE "site_id" IS NULL;
+UPDATE "cashier_shifts" SET "site_id" = (SELECT id FROM mall_sites WHERE code = 'TOD_M1_BANDARA') WHERE "site_id" IS NULL;
+
+-- 6. Buat NOT NULL pada tabel utama
+ALTER TABLE "tenants" ALTER COLUMN "site_id" SET NOT NULL;
+ALTER TABLE "tenant_bookings" ALTER COLUMN "site_id" SET NOT NULL;
+ALTER TABLE "tenant_invoices" ALTER COLUMN "site_id" SET NOT NULL;
+ALTER TABLE "tenant_payments" ALTER COLUMN "site_id" SET NOT NULL;
+ALTER TABLE "mall_units" ALTER COLUMN "site_id" SET NOT NULL;
+    `.trim(),
+  },
 ];
 
 const MIGRATIONS_TABLE = "schema_migrations";

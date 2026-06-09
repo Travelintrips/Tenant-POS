@@ -14,11 +14,18 @@ import {
   SidebarInset,
   SidebarTrigger
 } from "@/components/ui/sidebar";
-import { Building2, Store, CalendarRange, Calculator, BarChart3, LogOut, FileText, Shield } from "lucide-react";
+import { Building2, Store, CalendarRange, Calculator, BarChart3, LogOut, FileText, Shield, ChevronDown } from "lucide-react";
 import { Separator } from "@/components/ui/separator";
 import { useAuth, useLogout, ROLE_LABELS, type UserRole } from "@/hooks/use-auth";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { useSite } from "@/contexts/site-context";
 
 const ROLE_COLORS: Record<UserRole, string> = {
   owner:   "bg-purple-100 text-purple-800",
@@ -27,10 +34,16 @@ const ROLE_COLORS: Record<UserRole, string> = {
   cashier: "bg-orange-100 text-orange-800",
 };
 
+const SITE_TYPE_LABELS: Record<string, string> = {
+  mall_tenant: "Mal",
+  sport_center: "Sport",
+};
+
 export function SidebarLayout({ children }: { children: React.ReactNode }) {
   const [location] = useLocation();
   const { data: user } = useAuth();
   const logout = useLogout();
+  const { activeSite, sites, setActiveSite } = useSite();
 
   const role = user?.role as UserRole | undefined;
   const can = (...roles: UserRole[]) => !!role && roles.includes(role);
@@ -38,11 +51,58 @@ export function SidebarLayout({ children }: { children: React.ReactNode }) {
   return (
     <SidebarProvider>
       <Sidebar>
-        <SidebarHeader className="flex flex-row items-center gap-2 px-4 py-4">
-          <Building2 className="h-6 w-6 text-primary" />
-          <span className="text-lg font-bold text-sidebar-foreground">
-            Portal Admin
-          </span>
+        <SidebarHeader className="flex flex-col gap-2 px-4 py-3">
+          <div className="flex flex-row items-center gap-2">
+            <Building2 className="h-6 w-6 text-primary shrink-0" />
+            <span className="text-lg font-bold text-sidebar-foreground">
+              Portal Admin
+            </span>
+          </div>
+
+          {/* Site switcher — tampil jika ada lebih dari 1 site atau untuk owner */}
+          {(sites.length > 1 || can("owner")) && activeSite && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="w-full justify-between h-8 text-xs font-medium border-sidebar-border bg-sidebar hover:bg-sidebar-accent"
+                >
+                  <span className="truncate">{activeSite.name}</span>
+                  <div className="flex items-center gap-1 shrink-0">
+                    <Badge variant="secondary" className="text-[9px] px-1 py-0 h-4 font-normal">
+                      {SITE_TYPE_LABELS[activeSite.type] ?? activeSite.type}
+                    </Badge>
+                    <ChevronDown className="h-3 w-3 text-muted-foreground" />
+                  </div>
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="w-[200px]">
+                {sites.map((site) => (
+                  <DropdownMenuItem
+                    key={site.id}
+                    onClick={() => setActiveSite(site)}
+                    className={activeSite.id === site.id ? "bg-accent" : ""}
+                  >
+                    <span className="flex-1 truncate">{site.name}</span>
+                    <Badge variant="secondary" className="text-[9px] px-1 py-0 h-4 font-normal ml-1">
+                      {SITE_TYPE_LABELS[site.type] ?? site.type}
+                    </Badge>
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
+
+          {/* Tampilkan nama site tunggal tanpa dropdown */}
+          {sites.length === 1 && activeSite && (
+            <div className="flex items-center gap-1.5 px-1 py-0.5">
+              <span className="text-xs text-muted-foreground truncate">{activeSite.name}</span>
+              <Badge variant="secondary" className="text-[9px] px-1 py-0 h-4 font-normal shrink-0">
+                {SITE_TYPE_LABELS[activeSite.type] ?? activeSite.type}
+              </Badge>
+            </div>
+          )}
         </SidebarHeader>
         <SidebarContent>
           {can("owner", "admin", "finance", "cashier") && (
@@ -187,7 +247,7 @@ export function SidebarLayout({ children }: { children: React.ReactNode }) {
           <SidebarTrigger />
           <Separator orientation="vertical" className="mr-2 h-4" />
           <span className="text-sm font-medium text-muted-foreground">
-            Manajemen Tenan
+            {activeSite?.name ?? "Manajemen Tenan"}
           </span>
         </header>
         <main className="flex-1 p-6 bg-muted/20">

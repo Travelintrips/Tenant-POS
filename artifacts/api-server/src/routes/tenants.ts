@@ -1,7 +1,7 @@
 import { Router, type IRouter } from "express";
 import { db } from "@workspace/db";
 import { tenantsTable, insertTenantSchema } from "@workspace/db/schema";
-import { eq, asc } from "drizzle-orm";
+import { eq, asc, and } from "drizzle-orm";
 import { requireAnyRole } from "../middlewares/auth";
 import { logAudit } from "../lib/audit";
 
@@ -11,9 +11,12 @@ router.use("/tenants", requireAnyRole("owner", "admin"));
 
 router.get("/tenants", async (req, res) => {
   try {
+    const siteId = req.siteId;
+    const conditions = siteId > 0 ? [eq(tenantsTable.siteId, siteId)] : [];
     const rows = await db
       .select()
       .from(tenantsTable)
+      .where(conditions.length > 0 ? and(...conditions) : undefined)
       .orderBy(asc(tenantsTable.id));
     res.json(rows);
   } catch (err) {
@@ -23,7 +26,8 @@ router.get("/tenants", async (req, res) => {
 });
 
 router.post("/tenants", async (req, res) => {
-  const parsed = insertTenantSchema.safeParse(req.body);
+  const body = req.siteId > 0 ? { ...req.body, siteId: req.siteId } : req.body;
+  const parsed = insertTenantSchema.safeParse(body);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
     return;
@@ -125,7 +129,7 @@ router.delete("/tenants/:id", async (req, res) => {
       entityId: id,
       beforeData: deleted,
     });
-    res.json({ success: true });
+    res.json({ ok: true, deleted });
   } catch (err) {
     req.log.error(err, "Failed to delete tenant");
     res.status(500).json({ error: "Gagal menghapus tenant" });

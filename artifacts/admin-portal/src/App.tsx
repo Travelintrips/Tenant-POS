@@ -8,6 +8,7 @@ import Login from "@/pages/login";
 import { SidebarLayout } from "@/components/layout/sidebar-layout";
 import { useAuth, type UserRole } from "@/hooks/use-auth";
 import { RealtimeSync } from "@/components/realtime-sync";
+import { SiteProvider } from "@/contexts/site-context";
 
 import DataTenant from "@/pages/data-tenant";
 import BookingTenant from "@/pages/booking-tenant";
