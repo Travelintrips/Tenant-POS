@@ -236,7 +236,6 @@ router.post("/mall-units", requireAnyRole("owner", "admin"), async (req, res) =>
     }
   }
 
-  const parsed = insertMallUnitSchema.safeParse({ ...req.body, siteId: req.siteId > 0 ? req.siteId : req.body.siteId });
   const bodyWithSite = { ...req.body, siteId: req.siteId > 0 ? req.siteId : req.body.siteId };
   const parsed = insertMallUnitSchema.safeParse(bodyWithSite);
   if (!parsed.success) {
