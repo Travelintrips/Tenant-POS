@@ -14,8 +14,8 @@ router.get("/sites", requireAuth, async (req, res) => {
     const user = req.user as { role?: string; dbId?: number } | undefined;
     const role = user?.role ?? "";
 
-    // Owner sees all sites
-    if (role === "owner") {
+    // Owner and admin see all sites
+    if (role === "owner" || role === "admin") {
       const rows = await db
         .select()
         .from(mallSitesTable)

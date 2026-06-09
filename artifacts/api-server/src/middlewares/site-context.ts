@@ -84,12 +84,13 @@ export async function siteContext(req: Request, res: Response, next: NextFunctio
       if (found) resolvedSite = found;
     }
 
-    const user = req.user as { dbId?: number; role?: string } | undefined;
+    const user = req.user as { dbId?: number | string; role?: string } | undefined;
     const role = user?.role ?? "cashier";
 
     // Owner bypasses site access check
-    if (role !== "owner" && user?.dbId) {
-      const dbId = user.dbId;
+    const numericDbId = user?.dbId ? Number(user.dbId) : NaN;
+    if (role !== "owner" && !isNaN(numericDbId) && numericDbId > 0) {
+      const dbId = numericDbId;
 
       // Check if user has ANY site access rows
       const allAccess = await db

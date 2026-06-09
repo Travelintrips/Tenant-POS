@@ -912,6 +912,132 @@ END $$;
     `.trim(),
   },
   {
+    name: "0023_add_sport_center_site",
+    sql: `
+DO $$ DECLARE
+  sc_id int;
+  t1 int; t2 int; t3 int; t4 int; t5 int; t6 int; t7 int; t8 int;
+BEGIN
+  -- 1. Insert Sport Center ke mall_sites jika belum ada
+  INSERT INTO mall_sites (code, name, type, address, status)
+  VALUES ('SPORT_CENTER_BANDARA', 'Sport Center', 'mall_tenant', 'Sport Center Bandara', 'active')
+  ON CONFLICT (code) DO NOTHING;
+
+  SELECT id INTO sc_id FROM mall_sites WHERE code = 'SPORT_CENTER_BANDARA';
+
+  -- 2. Hapus SC units orphan (site_id != sc_id) lalu re-seed
+  DELETE FROM mall_units WHERE unit_code LIKE 'SC-%' AND site_id != sc_id;
+
+  IF NOT EXISTS (SELECT 1 FROM mall_units WHERE site_id = sc_id AND unit_code = 'SC-01') THEN
+    INSERT INTO mall_units (unit_code, floor, zone, size_m2, status, position_x, position_y, width, height, site_id) VALUES
+    ('SC-01', '1', 'Lapangan', 200, 'occupied',  0, 0, 4, 4, sc_id),
+    ('SC-02', '1', 'Lapangan', 200, 'occupied',  4, 0, 4, 4, sc_id),
+    ('SC-03', '1', 'Lapangan', 200, 'occupied',  8, 0, 4, 4, sc_id),
+    ('SC-04', '1', 'Fasilitas', 120, 'occupied', 0, 4, 4, 4, sc_id),
+    ('SC-05', '1', 'Fasilitas',  80, 'occupied', 4, 4, 2, 2, sc_id),
+    ('SC-06', '1', 'Fasilitas',  80, 'occupied', 6, 4, 2, 2, sc_id),
+    ('SC-07', '1', 'Tenant',     40, 'occupied', 8, 4, 2, 2, sc_id),
+    ('SC-08', '1', 'Tenant',     40, 'occupied', 8, 6, 2, 2, sc_id);
+  END IF;
+
+  -- 3. Hapus tenant SC orphan (site_id != sc_id) lalu re-seed
+  DELETE FROM tenants
+  WHERE site_id != sc_id
+    AND booth_number IN ('SC-01','SC-02','SC-03','SC-04','SC-05','SC-06','SC-07','SC-08');
+
+  -- 4. Insert tenant Sport Center jika belum ada
+  IF NOT EXISTS (SELECT 1 FROM tenants WHERE site_id = sc_id AND booth_number = 'SC-01') THEN
+    INSERT INTO tenants (business_name, owner_name, email, phone, category, booth_number, area_name, status, site_id, address)
+    VALUES ('Lapangan Futsal Pro', 'Deni Kusuma', 'futsal@sportcenter.id', '081211110001', 'Olahraga', 'SC-01', 'Lapangan', 'active', sc_id, 'Sport Center Bandara, Lt.1')
+    RETURNING id INTO t1;
+
+    INSERT INTO tenants (business_name, owner_name, email, phone, category, booth_number, area_name, status, site_id, address)
+    VALUES ('GOR Badminton Sport', 'Rini Handayani', 'badminton@sportcenter.id', '081211110002', 'Olahraga', 'SC-02', 'Lapangan', 'active', sc_id, 'Sport Center Bandara, Lt.1')
+    RETURNING id INTO t2;
+
+    INSERT INTO tenants (business_name, owner_name, email, phone, category, booth_number, area_name, status, site_id, address)
+    VALUES ('Arena Basket Bandara', 'Yusuf Hakim', 'basket@sportcenter.id', '081211110003', 'Olahraga', 'SC-03', 'Lapangan', 'active', sc_id, 'Sport Center Bandara, Lt.1')
+    RETURNING id INTO t3;
+
+    INSERT INTO tenants (business_name, owner_name, email, phone, category, booth_number, area_name, status, site_id, address)
+    VALUES ('Prime Fitness Center', 'Anita Wahyuni', 'fitness@sportcenter.id', '081211110004', 'Olahraga', 'SC-04', 'Fasilitas', 'active', sc_id, 'Sport Center Bandara, Lt.1')
+    RETURNING id INTO t4;
+
+    INSERT INTO tenants (business_name, owner_name, email, phone, category, booth_number, area_name, status, site_id, address)
+    VALUES ('Aqua Swim & Pool', 'Bowo Setiawan', 'aqua@sportcenter.id', '081211110005', 'Olahraga', 'SC-05', 'Fasilitas', 'active', sc_id, 'Sport Center Bandara, Lt.1')
+    RETURNING id INTO t5;
+
+    INSERT INTO tenants (business_name, owner_name, email, phone, category, booth_number, area_name, status, site_id, address)
+    VALUES ('Sport Cafe & Resto', 'Linda Sari', 'cafe@sportcenter.id', '081211110006', 'F&B', 'SC-06', 'Fasilitas', 'active', sc_id, 'Sport Center Bandara, Lt.1')
+    RETURNING id INTO t6;
+
+    INSERT INTO tenants (business_name, owner_name, email, phone, category, booth_number, area_name, status, site_id, address)
+    VALUES ('Sport Kingdom Store', 'Hendra Putra', 'store@sportcenter.id', '081211110007', 'Retail', 'SC-07', 'Tenant', 'active', sc_id, 'Sport Center Bandara, Lt.1')
+    RETURNING id INTO t7;
+
+    INSERT INTO tenants (business_name, owner_name, email, phone, category, booth_number, area_name, status, site_id, address)
+    VALUES ('Warung Atlet', 'Siti Rahayu', 'warung@sportcenter.id', '081211110008', 'F&B', 'SC-08', 'Tenant', 'active', sc_id, 'Sport Center Bandara, Lt.1')
+    RETURNING id INTO t8;
+
+    -- Booking untuk setiap tenant
+    INSERT INTO tenant_bookings
+      (tenant_id, unit_code, floor, start_date, end_date, rent_amount, deposit_amount,
+       status, booking_status, contract_status, payment_status, site_id,
+       period_label, booking_type, billing_cycle, order_number, contract_number)
+    VALUES
+      (t1,'SC-01','1','2024-01-01','2026-12-31',8000000,16000000,'aktif','active','active','lunas',sc_id,'Jan 2024 - Des 2026','sewa','bulanan','SC-ORD-2024-001','SC-KTR-2024-001'),
+      (t2,'SC-02','1','2024-03-01','2027-02-28',8000000,16000000,'aktif','active','active','lunas',sc_id,'Mar 2024 - Feb 2027','sewa','bulanan','SC-ORD-2024-002','SC-KTR-2024-002'),
+      (t3,'SC-03','1','2023-07-01','2025-06-30',8000000,16000000,'aktif','active','active','lunas',sc_id,'Jul 2023 - Jun 2025','sewa','bulanan','SC-ORD-2023-001','SC-KTR-2023-001'),
+      (t4,'SC-04','1','2024-06-01','2027-05-31',6000000,12000000,'aktif','active','active','lunas',sc_id,'Jun 2024 - Mei 2027','sewa','bulanan','SC-ORD-2024-003','SC-KTR-2024-003'),
+      (t5,'SC-05','1','2025-01-01','2027-12-31',4500000, 9000000,'aktif','active','active','lunas',sc_id,'Jan 2025 - Des 2027','sewa','bulanan','SC-ORD-2025-001','SC-KTR-2025-001'),
+      (t6,'SC-06','1','2024-09-01','2026-08-31',4500000, 9000000,'aktif','active','active','lunas',sc_id,'Sep 2024 - Agu 2026','sewa','bulanan','SC-ORD-2024-004','SC-KTR-2024-004'),
+      (t7,'SC-07','1','2025-03-01','2027-02-28',2500000, 5000000,'aktif','active','active','lunas',sc_id,'Mar 2025 - Feb 2027','sewa','bulanan','SC-ORD-2025-002','SC-KTR-2025-002'),
+      (t8,'SC-08','1','2025-05-01','2027-04-30',2500000, 5000000,'aktif','active','active','lunas',sc_id,'Mei 2025 - Apr 2027','sewa','bulanan','SC-ORD-2025-003','SC-KTR-2025-003');
+  END IF;
+END $$;
+    `.trim(),
+  },
+  {
+    name: "0022_restore_mall_units",
+    sql: `
+DO $$ BEGIN
+  -- Restore TOD M1 units (site_id=1) jika belum ada
+  IF NOT EXISTS (SELECT 1 FROM mall_units WHERE site_id = 1 AND unit_code = 'T-001') THEN
+    INSERT INTO mall_units (unit_code, floor, zone, size_m2, status, position_x, position_y, width, height, site_id) VALUES
+    ('T-001', '1', 'Zona A', 20, 'occupied',  0, 0, 2, 2, 1),
+    ('T-002', '1', 'Zona A', 16, 'occupied',  2, 0, 2, 2, 1),
+    ('T-003', '1', 'Zona A', 14, 'occupied',  4, 0, 2, 2, 1),
+    ('T-004', '1', 'Zona A', 18, 'occupied',  6, 0, 2, 2, 1),
+    ('T-005', '1', 'Zona B', 20, 'occupied',  0, 2, 2, 2, 1),
+    ('T-006', '1', 'Zona B', 16, 'occupied',  2, 2, 2, 2, 1),
+    ('T-007', '1', 'Zona B', 14, 'occupied',  4, 2, 2, 2, 1),
+    ('T-008', '1', 'Zona B', 18, 'available', 6, 2, 2, 2, 1),
+    ('T-009', '1', 'Zona A', 20, 'occupied',  0, 4, 2, 2, 1),
+    ('T-010', '1', 'Zona A', 16, 'occupied',  4, 4, 2, 2, 1),
+    ('T-011', '1', 'Zona B', 20, 'occupied',  6, 4, 2, 2, 1),
+    ('T-012', '1', 'Zona A', 18, 'occupied',  0, 6, 2, 2, 1),
+    ('T-013', '1', 'Zona B', 24, 'available', 2, 6, 2, 2, 1),
+    ('T-014', '1', 'Zona C', 30, 'available', 4, 6, 2, 2, 1),
+    ('T-015', '1', 'Zona C', 20, 'available', 6, 6, 2, 2, 1),
+    ('T-016', '1', 'Zona C', 20, 'available', 8, 6, 2, 2, 1);
+  END IF;
+
+  -- Restore Sport Center units (site_id=3) jika belum ada
+  IF NOT EXISTS (SELECT 1 FROM mall_units WHERE site_id = 3 AND unit_code = 'SC-01') THEN
+    INSERT INTO mall_units (unit_code, floor, zone, size_m2, status, position_x, position_y, width, height, site_id) VALUES
+    ('SC-01', '1', 'Lapangan', 200, 'occupied',  0, 0, 4, 4, 3),
+    ('SC-02', '1', 'Lapangan', 200, 'occupied',  4, 0, 4, 4, 3),
+    ('SC-03', '1', 'Lapangan', 200, 'occupied',  8, 0, 4, 4, 3),
+    ('SC-04', '1', 'Fasilitas', 120, 'occupied', 0, 4, 4, 4, 3),
+    ('SC-05', '1', 'Fasilitas',  80, 'occupied', 4, 4, 2, 2, 3),
+    ('SC-06', '1', 'Fasilitas',  80, 'occupied', 6, 4, 2, 2, 3),
+    ('SC-07', '1', 'Tenant',     40, 'occupied', 8, 4, 2, 2, 3),
+    ('SC-08', '1', 'Tenant',     40, 'occupied', 8, 6, 2, 2, 3);
+  END IF;
+END $$;
+    `.trim(),
+  },
+  {
     name: "0021_sport_center_reseed",
     sql: `
 DO $$ DECLARE
