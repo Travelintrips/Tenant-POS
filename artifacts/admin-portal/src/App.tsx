@@ -23,6 +23,7 @@ import TenantPortal from "@/pages/tenant-portal";
 import TinjauPembayaran from "@/pages/tinjau-pembayaran";
 import PaymentProofUpload from "@/pages/payment-proof-upload";
 import Dashboard from "@/pages/dashboard";
+import TenantProfile from "@/pages/tenant-profile";
 
 const queryClient = new QueryClient();
 
@@ -163,6 +164,13 @@ function Router() {
         <AuthGuard roles={["owner", "admin", "finance"]}>
           <SidebarLayout>
             <TinjauPembayaran />
+          </SidebarLayout>
+        </AuthGuard>
+      </Route>
+      <Route path="/tenant-profile/:id">
+        <AuthGuard roles={["owner", "admin", "finance"]}>
+          <SidebarLayout>
+            <TenantProfile />
           </SidebarLayout>
         </AuthGuard>
       </Route>
