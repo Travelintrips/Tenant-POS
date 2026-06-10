@@ -19,6 +19,7 @@ import whatsappRouter from "./whatsapp";
 import paymentProofRouter from "./payment-proof";
 import pendingPaymentsRouter from "./pending-payments";
 import dashboardRouter from "./dashboard";
+import settingsRouter from "./settings";
 import { requireAuth, requireNonTenantUser } from "../middlewares/auth";
 import { siteContext } from "../middlewares/site-context";
 
@@ -54,5 +55,6 @@ router.use(auditLogsRouter);
 router.use(whatsappRouter);
 router.use(pendingPaymentsRouter);
 router.use(dashboardRouter);
+router.use(settingsRouter);
 
 export default router;

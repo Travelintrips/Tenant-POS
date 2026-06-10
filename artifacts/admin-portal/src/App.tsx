@@ -19,6 +19,7 @@ import Laporan from "@/pages/laporan";
 import TenantInvoices from "@/pages/tenant-invoices";
 import AuditLogs from "@/pages/audit-logs";
 import UsersPage from "@/pages/users";
+import SettingsPage from "@/pages/settings";
 import CompareSites from "@/pages/compare-sites";
 import TenantPortal from "@/pages/tenant-portal";
 import TinjauPembayaran from "@/pages/tinjau-pembayaran";
@@ -151,6 +152,13 @@ function Router() {
         <AuthGuard roles={["owner"]}>
           <SidebarLayout>
             <UsersPage />
+          </SidebarLayout>
+        </AuthGuard>
+      </Route>
+      <Route path="/settings">
+        <AuthGuard roles={["owner"]}>
+          <SidebarLayout>
+            <SettingsPage />
           </SidebarLayout>
         </AuthGuard>
       </Route>

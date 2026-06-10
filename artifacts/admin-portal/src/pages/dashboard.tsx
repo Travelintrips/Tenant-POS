@@ -8,7 +8,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import {
   Users, FileText, AlertTriangle, Wallet, TrendingUp,
   Clock, ArrowRight, ClipboardCheck, Store, CalendarRange,
-  BarChart3, CheckCircle2, CircleDollarSign,
+  BarChart3, CheckCircle2, CircleDollarSign, LayoutGrid, Calculator,
 } from "lucide-react";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -65,6 +65,21 @@ type UpcomingData = {
   upcoming: UpcomingItem[];
 };
 
+type UnitStats = {
+  stats: Record<string, number>;
+  total: number;
+  occupancyRate: number;
+};
+
+const UNIT_STATUS_CONFIG: Record<string, { label: string; color: string; bg: string }> = {
+  occupied:    { label: "Terisi",      color: "bg-emerald-500", bg: "bg-emerald-50 text-emerald-700" },
+  available:   { label: "Tersedia",   color: "bg-sky-400",     bg: "bg-sky-50 text-sky-700" },
+  maintenance: { label: "Maintenance", color: "bg-amber-400",  bg: "bg-amber-50 text-amber-700" },
+  overdue:     { label: "Menunggak",  color: "bg-red-500",     bg: "bg-red-50 text-red-700" },
+  booked:      { label: "Dipesan",    color: "bg-purple-400",  bg: "bg-purple-50 text-purple-700" },
+  expired:     { label: "Kadaluarsa", color: "bg-slate-400",   bg: "bg-slate-50 text-slate-600" },
+};
+
 const BULAN = ["Jan","Feb","Mar","Apr","Mei","Jun","Jul","Ags","Sep","Okt","Nov","Des"];
 
 const CustomTooltip = ({ active, payload, label }: any) => {
@@ -105,6 +120,16 @@ export default function Dashboard() {
     queryFn: async () => {
       const res = await fetch(`${BASE}/api/laporan/summary?tahun=${tahun}`, { headers: siteHeader });
       if (!res.ok) throw new Error("Gagal memuat grafik");
+      return res.json();
+    },
+    refetchInterval: 120_000,
+  });
+
+  const { data: unitStats } = useQuery<UnitStats>({
+    queryKey: ["dashboard-unit-stats"],
+    queryFn: async () => {
+      const res = await fetch(`${BASE}/api/dashboard/unit-stats`);
+      if (!res.ok) throw new Error("Gagal memuat statistik unit");
       return res.json();
     },
     refetchInterval: 120_000,
@@ -220,6 +245,64 @@ export default function Dashboard() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Unit Stats / Denah Tenant */}
+      {(unitStats?.total ?? 0) > 0 && (
+        <Card>
+          <CardHeader className="pb-2">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-sm flex items-center gap-2">
+                <LayoutGrid className="h-4 w-4 text-primary" />
+                Status Unit Mall
+              </CardTitle>
+              <Link href="/tenant-pos">
+                <Button variant="ghost" size="sm" className="h-7 text-xs gap-1 text-muted-foreground hover:text-primary">
+                  Lihat Denah
+                  <ArrowRight className="h-3 w-3" />
+                </Button>
+              </Link>
+            </div>
+          </CardHeader>
+          <CardContent className="pb-4">
+            {/* Progress bar */}
+            <div className="flex h-4 rounded-full overflow-hidden gap-[1px] mb-3">
+              {Object.entries(UNIT_STATUS_CONFIG).map(([key, cfg]) => {
+                const cnt = unitStats?.stats[key] ?? 0;
+                if (!cnt) return null;
+                const pct = (cnt / (unitStats?.total ?? 1)) * 100;
+                return (
+                  <div
+                    key={key}
+                    title={`${cfg.label}: ${cnt} unit`}
+                    className={`${cfg.color} transition-all`}
+                    style={{ width: `${pct}%` }}
+                  />
+                );
+              })}
+            </div>
+            {/* Legend badges */}
+            <div className="flex flex-wrap gap-2 mb-3">
+              {Object.entries(UNIT_STATUS_CONFIG).map(([key, cfg]) => {
+                const cnt = unitStats?.stats[key] ?? 0;
+                if (!cnt) return null;
+                return (
+                  <span key={key} className={`inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-full ${cfg.bg}`}>
+                    {cfg.label} — {cnt}
+                  </span>
+                );
+              })}
+            </div>
+            {/* Occupancy rate */}
+            <div className="flex items-center gap-3 pt-2 border-t">
+              <div className="text-2xl font-bold text-emerald-600">{unitStats?.occupancyRate ?? 0}%</div>
+              <div className="text-xs text-muted-foreground">
+                Tingkat Hunian<br />
+                {((unitStats?.stats["occupied"] ?? 0) + (unitStats?.stats["overdue"] ?? 0))} dari {unitStats?.total ?? 0} unit terisi
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Chart + Urgent */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
@@ -371,6 +454,12 @@ export default function Dashboard() {
               <button className="flex flex-col items-center gap-2 p-3 rounded-xl border bg-card hover:bg-muted/60 hover:border-primary/30 transition-colors w-full">
                 <BarChart3 className="h-5 w-5 text-indigo-600" />
                 <span className="text-xs font-medium text-center">Laporan</span>
+              </button>
+            </Link>
+            <Link href="/tenant-pos">
+              <button className="flex flex-col items-center gap-2 p-3 rounded-xl border bg-card hover:bg-muted/60 hover:border-primary/30 transition-colors w-full">
+                <Calculator className="h-5 w-5 text-rose-600" />
+                <span className="text-xs font-medium text-center">POS / Kasir</span>
               </button>
             </Link>
           </div>

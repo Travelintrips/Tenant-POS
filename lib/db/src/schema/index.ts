@@ -10,3 +10,4 @@ export * from "./mall-units";
 export * from "./audit-logs";
 export * from "./tenant-user-access";
 export * from "./otp-tokens";
+export * from "./system-settings";

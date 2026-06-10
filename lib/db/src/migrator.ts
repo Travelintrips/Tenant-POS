@@ -1267,6 +1267,52 @@ DO $$ BEGIN
 END $$;
     `.trim(),
   },
+  {
+    name: "0007_system_settings_and_units_seed",
+    sql: `
+-- Tabel konfigurasi sistem
+CREATE TABLE IF NOT EXISTS "system_settings" (
+  "id" serial PRIMARY KEY NOT NULL,
+  "key" text NOT NULL UNIQUE,
+  "value" jsonb,
+  "updated_at" timestamptz NOT NULL DEFAULT now()
+);
+
+-- Seed system settings default
+INSERT INTO "system_settings" ("key", "value")
+VALUES ('mall_config', '{"mallName":"Mall Admin","tagline":"Manajemen Tenant Mall","address":"","phone":"","email":"","invoicePrefix":"INV-TENANT","taxRate":0,"currency":"IDR","logoUrl":""}')
+ON CONFLICT ("key") DO NOTHING;
+
+-- Seed mall units jika masih kosong
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM "mall_units" LIMIT 1) THEN
+    INSERT INTO "mall_units" ("unit_code","floor","zone","size_m2","status","position_x","position_y","width","height","notes") VALUES
+    ('A-01','1','Zona A',24,'occupied',0,0,3,2,'Warung Nasi Bu Sari'),
+    ('A-02','1','Zona A',24,'occupied',3,0,3,2,'Toko Baju Murah'),
+    ('A-03','1','Zona A',20,'available',6,0,2,2,NULL),
+    ('A-04','1','Zona A',20,'available',8,0,2,2,NULL),
+    ('A-05','1','Zona A',30,'maintenance',10,0,3,2,'Sedang renovasi'),
+    ('B-01','1','Zona B',36,'occupied',0,2,3,3,'Kafe Kopi Nusantara'),
+    ('B-02','1','Zona B',36,'occupied',3,2,3,3,'Apotek Sehat'),
+    ('B-03','1','Zona B',30,'available',6,2,3,3,NULL),
+    ('B-04','1','Zona B',24,'available',9,2,2,3,NULL),
+    ('C-01','1','Zona C',18,'overdue',0,5,2,2,'Pembayaran telat 2 bulan'),
+    ('C-02','1','Zona C',18,'occupied',2,5,2,2,NULL),
+    ('C-03','1','Zona C',18,'available',4,5,2,2,NULL),
+    ('D-01','2','Zona D',45,'occupied',0,0,4,3,'Fashion Store Premium'),
+    ('D-02','2','Zona D',45,'occupied',4,0,4,3,'Elektronik Jaya'),
+    ('D-03','2','Zona D',30,'available',8,0,3,3,NULL),
+    ('E-01','2','Zona E',36,'occupied',0,3,3,3,'Salon & Spa'),
+    ('E-02','2','Zona E',36,'maintenance',3,3,3,3,'Perbaikan AC'),
+    ('E-03','2','Zona E',30,'available',6,3,3,3,NULL),
+    ('E-04','2','Zona E',24,'available',9,3,2,3,NULL),
+    ('F-01','2','Zona F',60,'occupied',0,6,4,4,'Supermarket Mini'),
+    ('F-02','2','Zona F',40,'available',4,6,3,4,NULL);
+  END IF;
+END $$;
+    `.trim(),
+  },
 ];
 
 const MIGRATIONS_TABLE = "schema_migrations";
