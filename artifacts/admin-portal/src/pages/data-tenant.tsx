@@ -23,7 +23,7 @@ import {
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, Pencil, Trash2, Search, Upload, X, ImageIcon, Building2, Dumbbell, MapPin } from "lucide-react";
+import { Plus, Pencil, Trash2, Search, Upload, X, ImageIcon, Building2, Dumbbell, CalendarClock } from "lucide-react";
 import { useSite } from "@/contexts/site-context";
 
 const SITE_TYPE_CONFIG: Record<string, { label: string; color: string; bg: string; border: string; icon: React.ReactNode }> = {
@@ -59,7 +59,27 @@ type Tenant = {
   logoUrl: string | null;
   createdAt: string;
   updatedAt: string;
+  contractEndDate?: string | null;
 };
+
+function getContractInfo(endDate: string | null | undefined): {
+  label: string;
+  colorClass: string;
+  bgClass: string;
+} {
+  if (!endDate) return { label: "—", colorClass: "text-muted-foreground", bgClass: "" };
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const end = new Date(endDate);
+  end.setHours(0, 0, 0, 0);
+  const diffDays = Math.round((end.getTime() - today.getTime()) / 86_400_000);
+  if (diffDays < 0) return { label: "Berakhir", colorClass: "text-red-700", bgClass: "bg-red-50 border-red-200" };
+  if (diffDays === 0) return { label: "Hari ini", colorClass: "text-red-700", bgClass: "bg-red-50 border-red-200" };
+  if (diffDays <= 30) return { label: `${diffDays} hari`, colorClass: "text-orange-700", bgClass: "bg-orange-50 border-orange-200" };
+  if (diffDays <= 60) return { label: `${diffDays} hari`, colorClass: "text-amber-700", bgClass: "bg-amber-50 border-amber-200" };
+  const months = Math.round(diffDays / 30);
+  return { label: `~${months} bln`, colorClass: "text-green-700", bgClass: "bg-green-50 border-green-200" };
+}
 
 type TenantForm = {
   businessName: string;
@@ -422,6 +442,7 @@ export default function DataTenant() {
                   <TableHead>Unit / Lantai</TableHead>
                   <TableHead>Kategori</TableHead>
                   <TableHead>Status</TableHead>
+                  <TableHead>Masa Kontrak</TableHead>
                   <TableHead className="w-[100px] text-right">Aksi</TableHead>
                 </TableRow>
               </TableHeader>
@@ -429,7 +450,7 @@ export default function DataTenant() {
                 {isLoading
                   ? Array.from({ length: 5 }).map((_, i) => (
                       <TableRow key={i}>
-                        {Array.from({ length: 9 }).map((_, j) => (
+                        {Array.from({ length: 10 }).map((_, j) => (
                           <TableCell key={j}><Skeleton className="h-4 w-full" /></TableCell>
                         ))}
                       </TableRow>
@@ -437,7 +458,7 @@ export default function DataTenant() {
                   : filtered.length === 0
                   ? (
                     <TableRow>
-                      <TableCell colSpan={9} className="text-center py-8 text-muted-foreground">
+                      <TableCell colSpan={10} className="text-center py-8 text-muted-foreground">
                         {tenants?.length === 0 ? "Belum ada tenant terdaftar." : "Tidak ada hasil pencarian."}
                       </TableCell>
                     </TableRow>
@@ -470,6 +491,25 @@ export default function DataTenant() {
                           <span className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium ${statusClass(tenant.status)}`}>
                             {STATUS_LABEL[tenant.status] ?? tenant.status}
                           </span>
+                        </TableCell>
+                        <TableCell>
+                          {(() => {
+                            const info = getContractInfo(tenant.contractEndDate);
+                            if (!tenant.contractEndDate) {
+                              return <span className="text-xs text-muted-foreground">—</span>;
+                            }
+                            return (
+                              <div className="flex flex-col gap-0.5">
+                                <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-semibold ${info.bgClass} ${info.colorClass}`}>
+                                  <CalendarClock className="h-3 w-3" />
+                                  {info.label}
+                                </span>
+                                <span className="text-[10px] text-muted-foreground">
+                                  s/d {new Date(tenant.contractEndDate).toLocaleDateString("id-ID", { day: "numeric", month: "short", year: "numeric" })}
+                                </span>
+                              </div>
+                            );
+                          })()}
                         </TableCell>
                         <TableCell className="text-right">
                           <div className="flex justify-end gap-1">

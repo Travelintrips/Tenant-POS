@@ -152,7 +152,6 @@ export default function RekapTenantPage() {
 
   const { data: rekap = [], isLoading } = useQuery<RekapTenant[]>({
     queryKey: ["rekap-tenant", siteIdHeader],
-    queryFn: () => apiFetch("/api/laporan/rekap-tenant", { headers }),
     queryFn: () =>
       apiFetchJson<RekapTenant[]>("/api/laporan/rekap-tenant", {
         headers: siteIdHeader ? { "x-site-id": String(siteIdHeader) } : {},

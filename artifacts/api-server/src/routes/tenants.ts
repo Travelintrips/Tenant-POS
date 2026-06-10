@@ -1,7 +1,7 @@
 import { Router, type IRouter } from "express";
 import { db } from "@workspace/db";
-import { tenantsTable, insertTenantSchema } from "@workspace/db/schema";
-import { eq, asc, and } from "drizzle-orm";
+import { tenantsTable, insertTenantSchema, tenantBookingsTable } from "@workspace/db/schema";
+import { eq, asc, and, inArray, sql } from "drizzle-orm";
 import { requireAnyRole } from "../middlewares/auth";
 import { logAudit } from "../lib/audit";
 
@@ -18,7 +18,27 @@ router.get("/tenants", async (req, res) => {
       .from(tenantsTable)
       .where(conditions.length > 0 ? and(...conditions) : undefined)
       .orderBy(asc(tenantsTable.id));
-    res.json(rows);
+
+    if (rows.length === 0) { res.json([]); return; }
+
+    const tenantIds = rows.map((t) => t.id);
+    const bookingDates = await db
+      .select({
+        tenantId: tenantBookingsTable.tenantId,
+        contractEndDate: sql<string>`MAX(${tenantBookingsTable.endDate})`.as("contract_end_date"),
+      })
+      .from(tenantBookingsTable)
+      .where(
+        and(
+          inArray(tenantBookingsTable.tenantId, tenantIds),
+          inArray(tenantBookingsTable.contractStatus, ["active", "expiring_soon"]),
+        ),
+      )
+      .groupBy(tenantBookingsTable.tenantId);
+
+    const endDateMap = new Map(bookingDates.map((b) => [b.tenantId, b.contractEndDate]));
+
+    res.json(rows.map((t) => ({ ...t, contractEndDate: endDateMap.get(t.id) ?? null })));
   } catch (err) {
     req.log.error(err, "Failed to list tenants");
     res.status(500).json({ error: "Gagal mengambil data tenant" });
