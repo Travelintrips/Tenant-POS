@@ -99,7 +99,7 @@ function ChangeRoleDialog({
 
   if (!user) return null;
 
-  const isSelf = currentUser?.dbId === user.id;
+  const isSelf = Number(currentUser?.dbId) === user.id;
   const unchanged = selectedRole === user.role;
 
   return (
@@ -248,7 +248,7 @@ export default function UsersPage() {
               <TableBody>
                 {users.map((user) => {
                   const roleInfo = getRoleInfo(user.role);
-                  const isSelf = currentUser?.dbId === user.id;
+                  const isSelf = Number(currentUser?.dbId) === user.id;
                   return (
                     <TableRow key={user.id} className="hover:bg-muted/30">
                       <TableCell className="py-2">

@@ -1268,6 +1268,81 @@ END $$;
     `.trim(),
   },
   {
+    name: "0008_cleanup_kantin_sites",
+    sql: `
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- Cleanup: Kantin bukan site terpisah — pindah ke site induknya, lalu nonaktifkan
+-- Idempotent: aman dijalankan berkali-kali
+-- ═══════════════════════════════════════════════════════════════════════════════
+
+-- 1. Perbaiki nama tampilan site utama (agar pendek & konsisten)
+UPDATE "mall_sites" SET "name" = 'Sport Center', "updated_at" = now()
+WHERE "code" = 'SPORT_CENTER_BANDARA' AND "name" != 'Sport Center';
+
+UPDATE "mall_sites" SET "name" = 'TOD M1', "updated_at" = now()
+WHERE "code" = 'TOD_M1_BANDARA' AND "name" != 'TOD M1';
+
+-- 2. Pindahkan data & nonaktifkan site kantin
+DO $$
+DECLARE
+  sc_id  integer;
+  ksc_id integer;
+  tod_id integer;
+  ktod_id integer;
+BEGIN
+  SELECT id INTO sc_id  FROM "mall_sites" WHERE "code" = 'SPORT_CENTER_BANDARA';
+  SELECT id INTO ksc_id FROM "mall_sites" WHERE "code" = 'KANTIN_SPORT_CENTER';
+  SELECT id INTO tod_id  FROM "mall_sites" WHERE "code" = 'TOD_M1_BANDARA';
+  SELECT id INTO ktod_id FROM "mall_sites" WHERE "code" = 'KANTIN_TOD_M1';
+
+  -- Pindah KANTIN_SPORT_CENTER → SPORT_CENTER_BANDARA
+  IF ksc_id IS NOT NULL AND sc_id IS NOT NULL THEN
+    UPDATE "tenants"          SET "site_id" = sc_id WHERE "site_id" = ksc_id;
+    UPDATE "tenant_bookings"  SET "site_id" = sc_id WHERE "site_id" = ksc_id;
+    UPDATE "tenant_invoices"  SET "site_id" = sc_id WHERE "site_id" = ksc_id;
+    UPDATE "tenant_payments"  SET "site_id" = sc_id WHERE "site_id" = ksc_id;
+    UPDATE "mall_units"       SET "site_id" = sc_id WHERE "site_id" = ksc_id;
+    UPDATE "audit_logs"       SET "site_id" = sc_id WHERE "site_id" = ksc_id;
+    UPDATE "cashier_shifts"   SET "site_id" = sc_id WHERE "site_id" = ksc_id;
+    -- Nonaktifkan site kantin lama
+    UPDATE "mall_sites" SET "status" = 'inactive', "updated_at" = now() WHERE "id" = ksc_id;
+  END IF;
+
+  -- Pindah KANTIN_TOD_M1 → TOD_M1_BANDARA
+  IF ktod_id IS NOT NULL AND tod_id IS NOT NULL THEN
+    UPDATE "tenants"          SET "site_id" = tod_id WHERE "site_id" = ktod_id;
+    UPDATE "tenant_bookings"  SET "site_id" = tod_id WHERE "site_id" = ktod_id;
+    UPDATE "tenant_invoices"  SET "site_id" = tod_id WHERE "site_id" = ktod_id;
+    UPDATE "tenant_payments"  SET "site_id" = tod_id WHERE "site_id" = ktod_id;
+    UPDATE "mall_units"       SET "site_id" = tod_id WHERE "site_id" = ktod_id;
+    UPDATE "audit_logs"       SET "site_id" = tod_id WHERE "site_id" = ktod_id;
+    UPDATE "cashier_shifts"   SET "site_id" = tod_id WHERE "site_id" = ktod_id;
+    -- Nonaktifkan site kantin lama
+    UPDATE "mall_sites" SET "status" = 'inactive', "updated_at" = now() WHERE "id" = ktod_id;
+  END IF;
+
+  -- 3. Seed unit kantin sebagai unit/area di bawah site induk
+  IF sc_id IS NOT NULL THEN
+    INSERT INTO "mall_units" ("unit_code","floor","zone","size_m2","status","position_x","position_y","width","height","notes","site_id","unit_type")
+    VALUES
+      ('SC-KTN-01','1','Area Kantin', 9,'available',0,0,2,2,'Unit Kantin Sport Center 1',sc_id,'kantin'),
+      ('SC-KTN-02','1','Area Kantin', 9,'available',2,0,2,2,'Unit Kantin Sport Center 2',sc_id,'kantin'),
+      ('SC-KTN-03','1','Area Kantin', 9,'available',4,0,2,2,'Unit Kantin Sport Center 3',sc_id,'kantin')
+    ON CONFLICT ("site_id","unit_code") DO NOTHING;
+  END IF;
+
+  IF tod_id IS NOT NULL THEN
+    INSERT INTO "mall_units" ("unit_code","floor","zone","size_m2","status","position_x","position_y","width","height","notes","site_id","unit_type")
+    VALUES
+      ('TOD-KTN-01','1','Area Kantin', 9,'available',0,0,2,2,'Unit Kantin TOD M1 1',tod_id,'kantin'),
+      ('TOD-KTN-02','1','Area Kantin', 9,'available',2,0,2,2,'Unit Kantin TOD M1 2',tod_id,'kantin'),
+      ('TOD-KTN-03','1','Area Kantin', 9,'available',4,0,2,2,'Unit Kantin TOD M1 3',tod_id,'kantin')
+    ON CONFLICT ("site_id","unit_code") DO NOTHING;
+  END IF;
+END $$;
+    `.trim(),
+  },
+  {
     name: "0007_system_settings_and_units_seed",
     sql: `
 -- Tabel konfigurasi sistem

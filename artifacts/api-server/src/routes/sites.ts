@@ -1,35 +1,41 @@
 import { Router, type IRouter } from "express";
 import { db } from "@workspace/db";
 import { mallSitesTable, userSiteAccessTable, usersTable, insertMallSiteSchema } from "@workspace/db/schema";
-import { eq, and, sql } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 import { requireAuth, requireAnyRole } from "../middlewares/auth";
 import { clearSitesCache } from "../middlewares/site-context";
 import { logAudit } from "../lib/audit";
 
 const router: IRouter = Router();
 
-// ─── GET /api/sites — list all active sites (for site switcher) ──────────────
+// Urutan tampilan site (site utama selalu duluan)
+const SITE_ORDER: Record<string, number> = {
+  SPORT_CENTER_BANDARA: 1,
+  TOD_M1_BANDARA: 2,
+};
+
+function sortSites<T extends { code: string }>(rows: T[]): T[] {
+  return [...rows].sort((a, b) => (SITE_ORDER[a.code] ?? 99) - (SITE_ORDER[b.code] ?? 99));
+}
+
+// ─── GET /api/sites ───────────────────────────────────────────────────────────
+// Hanya mengembalikan site AKTIF.
+// ?includeInactive=true (owner/admin only) mengembalikan semua site.
 router.get("/sites", requireAuth, async (req, res) => {
   try {
     const user = req.user as { role?: string; dbId?: number } | undefined;
     const role = user?.role ?? "";
+    const includeInactive = req.query.includeInactive === "true" && (role === "owner" || role === "admin");
 
-    // Owner and admin see all sites
+    // Owner & admin: semua site (filtered by status unless includeInactive)
     if (role === "owner" || role === "admin") {
-      const rows = await db
-        .select()
-        .from(mallSitesTable)
-        .orderBy(mallSitesTable.id);
-      const SITE_ORDER: Record<string, number> = {
-        SPORT_CENTER_BANDARA: 1,
-        TOD_M1_BANDARA: 2,
-      };
-      rows.sort((a, b) => (SITE_ORDER[a.code] ?? 99) - (SITE_ORDER[b.code] ?? 99));
-      res.json(rows);
+      const allSites = await db.select().from(mallSitesTable);
+      const filtered = includeInactive ? allSites : allSites.filter((s) => s.status === "active");
+      res.json(sortSites(filtered));
       return;
     }
 
-    // Others: see sites they have access to, plus the default site (TOD_M1_BANDARA)
+    // Roles lain: hanya site aktif yang user punya akses
     const numericDbId = user?.dbId ? Number(user.dbId) : NaN;
     if (user?.dbId && !isNaN(numericDbId)) {
       const access = await db
@@ -39,18 +45,18 @@ router.get("/sites", requireAuth, async (req, res) => {
 
       if (access.length > 0) {
         const siteIds = access.map((a) => a.siteId);
-        const allSites = await db.select().from(mallSitesTable).orderBy(mallSitesTable.id);
-        const allowed = allSites.filter((s) => siteIds.includes(s.id));
-        res.json(allowed);
+        const allSites = await db.select().from(mallSitesTable);
+        const allowed = allSites.filter((s) => siteIds.includes(s.id) && s.status === "active");
+        res.json(sortSites(allowed));
         return;
       }
     }
 
-    // Fallback: return default site only
+    // Fallback: site default aktif
     const defaultSite = await db
       .select()
       .from(mallSitesTable)
-      .where(eq(mallSitesTable.code, "TOD_M1_BANDARA"));
+      .where(and(eq(mallSitesTable.code, "TOD_M1_BANDARA"), eq(mallSitesTable.status, "active")));
     res.json(defaultSite);
   } catch (err) {
     req.log.error(err, "Failed to list sites");
@@ -58,7 +64,7 @@ router.get("/sites", requireAuth, async (req, res) => {
   }
 });
 
-// ─── POST /api/sites — create new site (owner only) ─────────────────────────
+// ─── POST /api/sites — buat site baru (owner only) ───────────────────────────
 router.post("/sites", requireAnyRole("owner"), async (req, res) => {
   const parsed = insertMallSiteSchema.safeParse(req.body);
   if (!parsed.success) {
@@ -76,7 +82,7 @@ router.post("/sites", requireAnyRole("owner"), async (req, res) => {
   }
 });
 
-// ─── PUT /api/sites/:id — update site (owner only) ──────────────────────────
+// ─── PUT /api/sites/:id — update site (owner only) ───────────────────────────
 router.put("/sites/:id", requireAnyRole("owner"), async (req, res) => {
   const id = Number(req.params.id);
   if (isNaN(id)) { res.status(400).json({ error: "ID tidak valid" }); return; }
@@ -95,7 +101,7 @@ router.put("/sites/:id", requireAnyRole("owner"), async (req, res) => {
   }
 });
 
-// ─── GET /api/sites/:id/users — list users with access to site ───────────────
+// ─── GET /api/sites/:id/users ─────────────────────────────────────────────────
 router.get("/sites/:id/users", requireAnyRole("owner", "admin"), async (req, res) => {
   const siteId = Number(req.params.id);
   if (isNaN(siteId)) { res.status(400).json({ error: "ID tidak valid" }); return; }
@@ -121,7 +127,7 @@ router.get("/sites/:id/users", requireAnyRole("owner", "admin"), async (req, res
   }
 });
 
-// ─── POST /api/sites/:id/users — grant user access to site ───────────────────
+// ─── POST /api/sites/:id/users — beri akses user ke site ─────────────────────
 router.post("/sites/:id/users", requireAnyRole("owner", "admin"), async (req, res) => {
   const siteId = Number(req.params.id);
   if (isNaN(siteId)) { res.status(400).json({ error: "ID tidak valid" }); return; }
@@ -148,7 +154,7 @@ router.post("/sites/:id/users", requireAnyRole("owner", "admin"), async (req, re
   }
 });
 
-// ─── DELETE /api/sites/:id/users/:userId — revoke access ─────────────────────
+// ─── DELETE /api/sites/:id/users/:userId — cabut akses ───────────────────────
 router.delete("/sites/:id/users/:userId", requireAnyRole("owner", "admin"), async (req, res) => {
   const siteId = Number(req.params.id);
   const userId = Number(req.params.userId);

@@ -43,7 +43,9 @@ export function SiteProvider({ children }: { children: React.ReactNode }) {
     queryKey: ["sites"],
     queryFn: () => fetch("/api/sites").then((r) => {
       if (!r.ok) return [];
-      return r.json().then((d: unknown) => Array.isArray(d) ? d : []);
+      return r.json().then((d: unknown) =>
+        Array.isArray(d) ? (d as MallSite[]).filter((s) => s.status === "active") : []
+      );
     }),
     staleTime: 5 * 60 * 1000,
   });
