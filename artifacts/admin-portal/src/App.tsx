@@ -105,7 +105,7 @@ function Router() {
         </AuthGuard>
       </Route>
       <Route path="/unit-tenant">
-        <AuthGuard roles={["owner", "admin"]}>
+        <AuthGuard roles={["owner", "admin", "finance"]}>
           <SidebarLayout>
             <UnitTenant />
           </SidebarLayout>

@@ -1212,6 +1212,61 @@ DO $$ BEGIN
 END $$;
     `.trim(),
   },
+  {
+    name: "0006_mall_units_extended",
+    sql: `
+-- Add site_id column to mall_units if missing
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='mall_units' AND column_name='site_id') THEN
+    ALTER TABLE "mall_units" ADD COLUMN "site_id" integer;
+  END IF;
+END $$;
+
+-- Add unit_type column
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='mall_units' AND column_name='unit_type') THEN
+    ALTER TABLE "mall_units" ADD COLUMN "unit_type" text NOT NULL DEFAULT 'other';
+  END IF;
+END $$;
+
+-- Add area_kantin column
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='mall_units' AND column_name='area_kantin') THEN
+    ALTER TABLE "mall_units" ADD COLUMN "area_kantin" text;
+  END IF;
+END $$;
+
+-- Seed Kantin Sport Center site
+INSERT INTO "mall_sites" ("code","name","type","status","address")
+VALUES ('KANTIN_SPORT_CENTER','Kantin Sport Center','sport_center','active','Kawasan Sport Center')
+ON CONFLICT ("code") DO NOTHING;
+
+-- Seed Kantin TOD M1 site
+INSERT INTO "mall_sites" ("code","name","type","status","address")
+VALUES ('KANTIN_TOD_M1','Kantin TOD M1','mall_tenant','active','TOD M1')
+ON CONFLICT ("code") DO NOTHING;
+
+-- Assign existing units with NULL site_id to the first active site
+UPDATE "mall_units"
+SET "site_id" = (SELECT "id" FROM "mall_sites" WHERE "status" = 'active' ORDER BY "id" LIMIT 1)
+WHERE "site_id" IS NULL
+  AND EXISTS (SELECT 1 FROM "mall_sites" WHERE "status" = 'active');
+
+-- Drop old global unique index on unit_code if it exists
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM pg_indexes WHERE tablename = 'mall_units' AND indexname = 'mall_units_unit_code_unique') THEN
+    DROP INDEX "mall_units_unit_code_unique";
+  END IF;
+END $$;
+
+-- Create composite unique index on (site_id, unit_code) if it does not exist
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_indexes WHERE tablename = 'mall_units' AND indexname = 'mall_units_site_unit_unique') THEN
+    CREATE UNIQUE INDEX "mall_units_site_unit_unique" ON "mall_units" ("site_id", "unit_code");
+  END IF;
+END $$;
+    `.trim(),
+  },
 ];
 
 const MIGRATIONS_TABLE = "schema_migrations";

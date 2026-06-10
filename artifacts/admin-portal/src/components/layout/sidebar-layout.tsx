@@ -232,7 +232,7 @@ export function SidebarLayout({ children }: { children: React.ReactNode }) {
                     </SidebarMenuButton>
                   </SidebarMenuItem>
                 )}
-                {can("owner", "admin") && (
+                {can("owner", "admin", "finance") && (
                   <SidebarMenuItem>
                     <SidebarMenuButton
                       asChild
@@ -241,7 +241,7 @@ export function SidebarLayout({ children }: { children: React.ReactNode }) {
                     >
                       <Link href="/unit-tenant">
                         <LayoutGrid className="mr-2 h-4 w-4" />
-                        <span>Unit Tenant</span>
+                        <span>Unit Kantin</span>
                       </Link>
                     </SidebarMenuButton>
                   </SidebarMenuItem>
