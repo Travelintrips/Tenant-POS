@@ -7,7 +7,7 @@ import {
   tenantsTable,
   tenantPaymentsTable,
 } from "@workspace/db/schema";
-import { eq, and, sql, desc, ilike, or } from "drizzle-orm";
+import { eq, and, sql, desc, ilike, or, lte, gte, notInArray } from "drizzle-orm";
 import { z } from "zod/v4";
 import { requireAnyRole } from "../middlewares/auth";
 import { logAudit } from "../lib/audit";
@@ -155,6 +155,59 @@ const invoiceSelect = {
   email: tenantsTable.email,
   phone: tenantsTable.phone,
 } as const;
+
+// ─── GET /api/tenant-invoices/upcoming ───────────────────────────────────────
+// Invoice yang akan jatuh tempo dalam 7 hari ke depan + yang sudah overdue
+router.get("/tenant-invoices/upcoming", async (req, res) => {
+  try {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const in7 = new Date(today);
+    in7.setDate(in7.getDate() + 7);
+
+    const todayStr = today.toISOString().slice(0, 10);
+    const in7Str = in7.toISOString().slice(0, 10);
+
+    const siteFilter = req.siteId > 0
+      ? eq(tenantInvoicesTable.siteId, req.siteId)
+      : undefined;
+
+    const rows = await db
+      .select({
+        id: tenantInvoicesTable.id,
+        invoiceNumber: tenantInvoicesTable.invoiceNumber,
+        dueDate: tenantInvoicesTable.dueDate,
+        outstandingAmount: tenantInvoicesTable.outstandingAmount,
+        status: tenantInvoicesTable.status,
+        tenantName: tenantsTable.businessName,
+        ownerName: tenantsTable.ownerName,
+      })
+      .from(tenantInvoicesTable)
+      .leftJoin(tenantsTable, eq(tenantInvoicesTable.tenantId, tenantsTable.id))
+      .where(
+        and(
+          notInArray(tenantInvoicesTable.status, ["paid", "cancelled"]),
+          lte(tenantInvoicesTable.dueDate, in7Str),
+          siteFilter,
+        )
+      )
+      .orderBy(tenantInvoicesTable.dueDate);
+
+    const overdueItems = rows.filter(r => r.dueDate && r.dueDate < todayStr);
+    const upcomingItems = rows.filter(r => r.dueDate && r.dueDate >= todayStr);
+
+    res.json({
+      count: rows.length,
+      overdueCount: overdueItems.length,
+      upcomingCount: upcomingItems.length,
+      overdue: overdueItems,
+      upcoming: upcomingItems,
+    });
+  } catch (err) {
+    req.log.error(err, "Failed to get upcoming invoices");
+    res.status(500).json({ error: "Gagal mengambil data invoice upcoming" });
+  }
+});
 
 // ─── GET /api/tenant-invoices ─────────────────────────────────────────────────
 router.get("/tenant-invoices", async (req, res) => {

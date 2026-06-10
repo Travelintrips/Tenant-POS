@@ -14,7 +14,7 @@ import {
   SidebarInset,
   SidebarTrigger
 } from "@/components/ui/sidebar";
-import { Building2, Store, CalendarRange, Calculator, BarChart3, LogOut, FileText, Shield, ChevronDown, GitCompare, Dumbbell, MapPin, Check, Layers, ClipboardCheck, LayoutGrid, Users } from "lucide-react";
+import { Building2, Store, CalendarRange, Calculator, BarChart3, LogOut, FileText, Shield, ChevronDown, GitCompare, Dumbbell, MapPin, Check, Layers, ClipboardCheck, LayoutGrid, Users, Bell, AlertTriangle, Clock } from "lucide-react";
 import { Separator } from "@/components/ui/separator";
 import { useAuth, useLogout, ROLE_LABELS, type UserRole } from "@/hooks/use-auth";
 import { Button } from "@/components/ui/button";
@@ -29,6 +29,8 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { useSite, type MallSite, ALL_SITES_SENTINEL } from "@/contexts/site-context";
 import { useQuery } from "@tanstack/react-query";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { ScrollArea } from "@/components/ui/scroll-area";
 
 const ROLE_COLORS: Record<UserRole, string> = {
   owner:       "bg-purple-100 text-purple-800",
@@ -108,6 +110,36 @@ export function SidebarLayout({ children }: { children: React.ReactNode }) {
     refetchInterval: 30_000,
     enabled: can("owner", "admin", "finance"),
   });
+
+  type UpcomingItem = {
+    id: number;
+    invoiceNumber: string;
+    dueDate: string | null;
+    outstandingAmount: string;
+    status: string;
+    tenantName: string | null;
+    ownerName: string | null;
+  };
+  type UpcomingData = {
+    count: number;
+    overdueCount: number;
+    upcomingCount: number;
+    overdue: UpcomingItem[];
+    upcoming: UpcomingItem[];
+  };
+
+  const { data: upcomingData } = useQuery<UpcomingData>({
+    queryKey: ["invoice-upcoming-notification"],
+    queryFn: async () => {
+      const res = await fetch("/api/tenant-invoices/upcoming");
+      if (!res.ok) return { count: 0, overdueCount: 0, upcomingCount: 0, overdue: [], upcoming: [] };
+      return res.json();
+    },
+    refetchInterval: 60_000,
+    enabled: can("owner", "admin", "finance"),
+  });
+
+  const notifCount = upcomingData?.count ?? 0;
   const grouped = groupSites(Array.isArray(sites) ? sites : []);
 
   return (
@@ -363,9 +395,101 @@ export function SidebarLayout({ children }: { children: React.ReactNode }) {
         <header className="flex h-16 shrink-0 items-center gap-2 border-b px-4">
           <SidebarTrigger />
           <Separator orientation="vertical" className="mr-2 h-4" />
-          <span className="text-sm font-medium text-muted-foreground">
+          <span className="text-sm font-medium text-muted-foreground flex-1">
             {activeSite?.name ?? "Manajemen Tenan"}
           </span>
+
+          {/* Bell notification — invoice overdue + jatuh tempo 7 hari */}
+          {can("owner", "admin", "finance") && (
+            <Popover>
+              <PopoverTrigger asChild>
+                <button className="relative p-2 rounded-md hover:bg-muted transition-colors" aria-label="Notifikasi invoice">
+                  <Bell className="h-5 w-5 text-muted-foreground" />
+                  {notifCount > 0 && (
+                    <span className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] flex items-center justify-center rounded-full bg-red-500 text-[10px] font-bold text-white px-1 leading-none">
+                      {notifCount > 99 ? "99+" : notifCount}
+                    </span>
+                  )}
+                </button>
+              </PopoverTrigger>
+              <PopoverContent align="end" className="w-80 p-0" sideOffset={8}>
+                <div className="flex items-center justify-between px-4 py-3 border-b">
+                  <p className="text-sm font-semibold">Notifikasi Invoice</p>
+                  {notifCount > 0 && (
+                    <Badge variant="destructive" className="text-[10px] h-5 px-1.5">{notifCount} invoice</Badge>
+                  )}
+                </div>
+                <ScrollArea className="max-h-80">
+                  {notifCount === 0 ? (
+                    <div className="flex flex-col items-center py-8 text-muted-foreground gap-2">
+                      <Bell className="h-8 w-8 opacity-20" />
+                      <p className="text-xs">Tidak ada invoice mendesak</p>
+                    </div>
+                  ) : (
+                    <div className="py-1">
+                      {(upcomingData?.overdue ?? []).length > 0 && (
+                        <>
+                          <div className="flex items-center gap-1.5 px-4 py-2 bg-red-50">
+                            <AlertTriangle className="h-3.5 w-3.5 text-red-500 shrink-0" />
+                            <p className="text-xs font-semibold text-red-700">Sudah Lewat Jatuh Tempo ({upcomingData!.overdueCount})</p>
+                          </div>
+                          {upcomingData!.overdue.map(item => (
+                            <Link key={item.id} href="/tenant-invoices">
+                              <div className="flex flex-col px-4 py-2.5 hover:bg-muted/50 cursor-pointer border-b last:border-0">
+                                <div className="flex items-center justify-between gap-2">
+                                  <span className="text-xs font-medium truncate text-red-700">{item.tenantName ?? "—"}</span>
+                                  <span className="text-xs font-semibold text-red-600 shrink-0">
+                                    Rp {Number(item.outstandingAmount).toLocaleString("id-ID")}
+                                  </span>
+                                </div>
+                                <span className="text-[10px] text-muted-foreground mt-0.5">{item.invoiceNumber}</span>
+                                <span className="text-[10px] text-red-500 mt-0.5">
+                                  Jatuh tempo: {item.dueDate ? new Date(item.dueDate).toLocaleDateString("id-ID", { day: "numeric", month: "short", year: "numeric" }) : "—"}
+                                </span>
+                              </div>
+                            </Link>
+                          ))}
+                        </>
+                      )}
+                      {(upcomingData?.upcoming ?? []).length > 0 && (
+                        <>
+                          <div className="flex items-center gap-1.5 px-4 py-2 bg-amber-50">
+                            <Clock className="h-3.5 w-3.5 text-amber-500 shrink-0" />
+                            <p className="text-xs font-semibold text-amber-700">Jatuh Tempo ≤ 7 Hari ({upcomingData!.upcomingCount})</p>
+                          </div>
+                          {upcomingData!.upcoming.map(item => (
+                            <Link key={item.id} href="/tenant-invoices">
+                              <div className="flex flex-col px-4 py-2.5 hover:bg-muted/50 cursor-pointer border-b last:border-0">
+                                <div className="flex items-center justify-between gap-2">
+                                  <span className="text-xs font-medium truncate">{item.tenantName ?? "—"}</span>
+                                  <span className="text-xs font-semibold text-orange-600 shrink-0">
+                                    Rp {Number(item.outstandingAmount).toLocaleString("id-ID")}
+                                  </span>
+                                </div>
+                                <span className="text-[10px] text-muted-foreground mt-0.5">{item.invoiceNumber}</span>
+                                <span className="text-[10px] text-amber-600 mt-0.5">
+                                  Jatuh tempo: {item.dueDate ? new Date(item.dueDate).toLocaleDateString("id-ID", { day: "numeric", month: "short", year: "numeric" }) : "—"}
+                                </span>
+                              </div>
+                            </Link>
+                          ))}
+                        </>
+                      )}
+                    </div>
+                  )}
+                </ScrollArea>
+                {notifCount > 0 && (
+                  <div className="border-t px-4 py-2.5">
+                    <Link href="/tenant-invoices">
+                      <button className="text-xs text-primary hover:underline w-full text-center">
+                        Lihat semua invoice →
+                      </button>
+                    </Link>
+                  </div>
+                )}
+              </PopoverContent>
+            </Popover>
+          )}
         </header>
         <main className="flex-1 p-6 bg-muted/20">
           {children}
