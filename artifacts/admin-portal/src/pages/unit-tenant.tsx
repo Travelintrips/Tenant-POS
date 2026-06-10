@@ -1,582 +1,1126 @@
+import { useState, useMemo, useEffect } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiFetch, apiFetchJson } from "@/lib/api";
-import { useState, useMemo } from "react";
-import {
-  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
-} from "@/components/ui/table";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { Skeleton } from "@/components/ui/skeleton";
+import { useAuth } from "@/hooks/use-auth";
+import { useSite } from "@/contexts/site-context";
+import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
+import { Badge } from "@/components/ui/badge";
 import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
 } from "@/components/ui/select";
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
-} from "@/components/ui/dialog";
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import {
-  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
-  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetDescription,
+} from "@/components/ui/sheet";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { Textarea } from "@/components/ui/textarea";
+import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useToast } from "@/hooks/use-toast";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
-  Plus, Pencil, Trash2, Search, Store, Building2, Dumbbell,
-  LayoutGrid, List, CircleCheck, CircleX, Clock, AlertTriangle, Wrench,
+  Plus, Search, Pencil, Trash2, LayoutGrid, Table2, RefreshCw,
+  Building2, MapPin, Package, X, Database,
 } from "lucide-react";
-import { useSite, ALL_SITES_SENTINEL } from "@/contexts/site-context";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type UnitStatus = "available" | "booked" | "occupied" | "overdue" | "expired" | "maintenance";
-
-type MallUnit = {
+interface MallUnit {
   id: number;
+  siteId: number | null;
   unitCode: string;
   floor: string;
   zone: string | null;
+  areaKantin: string | null;
+  unitType: string;
   sizeM2: string | null;
   storedStatus: string;
-  status: UnitStatus;
+  status: string;
+  positionX: number;
+  positionY: number;
+  width: number;
+  height: number;
   notes: string | null;
-  siteId: number | null;
-  // Tenant info (if occupied)
+  createdAt: string;
+  updatedAt: string;
+  bookingId: number | null;
+  tenantId: number | null;
   businessName: string | null;
   ownerName: string | null;
   phone: string | null;
-  category: string | null;
-  bookingId: number | null;
+  email: string | null;
   startDate: string | null;
   endDate: string | null;
   totalAmount: number;
   paidAmount: number;
   remainingAmount: number;
   paymentStatus: string | null;
-  periodLabel: string | null;
-  dueDate: string | null;
+  latestInvoiceId: number | null;
   latestInvoiceStatus: string | null;
+  latestInvoiceAmount: number | null;
+  latestInvoiceDueDate: string | null;
   latestInvoiceOutstanding: number | null;
-};
-
-type Site = {
-  id: number;
-  name: string;
-  code: string;
-  type: string;
-};
-
-type UnitForm = {
-  unitCode: string;
-  zone: string;
-  sizeM2: string;
-  status: string;
-  notes: string;
-  siteId: string;
-};
-
-const EMPTY_FORM: UnitForm = {
-  unitCode: "",
-  zone: "",
-  sizeM2: "",
-  status: "available",
-  notes: "",
-  siteId: "",
-};
-
-// ─── Status Config ────────────────────────────────────────────────────────────
-
-const STATUS_CONFIG: Record<UnitStatus, { label: string; color: string; icon: React.ReactNode }> = {
-  available:   { label: "Kosong",       color: "bg-emerald-100 text-emerald-800 border-emerald-200",  icon: <CircleCheck className="h-3 w-3" /> },
-  booked:      { label: "Dipesan",      color: "bg-blue-100 text-blue-800 border-blue-200",           icon: <Clock className="h-3 w-3" /> },
-  occupied:    { label: "Terisi",       color: "bg-violet-100 text-violet-800 border-violet-200",     icon: <Store className="h-3 w-3" /> },
-  overdue:     { label: "Nunggak",      color: "bg-red-100 text-red-800 border-red-200",              icon: <AlertTriangle className="h-3 w-3" /> },
-  expired:     { label: "Berakhir",     color: "bg-gray-100 text-gray-600 border-gray-200",           icon: <CircleX className="h-3 w-3" /> },
-  maintenance: { label: "Pemeliharaan", color: "bg-amber-100 text-amber-800 border-amber-200",        icon: <Wrench className="h-3 w-3" /> },
-};
-
-const STORED_STATUS_OPTIONS: { value: string; label: string }[] = [
-  { value: "available",   label: "Kosong" },
-  { value: "maintenance", label: "Pemeliharaan" },
-];
-
-const SITE_TYPE_CONFIG: Record<string, { label: string; color: string; bg: string; border: string; icon: React.ReactNode }> = {
-  mall_tenant: {
-    label: "TOD M1",
-    color: "text-blue-700",
-    bg: "bg-blue-50",
-    border: "border-blue-200",
-    icon: <Building2 className="h-4 w-4" />,
-  },
-  sport_center: {
-    label: "Sport Center",
-    color: "text-emerald-700",
-    bg: "bg-emerald-50",
-    border: "border-emerald-200",
-    icon: <Dumbbell className="h-4 w-4" />,
-  },
-};
-
-function formatRupiah(v: number) {
-  return new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", maximumFractionDigits: 0 }).format(v);
 }
 
-function StatusBadge({ status }: { status: UnitStatus }) {
-  const cfg = STATUS_CONFIG[status] ?? STATUS_CONFIG.available;
+interface UnitFormData {
+  unitCode: string;
+  areaKantin: string;
+  unitType: string;
+  sizeM2: string;
+  status: string;
+  positionX: string;
+  positionY: string;
+  width: string;
+  height: string;
+  notes: string;
+}
+
+// ─── Constants ────────────────────────────────────────────────────────────────
+
+const UNIT_TYPES = [
+  { value: "food_booth",      label: "Booth Makanan" },
+  { value: "beverage_booth",  label: "Booth Minuman" },
+  { value: "shared_kitchen",  label: "Dapur Bersama" },
+  { value: "storage",         label: "Gudang" },
+  { value: "cashier_area",    label: "Area Kasir" },
+  { value: "seating_area",    label: "Area Duduk" },
+  { value: "other",           label: "Lainnya" },
+] as const;
+
+const UNIT_STATUSES = [
+  { value: "available",   label: "Tersedia",    color: "bg-emerald-100 text-emerald-800 border-emerald-200" },
+  { value: "booked",      label: "Dipesan",     color: "bg-amber-100 text-amber-800 border-amber-200" },
+  { value: "occupied",    label: "Terisi",      color: "bg-blue-100 text-blue-800 border-blue-200" },
+  { value: "overdue",     label: "Tunggakan",   color: "bg-red-100 text-red-800 border-red-200" },
+  { value: "expired",     label: "Kadaluarsa",  color: "bg-gray-100 text-gray-700 border-gray-300" },
+  { value: "maintenance", label: "Perawatan",   color: "bg-slate-100 text-slate-700 border-slate-300" },
+] as const;
+
+const FLOOR_COLORS: Record<string, { bg: string; border: string; text: string }> = {
+  available:   { bg: "#dcfce7", border: "#16a34a", text: "#15803d" },
+  booked:      { bg: "#fef3c7", border: "#d97706", text: "#92400e" },
+  occupied:    { bg: "#dbeafe", border: "#2563eb", text: "#1d4ed8" },
+  overdue:     { bg: "#fee2e2", border: "#dc2626", text: "#991b1b" },
+  expired:     { bg: "#f3f4f6", border: "#6b7280", text: "#374151" },
+  maintenance: { bg: "#f1f5f9", border: "#94a3b8", text: "#475569" },
+};
+
+const EDITABLE_STATUSES = [
+  { value: "available",   label: "Tersedia" },
+  { value: "maintenance", label: "Perawatan" },
+];
+
+const PAYMENT_STATUS_COLORS: Record<string, string> = {
+  PAID:    "bg-emerald-100 text-emerald-800",
+  PARTIAL: "bg-amber-100 text-amber-800",
+  UNPAID:  "bg-red-100 text-red-800",
+  OVERDUE: "bg-red-100 text-red-800",
+};
+
+const DEFAULT_FORM: UnitFormData = {
+  unitCode: "",
+  areaKantin: "",
+  unitType: "other",
+  sizeM2: "",
+  status: "available",
+  positionX: "0",
+  positionY: "0",
+  width: "2",
+  height: "2",
+  notes: "",
+};
+
+// ─── Helper functions ─────────────────────────────────────────────────────────
+
+function getUnitTypeLabel(value: string): string {
+  return UNIT_TYPES.find(t => t.value === value)?.label ?? value;
+}
+
+function getStatusConfig(value: string) {
+  return UNIT_STATUSES.find(s => s.value === value)
+    ?? { label: value, color: "bg-gray-100 text-gray-700 border-gray-200" };
+}
+
+function fmtDate(d: string | null): string {
+  if (!d) return "—";
+  return new Date(d).toLocaleDateString("id-ID", { day: "numeric", month: "short", year: "numeric" });
+}
+
+function fmtRp(n: number): string {
+  return n > 0 ? `Rp ${n.toLocaleString("id-ID")}` : "—";
+}
+
+// ─── StatusBadge ──────────────────────────────────────────────────────────────
+
+function StatusBadge({ status }: { status: string }) {
+  const cfg = getStatusConfig(status);
   return (
-    <Badge variant="outline" className={`inline-flex items-center gap-1 text-xs font-medium border ${cfg.color}`}>
-      {cfg.icon}
+    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold border ${cfg.color}`}>
       {cfg.label}
-    </Badge>
+    </span>
   );
 }
 
-// ─── Main Component ───────────────────────────────────────────────────────────
+// ─── UnitTypeBadge ────────────────────────────────────────────────────────────
 
-export default function UnitTenantPage() {
-  const { activeSite, sites } = useSite();
-  const { toast } = useToast();
-  const qc = useQueryClient();
+function UnitTypeBadge({ type }: { type: string }) {
+  return (
+    <span className="inline-flex items-center px-2 py-0.5 rounded text-xs bg-slate-100 text-slate-700 border border-slate-200">
+      {getUnitTypeLabel(type)}
+    </span>
+  );
+}
 
-  const [search, setSearch] = useState("");
-  const [filterStatus, setFilterStatus] = useState<string>("all");
-  const [viewMode, setViewMode] = useState<"table" | "grid">("table");
-  const [dialogOpen, setDialogOpen] = useState(false);
-  const [deleteId, setDeleteId] = useState<number | null>(null);
-  const [editUnit, setEditUnit] = useState<MallUnit | null>(null);
-  const [form, setForm] = useState<UnitForm>(EMPTY_FORM);
-  const [detailUnit, setDetailUnit] = useState<MallUnit | null>(null);
-  const [activeTab, setActiveTab] = useState<string>("");
+// ─── Summary strip ────────────────────────────────────────────────────────────
 
-  // Determine which siteId to use for API calls
-  const isAllSites = activeSite?.code === ALL_SITES_SENTINEL.code;
-  const siteIdHeader = isAllSites ? undefined : activeSite?.id;
-
-  // Load sites list for the form dropdown
-  // NOTE: key "sites-all" to avoid colliding with SiteProvider's "sites" cache entry
-  const { data: allSites = [] } = useQuery<Site[]>({
-    queryKey: ["sites-all"],
-    queryFn: () => apiFetchJson<Site[]>("/api/sites"),
-  });
-
-  const { data: units = [], isLoading } = useQuery<MallUnit[]>({
-    queryKey: ["mall-units", siteIdHeader],
-    queryFn: () =>
-      apiFetchJson<MallUnit[]>("/api/mall-units", {
-        headers: siteIdHeader ? { "x-site-id": String(siteIdHeader) } : {},
-      }),
-  });
-
-  // Group units by site
-  const unitsBySite = useMemo(() => {
-    const map = new Map<number | null, MallUnit[]>();
-    for (const u of units) {
-      const key = u.siteId ?? null;
-      if (!map.has(key)) map.set(key, []);
-      map.get(key)!.push(u);
-    }
+function SummaryCounts({ units }: { units: MallUnit[] }) {
+  const counts = useMemo(() => {
+    const map: Record<string, number> = {};
+    for (const u of units) map[u.status] = (map[u.status] ?? 0) + 1;
     return map;
   }, [units]);
 
-  // Build tabs from available sites
-  const siteTabs = useMemo(() => {
-    if (!isAllSites) {
-      // Single site mode — show one tab
-      return activeSite ? [activeSite] : [];
+  return (
+    <div className="flex flex-wrap gap-2 items-center">
+      <span className="text-xs text-muted-foreground font-medium">
+        Total {units.length} unit:
+      </span>
+      {UNIT_STATUSES.map(s => {
+        const n = counts[s.value] ?? 0;
+        if (n === 0) return null;
+        return (
+          <span key={s.value} className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold border ${s.color}`}>
+            {s.label} ({n})
+          </span>
+        );
+      })}
+    </div>
+  );
+}
+
+// ─── Floor Plan ───────────────────────────────────────────────────────────────
+
+function FloorPlan({
+  units,
+  onSelectUnit,
+  selectedId,
+}: {
+  units: MallUnit[];
+  onSelectUnit: (u: MallUnit) => void;
+  selectedId: number | null;
+}) {
+  if (units.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center py-20 text-muted-foreground gap-3">
+        <Package className="h-12 w-12 opacity-20" />
+        <p className="text-sm">Tidak ada unit untuk ditampilkan</p>
+      </div>
+    );
+  }
+
+  const maxX = Math.max(...units.map(u => u.positionX + u.width));
+  const maxY = Math.max(...units.map(u => u.positionY + u.height));
+  const CELL = 60;
+  const GAP = 2;
+
+  return (
+    <div className="border rounded-lg bg-slate-50 p-4 overflow-auto">
+      <div
+        className="relative"
+        style={{
+          width: maxX * (CELL + GAP),
+          height: maxY * (CELL + GAP),
+          minWidth: 300,
+          minHeight: 200,
+        }}
+      >
+        {units.map(u => {
+          const cfg = FLOOR_COLORS[u.status] ?? FLOOR_COLORS.available;
+          const isSelected = u.id === selectedId;
+          return (
+            <button
+              key={u.id}
+              onClick={() => onSelectUnit(u)}
+              title={`${u.unitCode}${u.businessName ? ` — ${u.businessName}` : ""}`}
+              style={{
+                position: "absolute",
+                left: u.positionX * (CELL + GAP),
+                top: u.positionY * (CELL + GAP),
+                width: u.width * (CELL + GAP) - GAP,
+                height: u.height * (CELL + GAP) - GAP,
+                backgroundColor: cfg.bg,
+                borderColor: isSelected ? "#0f172a" : cfg.border,
+                borderWidth: isSelected ? 3 : 1.5,
+                borderStyle: "solid",
+                borderRadius: 6,
+                cursor: "pointer",
+                transition: "all 0.12s",
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                justifyContent: "center",
+                padding: 4,
+                boxShadow: isSelected ? "0 0 0 2px rgba(15,23,42,0.2)" : undefined,
+              }}
+            >
+              <span style={{ fontSize: 11, fontWeight: 700, color: cfg.text, lineHeight: 1.2, textAlign: "center" }}>
+                {u.unitCode}
+              </span>
+              {u.businessName && (
+                <span style={{
+                  fontSize: 9, color: cfg.text, opacity: 0.75, lineHeight: 1.2,
+                  textAlign: "center", marginTop: 2, maxWidth: "90%",
+                  overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                }}>
+                  {u.businessName}
+                </span>
+              )}
+              <span style={{ fontSize: 9, color: cfg.text, opacity: 0.6, marginTop: 2 }}>
+                {getStatusConfig(u.status).label}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+      <div className="flex flex-wrap gap-2 mt-4 pt-3 border-t">
+        {UNIT_STATUSES.map(s => (
+          <span key={s.value} className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs border ${s.color}`}>
+            <span
+              className="w-2 h-2 rounded-full inline-block"
+              style={{ backgroundColor: FLOOR_COLORS[s.value]?.border }}
+            />
+            {s.label}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ─── Unit Detail Panel ────────────────────────────────────────────────────────
+
+function UnitDetailPanel({
+  unit,
+  onClose,
+  onEdit,
+  canEdit,
+}: {
+  unit: MallUnit;
+  onClose: () => void;
+  onEdit: (u: MallUnit) => void;
+  canEdit: boolean;
+}) {
+  return (
+    <div className="flex flex-col h-full">
+      <div className="flex items-center justify-between px-4 py-3 border-b">
+        <div className="flex items-center gap-2">
+          <Building2 className="h-4 w-4 text-muted-foreground" />
+          <span className="font-semibold text-sm">{unit.unitCode}</span>
+          <StatusBadge status={unit.status} />
+        </div>
+        <div className="flex items-center gap-1">
+          {canEdit && (
+            <Button size="sm" variant="outline" onClick={() => onEdit(unit)} className="h-7 text-xs">
+              <Pencil className="h-3 w-3 mr-1" />Edit
+            </Button>
+          )}
+          <Button size="icon" variant="ghost" onClick={onClose} className="h-7 w-7">
+            <X className="h-4 w-4" />
+          </Button>
+        </div>
+      </div>
+      <ScrollArea className="flex-1">
+        <div className="p-4 space-y-4">
+          <div>
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Info Unit</p>
+            <dl className="grid grid-cols-2 gap-x-4 gap-y-1.5">
+              <dt className="text-xs text-muted-foreground">Jenis</dt>
+              <dd className="text-xs font-medium"><UnitTypeBadge type={unit.unitType} /></dd>
+              <dt className="text-xs text-muted-foreground">Area</dt>
+              <dd className="text-xs font-medium">{unit.areaKantin ?? "—"}</dd>
+              <dt className="text-xs text-muted-foreground">Luas</dt>
+              <dd className="text-xs font-medium">{unit.sizeM2 ? `${unit.sizeM2} m²` : "—"}</dd>
+              <dt className="text-xs text-muted-foreground">Posisi</dt>
+              <dd className="text-xs font-medium">({unit.positionX}, {unit.positionY}) {unit.width}×{unit.height}</dd>
+              {unit.notes && (
+                <>
+                  <dt className="text-xs text-muted-foreground">Catatan</dt>
+                  <dd className="text-xs font-medium">{unit.notes}</dd>
+                </>
+              )}
+            </dl>
+          </div>
+
+          {unit.businessName && (
+            <>
+              <Separator />
+              <div>
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Tenant Aktif</p>
+                <dl className="grid grid-cols-2 gap-x-4 gap-y-1.5">
+                  <dt className="text-xs text-muted-foreground">Usaha</dt>
+                  <dd className="text-xs font-medium">{unit.businessName}</dd>
+                  <dt className="text-xs text-muted-foreground">Pemilik</dt>
+                  <dd className="text-xs font-medium">{unit.ownerName ?? "—"}</dd>
+                  {unit.phone && (
+                    <>
+                      <dt className="text-xs text-muted-foreground">Telepon</dt>
+                      <dd className="text-xs font-medium">{unit.phone}</dd>
+                    </>
+                  )}
+                  <dt className="text-xs text-muted-foreground">Periode</dt>
+                  <dd className="text-xs font-medium">{fmtDate(unit.startDate)} — {fmtDate(unit.endDate)}</dd>
+                  <dt className="text-xs text-muted-foreground">Total Sewa</dt>
+                  <dd className="text-xs font-medium">{fmtRp(unit.totalAmount)}</dd>
+                  <dt className="text-xs text-muted-foreground">Sudah Bayar</dt>
+                  <dd className="text-xs font-medium">{fmtRp(unit.paidAmount)}</dd>
+                  <dt className="text-xs text-muted-foreground">Sisa</dt>
+                  <dd className="text-xs font-medium text-red-600">{fmtRp(unit.remainingAmount)}</dd>
+                  {unit.paymentStatus && (
+                    <>
+                      <dt className="text-xs text-muted-foreground">Status Bayar</dt>
+                      <dd>
+                        <span className={`inline-flex px-1.5 py-0.5 rounded text-xs font-semibold ${PAYMENT_STATUS_COLORS[unit.paymentStatus.toUpperCase()] ?? "bg-gray-100 text-gray-700"}`}>
+                          {unit.paymentStatus.toUpperCase()}
+                        </span>
+                      </dd>
+                    </>
+                  )}
+                </dl>
+              </div>
+            </>
+          )}
+
+          {unit.latestInvoiceId && (
+            <>
+              <Separator />
+              <div>
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Invoice Terbaru</p>
+                <dl className="grid grid-cols-2 gap-x-4 gap-y-1.5">
+                  <dt className="text-xs text-muted-foreground">Status</dt>
+                  <dd className="text-xs font-medium capitalize">{unit.latestInvoiceStatus ?? "—"}</dd>
+                  <dt className="text-xs text-muted-foreground">Total</dt>
+                  <dd className="text-xs font-medium">{unit.latestInvoiceAmount ? fmtRp(unit.latestInvoiceAmount) : "—"}</dd>
+                  <dt className="text-xs text-muted-foreground">Tagihan</dt>
+                  <dd className="text-xs font-medium text-red-600">
+                    {unit.latestInvoiceOutstanding ? fmtRp(unit.latestInvoiceOutstanding) : "—"}
+                  </dd>
+                  <dt className="text-xs text-muted-foreground">Jatuh Tempo</dt>
+                  <dd className="text-xs font-medium">{fmtDate(unit.latestInvoiceDueDate)}</dd>
+                </dl>
+              </div>
+            </>
+          )}
+        </div>
+      </ScrollArea>
+    </div>
+  );
+}
+
+// ─── Unit Form Drawer ─────────────────────────────────────────────────────────
+
+function UnitFormDrawer({
+  open,
+  onClose,
+  editingUnit,
+  onSave,
+  isSaving,
+}: {
+  open: boolean;
+  onClose: () => void;
+  editingUnit: MallUnit | null;
+  onSave: (data: UnitFormData) => void;
+  isSaving: boolean;
+}) {
+  const [form, setForm] = useState<UnitFormData>(DEFAULT_FORM);
+
+  useEffect(() => {
+    if (editingUnit) {
+      setForm({
+        unitCode: editingUnit.unitCode,
+        areaKantin: editingUnit.areaKantin ?? "",
+        unitType: editingUnit.unitType ?? "other",
+        sizeM2: editingUnit.sizeM2 ?? "",
+        status: editingUnit.storedStatus ?? "available",
+        positionX: String(editingUnit.positionX),
+        positionY: String(editingUnit.positionY),
+        width: String(editingUnit.width),
+        height: String(editingUnit.height),
+        notes: editingUnit.notes ?? "",
+      });
+    } else {
+      setForm(DEFAULT_FORM);
     }
-    // All sites mode — show tab per site that has units
-    const siteIds = new Set(units.map(u => u.siteId));
-    return allSites.filter(s => siteIds.has(s.id));
-  }, [isAllSites, activeSite, units, allSites]);
+  }, [editingUnit, open]);
 
-  // Set default active tab when tabs change
-  const firstTabId = siteTabs[0]?.id?.toString() ?? "";
-  const resolvedTab = activeTab && siteTabs.some(s => s.id.toString() === activeTab) ? activeTab : firstTabId;
+  const set = (field: keyof UnitFormData, value: string) =>
+    setForm(prev => ({ ...prev, [field]: value }));
 
-  // Filter units for the current tab
-  const currentTabSite = siteTabs.find(s => s.id.toString() === resolvedTab);
-  const baseUnits = currentTabSite
-    ? (unitsBySite.get(currentTabSite.id) ?? [])
-    : units;
+  return (
+    <Sheet open={open} onOpenChange={v => { if (!v) onClose(); }}>
+      <SheetContent className="w-full sm:max-w-md flex flex-col p-0">
+        <SheetHeader className="px-6 py-4 border-b">
+          <SheetTitle>{editingUnit ? "Edit Unit" : "Tambah Unit"}</SheetTitle>
+          <SheetDescription>
+            {editingUnit
+              ? `Memperbarui unit ${editingUnit.unitCode}`
+              : "Tambah unit kantin baru ke lokasi ini"}
+          </SheetDescription>
+        </SheetHeader>
+        <ScrollArea className="flex-1">
+          <div className="px-6 py-4 space-y-4">
+            <div className="grid grid-cols-2 gap-3">
+              <div className="col-span-2">
+                <Label htmlFor="unitCode" className="text-xs">
+                  Kode Unit <span className="text-red-500">*</span>
+                </Label>
+                <Input
+                  id="unitCode"
+                  className="mt-1 h-9 text-sm"
+                  value={form.unitCode}
+                  onChange={e => set("unitCode", e.target.value.toUpperCase())}
+                  placeholder="Contoh: SC-KTN-04"
+                  disabled={!!editingUnit}
+                />
+              </div>
 
-  const filtered = useMemo(() => {
-    return baseUnits.filter((u) => {
-      const q = search.toLowerCase();
-      const matchSearch =
-        !q ||
-        u.unitCode.toLowerCase().includes(q) ||
-        (u.zone ?? "").toLowerCase().includes(q) ||
-        (u.businessName ?? "").toLowerCase().includes(q) ||
-        (u.category ?? "").toLowerCase().includes(q);
-      const matchStatus = filterStatus === "all" || u.status === filterStatus;
-      return matchSearch && matchStatus;
-    });
-  }, [baseUnits, search, filterStatus]);
+              <div className="col-span-2">
+                <Label htmlFor="areaKantin" className="text-xs">Area Kantin</Label>
+                <Input
+                  id="areaKantin"
+                  className="mt-1 h-9 text-sm"
+                  value={form.areaKantin}
+                  onChange={e => set("areaKantin", e.target.value)}
+                  placeholder="Contoh: Area Kantin, Area Belakang"
+                />
+              </div>
 
-  // Stats for current tab
-  const stats = useMemo(() => ({
-    total:       baseUnits.length,
-    available:   baseUnits.filter(u => u.status === "available").length,
-    occupied:    baseUnits.filter(u => u.status === "occupied" || u.status === "booked").length,
-    overdue:     baseUnits.filter(u => u.status === "overdue").length,
-    maintenance: baseUnits.filter(u => u.status === "maintenance").length,
-  }), [baseUnits]);
+              <div>
+                <Label className="text-xs">
+                  Jenis Unit <span className="text-red-500">*</span>
+                </Label>
+                <Select value={form.unitType} onValueChange={v => set("unitType", v)}>
+                  <SelectTrigger className="mt-1 h-9 text-sm">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {UNIT_TYPES.map(t => (
+                      <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
 
-  // ── Mutations ──────────────────────────────────────────────────────────────
+              <div>
+                <Label htmlFor="sizeM2" className="text-xs">Luas (m²)</Label>
+                <Input
+                  id="sizeM2"
+                  type="number"
+                  className="mt-1 h-9 text-sm"
+                  value={form.sizeM2}
+                  onChange={e => set("sizeM2", e.target.value)}
+                  placeholder="0"
+                />
+              </div>
 
-  const saveMutation = useMutation({
-    mutationFn: async (data: UnitForm) => {
-      const payload = {
-        unitCode: data.unitCode.trim().toUpperCase(),
-        zone:     data.zone.trim() || null,
-        sizeM2:   data.sizeM2 || null,
-        status:   data.status,
-        notes:    data.notes.trim() || null,
-        floor:    "1",
-        siteId:   data.siteId ? Number(data.siteId) : (siteIdHeader ?? undefined),
-      };
-      if (editUnit) {
-        return apiFetch(`/api/mall-units/${editUnit.id}`, {
-          method: "PATCH",
-          headers: {
-            "Content-Type": "application/json",
-            ...(siteIdHeader ? { "x-site-id": String(siteIdHeader) } : {}),
-          },
-          body: JSON.stringify(payload),
-        });
-      }
-      return apiFetch("/api/mall-units", {
+              <div className="col-span-2">
+                <Label className="text-xs">Status</Label>
+                <Select value={form.status} onValueChange={v => set("status", v)}>
+                  <SelectTrigger className="mt-1 h-9 text-sm">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {EDITABLE_STATUSES.map(s => (
+                      <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Status otomatis dihitung dari data booking &amp; pembayaran.
+                </p>
+              </div>
+            </div>
+
+            <Separator />
+
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+              Posisi di Denah
+            </p>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label htmlFor="posX" className="text-xs">Kolom (X)</Label>
+                <Input
+                  id="posX"
+                  type="number"
+                  className="mt-1 h-9 text-sm"
+                  value={form.positionX}
+                  onChange={e => set("positionX", e.target.value)}
+                />
+              </div>
+              <div>
+                <Label htmlFor="posY" className="text-xs">Baris (Y)</Label>
+                <Input
+                  id="posY"
+                  type="number"
+                  className="mt-1 h-9 text-sm"
+                  value={form.positionY}
+                  onChange={e => set("positionY", e.target.value)}
+                />
+              </div>
+              <div>
+                <Label htmlFor="unitW" className="text-xs">Lebar (kotak)</Label>
+                <Input
+                  id="unitW"
+                  type="number"
+                  min={1}
+                  className="mt-1 h-9 text-sm"
+                  value={form.width}
+                  onChange={e => set("width", e.target.value)}
+                />
+              </div>
+              <div>
+                <Label htmlFor="unitH" className="text-xs">Tinggi (kotak)</Label>
+                <Input
+                  id="unitH"
+                  type="number"
+                  min={1}
+                  className="mt-1 h-9 text-sm"
+                  value={form.height}
+                  onChange={e => set("height", e.target.value)}
+                />
+              </div>
+            </div>
+
+            <div>
+              <Label htmlFor="notes" className="text-xs">Catatan</Label>
+              <Textarea
+                id="notes"
+                className="mt-1 text-sm resize-none"
+                rows={3}
+                value={form.notes}
+                onChange={e => set("notes", e.target.value)}
+                placeholder="Catatan tambahan (opsional)"
+              />
+            </div>
+          </div>
+        </ScrollArea>
+        <div className="px-6 py-4 border-t flex gap-2">
+          <Button
+            variant="outline"
+            className="flex-1 h-9"
+            onClick={onClose}
+            disabled={isSaving}
+          >
+            Batal
+          </Button>
+          <Button
+            className="flex-1 h-9"
+            onClick={() => onSave(form)}
+            disabled={isSaving || !form.unitCode.trim()}
+          >
+            {isSaving
+              ? "Menyimpan..."
+              : editingUnit
+              ? "Simpan Perubahan"
+              : "Tambah Unit"}
+          </Button>
+        </div>
+      </SheetContent>
+    </Sheet>
+  );
+}
+
+// ─── Main Page ────────────────────────────────────────────────────────────────
+
+export default function UnitTenant() {
+  const { data: user } = useAuth();
+  const { activeSite, activeSiteId } = useSite();
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+
+  const role = user?.role ?? "";
+  const canEdit = role === "owner" || role === "admin";
+  const isFinance = role === "finance";
+
+  const [viewMode, setViewMode] = useState<"table" | "floorplan">("table");
+  const [filterArea, setFilterArea] = useState("all");
+  const [filterType, setFilterType] = useState("all");
+  const [filterStatus, setFilterStatus] = useState("all");
+  const [search, setSearch] = useState("");
+  const [selectedUnit, setSelectedUnit] = useState<MallUnit | null>(null);
+  const [editingUnit, setEditingUnit] = useState<MallUnit | null>(null);
+  const [showForm, setShowForm] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<MallUnit | null>(null);
+
+  const queryKey = ["mall-units", activeSiteId];
+
+  const { data: units = [], isLoading, refetch } = useQuery<MallUnit[]>({
+    queryKey,
+    queryFn: () => apiFetchJson<MallUnit[]>("/api/mall-units"),
+    enabled: activeSiteId !== null,
+  });
+
+  const { data: areas = [] } = useQuery<string[]>({
+    queryKey: ["mall-unit-areas", activeSiteId],
+    queryFn: () => apiFetchJson<string[]>("/api/mall-units/areas"),
+    enabled: activeSiteId !== null,
+  });
+
+  const createMutation = useMutation({
+    mutationFn: (data: Record<string, unknown>) =>
+      apiFetchJson<MallUnit>("/api/mall-units", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...(siteIdHeader ? { "x-site-id": String(siteIdHeader) } : {}),
-        },
-        body: JSON.stringify(payload),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey });
+      queryClient.invalidateQueries({ queryKey: ["mall-unit-areas"] });
+      toast({ title: "Unit berhasil ditambahkan" });
+      setShowForm(false);
+      setEditingUnit(null);
+    },
+    onError: (err: Error) => {
+      toast({
+        title: "Gagal menambahkan unit",
+        description: err.message,
+        variant: "destructive",
       });
     },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["mall-units"] });
-      toast({ title: editUnit ? "Unit diperbarui" : "Unit ditambahkan" });
-      setDialogOpen(false);
-      setEditUnit(null);
-      setForm(EMPTY_FORM);
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: ({ id, data }: { id: number; data: Record<string, unknown> }) =>
+      apiFetchJson<MallUnit>(`/api/mall-units/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      }),
+    onSuccess: (updated) => {
+      queryClient.invalidateQueries({ queryKey });
+      queryClient.invalidateQueries({ queryKey: ["mall-unit-areas"] });
+      toast({ title: "Unit berhasil diperbarui" });
+      setShowForm(false);
+      setEditingUnit(null);
+      if (selectedUnit?.id === updated.id) {
+        setSelectedUnit(u => u ? { ...u, ...updated } : null);
+      }
     },
-    onError: (err: any) => {
-      toast({ title: "Gagal menyimpan", description: err?.message ?? "Terjadi kesalahan", variant: "destructive" });
+    onError: (err: Error) => {
+      toast({
+        title: "Gagal memperbarui unit",
+        description: err.message,
+        variant: "destructive",
+      });
     },
   });
 
   const deleteMutation = useMutation({
-    mutationFn: (id: number) =>
-      apiFetch(`/api/mall-units/${id}`, {
-        method: "DELETE",
-        headers: siteIdHeader ? { "x-site-id": String(siteIdHeader) } : {},
-      }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["mall-units"] });
-      toast({ title: "Unit dihapus" });
-      setDeleteId(null);
+    mutationFn: async (id: number) => {
+      const res = await apiFetch(`/api/mall-units/${id}`, { method: "DELETE" });
+      if (!res.ok) {
+        const d = await res.json() as { error?: string };
+        throw new Error(d.error ?? "Gagal menghapus");
+      }
     },
-    onError: (err: any) => {
-      toast({ title: "Gagal menghapus", description: err?.message, variant: "destructive" });
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey });
+      toast({ title: "Unit berhasil dihapus" });
+      if (selectedUnit?.id === deleteTarget?.id) setSelectedUnit(null);
+      setDeleteTarget(null);
+    },
+    onError: (err: Error) => {
+      toast({
+        title: "Gagal menghapus unit",
+        description: err.message,
+        variant: "destructive",
+      });
+      setDeleteTarget(null);
     },
   });
 
-  // ── Helpers ────────────────────────────────────────────────────────────────
+  const seedMutation = useMutation({
+    mutationFn: () =>
+      apiFetchJson<{ count: number; message: string }>("/api/mall-units/seed-kantin", {
+        method: "POST",
+      }),
+    onSuccess: d => {
+      queryClient.invalidateQueries({ queryKey });
+      toast({ title: d.message });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Gagal seed data", description: err.message, variant: "destructive" });
+    },
+  });
 
-  function openAdd() {
-    setEditUnit(null);
-    setForm({
-      ...EMPTY_FORM,
-      siteId: currentTabSite ? String(currentTabSite.id) : (siteIdHeader ? String(siteIdHeader) : ""),
-    });
-    setDialogOpen(true);
+  function handleSaveForm(formData: UnitFormData) {
+    const payload = {
+      unitCode: formData.unitCode.trim(),
+      areaKantin: formData.areaKantin.trim() || undefined,
+      unitType: formData.unitType,
+      sizeM2: formData.sizeM2 || undefined,
+      status: formData.status,
+      positionX: parseInt(formData.positionX, 10) || 0,
+      positionY: parseInt(formData.positionY, 10) || 0,
+      width: parseInt(formData.width, 10) || 2,
+      height: parseInt(formData.height, 10) || 2,
+      notes: formData.notes.trim() || undefined,
+      floor: "Main",
+    };
+    if (editingUnit) {
+      updateMutation.mutate({ id: editingUnit.id, data: payload });
+    } else {
+      createMutation.mutate(payload);
+    }
   }
 
-  function openEdit(u: MallUnit) {
-    setEditUnit(u);
-    setForm({
-      unitCode: u.unitCode,
-      zone:     u.zone ?? "",
-      sizeM2:   u.sizeM2 ?? "",
-      status:   u.storedStatus,
-      notes:    u.notes ?? "",
-      siteId:   u.siteId ? String(u.siteId) : "",
-    });
-    setDialogOpen(true);
+  function handleEdit(u: MallUnit) {
+    setEditingUnit(u);
+    setShowForm(true);
   }
 
-  const siteForUnit = (u: MallUnit) => allSites.find(s => s.id === u.siteId);
+  const filtered = useMemo(() => {
+    let result = units;
+    if (filterArea !== "all") result = result.filter(u => u.areaKantin === filterArea);
+    if (filterType !== "all") result = result.filter(u => u.unitType === filterType);
+    if (filterStatus !== "all") result = result.filter(u => u.status === filterStatus);
+    if (search.trim()) {
+      const q = search.toLowerCase();
+      result = result.filter(u =>
+        u.unitCode.toLowerCase().includes(q) ||
+        (u.businessName ?? "").toLowerCase().includes(q) ||
+        (u.areaKantin ?? "").toLowerCase().includes(q),
+      );
+    }
+    return result;
+  }, [units, filterArea, filterType, filterStatus, search]);
 
-  // ── Render ─────────────────────────────────────────────────────────────────
+  const isSaving = createMutation.isPending || updateMutation.isPending;
+  const isDev = !import.meta.env.PROD;
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-foreground">Unit Tenant</h1>
-          <p className="text-sm text-muted-foreground mt-0.5">
-            Kelola unit / kios per lokasi
-          </p>
+    <div className="flex gap-4 h-full min-h-0">
+      {/* ── Main content ── */}
+      <div className="flex-1 min-w-0 flex flex-col gap-4">
+
+        {/* Header */}
+        <div className="flex items-start justify-between gap-3 flex-wrap">
+          <div>
+            <h1 className="text-xl font-bold tracking-tight flex items-center gap-2">
+              <LayoutGrid className="h-5 w-5 text-primary" />
+              Unit Kantin
+            </h1>
+            {activeSite && (
+              <p className="text-sm text-muted-foreground mt-0.5 flex items-center gap-1">
+                <MapPin className="h-3 w-3" />
+                {activeSite.name}
+                {isFinance && (
+                  <Badge variant="outline" className="ml-2 text-xs text-amber-700 border-amber-300 bg-amber-50">
+                    Hanya Lihat
+                  </Badge>
+                )}
+              </p>
+            )}
+          </div>
+          <div className="flex gap-2 flex-wrap">
+            {isDev && canEdit && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => seedMutation.mutate()}
+                disabled={seedMutation.isPending}
+                className="h-8 text-xs gap-1"
+              >
+                <Database className="h-3 w-3" />
+                {seedMutation.isPending ? "Seeding..." : "Seed Kantin"}
+              </Button>
+            )}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => void refetch()}
+              className="h-8 text-xs gap-1"
+            >
+              <RefreshCw className="h-3 w-3" />
+              Refresh
+            </Button>
+            {canEdit && (
+              <Button
+                size="sm"
+                onClick={() => { setEditingUnit(null); setShowForm(true); }}
+                className="h-8 text-xs gap-1"
+              >
+                <Plus className="h-3.5 w-3.5" />
+                Tambah Unit
+              </Button>
+            )}
+          </div>
         </div>
-        <Button onClick={openAdd} className="gap-2">
-          <Plus className="h-4 w-4" />
-          Tambah Unit
-        </Button>
+
+        {/* Summary strip */}
+        {!isLoading && units.length > 0 && <SummaryCounts units={units} />}
+
+        {/* View toggle + Filter bar */}
+        <div className="flex flex-wrap gap-2 items-center">
+          <Tabs
+            value={viewMode}
+            onValueChange={v => setViewMode(v as "table" | "floorplan")}
+          >
+            <TabsList className="h-8">
+              <TabsTrigger value="table" className="text-xs px-3 h-7 gap-1">
+                <Table2 className="h-3 w-3" />Tabel
+              </TabsTrigger>
+              <TabsTrigger value="floorplan" className="text-xs px-3 h-7 gap-1">
+                <LayoutGrid className="h-3 w-3" />Denah
+              </TabsTrigger>
+            </TabsList>
+          </Tabs>
+
+          <div className="relative">
+            <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+            <Input
+              className="pl-7 h-8 w-44 text-xs"
+              placeholder="Cari kode / tenant..."
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+            />
+          </div>
+
+          {areas.length > 0 && (
+            <Select value={filterArea} onValueChange={setFilterArea}>
+              <SelectTrigger className="h-8 w-36 text-xs">
+                <SelectValue placeholder="Semua Area" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Semua Area</SelectItem>
+                {areas.map(a => (
+                  <SelectItem key={a} value={a}>{a}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+
+          <Select value={filterType} onValueChange={setFilterType}>
+            <SelectTrigger className="h-8 w-40 text-xs">
+              <SelectValue placeholder="Semua Jenis" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Semua Jenis</SelectItem>
+              {UNIT_TYPES.map(t => (
+                <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          <Select value={filterStatus} onValueChange={setFilterStatus}>
+            <SelectTrigger className="h-8 w-36 text-xs">
+              <SelectValue placeholder="Semua Status" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Semua Status</SelectItem>
+              {UNIT_STATUSES.map(s => (
+                <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        {/* Content */}
+        {isLoading ? (
+          <div className="flex items-center justify-center py-20">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
+          </div>
+        ) : activeSiteId === null ? (
+          <div className="flex flex-col items-center py-20 text-muted-foreground gap-2">
+            <Package className="h-10 w-10 opacity-20" />
+            <p className="text-sm">Memuat lokasi...</p>
+          </div>
+        ) : viewMode === "table" ? (
+          /* ── Table View ── */
+          <div className="border rounded-lg overflow-hidden bg-white">
+            <Table>
+              <TableHeader>
+                <TableRow className="bg-muted/30">
+                  <TableHead className="text-xs w-28">Kode Unit</TableHead>
+                  <TableHead className="text-xs">Area</TableHead>
+                  <TableHead className="text-xs">Jenis</TableHead>
+                  <TableHead className="text-xs w-16">Luas</TableHead>
+                  <TableHead className="text-xs w-24">Status</TableHead>
+                  <TableHead className="text-xs">Tenant Aktif</TableHead>
+                  <TableHead className="text-xs w-24">Status Bayar</TableHead>
+                  {canEdit && (
+                    <TableHead className="text-xs w-20 text-right">Aksi</TableHead>
+                  )}
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {filtered.length === 0 ? (
+                  <TableRow>
+                    <TableCell
+                      colSpan={canEdit ? 8 : 7}
+                      className="text-center py-12 text-muted-foreground text-sm"
+                    >
+                      {units.length === 0
+                        ? canEdit
+                          ? 'Belum ada unit. Klik "Tambah Unit" atau "Seed Kantin" untuk memulai.'
+                          : "Belum ada unit untuk lokasi ini."
+                        : "Tidak ada unit yang sesuai filter."}
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  filtered.map(u => (
+                    <TableRow
+                      key={u.id}
+                      className="hover:bg-muted/20 cursor-pointer"
+                      onClick={() => setSelectedUnit(u)}
+                    >
+                      <TableCell className="py-2.5">
+                        <span className="font-mono text-xs font-semibold">{u.unitCode}</span>
+                      </TableCell>
+                      <TableCell className="py-2.5 text-xs text-muted-foreground">
+                        {u.areaKantin ?? "—"}
+                      </TableCell>
+                      <TableCell className="py-2.5">
+                        <UnitTypeBadge type={u.unitType} />
+                      </TableCell>
+                      <TableCell className="py-2.5 text-xs text-muted-foreground">
+                        {u.sizeM2 ? `${u.sizeM2} m²` : "—"}
+                      </TableCell>
+                      <TableCell className="py-2.5">
+                        <StatusBadge status={u.status} />
+                      </TableCell>
+                      <TableCell className="py-2.5 text-xs">
+                        {u.businessName
+                          ? <span className="font-medium">{u.businessName}</span>
+                          : <span className="text-muted-foreground">—</span>}
+                      </TableCell>
+                      <TableCell className="py-2.5">
+                        {u.paymentStatus ? (
+                          <span className={`inline-flex px-1.5 py-0.5 rounded text-xs font-semibold ${PAYMENT_STATUS_COLORS[u.paymentStatus.toUpperCase()] ?? "bg-gray-100 text-gray-700"}`}>
+                            {u.paymentStatus.toUpperCase()}
+                          </span>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">—</span>
+                        )}
+                      </TableCell>
+                      {canEdit && (
+                        <TableCell
+                          className="py-2.5 text-right"
+                          onClick={e => e.stopPropagation()}
+                        >
+                          <div className="flex gap-1 justify-end">
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              className="h-7 w-7"
+                              onClick={() => handleEdit(u)}
+                              title="Edit unit"
+                            >
+                              <Pencil className="h-3.5 w-3.5" />
+                            </Button>
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              className="h-7 w-7 text-destructive hover:text-destructive hover:bg-destructive/10"
+                              onClick={() => setDeleteTarget(u)}
+                              title="Hapus unit"
+                              disabled={u.status === "occupied" || u.status === "booked"}
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </Button>
+                          </div>
+                        </TableCell>
+                      )}
+                    </TableRow>
+                  ))
+                )}
+              </TableBody>
+            </Table>
+            {filtered.length > 0 && (
+              <div className="px-4 py-2 border-t bg-muted/20 text-xs text-muted-foreground">
+                Menampilkan {filtered.length} dari {units.length} unit
+              </div>
+            )}
+          </div>
+        ) : (
+          /* ── Floor Plan View ── */
+          <FloorPlan
+            units={filtered}
+            onSelectUnit={setSelectedUnit}
+            selectedId={selectedUnit?.id ?? null}
+          />
+        )}
       </div>
 
-      {/* Tabs per lokasi */}
-      <Tabs
-        value={resolvedTab}
-        onValueChange={(v) => { setActiveTab(v); setSearch(""); setFilterStatus("all"); }}
-      >
-        {siteTabs.length > 1 && (
-          <TabsList className="mb-2">
-            {siteTabs.map(s => {
-              const cfg = SITE_TYPE_CONFIG[s.type];
-              return (
-                <TabsTrigger key={s.id} value={String(s.id)} className="gap-1.5">
-                  <span className={cfg?.color ?? ""}>{cfg?.icon}</span>
-                  {s.name}
-                </TabsTrigger>
-              );
-            })}
-          </TabsList>
-        )}
-
-        {siteTabs.map(s => (
-          <TabsContent key={s.id} value={String(s.id)} className="space-y-4 mt-0">
-            {/* Stats */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-              <StatCard label="Total Unit" value={stats.total} color="text-foreground" />
-              <StatCard label="Kosong" value={stats.available} color="text-emerald-600" />
-              <StatCard label="Terisi / Dipesan" value={stats.occupied} color="text-violet-600" />
-              <StatCard label="Nunggak" value={stats.overdue} color="text-red-600" />
-            </div>
-
-            {/* Filter bar */}
-            <Card>
-              <CardContent className="pt-4 pb-3">
-                <div className="flex flex-col sm:flex-row gap-3">
-                  <div className="relative flex-1">
-                    <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-                    <Input
-                      placeholder="Cari kode unit, zona, tenant..."
-                      value={search}
-                      onChange={e => setSearch(e.target.value)}
-                      className="pl-9"
-                    />
-                  </div>
-                  <Select value={filterStatus} onValueChange={setFilterStatus}>
-                    <SelectTrigger className="w-full sm:w-44">
-                      <SelectValue placeholder="Semua status" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">Semua Status</SelectItem>
-                      {Object.entries(STATUS_CONFIG).map(([k, v]) => (
-                        <SelectItem key={k} value={k}>{v.label}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <div className="flex gap-1 border rounded-md p-0.5">
-                    <Button
-                      size="sm" variant={viewMode === "table" ? "secondary" : "ghost"}
-                      className="h-8 px-2"
-                      onClick={() => setViewMode("table")}
-                    ><List className="h-4 w-4" /></Button>
-                    <Button
-                      size="sm" variant={viewMode === "grid" ? "secondary" : "ghost"}
-                      className="h-8 px-2"
-                      onClick={() => setViewMode("grid")}
-                    ><LayoutGrid className="h-4 w-4" /></Button>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Content */}
-            {isLoading ? (
-              <LoadingSkeleton />
-            ) : filtered.length === 0 ? (
-              <EmptyState onAdd={openAdd} />
-            ) : viewMode === "table" ? (
-              <TableView units={filtered} onEdit={openEdit} onDelete={id => setDeleteId(id)} onDetail={setDetailUnit} />
-            ) : (
-              <GridView units={filtered} onEdit={openEdit} onDelete={id => setDeleteId(id)} onDetail={setDetailUnit} />
-            )}
-          </TabsContent>
-        ))}
-
-        {siteTabs.length === 0 && !isLoading && (
-          <EmptyState onAdd={openAdd} />
-        )}
-      </Tabs>
-
-      {/* Add / Edit Dialog */}
-      <Dialog open={dialogOpen} onOpenChange={v => { setDialogOpen(v); if (!v) { setEditUnit(null); setForm(EMPTY_FORM); } }}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>{editUnit ? "Edit Unit" : "Tambah Unit Baru"}</DialogTitle>
-          </DialogHeader>
-          <ScrollArea className="max-h-[60vh] pr-2">
-            <div className="space-y-4 py-1">
-              {/* Lokasi */}
-              <div className="space-y-1.5">
-                <Label>Lokasi <span className="text-destructive">*</span></Label>
-                <Select value={form.siteId} onValueChange={v => setForm(f => ({ ...f, siteId: v }))}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Pilih lokasi" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {allSites.map(s => (
-                      <SelectItem key={s.id} value={String(s.id)}>
-                        {s.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              {/* Kode Unit */}
-              <div className="space-y-1.5">
-                <Label>Kode Unit <span className="text-destructive">*</span></Label>
-                <Input
-                  placeholder="Contoh: K-01, SC-A1"
-                  value={form.unitCode}
-                  onChange={e => setForm(f => ({ ...f, unitCode: e.target.value }))}
-                  className="uppercase"
-                />
-              </div>
-
-              {/* Zona / Area */}
-              <div className="space-y-1.5">
-                <Label>Zona / Area</Label>
-                <Input
-                  placeholder="Contoh: Food Court, Kantin"
-                  value={form.zone}
-                  onChange={e => setForm(f => ({ ...f, zone: e.target.value }))}
-                />
-              </div>
-
-              {/* Luas */}
-              <div className="space-y-1.5">
-                <Label>Luas (m²)</Label>
-                <Input
-                  type="number"
-                  placeholder="Contoh: 12"
-                  value={form.sizeM2}
-                  onChange={e => setForm(f => ({ ...f, sizeM2: e.target.value }))}
-                />
-              </div>
-
-              {/* Status Manual */}
-              <div className="space-y-1.5">
-                <Label>Status Manual</Label>
-                <Select value={form.status} onValueChange={v => setForm(f => ({ ...f, status: v }))}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {STORED_STATUS_OPTIONS.map(o => (
-                      <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <p className="text-xs text-muted-foreground">
-                  Status sesungguhnya dihitung otomatis dari data booking & pembayaran.
-                </p>
-              </div>
-
-              {/* Catatan */}
-              <div className="space-y-1.5">
-                <Label>Catatan</Label>
-                <Textarea
-                  placeholder="Catatan tambahan (opsional)"
-                  value={form.notes}
-                  onChange={e => setForm(f => ({ ...f, notes: e.target.value }))}
-                  rows={2}
-                />
-              </div>
-            </div>
-          </ScrollArea>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setDialogOpen(false)}>Batal</Button>
-            <Button
-              onClick={() => saveMutation.mutate(form)}
-              disabled={saveMutation.isPending || !form.unitCode.trim() || !form.siteId}
-            >
-              {saveMutation.isPending ? "Menyimpan..." : editUnit ? "Simpan Perubahan" : "Tambah Unit"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Detail Dialog */}
-      {detailUnit && (
-        <Dialog open={!!detailUnit} onOpenChange={v => { if (!v) setDetailUnit(null); }}>
-          <DialogContent className="max-w-md">
-            <DialogHeader>
-              <DialogTitle className="flex items-center gap-2">
-                <span className="font-mono">{detailUnit.unitCode}</span>
-                <StatusBadge status={detailUnit.status} />
-              </DialogTitle>
-            </DialogHeader>
-            <div className="space-y-3 text-sm">
-              <Row label="Zona" value={detailUnit.zone ?? "-"} />
-              <Row label="Luas" value={detailUnit.sizeM2 ? `${detailUnit.sizeM2} m²` : "-"} />
-              {detailUnit.businessName && (
-                <>
-                  <hr />
-                  <p className="font-semibold text-xs uppercase text-muted-foreground tracking-wide">Tenant</p>
-                  <Row label="Nama Usaha" value={detailUnit.businessName} />
-                  <Row label="Pemilik" value={detailUnit.ownerName ?? "-"} />
-                  <Row label="Telp" value={detailUnit.phone ?? "-"} />
-                  <Row label="Kategori" value={detailUnit.category ?? "-"} />
-                  <hr />
-                  <p className="font-semibold text-xs uppercase text-muted-foreground tracking-wide">Kontrak</p>
-                  <Row label="Mulai" value={detailUnit.startDate ?? "-"} />
-                  <Row label="Berakhir" value={detailUnit.endDate ?? "-"} />
-                  <Row label="Jatuh Tempo" value={detailUnit.dueDate ?? "-"} />
-                  <Row label="Total Tagihan" value={formatRupiah(detailUnit.totalAmount)} />
-                  <Row label="Sudah Dibayar" value={formatRupiah(detailUnit.paidAmount)} />
-                  <Row label="Sisa" value={formatRupiah(detailUnit.remainingAmount)} />
-                </>
-              )}
-              {detailUnit.notes && (
-                <>
-                  <hr />
-                  <Row label="Catatan" value={detailUnit.notes} />
-                </>
-              )}
-            </div>
-            <DialogFooter>
-              <Button variant="outline" onClick={() => openEdit(detailUnit)}>
-                <Pencil className="h-4 w-4 mr-1" /> Edit Unit
-              </Button>
-              <Button onClick={() => setDetailUnit(null)}>Tutup</Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
+      {/* ── Detail panel ── */}
+      {selectedUnit && (
+        <div className="w-72 shrink-0 border rounded-lg bg-white overflow-hidden flex flex-col shadow-sm">
+          <UnitDetailPanel
+            unit={selectedUnit}
+            onClose={() => setSelectedUnit(null)}
+            onEdit={handleEdit}
+            canEdit={canEdit}
+          />
+        </div>
       )}
 
-      {/* Delete Confirm */}
-      <AlertDialog open={deleteId !== null} onOpenChange={v => { if (!v) setDeleteId(null); }}>
+      {/* ── Form drawer ── */}
+      <UnitFormDrawer
+        open={showForm}
+        onClose={() => { setShowForm(false); setEditingUnit(null); }}
+        editingUnit={editingUnit}
+        onSave={handleSaveForm}
+        isSaving={isSaving}
+      />
+
+      {/* ── Delete dialog ── */}
+      <AlertDialog
+        open={!!deleteTarget}
+        onOpenChange={v => { if (!v) setDeleteTarget(null); }}
+      >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Hapus Unit?</AlertDialogTitle>
+            <AlertDialogTitle>
+              Hapus Unit {deleteTarget?.unitCode}?
+            </AlertDialogTitle>
             <AlertDialogDescription>
-              Unit yang sudah dihapus tidak bisa dikembalikan. Pastikan unit tidak sedang memiliki booking aktif.
+              Unit ini akan dihapus permanen. Jika masih ada booking aktif,
+              penghapusan akan ditolak secara otomatis.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Batal</AlertDialogCancel>
+            <AlertDialogCancel disabled={deleteMutation.isPending}>
+              Batal
+            </AlertDialogCancel>
             <AlertDialogAction
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              onClick={() => deleteId !== null && deleteMutation.mutate(deleteId)}
+              onClick={() => deleteTarget && deleteMutation.mutate(deleteTarget.id)}
+              disabled={deleteMutation.isPending}
             >
               {deleteMutation.isPending ? "Menghapus..." : "Hapus"}
             </AlertDialogAction>
@@ -584,194 +1128,5 @@ export default function UnitTenantPage() {
         </AlertDialogContent>
       </AlertDialog>
     </div>
-  );
-}
-
-// ─── Sub-components ───────────────────────────────────────────────────────────
-
-function StatCard({ label, value, color }: { label: string; value: number; color: string }) {
-  return (
-    <Card>
-      <CardContent className="pt-4 pb-3">
-        <p className="text-xs text-muted-foreground">{label}</p>
-        <p className={`text-2xl font-bold ${color}`}>{value}</p>
-      </CardContent>
-    </Card>
-  );
-}
-
-function Row({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex justify-between gap-2">
-      <span className="text-muted-foreground">{label}</span>
-      <span className="font-medium text-right">{value}</span>
-    </div>
-  );
-}
-
-function TableView({
-  units, onEdit, onDelete, onDetail,
-}: {
-  units: MallUnit[];
-  onEdit: (u: MallUnit) => void;
-  onDelete: (id: number) => void;
-  onDetail: (u: MallUnit) => void;
-}) {
-  return (
-    <Card>
-      <CardContent className="p-0">
-        <div className="overflow-x-auto">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead className="w-28">Kode Unit</TableHead>
-                <TableHead>Zona / Area</TableHead>
-                <TableHead className="w-20 text-right">Luas (m²)</TableHead>
-                <TableHead className="w-32">Status</TableHead>
-                <TableHead>Tenant</TableHead>
-                <TableHead className="w-32 text-right">Sisa Tagihan</TableHead>
-                <TableHead className="w-20 text-right">Aksi</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {units.map(u => (
-                <TableRow
-                  key={u.id}
-                  className="cursor-pointer hover:bg-muted/50"
-                  onClick={() => onDetail(u)}
-                >
-                  <TableCell className="font-mono font-semibold">{u.unitCode}</TableCell>
-                  <TableCell className="text-muted-foreground">{u.zone ?? "-"}</TableCell>
-                  <TableCell className="text-right">{u.sizeM2 ?? "-"}</TableCell>
-                  <TableCell onClick={e => e.stopPropagation()}>
-                    <StatusBadge status={u.status} />
-                  </TableCell>
-                  <TableCell>
-                    {u.businessName ? (
-                      <div>
-                        <p className="font-medium text-sm">{u.businessName}</p>
-                        <p className="text-xs text-muted-foreground">{u.ownerName}</p>
-                      </div>
-                    ) : (
-                      <span className="text-muted-foreground text-sm">-</span>
-                    )}
-                  </TableCell>
-                  <TableCell className="text-right">
-                    {u.remainingAmount > 0 ? (
-                      <span className={`text-sm font-medium ${u.status === "overdue" ? "text-red-600" : "text-foreground"}`}>
-                        {new Intl.NumberFormat("id-ID", { notation: "compact", maximumFractionDigits: 1 }).format(u.remainingAmount)}
-                      </span>
-                    ) : (
-                      <span className="text-muted-foreground text-sm">-</span>
-                    )}
-                  </TableCell>
-                  <TableCell onClick={e => e.stopPropagation()}>
-                    <div className="flex justify-end gap-1">
-                      <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => onEdit(u)}>
-                        <Pencil className="h-3.5 w-3.5" />
-                      </Button>
-                      <Button size="icon" variant="ghost" className="h-7 w-7 text-destructive hover:bg-destructive/10" onClick={() => onDelete(u.id)}>
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </Button>
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
-
-function GridView({
-  units, onEdit, onDelete, onDetail,
-}: {
-  units: MallUnit[];
-  onEdit: (u: MallUnit) => void;
-  onDelete: (id: number) => void;
-  onDetail: (u: MallUnit) => void;
-}) {
-  return (
-    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
-      {units.map(u => {
-        const cfg = STATUS_CONFIG[u.status] ?? STATUS_CONFIG.available;
-        return (
-          <div
-            key={u.id}
-            className={`relative rounded-xl border-2 p-3 cursor-pointer transition-all hover:shadow-md ${
-              u.status === "available"
-                ? "border-emerald-200 bg-emerald-50/60 hover:border-emerald-400"
-                : u.status === "overdue"
-                ? "border-red-200 bg-red-50/60 hover:border-red-400"
-                : u.status === "occupied" || u.status === "booked"
-                ? "border-violet-200 bg-violet-50/60 hover:border-violet-400"
-                : u.status === "maintenance"
-                ? "border-amber-200 bg-amber-50/60 hover:border-amber-400"
-                : "border-gray-200 bg-gray-50/60 hover:border-gray-400"
-            }`}
-            onClick={() => onDetail(u)}
-          >
-            {/* Kode Unit */}
-            <p className="font-mono font-bold text-base truncate">{u.unitCode}</p>
-            {/* Zona */}
-            {u.zone && <p className="text-xs text-muted-foreground truncate mt-0.5">{u.zone}</p>}
-            {/* Luas */}
-            {u.sizeM2 && <p className="text-xs text-muted-foreground">{u.sizeM2} m²</p>}
-            {/* Status */}
-            <div className="mt-2">
-              <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold ${cfg.color}`}>
-                {cfg.icon}
-                {cfg.label}
-              </span>
-            </div>
-            {/* Tenant name */}
-            {u.businessName && (
-              <p className="text-xs font-medium mt-1.5 truncate">{u.businessName}</p>
-            )}
-            {/* Actions */}
-            <div className="flex gap-1 mt-2" onClick={e => e.stopPropagation()}>
-              <Button size="icon" variant="ghost" className="h-6 w-6" onClick={() => onEdit(u)}>
-                <Pencil className="h-3 w-3" />
-              </Button>
-              <Button size="icon" variant="ghost" className="h-6 w-6 text-destructive hover:bg-destructive/10" onClick={() => onDelete(u.id)}>
-                <Trash2 className="h-3 w-3" />
-              </Button>
-            </div>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-function EmptyState({ onAdd }: { onAdd: () => void }) {
-  return (
-    <Card>
-      <CardContent className="flex flex-col items-center justify-center py-16 gap-4">
-        <Store className="h-12 w-12 text-muted-foreground/50" />
-        <div className="text-center">
-          <p className="font-medium text-muted-foreground">Belum ada unit terdaftar</p>
-          <p className="text-sm text-muted-foreground/70 mt-1">Tambahkan unit untuk lokasi ini</p>
-        </div>
-        <Button onClick={onAdd} className="gap-2">
-          <Plus className="h-4 w-4" />
-          Tambah Unit Pertama
-        </Button>
-      </CardContent>
-    </Card>
-  );
-}
-
-function LoadingSkeleton() {
-  return (
-    <Card>
-      <CardContent className="pt-4 space-y-2">
-        {Array.from({ length: 5 }).map((_, i) => (
-          <Skeleton key={i} className="h-12 w-full" />
-        ))}
-      </CardContent>
-    </Card>
   );
 }
