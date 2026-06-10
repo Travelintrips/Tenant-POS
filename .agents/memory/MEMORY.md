@@ -1,6 +1,5 @@
 - [api-zod duplicate exports](api-zod-exports.md) — only export from `./generated/api`, not `./generated/types` (same names clash)
 - [scripts workspace resolution](scripts-workspace-resolution.md) — scripts pkg needs `paths` in tsconfig to resolve `@workspace/*` libs; symlinks not created by pnpm for scripts
-- [scripts-drizzle-dep](scripts-workspace-resolution.md) — add `drizzle-orm: "catalog:"` to scripts/package.json to import operators directly; already transitive via @workspace/db so no extra install needed
 - [invalid hook call fix](invalid-hook-call.md) — avoid generated lib hooks (useListTenants etc); use `useQuery` directly in admin-portal pages
 - [supabase-connection](supabase-connection.md) — app uses SUPABASE_PG_URL (pooler port 6543); drizzle-kit push hangs on pooler, use direct pg script from lib/db/ instead
 - [DB split-brain](db-connection-priority.md) — SUPABASE_PG_URL takes priority; psql $DATABASE_URL hits local Postgres (IDs 1-14), running API uses Supabase (IDs 15+); seed via API endpoints not psql
@@ -12,8 +11,8 @@
 - [pg-substring-from](pg-substring-from.md) — `SUBSTRING(str FROM $1)` with parameterized integer is regex extraction in PG, not positional; use `SUBSTR(str, $1)` instead
 - [drizzle-error-code](drizzle-error-code.md) — DrizzleQueryError wraps PG errors in `.cause`; check `err?.cause?.code` for SQLSTATE codes like "23505"
 - [vitest4-singlefork](vitest4-singlefork.md) — Vitest 4 moved poolOptions to top-level; use `singleFork: true` directly in `test:{}`, not under `poolOptions.forks`
-- [test-invoice-number-uniqueness](test-invoice-number-uniqueness.md) — test factory invoice numbers must use per-call timestamp+random, not shared RUN_ID slice; base36 date prefix repeats within ~13 hours causing duplicate key failures
 - [vitest-globals-tsconfig](vitest-globals-tsconfig.md) — api-server tsconfig: use `types:["node"]` only + `exclude:["src/__tests__"]`; vitest NOT symlinked by pnpm to node_modules so path-based approach fails; keep vitest types only in vitest.config.ts globals setting
-- [mockup-sandbox-build](mockup-sandbox-build.md) — mockup-sandbox vite.config requires PORT/BASE_PATH but not during `vite build`; gate the throws with `process.argv.includes("build")`
 - [payment-proof-flow](payment-proof-flow.md) — approval flow: pending_review → approved/rejected; approving updates invoice paidAmount via transaction; public route /bayar/:token is before requireAuth in routes/index.ts
 - [site-id-resolution](site-id-resolution.md) — Sport Center site_id=2 (serial from migration 0011, NOT 3); dev-login dbId is UUID string — Number(UUID)=NaN so site-context access check is safely skipped; /api/sites for admin role now returns all sites
+- [wa-otp-dev-phones](wa-otp-dev-phones.md) — dev users have fixed phone numbers: owner=6281111111111, admin=6281111111112, finance=6281111111113, cashier=6281111111114; dev-login upserts phoneNumber on each call so phone is always set
+- [otp-service-union-type](otp-service-union-type.md) — CreateOtpResult is a union: dev returns `{success,devOtp}`, production returns `{success,plainOtp}`; whatsapp-auth.ts must check NODE_ENV to access correct field; guard empty OTP in whatsapp-provider.ts before calling Fonnte

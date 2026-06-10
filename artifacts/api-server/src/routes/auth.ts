@@ -16,11 +16,11 @@ const DEV_LOGIN_ENABLED =
   process.env.NODE_ENV !== "production" ||
   process.env.ENABLE_DEV_LOGIN === "true";
 
-const DEV_ROLE_EMAILS: Record<string, { email: string; name: string }> = {
-  owner:   { email: "owner@mall.local",   name: "Dev Owner" },
-  admin:   { email: "admin@mall.local",   name: "Dev Admin" },
-  finance: { email: "finance@mall.local", name: "Dev Finance" },
-  cashier: { email: "cashier@mall.local", name: "Dev Kasir" },
+const DEV_ROLE_EMAILS: Record<string, { email: string; name: string; phoneNumber?: string }> = {
+  owner:   { email: "owner@mall.local",   name: "Dev Owner",   phoneNumber: "6281111111111" },
+  admin:   { email: "admin@mall.local",   name: "Dev Admin",   phoneNumber: "6281111111112" },
+  finance: { email: "finance@mall.local", name: "Dev Finance", phoneNumber: "6281111111113" },
+  cashier: { email: "cashier@mall.local", name: "Dev Kasir",   phoneNumber: "6281111111114" },
 };
 
 if (DEV_LOGIN_ENABLED) {
@@ -79,12 +79,16 @@ if (DEV_LOGIN_ENABLED) {
         avatar: null,
       });
 
-      if (dbUser.role !== effectiveRole) {
-        await db
-          .update(usersTable)
-          .set({ role: effectiveRole, updatedAt: new Date() })
-          .where(eq(usersTable.id, dbUser.id));
+      const needsUpdate: Partial<{ role: string; phoneNumber: string; updatedAt: Date }> = {};
+      if (dbUser.role !== effectiveRole) needsUpdate.role = effectiveRole;
+      if (preset.phoneNumber && dbUser.phoneNumber !== preset.phoneNumber) {
+        needsUpdate.phoneNumber = preset.phoneNumber;
+      }
+      if (Object.keys(needsUpdate).length > 0) {
+        needsUpdate.updatedAt = new Date();
+        await db.update(usersTable).set(needsUpdate).where(eq(usersTable.id, dbUser.id));
         dbUser.role = effectiveRole;
+        if (preset.phoneNumber) dbUser.phoneNumber = preset.phoneNumber;
       }
 
       const sessionUser = await buildSessionUser(dbUser, `dev:${preset.email}`);

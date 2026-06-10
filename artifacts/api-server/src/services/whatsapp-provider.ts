@@ -54,6 +54,11 @@ export async function sendOtpWhatsapp(
     return { sent: true };
   }
 
+  if (!otp) {
+    logger.error("[whatsapp-provider] OTP kosong — tidak dikirim");
+    return { sent: false, error: "OTP tidak boleh kosong" };
+  }
+
   if (process.env.FONNTE_API_KEY) {
     return sendViaFonnte(phoneNumber, otp);
   }

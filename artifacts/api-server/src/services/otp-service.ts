@@ -1,7 +1,7 @@
 import crypto from "crypto";
 import { db } from "@workspace/db";
 import { otpTokensTable } from "@workspace/db/schema";
-import { eq, and, lt } from "drizzle-orm";
+import { eq, lt } from "drizzle-orm";
 import { logger } from "../lib/logger";
 
 const OTP_EXPIRY_MINUTES = Number(process.env.OTP_EXPIRY_MINUTES ?? "5");
@@ -28,10 +28,9 @@ function hashOtp(otp: string): string {
   return crypto.createHash("sha256").update(otp).digest("hex");
 }
 
-export interface CreateOtpResult {
-  success: true;
-  devOtp?: string;
-}
+export type CreateOtpResult =
+  | { success: true; devOtp: string; plainOtp?: never }   // dev mode: OTP visible
+  | { success: true; plainOtp: string; devOtp?: never };  // production: OTP for sending
 
 export async function createOtp(phoneNumber: string): Promise<CreateOtpResult> {
   const normalized = normalizePhoneNumber(phoneNumber);
@@ -39,12 +38,9 @@ export async function createOtp(phoneNumber: string): Promise<CreateOtpResult> {
   const hash = hashOtp(otp);
   const expiresAt = new Date(Date.now() + OTP_EXPIRY_MINUTES * 60 * 1000);
 
-  // Invalidate any existing unexpired OTPs for this number
+  // Invalidate any existing OTPs for this number (hapus semua terlebih dahulu)
   await db.delete(otpTokensTable).where(
-    and(
-      eq(otpTokensTable.phoneNumber, normalized),
-      lt(otpTokensTable.expiresAt, new Date(Date.now() + OTP_EXPIRY_MINUTES * 60 * 1000 + 1)),
-    ),
+    eq(otpTokensTable.phoneNumber, normalized),
   );
 
   await db.insert(otpTokensTable).values({
@@ -63,7 +59,7 @@ export async function createOtp(phoneNumber: string): Promise<CreateOtpResult> {
     return { success: true, devOtp: otp };
   }
 
-  return { success: true };
+  return { success: true, plainOtp: otp };
 }
 
 export type VerifyOtpResult =

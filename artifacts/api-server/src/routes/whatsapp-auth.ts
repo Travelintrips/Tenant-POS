@@ -43,30 +43,27 @@ router.post(
 
     const result = await createOtp(normalized);
 
-    if (result.devOtp) {
-      logAudit(req, {
-        action: "whatsapp_otp_requested",
-        entityType: "user",
-        entityId: user.id,
-        afterData: { phoneNumber: normalized },
-      });
-      res.json({ message: GENERIC_MESSAGE, devOtp: result.devOtp });
-      return;
-    }
-
-    const sent = await sendOtpWhatsapp(normalized, result.devOtp ?? "");
-    if (!sent.sent) {
-      logger.error({ error: sent.error }, "[wa-otp] gagal kirim OTP");
-      res.status(500).json({ error: "Gagal mengirim OTP. Silakan coba lagi." });
-      return;
-    }
-
     logAudit(req, {
       action: "whatsapp_otp_requested",
       entityType: "user",
       entityId: user.id,
       afterData: { phoneNumber: normalized },
     });
+
+    // Dev mode: kembalikan OTP langsung di response (tidak kirim WA)
+    if (result.devOtp) {
+      res.json({ message: GENERIC_MESSAGE, devOtp: result.devOtp });
+      return;
+    }
+
+    // Production mode: kirim via WhatsApp provider
+    // result.plainOtp hanya ada di production path
+    const sent = await sendOtpWhatsapp(normalized, result.plainOtp ?? "");
+    if (!sent.sent) {
+      logger.error({ error: sent.error }, "[wa-otp] gagal kirim OTP");
+      res.status(500).json({ error: "Gagal mengirim OTP. Silakan coba lagi." });
+      return;
+    }
 
     res.json({ message: GENERIC_MESSAGE });
   },
