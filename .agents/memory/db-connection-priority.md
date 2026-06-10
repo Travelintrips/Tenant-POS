@@ -1,13 +1,18 @@
 ---
-name: DB connection priority
-description: Supabase postgres is unreachable from Replit dev sandbox; runtime must use DATABASE_URL.
+name: DB connection priority and split-brain warning
+description: lib/db reads SUPABASE_PG_URL before DATABASE_URL; psql $DATABASE_URL hits local Postgres, running API uses Supabase.
 ---
 
 ## Rule
-`lib/db/src/index.ts` must use `DATABASE_URL` (Replit's built-in postgres) for all runtime connections in development. Do NOT fall back to or prioritize `SUPABASE_PG_URL`.
+`lib/db/src/config.ts` prioritises `SUPABASE_PG_URL` → `SUPABASE_DATABASE_URL` → `DATABASE_URL`.
+The running API server therefore uses Supabase when `SUPABASE_PG_URL` is set in the environment.
 
-**Why:** `SUPABASE_PG_URL` and `SUPABASE_DATABASE_URL_DEV` both timeout from Replit's outbound network in the sandbox (confirmed by `drizzle-kit push` and direct connection attempts). The built-in `DATABASE_URL` is always reachable.
+**Why:** `SUPABASE_PG_URL` (pooler, port 6543) is reachable from the Replit sandbox at runtime and is the primary production-like database. `DATABASE_URL` points to the local Replit Postgres, which is only used as a fallback when Supabase env vars are absent.
+
+**Split-brain risk:** `psql "$DATABASE_URL"` in a shell command hits the **local** Postgres, not Supabase. Any seed data inserted via psql $DATABASE_URL will NOT appear in the running API. Always seed via the API (POST endpoints) or run SQL directly against the Supabase pooler URL.
 
 **How to apply:**
-- Keep `lib/db/src/index.ts` using `process.env.DATABASE_URL` only.
-- For Supabase in production: the user must manually run the SQL migration (`lib/db/drizzle/0000_dry_madame_web.sql`) in the Supabase SQL editor. Then swap `DATABASE_URL` in the deployment environment to point to Supabase.
+- When debugging "tenant/booking not found" errors, check Supabase tenant IDs (starting ≥15 in dev), NOT local DB IDs (1-14).
+- To check what data the running API sees, use the API itself (curl /api/tenants) rather than psql.
+- To seed Supabase data, use API endpoints or run migrations via lib/db/src/migrator.ts.
+- drizzle-kit push may hang on the pooler — use the migrator script instead.
