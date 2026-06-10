@@ -189,7 +189,12 @@ router.post("/bookings", async (req, res) => {
     return;
   }
 
-  const data = { ...parsed.data, siteId: req.siteId > 0 ? req.siteId : parsed.data.siteId };
+  const autoOrderNumber = `ORD-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
+  const data = {
+    ...parsed.data,
+    siteId: req.siteId > 0 ? req.siteId : parsed.data.siteId,
+    orderNumber: parsed.data.orderNumber?.trim() || autoOrderNumber,
+  };
 
   if (data.unitCode && data.startDate && data.endDate) {
     const hasOverlap = await checkUnitOverlap(data.unitCode, data.startDate, data.endDate);
@@ -222,8 +227,7 @@ router.post("/bookings", async (req, res) => {
     res.status(201).json({ ...withTenant, contractStatus: computeContractStatus(withTenant) });
   } catch (err) {
     req.log.error(err, "Failed to create booking");
-    const dbErr = (err as any)?.cause ?? err;
-    res.status(500).json({ error: "Gagal membuat kontrak", _debug: String(dbErr?.message ?? dbErr) });
+    res.status(500).json({ error: "Gagal membuat kontrak" });
   }
 });
 
