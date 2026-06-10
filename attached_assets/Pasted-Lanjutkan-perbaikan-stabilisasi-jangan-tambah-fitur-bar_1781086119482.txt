@@ -1,0 +1,79 @@
+Lanjutkan perbaikan stabilisasi, jangan tambah fitur baru dulu.
+
+Masalah tersisa:
+1. Konflik port 8080:
+   - Workflow "Start application" dan "artifacts/api-server: API Server" sama-sama mencoba menjalankan API di port 8080.
+   - Akibatnya salah satu workflow gagal dengan EADDRINUSE.
+   - Frontend dan API sebenarnya jalan, tapi log Replit menjadi berantakan.
+
+2. TypeScript error di scripts package:
+   - scripts/src/seed-demo.ts tidak bisa resolve drizzle-orm saat typecheck.
+   - Ini membuat pnpm run typecheck gagal.
+   - Walaupun app jalan, quality gate belum bersih.
+
+Tugas:
+
+FASE 1 — Rapikan workflow / port
+
+1. Audit konfigurasi start script:
+   - root package.json
+   - artifacts/api-server/package.json
+   - artifacts/admin-portal/package.json
+   - replit workflow jika bisa terlihat
+   - vite config proxy
+   - port API
+   - port frontend
+
+2. Pastikan hanya satu proses yang menjalankan API server di port 8080.
+   Pilih salah satu pendekatan paling aman:
+   - Opsi A: root "Start application" menjalankan frontend + API bersama-sama.
+   - Opsi B: workflow terpisah API dan frontend, tapi jangan ada duplicate server.
+   - Jangan ada dua process listen port 8080.
+
+3. Pastikan frontend tetap berjalan di port 5000.
+4. Pastikan API tetap berjalan di port 8080.
+5. Pastikan Vite proxy tetap mengarah ke API yang benar.
+6. Pastikan cookie/session login tetap bekerja setelah workflow dirapikan.
+
+FASE 2 — Perbaiki TypeScript scripts package
+
+1. Audit scripts/package.json dan tsconfig.
+2. Perbaiki error:
+   scripts/src/seed-demo.ts tidak bisa resolve drizzle-orm
+
+Pilih solusi paling aman:
+- Tambahkan dependency drizzle-orm ke package scripts jika memang dipakai langsung.
+- Atau ubah import agar memakai package internal db yang sudah ada.
+- Atau exclude scripts dari root typecheck jika scripts hanya utility non-production, tetapi lebih baik tetap dibuat typecheck clean.
+
+3. Jangan menghapus seed-demo.ts.
+4. Jangan merusak command db:seed.
+
+FASE 3 — Verifikasi final
+
+Jalankan:
+- pnpm install jika dependency berubah
+- pnpm run typecheck
+- pnpm run build
+- pnpm test
+
+Lalu tes manual/API:
+- POST /api/auth/dev-login sebagai owner
+- GET /api/auth/me
+- GET /api/tenants
+- GET /api/mall-units
+- GET /api/tenant-invoices
+- GET /api/laporan/summary
+- buka halaman /login
+- login owner
+- buka Data Tenant
+
+Output akhir:
+1. Penyebab konflik port
+2. File workflow/package yang diubah
+3. Solusi yang dipilih
+4. Penyebab TypeScript scripts error
+5. File yang diubah
+6. Hasil typecheck/build/test
+7. Apakah login dan API masih berjalan
+8. Apakah aman untuk staging
