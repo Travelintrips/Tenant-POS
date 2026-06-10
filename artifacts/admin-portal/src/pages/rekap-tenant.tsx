@@ -1,4 +1,4 @@
-import { apiFetch } from "@/lib/api";
+import { apiFetchJson } from "@/lib/api";
 import { useState, useMemo } from "react";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
@@ -153,6 +153,10 @@ export default function RekapTenantPage() {
   const { data: rekap = [], isLoading } = useQuery<RekapTenant[]>({
     queryKey: ["rekap-tenant", siteIdHeader],
     queryFn: () => apiFetch("/api/laporan/rekap-tenant", { headers }),
+    queryFn: () =>
+      apiFetchJson<RekapTenant[]>("/api/laporan/rekap-tenant", {
+        headers: siteIdHeader ? { "x-site-id": String(siteIdHeader) } : {},
+      }).then((r) => r.ok ? r.json().then((d: unknown) => Array.isArray(d) ? d : []) : []),
   });
 
   const { data: tren = [], isLoading: trenLoading } = useQuery<TrenBulanan[]>({

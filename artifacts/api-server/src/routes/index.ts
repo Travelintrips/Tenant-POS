@@ -15,8 +15,10 @@ import sitesRouter from "./sites";
 import whatsappAuthRouter from "./whatsapp-auth";
 import tenantPortalRouter from "./tenant-portal";
 import tenantUsersRouter from "./tenant-users";
-import { requireAuth, requireNonTenantUser } from "../middlewares/auth";
 import whatsappRouter from "./whatsapp";
+import paymentProofRouter from "./payment-proof";
+import pendingPaymentsRouter from "./pending-payments";
+import { requireAuth, requireNonTenantUser } from "../middlewares/auth";
 import { siteContext } from "../middlewares/site-context";
 
 const router: IRouter = Router();
@@ -24,6 +26,9 @@ const router: IRouter = Router();
 router.use(healthRouter);
 router.use(authRouter);
 router.use(whatsappAuthRouter);
+
+// Public routes (tidak perlu login)
+router.use(paymentProofRouter);
 
 router.use(requireAuth);
 
@@ -46,5 +51,6 @@ router.use(tenantInvoicesRouter);
 router.use(mallUnitsRouter);
 router.use(auditLogsRouter);
 router.use(whatsappRouter);
+router.use(pendingPaymentsRouter);
 
 export default router;

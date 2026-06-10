@@ -32,6 +32,7 @@ router.post("/whatsapp/invoice/:id/send", async (req, res) => {
         totalAmount: tenantInvoicesTable.totalAmount,
         status: tenantInvoicesTable.status,
         tenantId: tenantInvoicesTable.tenantId,
+        paymentToken: tenantInvoicesTable.paymentToken,
         ownerName: tenantsTable.ownerName,
         businessName: tenantsTable.businessName,
         phone: tenantsTable.phone,
@@ -51,6 +52,14 @@ router.post("/whatsapp/invoice/:id/send", async (req, res) => {
       ? new Date(invoice.dueDate).toLocaleDateString("id-ID", { day: "numeric", month: "long", year: "numeric" })
       : "-";
 
+    const appDomain =
+      process.env.REPLIT_DEV_DOMAIN ??
+      process.env.REPLIT_DOMAINS?.split(",")[0] ??
+      process.env.APP_URL;
+    const paymentLink = invoice.paymentToken && appDomain
+      ? `https://${appDomain}/bayar/${invoice.paymentToken}`
+      : undefined;
+
     const result = await sendInvoiceNotification({
       ownerName: invoice.ownerName,
       businessName: invoice.businessName,
@@ -59,6 +68,7 @@ router.post("/whatsapp/invoice/:id/send", async (req, res) => {
       totalAmount: invoice.totalAmount,
       dueDate: dueStr,
       phone: invoice.phone,
+      paymentLink,
     });
 
     if (result.skipped) {
@@ -195,6 +205,93 @@ router.post("/whatsapp/blast-overdue", async (req, res) => {
 
     res.json({ ok: true, sent, failed, total: overdueInvoices.length,
       message: `Blast selesai: ${sent} terkirim, ${failed} gagal dari ${overdueInvoices.length} invoice overdue.` });
+  } catch (err) {
+    res.status(500).json({ error: "Terjadi kesalahan server" });
+  }
+});
+
+/**
+ * POST /api/whatsapp/blast-link-unpaid
+ * Kirim link pembayaran ke SEMUA invoice belum lunas (unpaid + partial + overdue)
+ */
+router.post("/whatsapp/blast-link-unpaid", async (req, res) => {
+  try {
+    const siteId = req.siteId;
+    const siteFilter = siteId > 0 ? eq(tenantInvoicesTable.siteId, siteId) : undefined;
+
+    const appDomain =
+      process.env.REPLIT_DEV_DOMAIN ??
+      process.env.REPLIT_DOMAINS?.split(",")[0] ??
+      process.env.APP_URL;
+
+    const unpaidInvoices = await db
+      .select({
+        id: tenantInvoicesTable.id,
+        invoiceNumber: tenantInvoicesTable.invoiceNumber,
+        periodStart: tenantInvoicesTable.periodStart,
+        periodEnd: tenantInvoicesTable.periodEnd,
+        dueDate: tenantInvoicesTable.dueDate,
+        totalAmount: tenantInvoicesTable.totalAmount,
+        paymentToken: tenantInvoicesTable.paymentToken,
+        ownerName: tenantsTable.ownerName,
+        businessName: tenantsTable.businessName,
+        phone: tenantsTable.phone,
+      })
+      .from(tenantInvoicesTable)
+      .innerJoin(tenantsTable, eq(tenantInvoicesTable.tenantId, tenantsTable.id))
+      .where(and(
+        inArray(tenantInvoicesTable.status, ["unpaid", "partial", "overdue"]),
+        siteFilter,
+      ));
+
+    if (unpaidInvoices.length === 0) {
+      res.json({ ok: true, sent: 0, failed: 0, total: 0, message: "Tidak ada invoice belum lunas." });
+      return;
+    }
+
+    let sent = 0;
+    let failed = 0;
+    let skipped = false;
+
+    for (const invoice of unpaidInvoices) {
+      if (!invoice.phone) { failed++; continue; }
+
+      const periodLabel = invoice.periodStart && invoice.periodEnd
+        ? `${invoice.periodStart} s/d ${invoice.periodEnd}`
+        : "-";
+
+      const dueStr = invoice.dueDate
+        ? new Date(invoice.dueDate).toLocaleDateString("id-ID", { day: "numeric", month: "long", year: "numeric" })
+        : "-";
+
+      const paymentLink = invoice.paymentToken && appDomain
+        ? `https://${appDomain}/bayar/${invoice.paymentToken}`
+        : undefined;
+
+      const result = await sendInvoiceNotification({
+        ownerName: invoice.ownerName,
+        businessName: invoice.businessName,
+        invoiceNumber: invoice.invoiceNumber,
+        periodLabel,
+        totalAmount: invoice.totalAmount,
+        dueDate: dueStr,
+        phone: invoice.phone,
+        paymentLink,
+      });
+
+      if (result.skipped) { skipped = true; break; }
+      if (result.ok) sent++; else failed++;
+    }
+
+    if (skipped) {
+      res.json({ ok: true, skipped: true, sent: 0, failed: 0, total: unpaidInvoices.length, message: "FONNTE_TOKEN belum dikonfigurasi. Blast tidak terkirim." });
+      return;
+    }
+
+    res.json({
+      ok: true, sent, failed, total: unpaidInvoices.length,
+      message: `Blast link selesai: ${sent} terkirim, ${failed} gagal dari ${unpaidInvoices.length} invoice belum lunas.`,
+    });
   } catch (err) {
     res.status(500).json({ error: "Terjadi kesalahan server" });
   }

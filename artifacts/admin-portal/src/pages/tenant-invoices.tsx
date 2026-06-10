@@ -22,7 +22,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import {
   Plus, FileText, Printer, CreditCard, X, Search, Zap, AlertCircle,
-  CheckCircle2, Clock, Ban, CircleDashed, MessageCircle, Send,
+  CheckCircle2, Clock, Ban, CircleDashed, MessageCircle, Send, Link2, Loader2,
 } from "lucide-react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -362,6 +362,7 @@ export default function TenantInvoices() {
   const [detailTarget, setDetailTarget] = useState<Invoice | null>(null);
 
   const [cancelTarget, setCancelTarget] = useState<Invoice | null>(null);
+  const [sendingLinkId, setSendingLinkId] = useState<number | null>(null);
 
   // ─── Queries ────────────────────────────────────────────────────────────────
 
@@ -453,6 +454,21 @@ export default function TenantInvoices() {
     onError: (e: Error) => toast({ title: "Gagal Kirim WA", description: e.message, variant: "destructive" }),
   });
 
+  const sendLinkMutation = useMutation({
+    mutationFn: (id: number) =>
+      apiPost<{ ok: boolean; skipped?: boolean; message: string }>(`${BASE}/api/whatsapp/invoice/${id}/send`, {}),
+    onMutate: (id) => setSendingLinkId(id),
+    onSettled: () => setSendingLinkId(null),
+    onSuccess: (res) => {
+      if (res.skipped) {
+        toast({ title: "WA Tidak Terkirim", description: "FONNTE_TOKEN belum dikonfigurasi.", variant: "destructive" });
+      } else {
+        toast({ title: "Link Bayar Terkirim! 🔗", description: res.message });
+      }
+    },
+    onError: (e: Error) => toast({ title: "Gagal Kirim Link", description: e.message, variant: "destructive" }),
+  });
+
   const waBlastMutation = useMutation({
     mutationFn: () =>
       apiPost<{ ok: boolean; skipped?: boolean; sent: number; failed: number; total: number; message: string }>(`${BASE}/api/whatsapp/blast-overdue`, {}),
@@ -466,6 +482,19 @@ export default function TenantInvoices() {
     onError: (e: Error) => toast({ title: "Gagal Blast WA", description: e.message, variant: "destructive" }),
   });
 
+  const blastLinkMutation = useMutation({
+    mutationFn: () =>
+      apiPost<{ ok: boolean; skipped?: boolean; sent: number; failed: number; total: number; message: string }>(`${BASE}/api/whatsapp/blast-link-unpaid`, {}),
+    onSuccess: (res) => {
+      if (res.skipped) {
+        toast({ title: "Link Tidak Terkirim", description: res.message, variant: "destructive" });
+      } else {
+        toast({ title: "Blast Link Selesai 🔗", description: res.message });
+      }
+    },
+    onError: (e: Error) => toast({ title: "Gagal Blast Link", description: e.message, variant: "destructive" }),
+  });
+
   // ─── Derived ────────────────────────────────────────────────────────────────
 
   const summary = useMemo(() => {
@@ -474,6 +503,7 @@ export default function TenantInvoices() {
       total: all.length,
       unpaid: all.filter(i => i.status === "unpaid").length,
       overdue: all.filter(i => i.status === "overdue").length,
+      unpaidAll: all.filter(i => ["unpaid", "partial", "overdue"].includes(i.status)).length,
       totalOutstanding: all.reduce((s, i) => s + Number(i.outstandingAmount), 0),
     };
   }, [invoices]);
@@ -555,6 +585,16 @@ export default function TenantInvoices() {
           <p className="text-muted-foreground mt-1">Kelola tagihan dan pembayaran invoice tenant.</p>
         </div>
         <div className="flex gap-2 flex-wrap">
+          <Button
+            variant="outline"
+            className="gap-2 border-blue-300 text-blue-700 hover:bg-blue-50"
+            disabled={blastLinkMutation.isPending || summary.unpaidAll === 0}
+            onClick={() => blastLinkMutation.mutate()}
+            title={summary.unpaidAll === 0 ? "Tidak ada invoice belum lunas" : `Kirim link bayar ke ${summary.unpaidAll} invoice belum lunas`}
+          >
+            {blastLinkMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Link2 className="h-4 w-4" />}
+            {blastLinkMutation.isPending ? "Mengirim..." : `Kirim Link (${summary.unpaidAll})`}
+          </Button>
           <Button
             variant="outline"
             className="gap-2 border-green-300 text-green-700 hover:bg-green-50"
@@ -652,7 +692,7 @@ export default function TenantInvoices() {
                   <TableHead className="min-w-[110px]">Terbayar</TableHead>
                   <TableHead className="min-w-[110px]">Sisa</TableHead>
                   <TableHead>Status</TableHead>
-                  <TableHead className="w-[130px] text-right">Aksi</TableHead>
+                  <TableHead className="w-[220px] text-right">Aksi</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -696,20 +736,36 @@ export default function TenantInvoices() {
                         </span>
                       </TableCell>
                       <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
-                        <div className="flex items-center justify-end gap-1">
+                        <div className="flex items-center justify-end gap-1 flex-wrap">
                           {inv.status !== "paid" && inv.status !== "cancelled" && (
                             <Button size="sm" variant="outline" className="h-7 px-2 text-xs gap-1" onClick={() => openPayment(inv)}>
                               <CreditCard className="h-3 w-3" />
                               Bayar
                             </Button>
                           )}
-                          {inv.status !== "cancelled" && inv.phone && (
+                          {inv.status !== "paid" && inv.status !== "cancelled" && inv.phone && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-7 px-2 text-xs gap-1 text-emerald-700 border-emerald-200 hover:bg-emerald-50 hover:text-emerald-800"
+                              title="Kirim link upload bukti bayar via WhatsApp"
+                              disabled={sendingLinkId === inv.id}
+                              onClick={() => sendLinkMutation.mutate(inv.id)}
+                            >
+                              {sendingLinkId === inv.id
+                                ? <Loader2 className="h-3 w-3 animate-spin" />
+                                : <Link2 className="h-3 w-3" />
+                              }
+                              Kirim Link
+                            </Button>
+                          )}
+                          {inv.status === "overdue" && inv.phone && (
                             <Button
                               size="sm" variant="ghost"
-                              className={`h-7 w-7 p-0 ${inv.status === "overdue" ? "text-red-500 hover:text-red-600" : "text-green-600 hover:text-green-700"}`}
-                              title={inv.status === "overdue" ? "Kirim pengingat overdue via WA" : "Kirim notifikasi invoice via WA"}
+                              className="h-7 w-7 p-0 text-red-500 hover:text-red-600"
+                              title="Kirim pengingat overdue via WA"
                               disabled={waSendMutation.isPending}
-                              onClick={() => waSendMutation.mutate({ id: inv.id, type: inv.status === "overdue" ? "overdue-reminder" : "send" })}
+                              onClick={() => waSendMutation.mutate({ id: inv.id, type: "overdue-reminder" })}
                             >
                               <MessageCircle className="h-3.5 w-3.5" />
                             </Button>

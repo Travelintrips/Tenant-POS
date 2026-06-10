@@ -41,7 +41,10 @@ export function SiteProvider({ children }: { children: React.ReactNode }) {
 
   const { data: sites = [], isLoading } = useQuery<MallSite[]>({
     queryKey: ["sites"],
-    queryFn: () => fetch("/api/sites").then((r) => r.ok ? r.json() : []),
+    queryFn: () => fetch("/api/sites").then((r) => {
+      if (!r.ok) return [];
+      return r.json().then((d: unknown) => Array.isArray(d) ? d : []);
+    }),
     staleTime: 5 * 60 * 1000,
   });
 

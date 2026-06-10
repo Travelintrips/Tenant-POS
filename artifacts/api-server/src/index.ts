@@ -1,6 +1,7 @@
 import app from "./app";
 import { config } from "./lib/config";
 import { logger } from "./lib/logger";
+import { startOverdueScheduler } from "./lib/overdue-scheduler";
 
 async function start() {
   try {
@@ -9,6 +10,8 @@ async function start() {
   } catch (err) {
     logger.warn({ err }, "[migrate] Schema sync gagal — server tetap jalan");
   }
+
+  startOverdueScheduler();
 
   app.listen(config.port, (err) => {
     if (err) {
