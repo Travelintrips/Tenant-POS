@@ -359,6 +359,20 @@ export function SidebarLayout({ children }: { children: React.ReactNode }) {
             <SidebarGroup>
               <SidebarGroupLabel>SISTEM</SidebarGroupLabel>
               <SidebarMenu>
+                {can("owner") && (
+                  <SidebarMenuItem>
+                    <SidebarMenuButton
+                      asChild
+                      isActive={location === "/users"}
+                      data-testid="nav-users"
+                    >
+                      <Link href="/users">
+                        <Users className="mr-2 h-4 w-4" />
+                        <span>Manajemen User</span>
+                      </Link>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                )}
                 <SidebarMenuItem>
                   <SidebarMenuButton
                     asChild
