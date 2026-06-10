@@ -4,9 +4,7 @@ import {
   tenantsTable, insertTenantSchema,
   tenantBookingsTable, tenantInvoicesTable, tenantPaymentsTable, mallSitesTable,
 } from "@workspace/db/schema";
-import { eq, asc, desc, and, sql } from "drizzle-orm";
-import { tenantsTable, insertTenantSchema, tenantBookingsTable } from "@workspace/db/schema";
-import { eq, asc, and, inArray, sql } from "drizzle-orm";
+import { eq, asc, desc, and, inArray, sql } from "drizzle-orm";
 import { requireAnyRole } from "../middlewares/auth";
 import { logAudit } from "../lib/audit";
 

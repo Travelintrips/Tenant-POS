@@ -3,6 +3,9 @@ import { EventEmitter } from "events";
 export type SSEEventType =
   | "payment_created"
   | "payment_voided"
+  | "payment_approved"
+  | "payment_rejected"
+  | "payment_proof_submitted"
   | "invoice_updated"
   | "booking_updated"
   | "unit_updated";

@@ -83,7 +83,7 @@ const CustomTooltip = ({ active, payload, label }: any) => {
 export default function Dashboard() {
   const { data: user } = useAuth();
   const { activeSite } = useSite();
-  const siteHeader = activeSite && activeSite.code !== "ALL"
+  const siteHeader: Record<string, string> = activeSite && activeSite.code !== "ALL"
     ? { "x-site-id": String(activeSite.id) }
     : {};
 

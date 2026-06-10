@@ -1,6 +1,6 @@
 - [api-zod duplicate exports](api-zod-exports.md) — only export from `./generated/api`, not `./generated/types` (same names clash)
 - [scripts workspace resolution](scripts-workspace-resolution.md) — scripts pkg needs `paths` in tsconfig to resolve `@workspace/*` libs; symlinks not created by pnpm for scripts
-- [scripts-no-drizzle-operators](scripts-workspace-resolution.md) — scripts pkg cannot import drizzle-orm operators (eq, sql) directly; filter in JS after full select, or re-export from @workspace/db
+- [scripts-drizzle-dep](scripts-workspace-resolution.md) — add `drizzle-orm: "catalog:"` to scripts/package.json to import operators directly; already transitive via @workspace/db so no extra install needed
 - [invalid hook call fix](invalid-hook-call.md) — avoid generated lib hooks (useListTenants etc); use `useQuery` directly in admin-portal pages
 - [supabase-connection](supabase-connection.md) — app uses SUPABASE_PG_URL (pooler port 6543); drizzle-kit push hangs on pooler, use direct pg script from lib/db/ instead
 - [DB split-brain](db-connection-priority.md) — SUPABASE_PG_URL takes priority; psql $DATABASE_URL hits local Postgres (IDs 1-14), running API uses Supabase (IDs 15+); seed via API endpoints not psql
@@ -8,7 +8,7 @@
 - [drizzle-kit-tty](drizzle-kit-tty.md) — drizzle-kit push requires interactive TTY for new tables; add SQL migration to lib/db/src/migrator.ts instead
 - [drizzle-timestamptz](drizzle-timestamptz.md) — `timestamptz` is not exported from drizzle-orm@0.45; use `timestamp("col", { withTimezone: true })` instead
 - [tenant-status-mismatch](tenant-status-mismatch.md) — tenant status in DB is "active"/"inactive" (English) but some queries use "aktif"; always query with IN ('aktif', 'active') for tenant status filters
-- [artifact-workflow-port-conflict](artifact-workflow-port-conflict.md) — artifact workflows (api-server) conflict with "Start application" on port 8080; keep both in "Start application" as parallel background processes
+- [artifact-workflow-port-conflict](artifact-workflow-port-conflict.md) — artifact workflows cannot be deleted/configured (PROHIBITED_ACTION); artifact api-server crashes safely (PORT required); guard "Start application" with `fuser -k 8080/tcp 2>/dev/null; sleep 0.3;`
 - [pg-substring-from](pg-substring-from.md) — `SUBSTRING(str FROM $1)` with parameterized integer is regex extraction in PG, not positional; use `SUBSTR(str, $1)` instead
 - [drizzle-error-code](drizzle-error-code.md) — DrizzleQueryError wraps PG errors in `.cause`; check `err?.cause?.code` for SQLSTATE codes like "23505"
 - [vitest4-singlefork](vitest4-singlefork.md) — Vitest 4 moved poolOptions to top-level; use `singleFork: true` directly in `test:{}`, not under `poolOptions.forks`

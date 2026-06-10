@@ -84,7 +84,7 @@ router.get("/pay/:token", async (req, res) => {
       })
       .from(tenantInvoicesTable)
       .leftJoin(tenantsTable, eq(tenantInvoicesTable.tenantId, tenantsTable.id))
-      .where(eq(tenantInvoicesTable.paymentToken, token));
+      .where(eq(tenantInvoicesTable.paymentToken, token as string));
 
     if (!invoice) {
       res.status(404).json({ error: "Link pembayaran tidak ditemukan atau sudah tidak valid" });
@@ -160,7 +160,7 @@ router.post("/pay/:token/proof", uploadRateLimiter, async (req, res) => {
       })
       .from(tenantInvoicesTable)
       .leftJoin(tenantsTable, eq(tenantInvoicesTable.tenantId, tenantsTable.id))
-      .where(eq(tenantInvoicesTable.paymentToken, token));
+      .where(eq(tenantInvoicesTable.paymentToken, token as string));
 
     if (!invoice) {
       res.status(404).json({ error: "Link pembayaran tidak ditemukan" });
