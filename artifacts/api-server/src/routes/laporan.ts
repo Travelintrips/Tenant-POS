@@ -574,6 +574,56 @@ router.get("/laporan/floors-list", async (req, res) => {
 });
 
 /**
+ * GET /api/laporan/tren-bulanan
+ * Tren tagihan & pembayaran per bulan, per lokasi
+ */
+router.get("/laporan/tren-bulanan", async (req, res) => {
+  const siteId = req.siteId;
+  try {
+    const rows = await db.execute(sql`
+      SELECT
+        TO_CHAR(DATE_TRUNC('month', ti.period_start), 'YYYY-MM') AS bulan_key,
+        TO_CHAR(DATE_TRUNC('month', ti.period_start), 'Mon YYYY') AS bulan_label,
+        s.id   AS site_id,
+        s.name AS site_name,
+        s.type AS site_type,
+        SUM(ti.total_amount)::numeric       AS total_tagihan,
+        SUM(ti.paid_amount)::numeric        AS total_bayar,
+        SUM(ti.outstanding_amount)::numeric AS total_tunggakan,
+        COUNT(*)::int                       AS jumlah_invoice,
+        COUNT(*) FILTER (WHERE ti.status = 'paid')::int    AS lunas,
+        COUNT(*) FILTER (WHERE ti.status = 'overdue')::int AS menunggak,
+        COUNT(*) FILTER (WHERE ti.status IN ('unpaid','partial'))::int AS belum_bayar
+      FROM tenant_invoices ti
+      JOIN mall_sites s ON s.id = ti.site_id
+      WHERE ti.period_start >= DATE_TRUNC('month', NOW()) - INTERVAL '11 months'
+        ${siteId > 0 ? sql`AND ti.site_id = ${siteId}` : sql``}
+      GROUP BY DATE_TRUNC('month', ti.period_start), s.id, s.name, s.type
+      ORDER BY DATE_TRUNC('month', ti.period_start), s.id
+    `);
+
+    const data = ((rows as any).rows ?? rows) as any[];
+    res.json(data.map((r: any) => ({
+      bulanKey:      r.bulan_key,
+      bulanLabel:    r.bulan_label,
+      siteId:        Number(r.site_id),
+      siteName:      r.site_name,
+      siteType:      r.site_type,
+      totalTagihan:  Number(r.total_tagihan),
+      totalBayar:    Number(r.total_bayar),
+      totalTunggakan:Number(r.total_tunggakan),
+      jumlahInvoice: Number(r.jumlah_invoice),
+      lunas:         Number(r.lunas),
+      menunggak:     Number(r.menunggak),
+      belumBayar:    Number(r.belum_bayar),
+    })));
+  } catch (err) {
+    req.log.error(err, "Failed to get tren bulanan");
+    res.status(500).json({ error: "Gagal mengambil tren bulanan" });
+  }
+});
+
+/**
  * GET /api/laporan/rekap-tenant
  * Rekap per-tenant: status kontrak, tagihan, pembayaran, tunggakan
  */
