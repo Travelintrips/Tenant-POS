@@ -50,8 +50,16 @@ export function logAudit(req: Request, opts: AuditOptions): void {
     req.socket?.remoteAddress ??
     null;
 
+  const rawDbId = user?.dbId;
+  const numericUserId =
+    typeof rawDbId === "number"
+      ? rawDbId
+      : rawDbId && /^\d+$/.test(String(rawDbId))
+        ? Number(rawDbId)
+        : null;
+
   const entry = {
-    userId: user?.dbId ?? null,
+    userId: numericUserId,
     userEmail: user?.email ?? null,
     userName: user?.name ?? null,
     action: opts.action,
