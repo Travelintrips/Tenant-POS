@@ -222,7 +222,8 @@ router.post("/bookings", async (req, res) => {
     res.status(201).json({ ...withTenant, contractStatus: computeContractStatus(withTenant) });
   } catch (err) {
     req.log.error(err, "Failed to create booking");
-    res.status(500).json({ error: "Gagal membuat kontrak" });
+    const dbErr = (err as any)?.cause ?? err;
+    res.status(500).json({ error: "Gagal membuat kontrak", _debug: String(dbErr?.message ?? dbErr) });
   }
 });
 

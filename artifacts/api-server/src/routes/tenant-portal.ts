@@ -15,7 +15,7 @@ const router: IRouter = Router();
 
 router.use(requireTenantUser);
 
-router.get("/tenant-portal/me", async (req, res) => {
+router.get("/me", async (req, res) => {
   const user = req.user!;
   const access = await db
     .select({
@@ -51,7 +51,7 @@ router.get("/tenant-portal/me", async (req, res) => {
   });
 });
 
-router.get("/tenant-portal/bookings", async (req, res) => {
+router.get("/bookings", async (req, res) => {
   const tenantIds = getTenantIdsForUser(req);
   if (tenantIds.length === 0) {
     res.json([]);
@@ -67,7 +67,7 @@ router.get("/tenant-portal/bookings", async (req, res) => {
   res.json(bookings);
 });
 
-router.get("/tenant-portal/invoices", async (req, res) => {
+router.get("/invoices", async (req, res) => {
   const tenantIds = getTenantIdsForUser(req);
   if (tenantIds.length === 0) {
     res.json([]);
@@ -83,7 +83,7 @@ router.get("/tenant-portal/invoices", async (req, res) => {
   res.json(invoices);
 });
 
-router.get("/tenant-portal/payments", async (req, res) => {
+router.get("/payments", async (req, res) => {
   const tenantIds = getTenantIdsForUser(req);
   if (tenantIds.length === 0) {
     res.json([]);
