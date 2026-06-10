@@ -1,4 +1,4 @@
-import { apiFetch } from "@/lib/api";
+import { apiFetchJson } from "@/lib/api";
 import { useState, useMemo } from "react";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
@@ -158,12 +158,12 @@ export default function RekapTenantPage() {
 
   const { data: rekap = [], isLoading } = useQuery<RekapTenant[]>({
     queryKey: ["rekap-tenant", siteIdHeader],
-    queryFn:  () => apiFetch("/api/laporan/rekap-tenant", { headers }),
+    queryFn:  () => apiFetchJson<RekapTenant[]>("/api/laporan/rekap-tenant", { headers }),
   });
 
   const { data: tren = [], isLoading: trenLoading } = useQuery<TrenBulanan[]>({
     queryKey: ["tren-bulanan", siteIdHeader],
-    queryFn:  () => apiFetch("/api/laporan/tren-bulanan", { headers }),
+    queryFn:  () => apiFetchJson<TrenBulanan[]>("/api/laporan/tren-bulanan", { headers }),
   });
 
   // Pivot tren → per bulan dengan site sebagai kolom
