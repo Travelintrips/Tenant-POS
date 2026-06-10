@@ -16,6 +16,7 @@ declare global {
       phoneNumber: string | null;
       avatar: string | null;
       role: string;
+      loginAt: string;
       allowedSites?: number[];
       tenantAccess?: Array<{ tenantId: number; siteId: number; accessLevel: string; status?: string }>;
     }
@@ -110,6 +111,7 @@ export async function buildSessionUser(dbUser: {
     phoneNumber: dbUser.phoneNumber ?? null,
     avatar: dbUser.avatarUrl,
     role: dbUser.role,
+    loginAt: new Date().toISOString(),
   };
 
   if (dbUser.role === "tenant_user") {

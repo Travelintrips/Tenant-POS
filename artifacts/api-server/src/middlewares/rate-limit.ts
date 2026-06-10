@@ -1,4 +1,4 @@
-import rateLimit, { type Options } from "express-rate-limit";
+import rateLimit, { type Options, ipKeyGenerator } from "express-rate-limit";
 import type { Request, Response } from "express";
 import { logger } from "../lib/logger";
 
@@ -23,7 +23,8 @@ export function makeRateLimiter(options: {
     max: options.max,
     standardHeaders: true,
     legacyHeaders: false,
-    keyGenerator: (req: Request) => (req.ip ?? req.socket?.remoteAddress ?? "unknown"),
+    keyGenerator: (req: Request) =>
+      ipKeyGenerator(req.ip ?? req.socket?.remoteAddress ?? "unknown"),
     handler: (_req: Request, res: Response) => {
       res.status(429).json(RATE_LIMIT_RESPONSE);
     },
@@ -61,7 +62,7 @@ function makeLoggingRateLimiter(options: {
     max: options.max,
     standardHeaders: true,
     legacyHeaders: false,
-    keyGenerator: (req: Request) => getIp(req),
+    keyGenerator: (req: Request) => ipKeyGenerator(getIp(req)),
     handler: (req: Request, res: Response) => {
       onRateLimitHit(req);
       res.status(429).json(RATE_LIMIT_RESPONSE);
@@ -76,7 +77,6 @@ function makeLoggingRateLimiter(options: {
 
 /**
  * 30 req / 15 menit per IP — endpoint dev-login
- * Development/staging: aktif. Production: tidak relevan karena route tidak terdaftar.
  */
 export const devLoginRateLimiter = makeLoggingRateLimiter({
   name: "dev-login",
@@ -113,7 +113,6 @@ export const uploadRateLimiter = makeLoggingRateLimiter({
 
 /**
  * 60 req / 15 menit per IP — aksi payment (create / void / refund)
- * Cukup longgar agar kasir tidak terganggu saat operasional.
  */
 export const paymentRateLimiter = makeLoggingRateLimiter({
   name: "payment",

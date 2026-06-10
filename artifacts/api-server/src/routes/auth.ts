@@ -1,14 +1,15 @@
 import { Router, type IRouter } from "express";
 import passport from "../lib/auth";
 import { db } from "@workspace/db";
-import { usersTable, USER_ROLES, type UserRole, tenantUserAccessTable, mallSitesTable, tenantsTable } from "@workspace/db/schema";
-import { eq, asc, and } from "drizzle-orm";
+import { usersTable, USER_ROLES, USER_STATUSES, type UserRole, tenantUserAccessTable, mallSitesTable, tenantsTable } from "@workspace/db/schema";
+import { eq, asc, and, ne } from "drizzle-orm";
 import { findOrCreateUser, buildSessionUser, getTenantAccess } from "../lib/auth";
-import { requireAnyRole, requireAuth } from "../middlewares/auth";
+import { requireAnyRole, requireAuth, invalidateUserStatusCache } from "../middlewares/auth";
 import { logAudit } from "../lib/audit";
 import { logger } from "../lib/logger";
 import { devLoginRateLimiter, googleAuthRateLimiter, authMeRateLimiter } from "../middlewares/rate-limit";
 import { normalizePhoneNumber } from "../services/otp-service";
+import { randomUUID } from "node:crypto";
 
 const router: IRouter = Router();
 
@@ -40,8 +41,7 @@ if (DEV_LOGIN_ENABLED) {
         .where(eq(usersTable.phoneNumber, normalized));
 
       if (!existing) {
-        const { randomUUID } = await import("node:crypto");
-      const [created] = await db
+        const [created] = await db
           .insert(usersTable)
           .values({ id: randomUUID(), name, phoneNumber: normalized, role: "tenant_user", status: "active" })
           .returning();
@@ -164,6 +164,8 @@ router.post("/auth/logout", (req, res) => {
   });
 });
 
+// ─── GET /api/users — daftar semua user ──────────────────────────────────────
+
 router.get("/users", requireAuth, requireAnyRole("owner", "admin"), async (_req, res) => {
   try {
     const users = await db
@@ -177,6 +179,7 @@ router.get("/users", requireAuth, requireAnyRole("owner", "admin"), async (_req,
         avatarUrl: usersTable.avatarUrl,
         createdAt: usersTable.createdAt,
         updatedAt: usersTable.updatedAt,
+        lastLoginAt: usersTable.lastLoginAt,
       })
       .from(usersTable)
       .orderBy(asc(usersTable.createdAt));
@@ -185,6 +188,155 @@ router.get("/users", requireAuth, requireAnyRole("owner", "admin"), async (_req,
     res.status(500).json({ error: "Gagal mengambil daftar user" });
   }
 });
+
+// ─── POST /api/users — buat user baru ────────────────────────────────────────
+
+router.post("/users", requireAuth, requireAnyRole("owner"), async (req, res) => {
+  const { name, email, role, phoneNumber, status } = req.body as {
+    name?: string;
+    email?: string;
+    role?: string;
+    phoneNumber?: string;
+    status?: string;
+  };
+
+  if (!name?.trim()) {
+    res.status(400).json({ error: "Nama wajib diisi" });
+    return;
+  }
+  if (!role || !USER_ROLES.includes(role as UserRole)) {
+    res.status(400).json({ error: `Peran tidak valid. Pilihan: ${USER_ROLES.join(", ")}` });
+    return;
+  }
+  if (status && !USER_STATUSES.includes(status as any)) {
+    res.status(400).json({ error: `Status tidak valid. Pilihan: ${USER_STATUSES.join(", ")}` });
+    return;
+  }
+
+  try {
+    if (email) {
+      const [existing] = await db.select({ id: usersTable.id }).from(usersTable).where(eq(usersTable.email, email.trim()));
+      if (existing) {
+        res.status(409).json({ error: "Email sudah terdaftar" });
+        return;
+      }
+    }
+
+    const [created] = await db
+      .insert(usersTable)
+      .values({
+        id: randomUUID(),
+        name: name.trim(),
+        email: email?.trim() || null,
+        role: role as UserRole,
+        phoneNumber: phoneNumber?.trim() || null,
+        status: (status ?? "active") as any,
+      })
+      .returning({
+        id: usersTable.id,
+        email: usersTable.email,
+        name: usersTable.name,
+        role: usersTable.role,
+        phoneNumber: usersTable.phoneNumber,
+        status: usersTable.status,
+        avatarUrl: usersTable.avatarUrl,
+        createdAt: usersTable.createdAt,
+        updatedAt: usersTable.updatedAt,
+      });
+
+    logAudit(req, {
+      action: "create_user",
+      entityType: "user",
+      entityId: created.id,
+      afterData: { name: created.name, email: created.email, role: created.role, status: created.status },
+    });
+
+    res.status(201).json(created);
+  } catch (err) {
+    res.status(500).json({ error: "Gagal membuat user" });
+  }
+});
+
+// ─── PUT /api/users/:id — update user ────────────────────────────────────────
+
+router.put("/users/:id", requireAuth, requireAnyRole("owner"), async (req, res) => {
+  const id = String(req.params.id);
+  const { name, email, role, phoneNumber, status } = req.body as {
+    name?: string;
+    email?: string;
+    role?: string;
+    phoneNumber?: string;
+    status?: string;
+  };
+
+  if (name !== undefined && !name.trim()) {
+    res.status(400).json({ error: "Nama tidak boleh kosong" });
+    return;
+  }
+  if (role && !USER_ROLES.includes(role as UserRole)) {
+    res.status(400).json({ error: `Peran tidak valid. Pilihan: ${USER_ROLES.join(", ")}` });
+    return;
+  }
+  if (status && !USER_STATUSES.includes(status as any)) {
+    res.status(400).json({ error: `Status tidak valid` });
+    return;
+  }
+
+  try {
+    const [before] = await db.select().from(usersTable).where(eq(usersTable.id, id));
+    if (!before) {
+      res.status(404).json({ error: "User tidak ditemukan" });
+      return;
+    }
+
+    if (email && email !== before.email) {
+      const [dup] = await db.select({ id: usersTable.id }).from(usersTable).where(and(eq(usersTable.email, email.trim()), ne(usersTable.id, id)));
+      if (dup) {
+        res.status(409).json({ error: "Email sudah digunakan user lain" });
+        return;
+      }
+    }
+
+    const patch: Record<string, unknown> = { updatedAt: new Date() };
+    if (name !== undefined) patch.name = name.trim();
+    if (email !== undefined) patch.email = email.trim() || null;
+    if (role !== undefined) patch.role = role;
+    if (phoneNumber !== undefined) patch.phoneNumber = phoneNumber.trim() || null;
+    if (status !== undefined) patch.status = status;
+
+    const [updated] = await db
+      .update(usersTable)
+      .set(patch as any)
+      .where(eq(usersTable.id, id))
+      .returning({
+        id: usersTable.id,
+        email: usersTable.email,
+        name: usersTable.name,
+        role: usersTable.role,
+        phoneNumber: usersTable.phoneNumber,
+        status: usersTable.status,
+        avatarUrl: usersTable.avatarUrl,
+        createdAt: usersTable.createdAt,
+        updatedAt: usersTable.updatedAt,
+      });
+
+    invalidateUserStatusCache(id);
+
+    logAudit(req, {
+      action: "update_user",
+      entityType: "user",
+      entityId: id,
+      beforeData: { name: before.name, email: before.email, role: before.role, status: before.status },
+      afterData: { name: updated.name, email: updated.email, role: updated.role, status: updated.status },
+    });
+
+    res.json(updated);
+  } catch (err) {
+    res.status(500).json({ error: "Gagal memperbarui user" });
+  }
+});
+
+// ─── PATCH /api/users/:id/role — ubah peran (backward compat) ────────────────
 
 router.patch("/users/:id/role", requireAuth, requireAnyRole("owner"), async (req, res) => {
   const id = String(req.params.id);
@@ -222,6 +374,8 @@ router.patch("/users/:id/role", requireAuth, requireAnyRole("owner"), async (req
         updatedAt: usersTable.updatedAt,
       });
 
+    invalidateUserStatusCache(id);
+
     logAudit(req, {
       action: "change_user_role",
       entityType: "user",
@@ -233,6 +387,81 @@ router.patch("/users/:id/role", requireAuth, requireAnyRole("owner"), async (req
     res.json(updated);
   } catch (err) {
     res.status(500).json({ error: "Gagal mengubah peran user" });
+  }
+});
+
+// ─── DELETE /api/users/:id — hapus user ──────────────────────────────────────
+
+router.delete("/users/:id", requireAuth, requireAnyRole("owner"), async (req, res) => {
+  const id = String(req.params.id);
+  const currentUserId = req.user?.dbId;
+
+  if (id === currentUserId) {
+    res.status(400).json({ error: "Tidak dapat menghapus akun Anda sendiri" });
+    return;
+  }
+
+  try {
+    const [target] = await db.select().from(usersTable).where(eq(usersTable.id, id));
+    if (!target) {
+      res.status(404).json({ error: "User tidak ditemukan" });
+      return;
+    }
+
+    await db.delete(tenantUserAccessTable).where(eq(tenantUserAccessTable.userId, id));
+    await db.delete(usersTable).where(eq(usersTable.id, id));
+
+    invalidateUserStatusCache(id);
+
+    logAudit(req, {
+      action: "delete_user",
+      entityType: "user",
+      entityId: id,
+      beforeData: { name: target.name, email: target.email, role: target.role },
+    });
+
+    res.json({ ok: true, deleted: id });
+  } catch (err) {
+    res.status(500).json({ error: "Gagal menghapus user" });
+  }
+});
+
+// ─── POST /api/users/:id/reset-session — paksa logout sesi aktif ─────────────
+
+router.post("/users/:id/reset-session", requireAuth, requireAnyRole("owner"), async (req, res) => {
+  const id = String(req.params.id);
+  const currentUserId = req.user?.dbId;
+
+  if (id === currentUserId) {
+    res.status(400).json({ error: "Tidak dapat mereset sesi Anda sendiri" });
+    return;
+  }
+
+  try {
+    const [target] = await db.select({ id: usersTable.id, name: usersTable.name }).from(usersTable).where(eq(usersTable.id, id));
+    if (!target) {
+      res.status(404).json({ error: "User tidak ditemukan" });
+      return;
+    }
+
+    const now = new Date();
+    await db
+      .update(usersTable)
+      .set({ forceLogoutAt: now, updatedAt: now })
+      .where(eq(usersTable.id, id));
+
+    invalidateUserStatusCache(id);
+
+    logAudit(req, {
+      action: "reset_user_session",
+      entityType: "user",
+      entityId: id,
+      afterData: { name: target.name, forceLogoutAt: now.toISOString() },
+    });
+
+    res.json({ ok: true, message: `Sesi ${target.name} telah direset` });
+  } catch (err) {
+    res.status(500).json({ error: "Gagal mereset sesi user" });
   }
 });
 

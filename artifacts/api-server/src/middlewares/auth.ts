@@ -1,16 +1,76 @@
 import { type Request, type Response, type NextFunction } from "express";
 import { USER_ROLES, type UserRole } from "@workspace/db/schema";
+import { db } from "@workspace/db";
+import { usersTable } from "@workspace/db/schema";
+import { eq } from "drizzle-orm";
 
-export function requireAuth(req: Request, res: Response, next: NextFunction): void {
-  if (!req.isAuthenticated()) {
+// ─── User status cache (avoid DB hit on every request) ────────────────────────
+interface CachedStatus {
+  status: string;
+  forceLogoutAt: Date | null;
+  expiresAt: number;
+}
+const userStatusCache = new Map<string, CachedStatus>();
+const CACHE_TTL_MS = 30_000;
+
+async function getCachedUserStatus(userId: string): Promise<CachedStatus | null> {
+  const cached = userStatusCache.get(userId);
+  if (cached && Date.now() < cached.expiresAt) return cached;
+
+  try {
+    const [row] = await db
+      .select({ status: usersTable.status, forceLogoutAt: usersTable.forceLogoutAt })
+      .from(usersTable)
+      .where(eq(usersTable.id, userId));
+    if (!row) return null;
+    const entry: CachedStatus = {
+      status: row.status,
+      forceLogoutAt: row.forceLogoutAt ?? null,
+      expiresAt: Date.now() + CACHE_TTL_MS,
+    };
+    userStatusCache.set(userId, entry);
+    return entry;
+  } catch {
+    return null;
+  }
+}
+
+export function invalidateUserStatusCache(userId: string) {
+  userStatusCache.delete(userId);
+}
+
+// ─── Middleware ────────────────────────────────────────────────────────────────
+
+export async function requireAuth(req: Request, res: Response, next: NextFunction): Promise<void> {
+  if (!req.isAuthenticated() || !req.user) {
     res.status(401).json({ error: "Tidak terautentikasi" });
     return;
   }
+
+  const userId = req.user.dbId;
+  const cached = await getCachedUserStatus(userId);
+
+  if (cached) {
+    if (cached.status === "inactive" || cached.status === "blocked") {
+      req.logout(() => {});
+      res.status(401).json({ error: "Akun Anda tidak aktif. Hubungi administrator." });
+      return;
+    }
+    if (cached.forceLogoutAt) {
+      const loginAt = req.user.loginAt ? new Date(req.user.loginAt) : null;
+      if (!loginAt || loginAt < cached.forceLogoutAt) {
+        req.logout(() => {});
+        res.status(401).json({ error: "Sesi Anda telah direset. Silakan login kembali." });
+        return;
+      }
+    }
+  }
+
   next();
 }
 
 export function requireRole(role: UserRole) {
-  return (req: Request, res: Response, next: NextFunction): void => {
+  return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     if (!req.isAuthenticated()) {
       res.status(401).json({ error: "Tidak terautentikasi" });
       return;
@@ -19,12 +79,12 @@ export function requireRole(role: UserRole) {
       res.status(403).json({ error: "Akses ditolak. Peran Anda tidak memiliki izin." });
       return;
     }
-    next();
+    await requireAuth(req, res, next);
   };
 }
 
 export function requireAnyRole(...roles: UserRole[]) {
-  return (req: Request, res: Response, next: NextFunction): void => {
+  return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     if (!req.isAuthenticated()) {
       res.status(401).json({ error: "Tidak terautentikasi" });
       return;
@@ -38,7 +98,7 @@ export function requireAnyRole(...roles: UserRole[]) {
       });
       return;
     }
-    next();
+    await requireAuth(req, res, next);
   };
 }
 

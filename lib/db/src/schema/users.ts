@@ -18,6 +18,7 @@ export const usersTable = pgTable("users", {
   phoneVerifiedAt: timestamp("phone_verified_at", { withTimezone: true }),
   status: text("status").notNull().default("active"),
   lastLoginAt: timestamp("last_login_at", { withTimezone: true }),
+  forceLogoutAt: timestamp("force_logout_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
