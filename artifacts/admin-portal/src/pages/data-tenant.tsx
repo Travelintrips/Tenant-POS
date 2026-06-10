@@ -23,7 +23,8 @@ import {
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, Pencil, Trash2, Search, Upload, X, ImageIcon, Building2, Dumbbell, MapPin } from "lucide-react";
+import { Plus, Pencil, Trash2, Search, Upload, X, ImageIcon, Building2, Dumbbell, MapPin, Eye } from "lucide-react";
+import { useLocation } from "wouter";
 import { useSite } from "@/contexts/site-context";
 
 const SITE_TYPE_CONFIG: Record<string, { label: string; color: string; bg: string; border: string; icon: React.ReactNode }> = {
@@ -175,6 +176,7 @@ export default function DataTenant() {
   const queryClient = useQueryClient();
   const logoInputRef = useRef<HTMLInputElement>(null);
   const { activeSite } = useSite();
+  const [, navigate] = useLocation();
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<Tenant | null>(null);

@@ -1,5 +1,6 @@
 import { apiFetchJson } from "@/lib/api";
 import { useState, useMemo } from "react";
+import { useLocation } from "wouter";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
@@ -146,6 +147,7 @@ export default function RekapTenantPage() {
   const { activeSite } = useSite();
   const isAllSites     = activeSite?.code === ALL_SITES_SENTINEL.code;
   const siteIdHeader   = isAllSites ? undefined : activeSite?.id;
+  const [, navigate]   = useLocation();
 
   const [search,          setSearch]          = useState("");
   const [filterSite,      setFilterSite]      = useState<string>("all");
