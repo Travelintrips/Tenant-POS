@@ -535,6 +535,15 @@ export default function RekapTenantPage() {
                             }`}>{fmtTgl(r.dueDate)}</span>
                           ) : <span className="text-xs text-muted-foreground">—</span>}
                         </TableCell>
+                        <TableCell>
+                          <Button
+                            variant="ghost" size="sm"
+                            className="h-7 px-2 text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+                            onClick={() => navigate(`/tenant-profile/${r.tenantId}`)}
+                          >
+                            Detail
+                          </Button>
+                        </TableCell>
                       </TableRow>
                     );
                   })}
