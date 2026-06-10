@@ -13,7 +13,7 @@
 - [drizzle-error-code](drizzle-error-code.md) — DrizzleQueryError wraps PG errors in `.cause`; check `err?.cause?.code` for SQLSTATE codes like "23505"
 - [vitest4-singlefork](vitest4-singlefork.md) — Vitest 4 moved poolOptions to top-level; use `singleFork: true` directly in `test:{}`, not under `poolOptions.forks`
 - [test-invoice-number-uniqueness](test-invoice-number-uniqueness.md) — test factory invoice numbers must use per-call timestamp+random, not shared RUN_ID slice; base36 date prefix repeats within ~13 hours causing duplicate key failures
-- [vitest-globals-tsconfig](vitest-globals-tsconfig.md) — add `"vitest/globals"` to tsconfig `types` array for api-server; exclude test dirs from admin-portal tsconfig to avoid @testing-library missing module errors
+- [vitest-globals-tsconfig](vitest-globals-tsconfig.md) — api-server tsconfig: use `types:["node"]` only + `exclude:["src/__tests__"]`; vitest NOT symlinked by pnpm to node_modules so path-based approach fails; keep vitest types only in vitest.config.ts globals setting
 - [mockup-sandbox-build](mockup-sandbox-build.md) — mockup-sandbox vite.config requires PORT/BASE_PATH but not during `vite build`; gate the throws with `process.argv.includes("build")`
 - [payment-proof-flow](payment-proof-flow.md) — approval flow: pending_review → approved/rejected; approving updates invoice paidAmount via transaction; public route /bayar/:token is before requireAuth in routes/index.ts
 - [site-id-resolution](site-id-resolution.md) — Sport Center site_id=2 (serial from migration 0011, NOT 3); dev-login dbId is UUID string — Number(UUID)=NaN so site-context access check is safely skipped; /api/sites for admin role now returns all sites
