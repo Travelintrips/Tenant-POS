@@ -474,6 +474,7 @@ export default function RekapTenantPage() {
                     <TableHead className="text-right w-28">Tunggakan</TableHead>
                     <TableHead className="w-32">Terakhir Bayar</TableHead>
                     <TableHead className="w-28">Jatuh Tempo</TableHead>
+                    <TableHead className="w-16"></TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
