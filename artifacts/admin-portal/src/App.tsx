@@ -22,6 +22,7 @@ import CompareSites from "@/pages/compare-sites";
 import TenantPortal from "@/pages/tenant-portal";
 import TinjauPembayaran from "@/pages/tinjau-pembayaran";
 import PaymentProofUpload from "@/pages/payment-proof-upload";
+import Dashboard from "@/pages/dashboard";
 
 const queryClient = new QueryClient();
 
@@ -33,10 +34,9 @@ const Spinner = () => (
 
 function getDefaultRoute(role: UserRole): string {
   switch (role) {
-    case "cashier": return "tenant-pos";
-    case "finance": return "laporan";
+    case "cashier":     return "tenant-pos";
     case "tenant_user": return "tenant-portal";
-    default: return "data-tenant";
+    default:            return "dashboard";
   }
 }
 
@@ -88,6 +88,13 @@ function Router() {
           window.location.replace(import.meta.env.BASE_URL + getDefaultRoute(user.role));
           return null;
         }}
+      </Route>
+      <Route path="/dashboard">
+        <AuthGuard roles={["owner", "admin", "finance"]}>
+          <SidebarLayout>
+            <Dashboard />
+          </SidebarLayout>
+        </AuthGuard>
       </Route>
       <Route path="/data-tenant">
         <AuthGuard roles={["owner", "admin"]}>

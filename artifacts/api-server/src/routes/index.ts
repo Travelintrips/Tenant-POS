@@ -18,6 +18,7 @@ import tenantUsersRouter from "./tenant-users";
 import whatsappRouter from "./whatsapp";
 import paymentProofRouter from "./payment-proof";
 import pendingPaymentsRouter from "./pending-payments";
+import dashboardRouter from "./dashboard";
 import { requireAuth, requireNonTenantUser } from "../middlewares/auth";
 import { siteContext } from "../middlewares/site-context";
 
@@ -52,5 +53,6 @@ router.use(mallUnitsRouter);
 router.use(auditLogsRouter);
 router.use(whatsappRouter);
 router.use(pendingPaymentsRouter);
+router.use(dashboardRouter);
 
 export default router;
