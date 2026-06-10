@@ -346,6 +346,7 @@ export default function TenantInvoices() {
 
   const [filterStatus, setFilterStatus] = useState("all");
   const [filterTenant, setFilterTenant] = useState("all");
+  const [filterDueDate, setFilterDueDate] = useState("all");
   const [search, setSearch] = useState("");
 
   const [createOpen, setCreateOpen] = useState(false);
@@ -507,6 +508,28 @@ export default function TenantInvoices() {
       totalOutstanding: all.reduce((s, i) => s + Number(i.outstandingAmount), 0),
     };
   }, [invoices]);
+
+  const filteredInvoices = useMemo(() => {
+    const all = invoices ?? [];
+    if (filterDueDate === "all") return all;
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    return all.filter(inv => {
+      if (!inv.dueDate) return false;
+      const due = new Date(inv.dueDate);
+      due.setHours(0, 0, 0, 0);
+      const diffDays = Math.round((due.getTime() - today.getTime()) / 86400000);
+
+      if (filterDueDate === "overdue") return diffDays < 0;
+      if (filterDueDate === "today")   return diffDays === 0;
+      if (filterDueDate === "7")       return diffDays >= 0 && diffDays <= 7;
+      if (filterDueDate === "14")      return diffDays >= 0 && diffDays <= 14;
+      if (filterDueDate === "30")      return diffDays >= 0 && diffDays <= 30;
+      return true;
+    });
+  }, [invoices, filterDueDate]);
 
   // ─── Handlers ────────────────────────────────────────────────────────────────
 
@@ -672,6 +695,25 @@ export default function TenantInvoices() {
                   ))}
                 </SelectContent>
               </Select>
+              <Select value={filterDueDate} onValueChange={setFilterDueDate}>
+                <SelectTrigger className="w-48 h-9"><SelectValue placeholder="Semua Tanggal" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Semua Tanggal</SelectItem>
+                  <SelectItem value="overdue">⚠️ Sudah lewat jatuh tempo</SelectItem>
+                  <SelectItem value="today">📅 Jatuh tempo hari ini</SelectItem>
+                  <SelectItem value="7">⏰ Jatuh tempo ≤ 7 hari</SelectItem>
+                  <SelectItem value="14">⏰ Jatuh tempo ≤ 14 hari</SelectItem>
+                  <SelectItem value="30">📆 Jatuh tempo ≤ 30 hari</SelectItem>
+                </SelectContent>
+              </Select>
+              {filterDueDate !== "all" && (
+                <button
+                  className="text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground h-9 px-1"
+                  onClick={() => setFilterDueDate("all")}
+                >
+                  Reset tanggal
+                </button>
+              )}
             </div>
           </div>
         </CardHeader>
@@ -704,17 +746,19 @@ export default function TenantInvoices() {
                       ))}
                     </TableRow>
                   ))
-                  : (invoices ?? []).length === 0
+                  : filteredInvoices.length === 0
                   ? (
                     <TableRow>
                       <TableCell colSpan={10} className="text-center py-10 text-muted-foreground">
                         <FileText className="h-10 w-10 mx-auto mb-2 opacity-20" />
-                        <p>Belum ada invoice.</p>
-                        <p className="text-xs mt-1">Klik "Generate dari Booking" untuk membuat invoice otomatis.</p>
+                        {filterDueDate !== "all"
+                          ? <p>Tidak ada invoice untuk filter tanggal ini.</p>
+                          : <><p>Belum ada invoice.</p><p className="text-xs mt-1">Klik "Generate dari Booking" untuk membuat invoice otomatis.</p></>
+                        }
                       </TableCell>
                     </TableRow>
                   )
-                  : (invoices ?? []).map((inv) => (
+                  : filteredInvoices.map((inv) => (
                     <TableRow key={inv.id} className="cursor-pointer hover:bg-muted/30" onClick={() => openDetail(inv)}>
                       <TableCell className="font-mono text-xs font-medium">{inv.invoiceNumber}</TableCell>
                       <TableCell>
