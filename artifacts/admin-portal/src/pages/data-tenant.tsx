@@ -92,6 +92,13 @@ function getContractInfo(endDate: string | null | undefined): {
   return { label: `~${months} bln`, colorClass: "text-green-700", bgClass: "bg-green-50 border-green-200" };
 }
 
+function formatRupiah(amount: string | number | null | undefined): string {
+  if (amount == null || amount === "") return "—";
+  const n = typeof amount === "string" ? parseFloat(amount) : amount;
+  if (isNaN(n)) return "—";
+  return "Rp " + n.toLocaleString("id-ID");
+}
+
 type TenantForm = {
   businessName: string;
   ownerName: string;
