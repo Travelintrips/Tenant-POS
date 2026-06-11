@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
@@ -23,7 +24,7 @@ import {
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, Pencil, Trash2, Search, Upload, X, ImageIcon, Building2, Dumbbell, MapPin, Eye, CalendarClock } from "lucide-react";
+import { Plus, Pencil, Trash2, Search, Upload, X, ImageIcon, Building2, Dumbbell, Eye, CalendarClock } from "lucide-react";
 import { useLocation } from "wouter";
 import { useSite } from "@/contexts/site-context";
 
@@ -179,6 +180,20 @@ async function deleteTenant(id: number): Promise<void> {
   }
 }
 
+async function bulkDeleteTenants(ids: number[]): Promise<{ deleted: number }> {
+  const res = await apiFetch(`${BASE}/api/tenants/bulk`, {
+    method: "DELETE",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ids }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error((err as { error?: string }).error ?? "Gagal menghapus tenant");
+  }
+  return res.json() as Promise<{ deleted: number }>;
+}
+
 async function uploadLogoFile(file: File): Promise<string> {
   const fd = new FormData();
   fd.append("file", file);
@@ -208,6 +223,10 @@ export default function DataTenant() {
   const [logoFile, setLogoFile] = useState<File | null>(null);
   const [logoPreview, setLogoPreview] = useState<string>("");
   const [isUploadingLogo, setIsUploadingLogo] = useState(false);
+
+  // ─── Bulk selection state ────────────────────────────────────────────────────
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
 
   const { data: tenants, isLoading, isError } = useQuery<Tenant[]>({
     queryKey: ["/api/tenants"],
@@ -244,6 +263,20 @@ export default function DataTenant() {
     onError: (e: Error) => {
       toast({ title: "Gagal", description: e.message, variant: "destructive" });
       setDeleteTarget(null);
+    },
+  });
+
+  const bulkDeleteMutation = useMutation({
+    mutationFn: bulkDeleteTenants,
+    onSuccess: (result) => {
+      void queryClient.invalidateQueries({ queryKey: ["/api/tenants"] });
+      toast({ title: "Berhasil", description: `${result.deleted} tenant berhasil dihapus.` });
+      setSelectedIds(new Set());
+      setBulkDeleteOpen(false);
+    },
+    onError: (e: Error) => {
+      toast({ title: "Gagal", description: e.message, variant: "destructive" });
+      setBulkDeleteOpen(false);
     },
   });
 
@@ -347,9 +380,45 @@ export default function DataTenant() {
 
   const siteCfg = activeSite ? (SITE_TYPE_CONFIG[activeSite.type] ?? null) : null;
 
+  // ─── Bulk selection helpers ───────────────────────────────────────────────────
+  const allFilteredIds = filtered.map((t) => t.id);
+  const allSelected = allFilteredIds.length > 0 && allFilteredIds.every((id) => selectedIds.has(id));
+  const someSelected = allFilteredIds.some((id) => selectedIds.has(id)) && !allSelected;
+
+  function toggleAll() {
+    if (allSelected) {
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        allFilteredIds.forEach((id) => next.delete(id));
+        return next;
+      });
+    } else {
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        allFilteredIds.forEach((id) => next.add(id));
+        return next;
+      });
+    }
+  }
+
+  function toggleOne(id: number) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  const selectedCount = selectedIds.size;
+  const selectedNames = filtered
+    .filter((t) => selectedIds.has(t.id))
+    .map((t) => t.businessName)
+    .slice(0, 5);
+
   return (
     <div className="flex flex-col gap-6">
-      {/* Header dengan info lokasi */}
+      {/* Header */}
       <div className="flex items-start justify-between">
         <div className="flex flex-col gap-1">
           <div className="flex items-center gap-2">
@@ -394,15 +463,41 @@ export default function DataTenant() {
         <CardHeader>
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-center gap-2">
-                <CardTitle>Daftar Tenant</CardTitle>
-                {activeSite && siteCfg && (
-                  <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold ${siteCfg.color} ${siteCfg.bg} ${siteCfg.border}`}>
-                    {siteCfg.icon}
-                    {activeSite.name}
+              <CardTitle>Daftar Tenant</CardTitle>
+              {activeSite && siteCfg && (
+                <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold ${siteCfg.color} ${siteCfg.bg} ${siteCfg.border}`}>
+                  {siteCfg.icon}
+                  {activeSite.name}
+                </span>
+              )}
+            </div>
+            <div className="flex gap-2 items-center flex-wrap">
+              {/* Bulk delete bar — muncul saat ada yang dipilih */}
+              {selectedCount > 0 && (
+                <div className="flex items-center gap-2 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-1.5">
+                  <span className="text-sm font-medium text-destructive">
+                    {selectedCount} dipilih
                   </span>
-                )}
-              </div>
-            <div className="flex gap-2">
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    className="h-7 gap-1.5 text-xs"
+                    onClick={() => setBulkDeleteOpen(true)}
+                    disabled={bulkDeleteMutation.isPending}
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                    Hapus Semua
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 text-xs text-muted-foreground"
+                    onClick={() => setSelectedIds(new Set())}
+                  >
+                    Batal Pilih
+                  </Button>
+                </div>
+              )}
               <div className="relative">
                 <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
                 <Input
@@ -436,6 +531,14 @@ export default function DataTenant() {
             <Table>
               <TableHeader>
                 <TableRow>
+                  <TableHead className="w-[44px]">
+                    <Checkbox
+                      checked={allSelected ? true : someSelected ? "indeterminate" : false}
+                      onCheckedChange={toggleAll}
+                      aria-label="Pilih semua"
+                      disabled={isLoading || filtered.length === 0}
+                    />
+                  </TableHead>
                   <TableHead className="w-[40px]">Logo</TableHead>
                   <TableHead className="w-[50px]">ID</TableHead>
                   <TableHead>Nama Usaha</TableHead>
@@ -452,7 +555,7 @@ export default function DataTenant() {
                 {isLoading
                   ? Array.from({ length: 5 }).map((_, i) => (
                       <TableRow key={i}>
-                        {Array.from({ length: 10 }).map((_, j) => (
+                        {Array.from({ length: 11 }).map((_, j) => (
                           <TableCell key={j}><Skeleton className="h-4 w-full" /></TableCell>
                         ))}
                       </TableRow>
@@ -460,13 +563,23 @@ export default function DataTenant() {
                   : filtered.length === 0
                   ? (
                     <TableRow>
-                      <TableCell colSpan={10} className="text-center py-8 text-muted-foreground">
+                      <TableCell colSpan={11} className="text-center py-8 text-muted-foreground">
                         {tenants?.length === 0 ? "Belum ada tenant terdaftar." : "Tidak ada hasil pencarian."}
                       </TableCell>
                     </TableRow>
                   )
                   : filtered.map((tenant) => (
-                      <TableRow key={tenant.id}>
+                      <TableRow
+                        key={tenant.id}
+                        className={selectedIds.has(tenant.id) ? "bg-destructive/5" : ""}
+                      >
+                        <TableCell>
+                          <Checkbox
+                            checked={selectedIds.has(tenant.id)}
+                            onCheckedChange={() => toggleOne(tenant.id)}
+                            aria-label={`Pilih ${tenant.businessName}`}
+                          />
+                        </TableCell>
                         <TableCell>
                           {tenant.logoUrl ? (
                             <img
@@ -539,6 +652,15 @@ export default function DataTenant() {
               </TableBody>
             </Table>
           </div>
+
+          {/* Footer info jumlah */}
+          {!isLoading && filtered.length > 0 && (
+            <p className="text-xs text-muted-foreground mt-2 text-right">
+              {selectedCount > 0
+                ? `${selectedCount} dari ${filtered.length} tenant dipilih`
+                : `${filtered.length} tenant ditampilkan`}
+            </p>
+          )}
         </CardContent>
       </Card>
 
@@ -575,100 +697,106 @@ export default function DataTenant() {
                       <ImageIcon className="h-6 w-6 text-muted-foreground" />
                     </div>
                   )}
-                  <div className="flex flex-col gap-1.5 flex-1">
+                  <div className="flex flex-col gap-1.5">
+                    <input
+                      ref={logoInputRef}
+                      type="file"
+                      accept="image/jpeg,image/jpg,image/png,image/webp"
+                      className="hidden"
+                      onChange={handleLogoChange}
+                    />
                     <Button
                       type="button"
                       variant="outline"
                       size="sm"
-                      className="gap-2 w-fit"
+                      className="gap-2 h-8"
                       onClick={() => logoInputRef.current?.click()}
                     >
                       <Upload className="h-3.5 w-3.5" />
-                      {logoPreview ? "Ganti Logo" : "Upload Logo"}
+                      {logoPreview ? "Ganti Logo" : "Unggah Logo"}
                     </Button>
-                    <input
-                      ref={logoInputRef}
-                      type="file"
-                      accept=".jpg,.jpeg,.png,.webp"
-                      className="hidden"
-                      onChange={handleLogoChange}
-                    />
-                    <p className="text-xs text-muted-foreground">JPG, PNG, WEBP · Maks 5MB</p>
+                    <p className="text-[11px] text-muted-foreground">JPG, PNG atau WEBP. Maks. 5MB.</p>
                   </div>
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
-                <div className="flex flex-col gap-1.5">
-                  <Label htmlFor="businessName">Nama Usaha *</Label>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="flex flex-col gap-1.5 col-span-2">
+                  <Label htmlFor="businessName">Nama Usaha <span className="text-destructive">*</span></Label>
                   <Input
-                    id="businessName" value={form.businessName} required
+                    id="businessName"
+                    value={form.businessName}
                     onChange={(e) => setForm(f => ({ ...f, businessName: e.target.value }))}
-                    placeholder="cth. Warung Nasi Bu Sari"
+                    required
+                    placeholder="cth: Warung Makan Pak Budi"
                   />
                 </div>
-                <div className="flex flex-col gap-1.5">
-                  <Label htmlFor="ownerName">Nama Pemilik *</Label>
+                <div className="flex flex-col gap-1.5 col-span-2">
+                  <Label htmlFor="ownerName">Nama Pemilik <span className="text-destructive">*</span></Label>
                   <Input
-                    id="ownerName" value={form.ownerName} required
+                    id="ownerName"
+                    value={form.ownerName}
                     onChange={(e) => setForm(f => ({ ...f, ownerName: e.target.value }))}
-                    placeholder="cth. Sari Dewi"
+                    required
+                    placeholder="Nama lengkap pemilik"
                   />
                 </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
                 <div className="flex flex-col gap-1.5">
-                  <Label htmlFor="phone">No. HP</Label>
+                  <Label htmlFor="phone">Nomor HP</Label>
                   <Input
-                    id="phone" value={form.phone}
+                    id="phone"
+                    value={form.phone}
                     onChange={(e) => setForm(f => ({ ...f, phone: e.target.value }))}
-                    placeholder="cth. 08123456789"
+                    placeholder="08xx-xxxx-xxxx"
                   />
                 </div>
                 <div className="flex flex-col gap-1.5">
                   <Label htmlFor="email">Email</Label>
                   <Input
-                    id="email" type="email" value={form.email}
+                    id="email"
+                    type="email"
+                    value={form.email}
                     onChange={(e) => setForm(f => ({ ...f, email: e.target.value }))}
-                    placeholder="cth. sari@email.com"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div className="flex flex-col gap-1.5">
-                  <Label htmlFor="areaName">Area / Lantai</Label>
-                  <Input
-                    id="areaName" value={form.areaName}
-                    onChange={(e) => setForm(f => ({ ...f, areaName: e.target.value }))}
-                    placeholder="cth. Lantai 1"
+                    placeholder="email@contoh.com"
                   />
                 </div>
                 <div className="flex flex-col gap-1.5">
-                  <Label htmlFor="boothNumber">Kode Unit</Label>
+                  <Label htmlFor="boothNumber">No. Booth / Unit</Label>
                   <Input
-                    id="boothNumber" value={form.boothNumber}
+                    id="boothNumber"
+                    value={form.boothNumber}
                     onChange={(e) => setForm(f => ({ ...f, boothNumber: e.target.value }))}
-                    placeholder="cth. A-01"
+                    placeholder="cth: A-01"
                   />
                 </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
                 <div className="flex flex-col gap-1.5">
-                  <Label htmlFor="category">Kategori</Label>
-                  <Select value={form.category || ""} onValueChange={(v) => setForm(f => ({ ...f, category: v }))}>
-                    <SelectTrigger id="category"><SelectValue placeholder="Pilih kategori..." /></SelectTrigger>
+                  <Label htmlFor="areaName">Nama Area / Lantai</Label>
+                  <Input
+                    id="areaName"
+                    value={form.areaName}
+                    onChange={(e) => setForm(f => ({ ...f, areaName: e.target.value }))}
+                    placeholder="cth: Lantai 1 / Food Court"
+                  />
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <Label htmlFor="category">Kategori Usaha</Label>
+                  <Select value={form.category} onValueChange={(v) => setForm(f => ({ ...f, category: v }))}>
+                    <SelectTrigger id="category">
+                      <SelectValue placeholder="Pilih kategori" />
+                    </SelectTrigger>
                     <SelectContent>
-                      {CATEGORIES.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+                      {CATEGORIES.map((c) => (
+                        <SelectItem key={c} value={c}>{c}</SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                 </div>
                 <div className="flex flex-col gap-1.5">
-                  <Label htmlFor="status">Status *</Label>
+                  <Label htmlFor="status">Status</Label>
                   <Select value={form.status} onValueChange={(v) => setForm(f => ({ ...f, status: v as TenantStatus }))}>
-                    <SelectTrigger id="status"><SelectValue /></SelectTrigger>
+                    <SelectTrigger id="status">
+                      <SelectValue />
+                    </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="active">Aktif</SelectItem>
                       <SelectItem value="inactive">Non-Aktif</SelectItem>
@@ -676,35 +804,38 @@ export default function DataTenant() {
                     </SelectContent>
                   </Select>
                 </div>
-              </div>
-
-              <div className="flex flex-col gap-1.5">
-                <Label htmlFor="notes">Catatan</Label>
-                <Textarea
-                  id="notes" value={form.notes} rows={3}
-                  onChange={(e) => setForm(f => ({ ...f, notes: e.target.value }))}
-                  placeholder="Catatan tambahan tentang tenant..."
-                />
+                <div className="flex flex-col gap-1.5 col-span-2">
+                  <Label htmlFor="notes">Catatan</Label>
+                  <Textarea
+                    id="notes"
+                    value={form.notes}
+                    onChange={(e) => setForm(f => ({ ...f, notes: e.target.value }))}
+                    rows={3}
+                    placeholder="Catatan tambahan (opsional)"
+                  />
+                </div>
               </div>
             </form>
           </ScrollArea>
-          <DialogFooter className="pt-2">
-            <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>Batal</Button>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDialogOpen(false)} disabled={isSaving}>
+              Batal
+            </Button>
             <Button type="submit" form="tenant-form" disabled={isSaving}>
-              {isUploadingLogo ? "Mengunggah logo..." : isSaving ? "Menyimpan..." : editTarget ? "Simpan Perubahan" : "Tambah Tenant"}
+              {isSaving ? (isUploadingLogo ? "Mengunggah logo..." : "Menyimpan...") : editTarget ? "Simpan Perubahan" : "Tambah Tenant"}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* Dialog Konfirmasi Hapus */}
+      {/* Konfirmasi Hapus Satu */}
       <AlertDialog open={!!deleteTarget} onOpenChange={(o) => { if (!o) setDeleteTarget(null); }}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Hapus Tenant?</AlertDialogTitle>
+            <AlertDialogTitle>Hapus Tenant</AlertDialogTitle>
             <AlertDialogDescription>
-              Tenant <strong>{deleteTarget?.businessName}</strong> akan dihapus secara permanen.
-              Tindakan ini tidak dapat dibatalkan.
+              Apakah Anda yakin ingin menghapus tenant{" "}
+              <strong>{deleteTarget?.businessName}</strong>? Tindakan ini tidak bisa dibatalkan.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -712,8 +843,54 @@ export default function DataTenant() {
             <AlertDialogAction
               className="bg-destructive hover:bg-destructive/90"
               onClick={() => deleteTarget && deleteMutation.mutate(deleteTarget.id)}
+              disabled={deleteMutation.isPending}
             >
-              Hapus
+              {deleteMutation.isPending ? "Menghapus..." : "Ya, Hapus"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Konfirmasi Hapus Massal */}
+      <AlertDialog open={bulkDeleteOpen} onOpenChange={setBulkDeleteOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <Trash2 className="h-5 w-5 text-destructive" />
+              Hapus {selectedCount} Tenant Sekaligus
+            </AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-2">
+                <p>
+                  Anda akan menghapus <strong>{selectedCount} tenant</strong> beserta seluruh data terkait
+                  (booking, invoice, dan pembayaran). Tindakan ini <strong>tidak dapat dibatalkan</strong>.
+                </p>
+                {selectedNames.length > 0 && (
+                  <ul className="mt-2 space-y-0.5 text-sm text-muted-foreground">
+                    {selectedNames.map((name) => (
+                      <li key={name} className="flex items-center gap-1.5">
+                        <span className="h-1.5 w-1.5 rounded-full bg-destructive/60 shrink-0" />
+                        {name}
+                      </li>
+                    ))}
+                    {selectedCount > 5 && (
+                      <li className="text-xs text-muted-foreground">
+                        ...dan {selectedCount - 5} lainnya
+                      </li>
+                    )}
+                  </ul>
+                )}
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={bulkDeleteMutation.isPending}>Batal</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive hover:bg-destructive/90"
+              onClick={() => bulkDeleteMutation.mutate(Array.from(selectedIds))}
+              disabled={bulkDeleteMutation.isPending}
+            >
+              {bulkDeleteMutation.isPending ? "Menghapus..." : `Ya, Hapus ${selectedCount} Tenant`}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

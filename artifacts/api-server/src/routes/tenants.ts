@@ -199,6 +199,46 @@ router.put("/tenants/:id", async (req, res) => {
   }
 });
 
+// ─── DELETE /api/tenants/bulk — hapus massal (harus sebelum /:id) ────────────
+router.delete("/tenants/bulk", async (req, res) => {
+  const { ids } = req.body as { ids?: unknown };
+  if (!Array.isArray(ids) || ids.length === 0) {
+    res.status(400).json({ error: "Daftar ID tidak valid atau kosong" });
+    return;
+  }
+
+  const numIds = ids.map(Number).filter((n) => !isNaN(n) && n > 0);
+  if (numIds.length === 0) {
+    res.status(400).json({ error: "Tidak ada ID yang valid" });
+    return;
+  }
+
+  try {
+    // Hapus data terkait terlebih dahulu
+    await db.delete(tenantPaymentsTable).where(inArray(tenantPaymentsTable.tenantId, numIds));
+    await db.delete(tenantInvoicesTable).where(inArray(tenantInvoicesTable.tenantId, numIds));
+    await db.delete(tenantBookingsTable).where(inArray(tenantBookingsTable.tenantId, numIds));
+
+    // Hapus tenant
+    const deleted = await db
+      .delete(tenantsTable)
+      .where(inArray(tenantsTable.id, numIds))
+      .returning();
+
+    logAudit(req, {
+      action: "bulk_delete_tenant",
+      entityType: "tenant",
+      entityId: null,
+      beforeData: { ids: numIds, count: deleted.length },
+    });
+
+    res.json({ success: true, deleted: deleted.length });
+  } catch (err) {
+    req.log.error(err, "Failed to bulk delete tenants");
+    res.status(500).json({ error: "Gagal menghapus tenant secara massal" });
+  }
+});
+
 router.delete("/tenants/:id", async (req, res) => {
   const id = Number(req.params.id);
   if (isNaN(id)) {
