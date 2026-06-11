@@ -4,10 +4,17 @@ import { tenantsTable, tenantBookingsTable, tenantPaymentsTable } from "./src/sc
 
 const { Pool } = pg;
 
-const url = process.env.DATABASE_URL;
-if (!url) throw new Error("DATABASE_URL must be set");
+const url =
+  process.env["SUPABASE_PG_URL"] ??
+  process.env["SUPABASE_DATABASE_URL"] ??
+  process.env["DATABASE_URL"];
+if (!url) throw new Error("SUPABASE_DATABASE_URL atau DATABASE_URL harus diset");
 
-const pool = new Pool({ connectionString: url });
+const isSupabase = url.includes("supabase") || url.includes("pooler");
+const pool = new Pool({
+  connectionString: url,
+  ssl: isSupabase ? { rejectUnauthorized: false } : false,
+});
 const db = drizzle(pool);
 
 async function seed() {
