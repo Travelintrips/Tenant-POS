@@ -11,7 +11,7 @@ import { useToast } from "@/hooks/use-toast";
 import { apiFetch } from "@/lib/api";
 import {
   MessageCircle, Send, AlertTriangle, CheckCircle2, Wifi, WifiOff,
-  Loader2, RefreshCw, Megaphone, Link2, PhoneCall,
+  Loader2, RefreshCw, Megaphone, Link2, PhoneCall, History, XCircle, Clock,
 } from "lucide-react";
 import { useSite } from "@/contexts/site-context";
 
@@ -49,6 +49,31 @@ interface Invoice {
   status: string;
 }
 
+interface WaLog {
+  id: number;
+  phone: string;
+  messageType: string;
+  status: "sent" | "failed" | "skipped";
+  errorMessage: string | null;
+  sentBy: string | null;
+  createdAt: string;
+}
+
+const MESSAGE_TYPE_LABELS: Record<string, string> = {
+  invoice: "Notifikasi Invoice",
+  overdue_reminder: "Pengingat Overdue",
+  blast_overdue: "Blast Overdue",
+  blast_link: "Blast Link Bayar",
+  test: "Pesan Tes",
+  payment_confirmation: "Konfirmasi Bayar",
+};
+
+function StatusBadge({ status }: { status: WaLog["status"] }) {
+  if (status === "sent") return <Badge className="bg-green-100 text-green-700 border-green-200 text-[10px]"><CheckCircle2 className="h-2.5 w-2.5 mr-1" />Terkirim</Badge>;
+  if (status === "failed") return <Badge className="bg-red-100 text-red-700 border-red-200 text-[10px]"><XCircle className="h-2.5 w-2.5 mr-1" />Gagal</Badge>;
+  return <Badge className="bg-gray-100 text-gray-500 border-gray-200 text-[10px]"><Clock className="h-2.5 w-2.5 mr-1" />Dilewati</Badge>;
+}
+
 export default function WhatsAppSend() {
   const { toast } = useToast();
   const qc = useQueryClient();
@@ -70,12 +95,19 @@ export default function WhatsAppSend() {
     queryFn: () => apiFetch(`/api/invoices?status=overdue&limit=50`).then(r => r.json()),
   });
 
+  const { data: logsData, isLoading: logsLoading, refetch: refetchLogs } = useQuery<{ data: WaLog[] }>({
+    queryKey: ["wa-logs", currentSite?.id],
+    queryFn: () => apiFetch("/api/whatsapp/logs").then(r => r.json()),
+    refetchInterval: 30000,
+  });
+
   const overdueInvoices = invoicesData?.data ?? [];
 
   const blastOverdueMut = useMutation({
     mutationFn: () => apiFetch("/api/whatsapp/blast-overdue", { method: "POST" }).then(r => r.json()),
     onSuccess: (data: BlastResult) => {
       setBlastResult(data);
+      void qc.invalidateQueries({ queryKey: ["wa-logs"] });
       toast({
         title: data.skipped ? "WA Tidak Terkirim" : data.ok ? "Blast Selesai" : "Blast Gagal",
         description: data.message ?? data.error,
@@ -89,6 +121,7 @@ export default function WhatsAppSend() {
     mutationFn: () => apiFetch("/api/whatsapp/blast-link-unpaid", { method: "POST" }).then(r => r.json()),
     onSuccess: (data: BlastResult) => {
       setBlastLinkResult(data);
+      void qc.invalidateQueries({ queryKey: ["wa-logs"] });
       toast({
         title: data.skipped ? "WA Tidak Terkirim" : data.ok ? "Blast Link Selesai" : "Blast Gagal",
         description: data.message ?? data.error,
@@ -106,6 +139,7 @@ export default function WhatsAppSend() {
         body: JSON.stringify({ phone: testPhone, message: testMsg || undefined }),
       }).then(r => r.json()),
     onSuccess: (data: { ok: boolean; message?: string; error?: string }) => {
+      void qc.invalidateQueries({ queryKey: ["wa-logs"] });
       toast({
         title: data.ok ? "Pesan Terkirim" : "Gagal Kirim",
         description: data.message ?? data.error,
@@ -119,6 +153,7 @@ export default function WhatsAppSend() {
     mutationFn: (id: number) =>
       apiFetch(`/api/whatsapp/invoice/${id}/overdue-reminder`, { method: "POST" }).then(r => r.json()),
     onSuccess: (data: { ok: boolean; message?: string; error?: string }) => {
+      void qc.invalidateQueries({ queryKey: ["wa-logs"] });
       toast({
         title: data.ok ? "Pengingat Terkirim" : "Gagal",
         description: data.message ?? data.error,
@@ -347,6 +382,67 @@ export default function WhatsAppSend() {
                     <Send className="h-3 w-3 mr-1" />
                     Kirim WA
                   </Button>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Riwayat Pengiriman WA */}
+      <Card>
+        <CardHeader className="pb-3">
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle className="text-base flex items-center gap-2">
+                <History className="h-4 w-4 text-blue-500" />
+                Riwayat Pengiriman WA
+              </CardTitle>
+              <CardDescription className="text-xs mt-0.5">
+                100 pengiriman terakhir. Diperbarui otomatis setiap 30 detik.
+              </CardDescription>
+            </div>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => void refetchLogs()}
+              disabled={logsLoading}
+            >
+              <RefreshCw className={`h-3.5 w-3.5 mr-1.5 ${logsLoading ? "animate-spin" : ""}`} />
+              Refresh
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {logsLoading ? (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground py-4">
+              <Loader2 className="h-4 w-4 animate-spin" /> Memuat riwayat...
+            </div>
+          ) : !logsData?.data.length ? (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground py-6 justify-center">
+              <History className="h-5 w-5 opacity-30" />
+              Belum ada riwayat pengiriman WA.
+            </div>
+          ) : (
+            <div className="divide-y text-sm max-h-80 overflow-y-auto">
+              {logsData.data.map((log) => (
+                <div key={log.id} className="flex items-start gap-3 py-2.5">
+                  <StatusBadge status={log.status} />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-medium text-xs">
+                        {MESSAGE_TYPE_LABELS[log.messageType] ?? log.messageType}
+                      </span>
+                      <span className="text-xs text-muted-foreground">→ {log.phone}</span>
+                    </div>
+                    {log.errorMessage && (
+                      <p className="text-xs text-red-500 mt-0.5 truncate">{log.errorMessage}</p>
+                    )}
+                    <p className="text-[10px] text-muted-foreground mt-0.5">
+                      {new Date(log.createdAt).toLocaleString("id-ID")}
+                      {log.sentBy && ` · oleh ${log.sentBy}`}
+                    </p>
+                  </div>
                 </div>
               ))}
             </div>

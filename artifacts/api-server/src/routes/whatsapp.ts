@@ -297,6 +297,7 @@ router.post("/whatsapp/blast-link-unpaid", async (req, res) => {
     let failed = 0;
     let skipped = false;
     let lastError: string | undefined;
+    const sentBy = (req.user as { email?: string } | undefined)?.email ?? null;
 
     for (const invoice of unpaidInvoices) {
       if (!invoice.phone) { failed++; continue; }
@@ -324,8 +325,17 @@ router.post("/whatsapp/blast-link-unpaid", async (req, res) => {
         paymentLink,
       });
 
-      if (result.skipped) { skipped = true; break; }
-      if (result.ok) sent++; else { failed++; lastError = result.error; }
+      if (result.skipped) {
+        await logWa({ siteId, phone: invoice.phone, messageType: "blast_link", status: "skipped", sentBy });
+        skipped = true; break;
+      }
+      if (result.ok) {
+        await logWa({ siteId, phone: invoice.phone, messageType: "blast_link", status: "sent", sentBy });
+        sent++;
+      } else {
+        await logWa({ siteId, phone: invoice.phone, messageType: "blast_link", status: "failed", errorMessage: result.error, sentBy });
+        failed++; lastError = result.error;
+      }
     }
 
     if (skipped) {
@@ -379,6 +389,7 @@ router.post("/whatsapp/test-send", async (req, res) => {
       signal: AbortSignal.timeout(10000),
     });
     const data = await r.json() as Record<string, unknown>;
+    const sentBy = (req.user as { email?: string } | undefined)?.email ?? null;
     if (!r.ok || data["status"] === false) {
       const reason = String(data["reason"] ?? data["message"] ?? "Gagal kirim WA");
       const r2 = reason.toLowerCase();
@@ -386,12 +397,33 @@ router.post("/whatsapp/test-send", async (req, res) => {
       if (r2.includes("disconnected")) errMsg = "Perangkat WhatsApp tidak terhubung. Scan ulang QR di dashboard Fonnte.";
       else if (r2.includes("invalid token") || r2.includes("unauthorized")) errMsg = "Token Fonnte tidak valid.";
       else if (r2.includes("target")) errMsg = "Nomor HP tujuan tidak valid.";
+      await logWa({ phone: normalized, messageType: "test", status: "failed", errorMessage: errMsg, sentBy });
       res.json({ ok: false, error: errMsg, raw: reason });
     } else {
+      await logWa({ phone: normalized, messageType: "test", status: "sent", sentBy });
       res.json({ ok: true, message: `Pesan tes berhasil dikirim ke ${normalized}`, target: normalized });
     }
   } catch (err) {
     res.status(502).json({ ok: false, error: err instanceof Error ? err.message : "Gagal menghubungi Fonnte" });
+  }
+});
+
+/**
+ * GET /api/whatsapp/logs
+ * Riwayat pengiriman WA (50 terbaru)
+ */
+router.get("/whatsapp/logs", requireAuth, requireAnyRole("owner", "admin", "finance"), async (req, res) => {
+  try {
+    const siteId = req.siteId;
+    const rows = await db
+      .select()
+      .from(waLogsTable)
+      .where(siteId > 0 ? eq(waLogsTable.siteId, siteId) : undefined)
+      .orderBy(desc(waLogsTable.createdAt))
+      .limit(100);
+    res.json({ data: rows });
+  } catch (err) {
+    res.status(500).json({ error: "Gagal mengambil riwayat WA" });
   }
 });
 
