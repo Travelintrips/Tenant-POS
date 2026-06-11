@@ -8,7 +8,8 @@ export type SSEEventType =
   | "payment_proof_submitted"
   | "invoice_updated"
   | "booking_updated"
-  | "unit_updated";
+  | "unit_updated"
+  | "tenant_updated";
 
 export interface SSEEvent {
   type: SSEEventType;

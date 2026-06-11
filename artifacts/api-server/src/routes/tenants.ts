@@ -7,6 +7,7 @@ import {
 import { eq, asc, desc, and, inArray, sql } from "drizzle-orm";
 import { requireAnyRole } from "../middlewares/auth";
 import { logAudit } from "../lib/audit";
+import { sseBroker } from "../lib/sse-broker";
 
 const router: IRouter = Router();
 
@@ -69,6 +70,7 @@ router.post("/tenants", async (req, res) => {
       entityId: tenant.id,
       afterData: tenant,
     });
+    sseBroker.publish("tenant_updated", { tenantId: tenant.id, action: "created" });
     res.status(201).json(tenant);
   } catch (err) {
     req.log.error(err, "Failed to create tenant");
@@ -195,6 +197,7 @@ router.put("/tenants/:id", async (req, res) => {
       beforeData: before,
       afterData: tenant,
     });
+    sseBroker.publish("tenant_updated", { tenantId: id, action: "updated" });
     res.json(tenant);
   } catch (err) {
     req.log.error(err, "Failed to update tenant");
@@ -246,7 +249,7 @@ router.delete("/tenants/bulk", async (req, res) => {
       entityId: null,
       beforeData: { ids: numIds, count: deleted.length },
     });
-
+    sseBroker.publish("tenant_updated", { action: "bulk_deleted", count: deleted.length });
     res.json({ success: true, deleted: deleted.length });
   } catch (err) {
     req.log.error(err, "Failed to bulk delete tenants");
@@ -285,6 +288,7 @@ router.delete("/tenants/:id", async (req, res) => {
       entityId: id,
       beforeData: deleted,
     });
+    sseBroker.publish("tenant_updated", { tenantId: id, action: "deleted" });
     res.json({ success: true, deleted });
   } catch (err) {
     req.log.error(err, "Failed to delete tenant");
