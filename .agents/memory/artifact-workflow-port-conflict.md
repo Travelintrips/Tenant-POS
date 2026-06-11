@@ -1,20 +1,22 @@
 ---
 name: artifact-workflow-port-conflict
-description: Replit artifact system auto-creates workflows that conflict with "Start application" on port 8080. Solution is to keep both API + portal in "Start application".
+description: Replit artifact system auto-creates workflows that conflict with "Start application" on port 8080. Let artifact workflow own port 8080; Start application runs admin portal only.
 ---
 
 # Artifact Workflow Port Conflict
 
 Replit auto-creates separate workflows per artifact (`artifacts/api-server: API Server`, `artifacts/admin-portal: web`). These cannot be deleted or reconfigured — they are managed by the artifact system.
 
-**Problem:** `artifacts/api-server: API Server` tries to bind port 8080, conflicting with the "Start application" workflow which also runs the API on 8080.
+**Problem:** `artifacts/api-server: API Server` auto-restarts and reclaims port 8080 in milliseconds. Any attempt by "Start application" to kill port 8080 (via `fuser -k`) and then start the API server races against the artifact workflow restarting and rebinding the port before the build finishes (~350ms build time).
 
-**Why:** Both workflows run the same api-server dev command targeting port 8080. Only one can bind the port.
+**Why:** The artifact workflow is a persistent managed process. It detects its process died and immediately restarts, winning the port race every time.
 
-**How to apply:** Keep "Start application" as the authoritative workflow running both services in parallel:
+**Solution:** Let the artifact workflow own port 8080 entirely. "Start application" only runs the admin portal on port 5000:
 ```
-PORT=8080 pnpm --filter @workspace/api-server run dev & PORT=5000 BASE_PATH=/ pnpm --filter @workspace/admin-portal run dev
+PORT=5000 BASE_PATH=/ pnpm --filter @workspace/admin-portal run dev
 ```
-The artifact `api-server` workflow will fail with EADDRINUSE — this is expected and harmless. The app works correctly through "Start application".
+The admin portal Vite proxy forwards `/api` to `localhost:8080` (the artifact api-server). This works because both run in the same container.
+
+**How to apply:** If "Start application" shows EADDRINUSE on port 8080, update it to remove the API server command — leave only the admin portal command above.
 
 Also: `multer` was missing from `api-server/package.json` — it must be explicitly installed (`pnpm --filter @workspace/api-server add multer @types/multer`).
