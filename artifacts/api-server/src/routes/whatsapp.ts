@@ -72,12 +72,13 @@ router.post("/whatsapp/invoice/:id/send", async (req, res) => {
     });
 
     if (result.skipped) {
-      res.json({ ok: true, skipped: true, message: "FONNTE_TOKEN belum dikonfigurasi. Pesan tidak terkirim." });
+      res.json({ ok: true, skipped: true, paymentLink: paymentLink ?? null, message: "FONNTE_TOKEN belum dikonfigurasi. Pesan tidak terkirim." });
       return;
     }
 
     if (!result.ok) {
-      res.status(502).json({ error: result.error ?? "Gagal kirim WA" });
+      // Kembalikan 200 dengan waFailed=true supaya frontend bisa tampilkan link bayar sebagai fallback
+      res.json({ ok: false, waFailed: true, error: result.error ?? "Gagal kirim WA", paymentLink: paymentLink ?? null });
       return;
     }
 

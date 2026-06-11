@@ -23,6 +23,7 @@ import { useToast } from "@/hooks/use-toast";
 import {
   Plus, FileText, Printer, CreditCard, X, Search, Zap, AlertCircle,
   CheckCircle2, Clock, Ban, CircleDashed, MessageCircle, Send, Link2, Loader2,
+  Copy, WifiOff, CheckCheck,
 } from "lucide-react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -364,6 +365,8 @@ export default function TenantInvoices() {
 
   const [cancelTarget, setCancelTarget] = useState<Invoice | null>(null);
   const [sendingLinkId, setSendingLinkId] = useState<number | null>(null);
+  const [paymentLinkDialog, setPaymentLinkDialog] = useState<{ link: string; error: string } | null>(null);
+  const [linkCopied, setLinkCopied] = useState(false);
 
   // ─── Queries ────────────────────────────────────────────────────────────────
 
@@ -457,12 +460,24 @@ export default function TenantInvoices() {
 
   const sendLinkMutation = useMutation({
     mutationFn: (id: number) =>
-      apiPost<{ ok: boolean; skipped?: boolean; message: string }>(`${BASE}/api/whatsapp/invoice/${id}/send`, {}),
+      apiPost<{ ok: boolean; skipped?: boolean; waFailed?: boolean; error?: string; message?: string; paymentLink?: string | null }>(`${BASE}/api/whatsapp/invoice/${id}/send`, {}),
     onMutate: (id) => setSendingLinkId(id),
     onSettled: () => setSendingLinkId(null),
     onSuccess: (res) => {
       if (res.skipped) {
-        toast({ title: "WA Tidak Terkirim", description: "FONNTE_TOKEN belum dikonfigurasi.", variant: "destructive" });
+        if (res.paymentLink) {
+          setLinkCopied(false);
+          setPaymentLinkDialog({ link: res.paymentLink, error: "WhatsApp belum dikonfigurasi (FONNTE_TOKEN kosong)." });
+        } else {
+          toast({ title: "WA Tidak Terkirim", description: "FONNTE_TOKEN belum dikonfigurasi.", variant: "destructive" });
+        }
+      } else if (res.waFailed) {
+        if (res.paymentLink) {
+          setLinkCopied(false);
+          setPaymentLinkDialog({ link: res.paymentLink, error: res.error ?? "Gagal kirim WA" });
+        } else {
+          toast({ title: "Gagal Kirim WA", description: res.error, variant: "destructive" });
+        }
       } else {
         toast({ title: "Link Bayar Terkirim! 🔗", description: res.message });
       }
@@ -1197,6 +1212,55 @@ export default function TenantInvoices() {
               onClick={() => cancelTarget && cancelMutation.mutate(cancelTarget.id)}
             >
               {cancelMutation.isPending ? "Membatalkan..." : "Ya, Batalkan"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ─── Dialog: Fallback Link Bayar (WA gagal) ───────────────────────────── */}
+      <Dialog open={!!paymentLinkDialog} onOpenChange={(o) => { if (!o) { setPaymentLinkDialog(null); setLinkCopied(false); } }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <WifiOff className="h-5 w-5 text-orange-500" />
+              WhatsApp Tidak Terhubung
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="rounded-md border border-orange-200 bg-orange-50 px-4 py-3 text-sm text-orange-800">
+              <p className="font-medium mb-1">Pengiriman WA gagal</p>
+              <p className="text-orange-700">{paymentLinkDialog?.error}</p>
+            </div>
+            <div>
+              <p className="text-sm text-muted-foreground mb-2">
+                Anda bisa kirim link bayar ini secara manual ke tenant (copy lalu kirim via WA, SMS, atau email):
+              </p>
+              <div className="flex items-center gap-2 rounded-md border bg-muted/40 px-3 py-2">
+                <Link2 className="h-4 w-4 text-muted-foreground shrink-0" />
+                <span className="flex-1 text-xs font-mono break-all select-all">
+                  {paymentLinkDialog?.link}
+                </span>
+              </div>
+            </div>
+          </div>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => { setPaymentLinkDialog(null); setLinkCopied(false); }}>
+              Tutup
+            </Button>
+            <Button
+              className={linkCopied ? "bg-green-600 hover:bg-green-700" : ""}
+              onClick={() => {
+                if (paymentLinkDialog?.link) {
+                  void navigator.clipboard.writeText(paymentLinkDialog.link);
+                  setLinkCopied(true);
+                  setTimeout(() => setLinkCopied(false), 3000);
+                }
+              }}
+            >
+              {linkCopied
+                ? <><CheckCheck className="h-4 w-4 mr-1.5" />Tersalin!</>
+                : <><Copy className="h-4 w-4 mr-1.5" />Salin Link</>
+              }
             </Button>
           </DialogFooter>
         </DialogContent>
