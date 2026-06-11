@@ -246,14 +246,24 @@ router.delete("/tenants/:id", async (req, res) => {
     return;
   }
   try {
+    // Ambil data tenant dulu untuk audit log
+    const [tenant] = await db.select().from(tenantsTable).where(eq(tenantsTable.id, id)).limit(1);
+    if (!tenant) {
+      res.status(404).json({ error: "Tenant tidak ditemukan" });
+      return;
+    }
+
+    // Hapus data terkait terlebih dahulu (menghindari foreign key constraint)
+    await db.delete(tenantPaymentsTable).where(eq(tenantPaymentsTable.tenantId, id));
+    await db.delete(tenantInvoicesTable).where(eq(tenantInvoicesTable.tenantId, id));
+    await db.delete(tenantBookingsTable).where(eq(tenantBookingsTable.tenantId, id));
+
+    // Hapus tenant
     const [deleted] = await db
       .delete(tenantsTable)
       .where(eq(tenantsTable.id, id))
       .returning();
-    if (!deleted) {
-      res.status(404).json({ error: "Tenant tidak ditemukan" });
-      return;
-    }
+
     logAudit(req, {
       action: "delete_tenant",
       entityType: "tenant",
