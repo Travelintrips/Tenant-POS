@@ -31,10 +31,24 @@ export default function Login() {
   const qc = useQueryClient();
 
   useEffect(() => {
-    fetch("/api/auth/dev-login-enabled", { credentials: "include" })
-      .then((r) => r.json())
-      .then((data) => setDevLoginEnabled(data.enabled === true))
-      .catch(() => setDevLoginEnabled(false));
+    let cancelled = false;
+    const tryFetch = (attemptsLeft: number) => {
+      fetch("/api/auth/dev-login-enabled", { credentials: "include" })
+        .then((r) => r.json())
+        .then((data) => {
+          if (!cancelled) setDevLoginEnabled(data.enabled === true);
+        })
+        .catch(() => {
+          if (cancelled) return;
+          if (attemptsLeft > 1) {
+            setTimeout(() => tryFetch(attemptsLeft - 1), 1500);
+          } else {
+            setDevLoginEnabled(false);
+          }
+        });
+    };
+    tryFetch(5);
+    return () => { cancelled = true; };
   }, []);
 
   const handleDevLogin = async (role: UserRole) => {
