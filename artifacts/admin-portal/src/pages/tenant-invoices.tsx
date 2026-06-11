@@ -74,7 +74,24 @@ type Payment = {
 };
 
 type Tenant = { id: number; businessName: string };
-type Booking = { id: number; tenantId: number; tenantName: string | null; unitCode: string | null; contractNumber: string | null };
+type Booking = {
+  id: number;
+  tenantId: number;
+  tenantName: string | null;
+  unitCode: string | null;
+  contractNumber: string | null;
+  orderNumber: string | null;
+  startDate: string | null;
+  endDate: string | null;
+  dueDate: string | null;
+  rentAmount: string | null;
+  serviceChargeAmount: string | null;
+  electricityChargeAmount: string | null;
+  waterChargeAmount: string | null;
+  otherChargeAmount: string | null;
+  totalAmount: string | null;
+  periodLabel: string | null;
+};
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -1022,19 +1039,47 @@ export default function TenantInvoices() {
                   <Select
                     value={createForm.bookingId}
                     onValueChange={(v) => {
+                      if (v === "__clear__") {
+                        setCreateForm(f => ({ ...f, bookingId: "" }));
+                        return;
+                      }
                       const bk = (bookings ?? []).find(b => String(b.id) === v);
-                      setCreateForm(f => ({ ...f, bookingId: v, unitCode: bk?.unitCode ?? f.unitCode }));
+                      setCreateForm(f => ({
+                        ...f,
+                        bookingId: v,
+                        unitCode: bk?.unitCode ?? f.unitCode,
+                        periodStart: bk?.startDate ? bk.startDate.slice(0, 10) : f.periodStart,
+                        periodEnd: bk?.endDate ? bk.endDate.slice(0, 10) : f.periodEnd,
+                        dueDate: bk?.dueDate ? bk.dueDate.slice(0, 10) : f.dueDate,
+                        rentAmount: bk?.rentAmount ? String(bk.rentAmount) : f.rentAmount,
+                        serviceChargeAmount: bk?.serviceChargeAmount ? String(bk.serviceChargeAmount) : f.serviceChargeAmount,
+                        electricityChargeAmount: bk?.electricityChargeAmount ? String(bk.electricityChargeAmount) : f.electricityChargeAmount,
+                        waterChargeAmount: bk?.waterChargeAmount ? String(bk.waterChargeAmount) : f.waterChargeAmount,
+                        otherChargeAmount: bk?.otherChargeAmount ? String(bk.otherChargeAmount) : f.otherChargeAmount,
+                      }));
                     }}
                   >
                     <SelectTrigger><SelectValue placeholder="Pilih booking (opsional)..." /></SelectTrigger>
                     <SelectContent>
+                      {createForm.bookingId && (
+                        <SelectItem value="__clear__" className="text-muted-foreground italic">
+                          — Kosongkan pilihan —
+                        </SelectItem>
+                      )}
                       {(bookings ?? [])
                         .filter(b => !createForm.tenantId || String(b.tenantId) === createForm.tenantId)
                         .map((b) => (
                           <SelectItem key={b.id} value={String(b.id)}>
-                            {b.contractNumber ?? `#${b.id}`} — {b.tenantName ?? ""} {b.unitCode ? `(${b.unitCode})` : ""}
+                            {b.contractNumber ?? b.orderNumber ?? `#${b.id}`}
+                            {b.tenantName ? ` — ${b.tenantName}` : ""}
+                            {b.unitCode ? ` (${b.unitCode})` : ""}
                           </SelectItem>
                         ))}
+                      {(bookings ?? []).filter(b => !createForm.tenantId || String(b.tenantId) === createForm.tenantId).length === 0 && (
+                        <div className="px-3 py-2 text-sm text-muted-foreground">
+                          {createForm.tenantId ? "Tidak ada booking untuk tenant ini" : "Belum ada data booking"}
+                        </div>
+                      )}
                     </SelectContent>
                   </Select>
                 </Field>
