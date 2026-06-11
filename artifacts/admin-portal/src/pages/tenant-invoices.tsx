@@ -397,6 +397,18 @@ export default function TenantInvoices() {
     enabled: !!detailTarget,
   });
 
+  const { data: waStatus, isLoading: waStatusLoading } = useQuery<{
+    configured: boolean;
+    connected: boolean | null;
+    provider: string;
+    message: string;
+  }>({
+    queryKey: ["/api/whatsapp/status"],
+    queryFn: () => apiFetch(`${BASE}/api/whatsapp/status`),
+    refetchInterval: 60_000,
+    staleTime: 30_000,
+  });
+
   // ─── Mutations ──────────────────────────────────────────────────────────────
 
   const createMutation = useMutation({
@@ -620,7 +632,41 @@ export default function TenantInvoices() {
       <div className="flex items-start justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Invoice Tenant</h1>
-          <p className="text-muted-foreground mt-1">Kelola tagihan dan pembayaran invoice tenant.</p>
+          <div className="flex items-center gap-2 mt-1">
+            <p className="text-muted-foreground text-sm">Kelola tagihan dan pembayaran invoice tenant.</p>
+            {/* Indikator status WhatsApp */}
+            {!waStatusLoading && waStatus && (
+              <span
+                title={waStatus.message}
+                className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium cursor-default select-none ${
+                  !waStatus.configured
+                    ? "border-gray-200 bg-gray-50 text-gray-500"
+                    : waStatus.connected === true
+                    ? "border-green-200 bg-green-50 text-green-700"
+                    : waStatus.connected === false
+                    ? "border-red-200 bg-red-50 text-red-700"
+                    : "border-yellow-200 bg-yellow-50 text-yellow-700"
+                }`}
+              >
+                <span className={`h-1.5 w-1.5 rounded-full ${
+                  !waStatus.configured
+                    ? "bg-gray-400"
+                    : waStatus.connected === true
+                    ? "bg-green-500"
+                    : waStatus.connected === false
+                    ? "bg-red-500 animate-pulse"
+                    : "bg-yellow-500"
+                }`} />
+                WA {!waStatus.configured
+                  ? "Tidak Dikonfigurasi"
+                  : waStatus.connected === true
+                  ? "Terhubung"
+                  : waStatus.connected === false
+                  ? "Terputus"
+                  : "Tidak Diketahui"}
+              </span>
+            )}
+          </div>
         </div>
         <div className="flex gap-2 flex-wrap">
           <Button
