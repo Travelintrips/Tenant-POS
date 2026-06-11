@@ -1392,6 +1392,13 @@ END $$;
     name: "0020_users_force_logout_at",
     sql: `ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "force_logout_at" timestamptz;`.trim(),
   },
+  {
+    name: "0021_invoice_due_reminders",
+    sql: `
+ALTER TABLE "tenant_invoices" ADD COLUMN IF NOT EXISTS "due_reminder_3d_at" timestamptz;
+ALTER TABLE "tenant_invoices" ADD COLUMN IF NOT EXISTS "due_reminder_1d_at" timestamptz;
+    `.trim(),
+  },
 ];
 
 const MIGRATIONS_TABLE = "schema_migrations";
