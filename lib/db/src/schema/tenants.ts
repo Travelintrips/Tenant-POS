@@ -1,4 +1,4 @@
-import { pgTable, serial, integer, text, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, serial, integer, text, numeric, timestamp } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 import { mallSitesTable } from "./mall-sites";
@@ -23,6 +23,11 @@ export const tenantsTable = pgTable("tenants", {
   address: text("address"),
   status: text("status").notNull().default("active"),
   notes: text("notes"),
+  defaultRentAmount: numeric("default_rent_amount").default("0"),
+  defaultServiceChargeAmount: numeric("default_service_charge_amount").default("0"),
+  defaultElectricityChargeAmount: numeric("default_electricity_charge_amount").default("0"),
+  defaultWaterChargeAmount: numeric("default_water_charge_amount").default("0"),
+  defaultOtherChargeAmount: numeric("default_other_charge_amount").default("0"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });

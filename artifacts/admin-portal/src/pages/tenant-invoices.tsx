@@ -73,7 +73,16 @@ type Payment = {
   paidAt: string | null;
 };
 
-type Tenant = { id: number; businessName: string };
+type Tenant = {
+  id: number;
+  businessName: string;
+  boothNumber: string | null;
+  defaultRentAmount: string | null;
+  defaultServiceChargeAmount: string | null;
+  defaultElectricityChargeAmount: string | null;
+  defaultWaterChargeAmount: string | null;
+  defaultOtherChargeAmount: string | null;
+};
 type Booking = {
   id: number;
   tenantId: number;
@@ -1026,7 +1035,28 @@ export default function TenantInvoices() {
             <form id="create-invoice-form" onSubmit={handleCreateSubmit} className="flex flex-col gap-4 py-1">
               <div className="grid grid-cols-2 gap-4">
                 <Field label="Tenant" required>
-                  <Select value={createForm.tenantId} onValueChange={(v) => setCreateForm(f => ({ ...f, tenantId: v, bookingId: "" }))}>
+                  <Select
+                    value={createForm.tenantId}
+                    onValueChange={(v) => {
+                      const tenant = (tenants ?? []).find(t => String(t.id) === v);
+                      setCreateForm(f => ({
+                        ...f,
+                        tenantId: v,
+                        bookingId: "",
+                        unitCode: tenant?.boothNumber ?? f.unitCode,
+                        rentAmount: tenant?.defaultRentAmount && Number(tenant.defaultRentAmount) > 0
+                          ? tenant.defaultRentAmount : f.rentAmount,
+                        serviceChargeAmount: tenant?.defaultServiceChargeAmount && Number(tenant.defaultServiceChargeAmount) > 0
+                          ? tenant.defaultServiceChargeAmount : f.serviceChargeAmount,
+                        electricityChargeAmount: tenant?.defaultElectricityChargeAmount && Number(tenant.defaultElectricityChargeAmount) > 0
+                          ? tenant.defaultElectricityChargeAmount : f.electricityChargeAmount,
+                        waterChargeAmount: tenant?.defaultWaterChargeAmount && Number(tenant.defaultWaterChargeAmount) > 0
+                          ? tenant.defaultWaterChargeAmount : f.waterChargeAmount,
+                        otherChargeAmount: tenant?.defaultOtherChargeAmount && Number(tenant.defaultOtherChargeAmount) > 0
+                          ? tenant.defaultOtherChargeAmount : f.otherChargeAmount,
+                      }));
+                    }}
+                  >
                     <SelectTrigger><SelectValue placeholder="Pilih tenant..." /></SelectTrigger>
                     <SelectContent>
                       {(tenants ?? []).map((t) => (

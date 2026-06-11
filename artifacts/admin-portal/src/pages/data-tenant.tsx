@@ -62,6 +62,11 @@ type Tenant = {
   status: TenantStatus;
   notes: string | null;
   logoUrl: string | null;
+  defaultRentAmount: string | null;
+  defaultServiceChargeAmount: string | null;
+  defaultElectricityChargeAmount: string | null;
+  defaultWaterChargeAmount: string | null;
+  defaultOtherChargeAmount: string | null;
   createdAt: string;
   updatedAt: string;
   contractEndDate?: string | null;
@@ -97,6 +102,11 @@ type TenantForm = {
   status: TenantStatus;
   notes: string;
   logoUrl: string;
+  defaultRentAmount: string;
+  defaultServiceChargeAmount: string;
+  defaultElectricityChargeAmount: string;
+  defaultWaterChargeAmount: string;
+  defaultOtherChargeAmount: string;
 };
 
 const EMPTY_FORM: TenantForm = {
@@ -110,6 +120,11 @@ const EMPTY_FORM: TenantForm = {
   status: "active",
   notes: "",
   logoUrl: "",
+  defaultRentAmount: "",
+  defaultServiceChargeAmount: "",
+  defaultElectricityChargeAmount: "",
+  defaultWaterChargeAmount: "",
+  defaultOtherChargeAmount: "",
 };
 
 const STATUS_LABEL: Record<string, string> = {
@@ -304,6 +319,11 @@ export default function DataTenant() {
       status: tenant.status,
       notes: tenant.notes ?? "",
       logoUrl: tenant.logoUrl ?? "",
+      defaultRentAmount: tenant.defaultRentAmount ?? "",
+      defaultServiceChargeAmount: tenant.defaultServiceChargeAmount ?? "",
+      defaultElectricityChargeAmount: tenant.defaultElectricityChargeAmount ?? "",
+      defaultWaterChargeAmount: tenant.defaultWaterChargeAmount ?? "",
+      defaultOtherChargeAmount: tenant.defaultOtherChargeAmount ?? "",
     });
     setLogoFile(null);
     setLogoPreview(tenant.logoUrl ?? "");
@@ -974,6 +994,77 @@ export default function DataTenant() {
                     rows={3}
                     placeholder="Catatan tambahan (opsional)"
                   />
+                </div>
+              </div>
+
+              {/* ── Tarif Default ─────────────────────────────────────── */}
+              <div className="flex flex-col gap-3 pt-1">
+                <div className="flex items-center gap-2">
+                  <div className="h-px flex-1 bg-border" />
+                  <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide px-1">
+                    Tarif Default (untuk Invoice)
+                  </span>
+                  <div className="h-px flex-1 bg-border" />
+                </div>
+                <p className="text-xs text-muted-foreground -mt-1">
+                  Diisi otomatis saat membuat invoice baru untuk tenant ini. Bisa diubah manual saat buat invoice.
+                </p>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="flex flex-col gap-1.5">
+                    <Label htmlFor="defaultRentAmount">Harga Sewa (Rp)</Label>
+                    <Input
+                      id="defaultRentAmount"
+                      type="number"
+                      min="0"
+                      value={form.defaultRentAmount}
+                      onChange={(e) => setForm(f => ({ ...f, defaultRentAmount: e.target.value }))}
+                      placeholder="0"
+                    />
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <Label htmlFor="defaultServiceChargeAmount">Service Charge (Rp)</Label>
+                    <Input
+                      id="defaultServiceChargeAmount"
+                      type="number"
+                      min="0"
+                      value={form.defaultServiceChargeAmount}
+                      onChange={(e) => setForm(f => ({ ...f, defaultServiceChargeAmount: e.target.value }))}
+                      placeholder="0"
+                    />
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <Label htmlFor="defaultElectricityChargeAmount">Biaya Listrik (Rp)</Label>
+                    <Input
+                      id="defaultElectricityChargeAmount"
+                      type="number"
+                      min="0"
+                      value={form.defaultElectricityChargeAmount}
+                      onChange={(e) => setForm(f => ({ ...f, defaultElectricityChargeAmount: e.target.value }))}
+                      placeholder="0"
+                    />
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <Label htmlFor="defaultWaterChargeAmount">Biaya Air (Rp)</Label>
+                    <Input
+                      id="defaultWaterChargeAmount"
+                      type="number"
+                      min="0"
+                      value={form.defaultWaterChargeAmount}
+                      onChange={(e) => setForm(f => ({ ...f, defaultWaterChargeAmount: e.target.value }))}
+                      placeholder="0"
+                    />
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <Label htmlFor="defaultOtherChargeAmount">Biaya Lain-lain (Rp)</Label>
+                    <Input
+                      id="defaultOtherChargeAmount"
+                      type="number"
+                      min="0"
+                      value={form.defaultOtherChargeAmount}
+                      onChange={(e) => setForm(f => ({ ...f, defaultOtherChargeAmount: e.target.value }))}
+                      placeholder="0"
+                    />
+                  </div>
                 </div>
               </div>
             </form>

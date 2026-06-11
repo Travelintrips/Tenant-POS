@@ -1418,6 +1418,28 @@ CREATE INDEX IF NOT EXISTS "wa_send_logs_created_at_idx" ON "wa_send_logs" ("cre
 CREATE INDEX IF NOT EXISTS "wa_send_logs_site_id_idx" ON "wa_send_logs" ("site_id");
     `.trim(),
   },
+  {
+    name: "0025_tenant_default_prices",
+    sql: `
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='tenants' AND column_name='default_rent_amount') THEN
+    ALTER TABLE "tenants" ADD COLUMN "default_rent_amount" numeric DEFAULT '0';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='tenants' AND column_name='default_service_charge_amount') THEN
+    ALTER TABLE "tenants" ADD COLUMN "default_service_charge_amount" numeric DEFAULT '0';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='tenants' AND column_name='default_electricity_charge_amount') THEN
+    ALTER TABLE "tenants" ADD COLUMN "default_electricity_charge_amount" numeric DEFAULT '0';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='tenants' AND column_name='default_water_charge_amount') THEN
+    ALTER TABLE "tenants" ADD COLUMN "default_water_charge_amount" numeric DEFAULT '0';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='tenants' AND column_name='default_other_charge_amount') THEN
+    ALTER TABLE "tenants" ADD COLUMN "default_other_charge_amount" numeric DEFAULT '0';
+  END IF;
+END $$;
+    `.trim(),
+  },
 ];
 
 const MIGRATIONS_TABLE = "schema_migrations";
