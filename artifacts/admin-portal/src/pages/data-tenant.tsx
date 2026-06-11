@@ -162,6 +162,23 @@ async function fetchTenants(): Promise<Tenant[]> {
   return res.json() as Promise<Tenant[]>;
 }
 
+type MallUnit = {
+  id: number;
+  unitCode: string;
+  areaKantin: string | null;
+  zone: string | null;
+  floor: string | null;
+  status: string;
+  tenantId: number | null;
+  businessName: string | null;
+};
+
+async function fetchMallUnits(): Promise<MallUnit[]> {
+  const res = await apiFetch(`${BASE}/api/mall-units`, { credentials: "include" });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json() as Promise<MallUnit[]>;
+}
+
 async function createTenant(data: TenantForm): Promise<Tenant> {
   const res = await apiFetch(`${BASE}/api/tenants`, {
     method: "POST",
@@ -250,6 +267,22 @@ export default function DataTenant() {
     queryKey: ["/api/tenants"],
     queryFn: fetchTenants,
   });
+
+  const { data: mallUnits = [] } = useQuery<MallUnit[]>({
+    queryKey: ["/api/mall-units"],
+    queryFn: fetchMallUnits,
+    enabled: dialogOpen,
+  });
+
+  const availableUnits = mallUnits.filter((u) => u.status === "available");
+  const unitOptions = editTarget
+    ? [
+        ...(editTarget.boothNumber && !availableUnits.find((u) => u.unitCode === editTarget.boothNumber)
+          ? [{ unitCode: editTarget.boothNumber, areaKantin: editTarget.areaName, zone: null, floor: null, status: "occupied", tenantId: null, businessName: null, id: -1 }]
+          : []),
+        ...availableUnits,
+      ]
+    : availableUnits;
 
   const createMutation = useMutation({
     mutationFn: createTenant,
@@ -372,10 +405,16 @@ export default function DataTenant() {
       setIsUploadingLogo(false);
     }
 
+    const toNum = (v: string) => (v === "" ? "0" : v);
     const payload: TenantForm = {
       ...form,
       logoUrl: finalLogoUrl,
       notes: form.notes || "",
+      defaultRentAmount: toNum(form.defaultRentAmount),
+      defaultServiceChargeAmount: toNum(form.defaultServiceChargeAmount),
+      defaultElectricityChargeAmount: toNum(form.defaultElectricityChargeAmount),
+      defaultWaterChargeAmount: toNum(form.defaultWaterChargeAmount),
+      defaultOtherChargeAmount: toNum(form.defaultOtherChargeAmount),
     };
 
     if (editTarget) {
@@ -943,12 +982,43 @@ export default function DataTenant() {
                 </div>
                 <div className="flex flex-col gap-1.5">
                   <Label htmlFor="boothNumber">No. Booth / Unit</Label>
-                  <Input
-                    id="boothNumber"
-                    value={form.boothNumber}
-                    onChange={(e) => setForm(f => ({ ...f, boothNumber: e.target.value }))}
-                    placeholder="cth: A-01"
-                  />
+                  <Select
+                    value={form.boothNumber || "__none__"}
+                    onValueChange={(v) => {
+                      if (v === "__none__") {
+                        setForm(f => ({ ...f, boothNumber: "" }));
+                        return;
+                      }
+                      const unit = unitOptions.find((u) => u.unitCode === v);
+                      const area = unit?.areaKantin ?? unit?.zone ?? (unit?.floor ? `Lantai ${unit.floor}` : "");
+                      setForm(f => ({ ...f, boothNumber: v, areaName: area || f.areaName }));
+                    }}
+                  >
+                    <SelectTrigger id="boothNumber">
+                      <SelectValue placeholder="Pilih unit..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__none__">— Tidak dipilih —</SelectItem>
+                      {unitOptions.length === 0 && (
+                        <div className="px-2 py-3 text-sm text-muted-foreground text-center">
+                          Semua unit sudah terisi
+                        </div>
+                      )}
+                      {unitOptions.map((u) => (
+                        <SelectItem key={u.unitCode} value={u.unitCode}>
+                          <span className="font-mono font-medium">{u.unitCode}</span>
+                          {(u.areaKantin ?? u.zone) && (
+                            <span className="text-muted-foreground ml-1.5 text-xs">
+                              — {u.areaKantin ?? u.zone}
+                            </span>
+                          )}
+                          {u.status === "occupied" && (
+                            <span className="text-orange-600 ml-1.5 text-xs">(saat ini)</span>
+                          )}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
                 <div className="flex flex-col gap-1.5">
                   <Label htmlFor="areaName">Nama Area / Lantai</Label>
