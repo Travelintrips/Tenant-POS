@@ -1149,16 +1149,11 @@ export default function TenantInvoices() {
                         tenantId: v,
                         bookingId: "",
                         unitCode: tenant?.boothNumber ?? f.unitCode,
-                        rentAmount: tenant?.defaultRentAmount && Number(tenant.defaultRentAmount) > 0
-                          ? tenant.defaultRentAmount : f.rentAmount,
-                        serviceChargeAmount: tenant?.defaultServiceChargeAmount && Number(tenant.defaultServiceChargeAmount) > 0
-                          ? tenant.defaultServiceChargeAmount : f.serviceChargeAmount,
-                        electricityChargeAmount: tenant?.defaultElectricityChargeAmount && Number(tenant.defaultElectricityChargeAmount) > 0
-                          ? tenant.defaultElectricityChargeAmount : f.electricityChargeAmount,
-                        waterChargeAmount: tenant?.defaultWaterChargeAmount && Number(tenant.defaultWaterChargeAmount) > 0
-                          ? tenant.defaultWaterChargeAmount : f.waterChargeAmount,
-                        otherChargeAmount: tenant?.defaultOtherChargeAmount && Number(tenant.defaultOtherChargeAmount) > 0
-                          ? tenant.defaultOtherChargeAmount : f.otherChargeAmount,
+                        rentAmount: tenant?.defaultRentAmount ?? f.rentAmount,
+                        serviceChargeAmount: tenant?.defaultServiceChargeAmount ?? f.serviceChargeAmount,
+                        electricityChargeAmount: tenant?.defaultElectricityChargeAmount ?? f.electricityChargeAmount,
+                        waterChargeAmount: tenant?.defaultWaterChargeAmount ?? f.waterChargeAmount,
+                        otherChargeAmount: tenant?.defaultOtherChargeAmount ?? f.otherChargeAmount,
                       }));
                     }}
                   >
