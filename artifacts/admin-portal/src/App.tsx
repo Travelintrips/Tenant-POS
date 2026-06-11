@@ -26,6 +26,8 @@ import TinjauPembayaran from "@/pages/tinjau-pembayaran";
 import PaymentProofUpload from "@/pages/payment-proof-upload";
 import Dashboard from "@/pages/dashboard";
 import TenantProfile from "@/pages/tenant-profile";
+import WhatsAppSend from "@/pages/whatsapp-send";
+import WhatsAppTemplates from "@/pages/whatsapp-templates";
 
 const queryClient = new QueryClient();
 
@@ -187,6 +189,20 @@ function Router() {
         <AuthGuard roles={["owner", "admin", "finance"]}>
           <SidebarLayout>
             <TenantProfile />
+          </SidebarLayout>
+        </AuthGuard>
+      </Route>
+      <Route path="/kirim-wa">
+        <AuthGuard roles={["owner", "admin", "finance"]}>
+          <SidebarLayout>
+            <WhatsAppSend />
+          </SidebarLayout>
+        </AuthGuard>
+      </Route>
+      <Route path="/template-wa">
+        <AuthGuard roles={["owner", "admin", "finance"]}>
+          <SidebarLayout>
+            <WhatsAppTemplates />
           </SidebarLayout>
         </AuthGuard>
       </Route>

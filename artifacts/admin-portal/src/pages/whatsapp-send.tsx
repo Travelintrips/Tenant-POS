@@ -1,0 +1,358 @@
+import React, { useState } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { Badge } from "@/components/ui/badge";
+import { Separator } from "@/components/ui/separator";
+import { useToast } from "@/hooks/use-toast";
+import { apiFetch } from "@/lib/api";
+import {
+  MessageCircle, Send, AlertTriangle, CheckCircle2, Wifi, WifiOff,
+  Loader2, RefreshCw, Megaphone, Link2, PhoneCall,
+} from "lucide-react";
+import { useSite } from "@/contexts/site-context";
+
+function fmtRp(v: string | number | null | undefined) {
+  const n = typeof v === "string" ? parseFloat(v) : (v ?? 0);
+  return new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", minimumFractionDigits: 0 }).format(n);
+}
+
+interface WaStatus {
+  configured: boolean;
+  connected: boolean | null;
+  provider: string;
+  message: string;
+}
+
+interface BlastResult {
+  ok: boolean;
+  sent?: number;
+  failed?: number;
+  total?: number;
+  skipped?: boolean;
+  message?: string;
+  error?: string;
+}
+
+interface Invoice {
+  id: number;
+  invoiceNumber: string;
+  businessName: string;
+  ownerName: string;
+  phone: string | null;
+  totalAmount: string;
+  outstandingAmount: string | null;
+  dueDate: string | null;
+  status: string;
+}
+
+export default function WhatsAppSend() {
+  const { toast } = useToast();
+  const qc = useQueryClient();
+  const { currentSite } = useSite();
+
+  const [testPhone, setTestPhone] = useState("");
+  const [testMsg, setTestMsg] = useState("");
+  const [blastResult, setBlastResult] = useState<BlastResult | null>(null);
+  const [blastLinkResult, setBlastLinkResult] = useState<BlastResult | null>(null);
+
+  const { data: status, isLoading: statusLoading, refetch: refetchStatus } = useQuery<WaStatus>({
+    queryKey: ["wa-status"],
+    queryFn: () => apiFetch("/api/whatsapp/status").then(r => r.json()),
+    refetchInterval: 60000,
+  });
+
+  const { data: invoicesData, isLoading: invoicesLoading } = useQuery<{ data: Invoice[] }>({
+    queryKey: ["invoices-overdue", currentSite?.id],
+    queryFn: () => apiFetch(`/api/invoices?status=overdue&limit=50`).then(r => r.json()),
+  });
+
+  const overdueInvoices = invoicesData?.data ?? [];
+
+  const blastOverdueMut = useMutation({
+    mutationFn: () => apiFetch("/api/whatsapp/blast-overdue", { method: "POST" }).then(r => r.json()),
+    onSuccess: (data: BlastResult) => {
+      setBlastResult(data);
+      toast({
+        title: data.skipped ? "WA Tidak Terkirim" : data.ok ? "Blast Selesai" : "Blast Gagal",
+        description: data.message ?? data.error,
+        variant: data.ok && !data.skipped ? "default" : "destructive",
+      });
+    },
+    onError: () => toast({ title: "Gagal", description: "Terjadi kesalahan saat blast WA.", variant: "destructive" }),
+  });
+
+  const blastLinkMut = useMutation({
+    mutationFn: () => apiFetch("/api/whatsapp/blast-link-unpaid", { method: "POST" }).then(r => r.json()),
+    onSuccess: (data: BlastResult) => {
+      setBlastLinkResult(data);
+      toast({
+        title: data.skipped ? "WA Tidak Terkirim" : data.ok ? "Blast Link Selesai" : "Blast Gagal",
+        description: data.message ?? data.error,
+        variant: data.ok && !data.skipped ? "default" : "destructive",
+      });
+    },
+    onError: () => toast({ title: "Gagal", description: "Terjadi kesalahan saat blast link.", variant: "destructive" }),
+  });
+
+  const testSendMut = useMutation({
+    mutationFn: () =>
+      apiFetch("/api/whatsapp/test-send", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phone: testPhone, message: testMsg || undefined }),
+      }).then(r => r.json()),
+    onSuccess: (data: { ok: boolean; message?: string; error?: string }) => {
+      toast({
+        title: data.ok ? "Pesan Terkirim" : "Gagal Kirim",
+        description: data.message ?? data.error,
+        variant: data.ok ? "default" : "destructive",
+      });
+    },
+    onError: () => toast({ title: "Gagal", description: "Terjadi kesalahan.", variant: "destructive" }),
+  });
+
+  const sendInvoiceMut = useMutation({
+    mutationFn: (id: number) =>
+      apiFetch(`/api/whatsapp/invoice/${id}/overdue-reminder`, { method: "POST" }).then(r => r.json()),
+    onSuccess: (data: { ok: boolean; message?: string; error?: string }) => {
+      toast({
+        title: data.ok ? "Pengingat Terkirim" : "Gagal",
+        description: data.message ?? data.error,
+        variant: data.ok ? "default" : "destructive",
+      });
+    },
+  });
+
+  const statusColor = status?.connected === true
+    ? "text-green-600"
+    : status?.connected === false
+      ? "text-red-500"
+      : "text-yellow-500";
+
+  const StatusIcon = status?.connected === true ? Wifi : status?.connected === false ? WifiOff : Wifi;
+
+  return (
+    <div className="p-6 space-y-6 max-w-4xl">
+      <div>
+        <h1 className="text-2xl font-bold flex items-center gap-2">
+          <MessageCircle className="h-6 w-6 text-green-600" />
+          Kirim WhatsApp
+        </h1>
+        <p className="text-muted-foreground text-sm mt-1">
+          Kirim notifikasi, pengingat, dan blast pesan ke tenant via WhatsApp (Fonnte).
+        </p>
+      </div>
+
+      {/* Status Koneksi */}
+      <Card>
+        <CardHeader className="pb-3">
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-base">Status Koneksi Fonnte</CardTitle>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => { void refetchStatus(); void qc.invalidateQueries({ queryKey: ["wa-status"] }); }}
+              disabled={statusLoading}
+            >
+              <RefreshCw className={`h-3.5 w-3.5 mr-1.5 ${statusLoading ? "animate-spin" : ""}`} />
+              Refresh
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {statusLoading ? (
+            <div className="flex items-center gap-2 text-muted-foreground text-sm">
+              <Loader2 className="h-4 w-4 animate-spin" /> Memeriksa koneksi...
+            </div>
+          ) : (
+            <div className="flex items-start gap-3">
+              <StatusIcon className={`h-5 w-5 mt-0.5 shrink-0 ${statusColor}`} />
+              <div>
+                <p className={`font-medium text-sm ${statusColor}`}>
+                  {status?.connected === true ? "Terhubung" : status?.connected === false ? "Tidak Terhubung" : "Status Tidak Diketahui"}
+                </p>
+                <p className="text-xs text-muted-foreground mt-0.5">{status?.message}</p>
+                {!status?.configured && (
+                  <p className="text-xs text-amber-600 mt-1">
+                    ⚠ FONNTE_TOKEN belum dikonfigurasi. Masuk ke Pengaturan &rsaquo; WhatsApp untuk mengatur.
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Blast Actions */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {/* Blast Overdue */}
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base flex items-center gap-2">
+              <AlertTriangle className="h-4 w-4 text-red-500" />
+              Blast Pengingat Overdue
+            </CardTitle>
+            <CardDescription className="text-xs">
+              Kirim pesan pengingat ke semua tenant yang invoicenya sudah melewati jatuh tempo.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="flex items-center gap-2">
+              <Badge variant="destructive" className="text-xs">
+                {overdueInvoices.length} invoice overdue
+              </Badge>
+            </div>
+            {blastResult && (
+              <div className={`text-xs p-2 rounded border ${blastResult.ok && !blastResult.skipped ? "bg-green-50 border-green-200 text-green-700" : "bg-red-50 border-red-200 text-red-700"}`}>
+                {blastResult.message}
+              </div>
+            )}
+            <Button
+              className="w-full"
+              variant="destructive"
+              size="sm"
+              onClick={() => blastOverdueMut.mutate()}
+              disabled={blastOverdueMut.isPending || overdueInvoices.length === 0}
+            >
+              {blastOverdueMut.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" /> : <Megaphone className="h-3.5 w-3.5 mr-1.5" />}
+              {blastOverdueMut.isPending ? "Mengirim..." : "Blast Pengingat Overdue"}
+            </Button>
+          </CardContent>
+        </Card>
+
+        {/* Blast Link Pembayaran */}
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base flex items-center gap-2">
+              <Link2 className="h-4 w-4 text-blue-500" />
+              Blast Link Pembayaran
+            </CardTitle>
+            <CardDescription className="text-xs">
+              Kirim link pembayaran ke semua tenant dengan invoice belum lunas (unpaid, partial, overdue).
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="flex items-center gap-2">
+              <Badge variant="secondary" className="text-xs bg-blue-100 text-blue-700">
+                Belum lunas semua status
+              </Badge>
+            </div>
+            {blastLinkResult && (
+              <div className={`text-xs p-2 rounded border ${blastLinkResult.ok && !blastLinkResult.skipped ? "bg-green-50 border-green-200 text-green-700" : "bg-red-50 border-red-200 text-red-700"}`}>
+                {blastLinkResult.message}
+              </div>
+            )}
+            <Button
+              className="w-full"
+              variant="outline"
+              size="sm"
+              onClick={() => blastLinkMut.mutate()}
+              disabled={blastLinkMut.isPending}
+            >
+              {blastLinkMut.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" /> : <Link2 className="h-3.5 w-3.5 mr-1.5" />}
+              {blastLinkMut.isPending ? "Mengirim..." : "Blast Link Pembayaran"}
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Kirim Pesan Tes */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base flex items-center gap-2">
+            <PhoneCall className="h-4 w-4 text-green-600" />
+            Kirim Pesan Uji Coba
+          </CardTitle>
+          <CardDescription className="text-xs">
+            Kirim pesan tes ke nomor HP tertentu untuk memverifikasi koneksi WhatsApp.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="space-y-1.5">
+              <Label className="text-xs">Nomor HP Tujuan</Label>
+              <Input
+                placeholder="0812xxxx / 628xx"
+                value={testPhone}
+                onChange={e => setTestPhone(e.target.value)}
+                className="h-8 text-sm"
+              />
+            </div>
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-xs">Pesan (opsional — dikosongkan = pesan default)</Label>
+            <Textarea
+              placeholder="Ketik pesan tes di sini, atau kosongkan untuk menggunakan pesan default..."
+              value={testMsg}
+              onChange={e => setTestMsg(e.target.value)}
+              rows={3}
+              className="text-sm resize-none"
+            />
+          </div>
+          <Button
+            size="sm"
+            onClick={() => testSendMut.mutate()}
+            disabled={testSendMut.isPending || !testPhone.trim()}
+          >
+            {testSendMut.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" /> : <Send className="h-3.5 w-3.5 mr-1.5" />}
+            {testSendMut.isPending ? "Mengirim..." : "Kirim Pesan Tes"}
+          </Button>
+        </CardContent>
+      </Card>
+
+      {/* Daftar Invoice Overdue */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base flex items-center gap-2">
+            <AlertTriangle className="h-4 w-4 text-amber-500" />
+            Invoice Overdue — Kirim Per Tenant
+          </CardTitle>
+          <CardDescription className="text-xs">
+            Klik tombol kirim di baris untuk mengirim pengingat ke masing-masing tenant.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {invoicesLoading ? (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground py-4">
+              <Loader2 className="h-4 w-4 animate-spin" /> Memuat data...
+            </div>
+          ) : overdueInvoices.length === 0 ? (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground py-6 justify-center">
+              <CheckCircle2 className="h-5 w-5 text-green-500" />
+              Tidak ada invoice overdue saat ini.
+            </div>
+          ) : (
+            <div className="divide-y text-sm">
+              {overdueInvoices.map((inv) => (
+                <div key={inv.id} className="flex items-center justify-between py-3 gap-3">
+                  <div className="min-w-0 flex-1">
+                    <p className="font-medium truncate">{inv.businessName}</p>
+                    <p className="text-xs text-muted-foreground">{inv.invoiceNumber} · {fmtRp(inv.outstandingAmount ?? inv.totalAmount)}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {inv.phone ? inv.phone : <span className="text-red-400">Nomor tidak ada</span>}
+                      {inv.dueDate && ` · Jatuh tempo: ${new Date(inv.dueDate).toLocaleDateString("id-ID")}`}
+                    </p>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="shrink-0 h-7 text-xs"
+                    disabled={!inv.phone || sendInvoiceMut.isPending}
+                    onClick={() => sendInvoiceMut.mutate(inv.id)}
+                  >
+                    <Send className="h-3 w-3 mr-1" />
+                    Kirim WA
+                  </Button>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
