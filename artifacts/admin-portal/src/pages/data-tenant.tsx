@@ -24,7 +24,7 @@ import {
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, Pencil, Trash2, Search, Upload, X, ImageIcon, Building2, Dumbbell, Eye, CalendarClock, Download } from "lucide-react";
+import { Plus, Pencil, Trash2, Search, Upload, X, ImageIcon, Building2, Dumbbell, Eye, CalendarClock, Download, Filter, Tag } from "lucide-react";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
@@ -221,6 +221,7 @@ export default function DataTenant() {
   const [deleteTarget, setDeleteTarget] = useState<Tenant | null>(null);
   const [search, setSearch] = useState("");
   const [filterStatus, setFilterStatus] = useState("all");
+  const [filterCategory, setFilterCategory] = useState("all");
 
   const [logoFile, setLogoFile] = useState<File | null>(null);
   const [logoPreview, setLogoPreview] = useState<string>("");
@@ -367,18 +368,45 @@ export default function DataTenant() {
   const isSaving = createMutation.isPending || updateMutation.isPending || isUploadingLogo;
 
   const filtered = (tenants ?? []).filter((t) => {
+    const q = search.toLowerCase();
     const matchSearch =
       search === "" ||
-      t.businessName.toLowerCase().includes(search.toLowerCase()) ||
-      t.ownerName.toLowerCase().includes(search.toLowerCase()) ||
-      (t.boothNumber ?? "").toLowerCase().includes(search.toLowerCase());
+      t.businessName.toLowerCase().includes(q) ||
+      t.ownerName.toLowerCase().includes(q) ||
+      (t.boothNumber ?? "").toLowerCase().includes(q) ||
+      (t.category ?? "").toLowerCase().includes(q) ||
+      t.areaName.toLowerCase().includes(q);
     const matchStatus = filterStatus === "all" || t.status === filterStatus;
-    return matchSearch && matchStatus;
+    const matchCategory = filterCategory === "all" || (t.category ?? "") === filterCategory;
+    return matchSearch && matchStatus && matchCategory;
   });
 
   const countActive = tenants?.filter((t) => t.status === "active" || t.status === "aktif").length ?? 0;
   const countInactive = tenants?.filter((t) => t.status === "inactive" || t.status === "kosong" || t.status === "nonaktif").length ?? 0;
   const countBlacklisted = tenants?.filter((t) => t.status === "blacklisted").length ?? 0;
+
+  // Kategori unik dari data aktual (gabungan dengan CATEGORIES)
+  const availableCategories = Array.from(
+    new Set([
+      ...CATEGORIES,
+      ...(tenants ?? []).map((t) => t.category).filter(Boolean) as string[],
+    ])
+  ).sort();
+
+  // Hitung per kategori (dari semua data, bukan hanya filtered)
+  const categoryCounts = (tenants ?? []).reduce<Record<string, number>>((acc, t) => {
+    const cat = t.category ?? "—";
+    acc[cat] = (acc[cat] ?? 0) + 1;
+    return acc;
+  }, {});
+
+  const hasActiveFilter = filterStatus !== "all" || filterCategory !== "all" || search !== "";
+
+  function resetFilters() {
+    setSearch("");
+    setFilterStatus("all");
+    setFilterCategory("all");
+  }
 
   const siteCfg = activeSite ? (SITE_TYPE_CONFIG[activeSite.type] ?? null) : null;
 
@@ -501,6 +529,47 @@ export default function DataTenant() {
         ))}
       </div>
 
+      {/* ── Chip Kategori Cepat ── */}
+      {!isLoading && (tenants ?? []).length > 0 && (
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-xs text-muted-foreground flex items-center gap-1 shrink-0">
+            <Filter className="h-3 w-3" />
+            Kategori:
+          </span>
+          <button
+            onClick={() => setFilterCategory("all")}
+            className={`inline-flex items-center gap-1 rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+              filterCategory === "all"
+                ? "bg-primary text-primary-foreground border-primary"
+                : "bg-background hover:bg-muted border-border text-foreground"
+            }`}
+          >
+            Semua
+            <span className={`font-mono text-[10px] ${filterCategory === "all" ? "opacity-80" : "text-muted-foreground"}`}>
+              {(tenants ?? []).length}
+            </span>
+          </button>
+          {availableCategories
+            .filter((cat) => categoryCounts[cat] !== undefined)
+            .map((cat) => (
+              <button
+                key={cat}
+                onClick={() => setFilterCategory(filterCategory === cat ? "all" : cat)}
+                className={`inline-flex items-center gap-1 rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+                  filterCategory === cat
+                    ? "bg-primary text-primary-foreground border-primary"
+                    : "bg-background hover:bg-muted border-border text-foreground"
+                }`}
+              >
+                {cat}
+                <span className={`font-mono text-[10px] ${filterCategory === cat ? "opacity-80" : "text-muted-foreground"}`}>
+                  {categoryCounts[cat]}
+                </span>
+              </button>
+            ))}
+        </div>
+      )}
+
       <Card>
         <CardHeader>
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -560,6 +629,40 @@ export default function DataTenant() {
                   <SelectItem value="blacklisted">Blacklist</SelectItem>
                 </SelectContent>
               </Select>
+              <Select value={filterCategory} onValueChange={setFilterCategory}>
+                <SelectTrigger className="w-40 h-9">
+                  <div className="flex items-center gap-1.5 min-w-0">
+                    <Tag className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                    <SelectValue placeholder="Semua Kategori" />
+                  </div>
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Semua Kategori</SelectItem>
+                  {availableCategories.map((cat) => (
+                    <SelectItem key={cat} value={cat}>
+                      <span className="flex items-center justify-between w-full gap-3">
+                        <span>{cat}</span>
+                        {categoryCounts[cat] !== undefined && (
+                          <span className="ml-auto text-[10px] text-muted-foreground font-mono">
+                            {categoryCounts[cat]}
+                          </span>
+                        )}
+                      </span>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {hasActiveFilter && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-9 gap-1.5 text-muted-foreground hover:text-foreground px-2"
+                  onClick={resetFilters}
+                >
+                  <X className="h-3.5 w-3.5" />
+                  Reset
+                </Button>
+              )}
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button variant="outline" size="sm" className="h-9 gap-1.5" disabled={!tenants || tenants.length === 0}>
