@@ -78,6 +78,7 @@ type Tenant = {
   id: number;
   businessName: string;
   boothNumber: string | null;
+  status: string | null;
   defaultRentAmount: string | null;
   defaultServiceChargeAmount: string | null;
   defaultElectricityChargeAmount: string | null;
@@ -496,6 +497,10 @@ export default function TenantInvoices() {
   const [bulkPrices, setBulkPrices] = useState<Record<number, BulkPrice>>({});
   const [bulkExpanded, setBulkExpanded] = useState<number | null>(null);
   const [bulkResult, setBulkResult] = useState<{ succeeded: number; failed: number; results: { tenantId: number; invoiceNumber: string; success: boolean; error?: string }[] } | null>(null);
+  const [bulkMonth, setBulkMonth] = useState<{ month: number; year: number }>(() => {
+    const now = new Date();
+    return { month: now.getMonth() + 1, year: now.getFullYear() };
+  });
 
   // ─── Queries ────────────────────────────────────────────────────────────────
 
@@ -775,6 +780,26 @@ export default function TenantInvoices() {
     setDetailOpen(true);
   }
 
+  const BULAN_ID = ["Januari","Februari","Maret","April","Mei","Juni","Juli","Agustus","September","Oktober","November","Desember"];
+
+  function applyBulkPeriod() {
+    const { month, year } = bulkMonth;
+    const pad = (n: number) => String(n).padStart(2, "0");
+    const lastDay = new Date(year, month, 0).getDate();
+    const dueMonth = month === 12 ? 1 : month + 1;
+    const dueYear = month === 12 ? year + 1 : year;
+    setBulkCommon(f => ({
+      ...f,
+      periodStart: `${year}-${pad(month)}-01`,
+      periodEnd: `${year}-${pad(month)}-${pad(lastDay)}`,
+      dueDate: `${dueYear}-${pad(dueMonth)}-14`,
+    }));
+  }
+
+  function isActiveTenant(t: Tenant) {
+    return t.status === "active" || t.status === "aktif";
+  }
+
   function openBulkDialog() {
     const allTenants = tenants ?? [];
     const prices: Record<number, { unitCode: string; rentAmount: string; serviceChargeAmount: string; electricityChargeAmount: string; waterChargeAmount: string; otherChargeAmount: string }> = {};
@@ -789,7 +814,8 @@ export default function TenantInvoices() {
       };
     }
     setBulkPrices(prices);
-    setBulkSelected(new Set(allTenants.map((t) => t.id)));
+    const activeTenants = allTenants.filter(isActiveTenant);
+    setBulkSelected(new Set((activeTenants.length > 0 ? activeTenants : allTenants).map((t) => t.id)));
     setBulkCommon({ periodStart: "", periodEnd: "", dueDate: "", status: "unpaid", notes: "" });
     setBulkExpanded(null);
     setBulkResult(null);
@@ -1636,7 +1662,38 @@ export default function TenantInvoices() {
             </div>
           ) : (
             <form onSubmit={handleBulkSubmit} className="flex flex-col gap-4">
-              {/* ── Baris field bersama ── */}
+              {/* ── Pilih Periode Cepat ── */}
+              <div className="flex flex-wrap items-center gap-2 rounded-lg border bg-muted/30 px-3 py-2.5">
+                <span className="text-sm font-medium shrink-0">Pilih Bulan:</span>
+                <Select value={String(bulkMonth.month)} onValueChange={v => setBulkMonth(f => ({ ...f, month: Number(v) }))}>
+                  <SelectTrigger className="h-8 w-36"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {BULAN_ID.map((n, i) => (
+                      <SelectItem key={i + 1} value={String(i + 1)}>{n}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Select value={String(bulkMonth.year)} onValueChange={v => setBulkMonth(f => ({ ...f, year: Number(v) }))}>
+                  <SelectTrigger className="h-8 w-24"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {[bulkMonth.year - 1, bulkMonth.year, bulkMonth.year + 1].map(y => (
+                      <SelectItem key={y} value={String(y)}>{y}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Button type="button" size="sm" className="h-8 gap-1.5 bg-violet-600 hover:bg-violet-700" onClick={applyBulkPeriod}>
+                  <Zap className="h-3.5 w-3.5" />
+                  Isi Otomatis
+                </Button>
+                {bulkCommon.periodStart && (
+                  <span className="text-xs text-muted-foreground">
+                    {BULAN_ID[new Date(bulkCommon.periodStart).getMonth()]} {new Date(bulkCommon.periodStart).getFullYear()}
+                    {bulkCommon.dueDate && ` · Jatuh tempo: ${new Date(bulkCommon.dueDate).toLocaleDateString("id-ID", { day: "2-digit", month: "short", year: "numeric" })}`}
+                  </span>
+                )}
+              </div>
+
+              {/* ── Baris field manual ── */}
               <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
                 <div className="flex flex-col gap-1.5">
                   <Label>Periode Mulai</Label>
@@ -1675,13 +1732,17 @@ export default function TenantInvoices() {
                   <span className="ml-2 text-muted-foreground font-normal">({bulkSelected.size} dari {(tenants ?? []).length} dipilih)</span>
                 </p>
                 <div className="flex gap-2">
+                  <Button type="button" variant="ghost" size="sm" className="h-7 text-xs text-green-700 hover:text-green-800 hover:bg-green-50"
+                    onClick={() => setBulkSelected(new Set((tenants ?? []).filter(isActiveTenant).map(t => t.id)))}>
+                    Aktif Saja
+                  </Button>
                   <Button type="button" variant="ghost" size="sm" className="h-7 text-xs"
                     onClick={() => setBulkSelected(new Set((tenants ?? []).map(t => t.id)))}>
-                    Pilih Semua
+                    Semua
                   </Button>
                   <Button type="button" variant="ghost" size="sm" className="h-7 text-xs"
                     onClick={() => setBulkSelected(new Set())}>
-                    Batal Semua
+                    Kosongkan
                   </Button>
                 </div>
               </div>
@@ -1709,7 +1770,13 @@ export default function TenantInvoices() {
                             }}
                           />
                           <div className="flex-1 min-w-0">
-                            <p className="font-medium text-sm truncate">{t.businessName}</p>
+                            <div className="flex items-center gap-1.5">
+                              <p className="font-medium text-sm truncate">{t.businessName}</p>
+                              {isActiveTenant(t)
+                                ? <span className="shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-medium bg-green-100 text-green-700">Aktif</span>
+                                : <span className="shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-medium bg-gray-100 text-gray-500">Nonaktif</span>
+                              }
+                            </div>
                             <p className="text-xs text-muted-foreground truncate">{p.unitCode || t.boothNumber || "—"}</p>
                           </div>
                           <div className="text-right shrink-0">

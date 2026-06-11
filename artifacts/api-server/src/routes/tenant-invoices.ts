@@ -311,6 +311,32 @@ router.post("/tenant-invoices/bulk", async (req, res) => {
 
   for (const item of parsed.data) {
     try {
+      // Cek duplikat: jika sudah ada invoice untuk tenant + periode yang sama, skip
+      if (item.periodStart && item.periodEnd) {
+        const startDate = new Date(item.periodStart);
+        const endDate = new Date(item.periodEnd);
+        const existing = await db
+          .select({ id: tenantInvoicesTable.id, invoiceNumber: tenantInvoicesTable.invoiceNumber })
+          .from(tenantInvoicesTable)
+          .where(
+            and(
+              eq(tenantInvoicesTable.tenantId, item.tenantId),
+              sql`DATE(${tenantInvoicesTable.periodStart}) = DATE(${startDate.toISOString()})`,
+              sql`DATE(${tenantInvoicesTable.periodEnd}) = DATE(${endDate.toISOString()})`,
+            )
+          )
+          .limit(1);
+        if (existing.length > 0) {
+          results.push({
+            tenantId: item.tenantId,
+            invoiceNumber: existing[0].invoiceNumber,
+            success: false,
+            error: `Invoice ${existing[0].invoiceNumber} sudah ada untuk periode ini`,
+          });
+          continue;
+        }
+      }
+
       const { subtotal, totalAmount, outstandingAmount } = calcAmounts(item);
       const status = item.status ?? resolveStatus(Number(totalAmount), 0, item.dueDate ?? null);
 
