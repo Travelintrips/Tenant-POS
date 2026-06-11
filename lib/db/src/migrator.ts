@@ -1399,6 +1399,25 @@ ALTER TABLE "tenant_invoices" ADD COLUMN IF NOT EXISTS "due_reminder_3d_at" time
 ALTER TABLE "tenant_invoices" ADD COLUMN IF NOT EXISTS "due_reminder_1d_at" timestamptz;
     `.trim(),
   },
+  {
+    name: "0024_wa_send_logs",
+    sql: `
+CREATE TABLE IF NOT EXISTS "wa_send_logs" (
+  "id" serial PRIMARY KEY NOT NULL,
+  "site_id" integer,
+  "tenant_id" integer,
+  "invoice_id" integer,
+  "phone" text NOT NULL,
+  "message_type" text NOT NULL,
+  "status" text NOT NULL,
+  "error_message" text,
+  "sent_by" text,
+  "created_at" timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS "wa_send_logs_created_at_idx" ON "wa_send_logs" ("created_at" DESC);
+CREATE INDEX IF NOT EXISTS "wa_send_logs_site_id_idx" ON "wa_send_logs" ("site_id");
+    `.trim(),
+  },
 ];
 
 const MIGRATIONS_TABLE = "schema_migrations";

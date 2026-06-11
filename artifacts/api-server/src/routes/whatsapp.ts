@@ -1,13 +1,39 @@
 import { Router, type IRouter } from "express";
 import { db } from "@workspace/db";
-import { tenantInvoicesTable, tenantsTable, tenantBookingsTable } from "@workspace/db/schema";
-import { eq, and, inArray } from "drizzle-orm";
+import { tenantInvoicesTable, tenantsTable, tenantBookingsTable, waLogsTable } from "@workspace/db/schema";
+import { eq, and, inArray, desc } from "drizzle-orm";
 import { requireAnyRole, requireAuth } from "../middlewares/auth";
 import {
   sendInvoiceNotification,
   sendPaymentConfirmation,
   sendOverdueReminder,
 } from "../lib/whatsapp";
+
+async function logWa(params: {
+  siteId?: number | null;
+  tenantId?: number | null;
+  invoiceId?: number | null;
+  phone: string;
+  messageType: string;
+  status: "sent" | "failed" | "skipped";
+  errorMessage?: string | null;
+  sentBy?: string | null;
+}) {
+  try {
+    await db.insert(waLogsTable).values({
+      siteId: params.siteId ?? null,
+      tenantId: params.tenantId ?? null,
+      invoiceId: params.invoiceId ?? null,
+      phone: params.phone,
+      messageType: params.messageType,
+      status: params.status,
+      errorMessage: params.errorMessage ?? null,
+      sentBy: params.sentBy ?? null,
+    });
+  } catch {
+    // jangan gagalkan request utama jika logging error
+  }
+}
 
 const router: IRouter = Router();
 
@@ -71,17 +97,20 @@ router.post("/whatsapp/invoice/:id/send", async (req, res) => {
       paymentLink,
     });
 
+    const sentBy = (req.user as { email?: string } | undefined)?.email ?? null;
     if (result.skipped) {
+      await logWa({ siteId: req.siteId, tenantId: invoice.tenantId, invoiceId: id, phone: invoice.phone, messageType: "invoice", status: "skipped", sentBy });
       res.json({ ok: true, skipped: true, paymentLink: paymentLink ?? null, message: "FONNTE_TOKEN belum dikonfigurasi. Pesan tidak terkirim." });
       return;
     }
 
     if (!result.ok) {
-      // Kembalikan 200 dengan waFailed=true supaya frontend bisa tampilkan link bayar sebagai fallback
+      await logWa({ siteId: req.siteId, tenantId: invoice.tenantId, invoiceId: id, phone: invoice.phone, messageType: "invoice", status: "failed", errorMessage: result.error, sentBy });
       res.json({ ok: false, waFailed: true, error: result.error ?? "Gagal kirim WA", paymentLink: paymentLink ?? null });
       return;
     }
 
+    await logWa({ siteId: req.siteId, tenantId: invoice.tenantId, invoiceId: id, phone: invoice.phone, messageType: "invoice", status: "sent", sentBy });
     res.json({ ok: true, message: `Notifikasi invoice berhasil dikirim ke ${invoice.phone}` });
   } catch (err) {
     res.status(500).json({ error: "Terjadi kesalahan server" });
@@ -131,16 +160,20 @@ router.post("/whatsapp/invoice/:id/overdue-reminder", async (req, res) => {
       phone: invoice.phone,
     });
 
+    const sentBy = (req.user as { email?: string } | undefined)?.email ?? null;
     if (result.skipped) {
+      await logWa({ siteId: req.siteId, tenantId: invoice.tenantId ?? null, invoiceId: id, phone: invoice.phone, messageType: "overdue_reminder", status: "skipped", sentBy });
       res.json({ ok: true, skipped: true, message: "FONNTE_TOKEN belum dikonfigurasi. Pesan tidak terkirim." });
       return;
     }
 
     if (!result.ok) {
+      await logWa({ siteId: req.siteId, tenantId: invoice.tenantId ?? null, invoiceId: id, phone: invoice.phone, messageType: "overdue_reminder", status: "failed", errorMessage: result.error, sentBy });
       res.status(502).json({ error: result.error ?? "Gagal kirim WA" });
       return;
     }
 
+    await logWa({ siteId: req.siteId, tenantId: invoice.tenantId ?? null, invoiceId: id, phone: invoice.phone, messageType: "overdue_reminder", status: "sent", sentBy });
     res.json({ ok: true, message: `Pengingat overdue berhasil dikirim ke ${invoice.phone}` });
   } catch (err) {
     res.status(500).json({ error: "Terjadi kesalahan server" });
@@ -176,6 +209,7 @@ router.post("/whatsapp/blast-overdue", async (req, res) => {
     let sent = 0;
     let failed = 0;
     let skipped = false;
+    const sentBy = (req.user as { email?: string } | undefined)?.email ?? null;
 
     for (const invoice of overdueInvoices) {
       if (!invoice.phone) { failed++; continue; }
@@ -195,8 +229,17 @@ router.post("/whatsapp/blast-overdue", async (req, res) => {
         phone: invoice.phone,
       });
 
-      if (result.skipped) { skipped = true; break; }
-      if (result.ok) sent++; else failed++;
+      if (result.skipped) {
+        await logWa({ siteId: req.siteId, phone: invoice.phone, messageType: "blast_overdue", status: "skipped", sentBy });
+        skipped = true; break;
+      }
+      if (result.ok) {
+        await logWa({ siteId: req.siteId, phone: invoice.phone, messageType: "blast_overdue", status: "sent", sentBy });
+        sent++;
+      } else {
+        await logWa({ siteId: req.siteId, phone: invoice.phone, messageType: "blast_overdue", status: "failed", errorMessage: result.error, sentBy });
+        failed++;
+      }
     }
 
     if (skipped) {
