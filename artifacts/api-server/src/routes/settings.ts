@@ -21,6 +21,12 @@ const DEFAULT_SETTINGS = {
   // Nomor WA admin yang menerima notifikasi bukti bayar dari tenant.
   // Format: 08xxx atau 628xxx. Bisa di-override via env ADMIN_WHATSAPP.
   adminPhone: "",
+  // Nomor HP pengirim WA (device Fonnte yang digunakan kirim ke tenant).
+  // Isi dengan nomor HP yang sudah di-scan QR di Fonnte, format 628xxx.
+  // Kosongkan untuk menggunakan device default akun Fonnte.
+  waSenderPhone: "",
+  // Nama/label device Fonnte (informasi saja, untuk identifikasi)
+  waSenderLabel: "",
 };
 
 router.get("/settings", requireAuth, requireAnyRole("owner", "admin", "finance"), async (_req, res) => {

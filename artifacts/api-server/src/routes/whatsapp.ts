@@ -353,6 +353,44 @@ router.post("/whatsapp/test-send", async (req, res) => {
 });
 
 /**
+ * GET /api/whatsapp/devices
+ * Ambil daftar perangkat/nomor HP yang terhubung ke akun Fonnte
+ */
+router.get("/whatsapp/devices", requireAuth, requireAnyRole("owner", "admin"), async (_req, res) => {
+  const token = process.env.FONNTE_TOKEN;
+  if (!token) {
+    res.json({ configured: false, devices: [] });
+    return;
+  }
+
+  try {
+    const r = await fetch("https://api.fonnte.com/device", {
+      method: "GET",
+      headers: { Authorization: token },
+      signal: AbortSignal.timeout(8000),
+    });
+    const data = await r.json() as Record<string, unknown>;
+
+    if (!r.ok || data["status"] === false) {
+      res.json({ configured: true, devices: [], error: String(data["reason"] ?? "Gagal ambil data device") });
+      return;
+    }
+
+    const raw = data["data"] as Array<Record<string, unknown>> | undefined;
+    const devices = (raw ?? []).map((d) => ({
+      name: String(d["name"] ?? d["label"] ?? "Perangkat"),
+      phone: String(d["device"] ?? d["phone"] ?? ""),
+      status: String(d["status"] ?? "unknown"),
+      connected: String(d["status"] ?? "").toLowerCase() === "connected",
+    }));
+
+    res.json({ configured: true, devices });
+  } catch (err) {
+    res.json({ configured: true, devices: [], error: "Gagal menghubungi Fonnte" });
+  }
+});
+
+/**
  * GET /api/whatsapp/status
  * Cek status konfigurasi WA + konektivitas perangkat Fonnte
  */

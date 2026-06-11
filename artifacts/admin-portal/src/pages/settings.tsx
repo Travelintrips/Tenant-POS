@@ -28,6 +28,21 @@ interface MallConfig {
   currency: string;
   logoUrl: string;
   adminPhone: string;
+  waSenderPhone: string;
+  waSenderLabel: string;
+}
+
+interface FonnteDevice {
+  name: string;
+  phone: string;
+  status: string;
+  connected: boolean;
+}
+
+interface DevicesResult {
+  configured: boolean;
+  devices: FonnteDevice[];
+  error?: string;
 }
 
 interface WaStatus {
@@ -71,11 +86,24 @@ function WaStatusBadge({ status }: { status: WaStatus | undefined; }) {
   );
 }
 
-function WhatsAppPanel() {
+function WhatsAppPanel({ config, onSaveSender }: {
+  config: MallConfig | undefined;
+  onSaveSender: (waSenderPhone: string, waSenderLabel: string) => void;
+}) {
   const { toast } = useToast();
   const [testPhone, setTestPhone] = useState("");
   const [testSending, setTestSending] = useState(false);
   const [lastTestResult, setLastTestResult] = useState<TestSendResult | null>(null);
+  const [senderPhone, setSenderPhone] = useState("");
+  const [senderLabel, setSenderLabel] = useState("");
+  const [senderDirty, setSenderDirty] = useState(false);
+
+  React.useEffect(() => {
+    if (config) {
+      setSenderPhone(config.waSenderPhone ?? "");
+      setSenderLabel(config.waSenderLabel ?? "");
+    }
+  }, [config]);
 
   const {
     data: waStatus,
@@ -91,6 +119,16 @@ function WhatsAppPanel() {
     },
     refetchInterval: 30000,
     staleTime: 15000,
+  });
+
+  const { data: devicesData, isLoading: devicesLoading, refetch: refetchDevices } = useQuery<DevicesResult>({
+    queryKey: ["/api/whatsapp/devices"],
+    queryFn: async () => {
+      const res = await apiFetch("/api/whatsapp/devices");
+      if (!res.ok) throw new Error("Gagal ambil device");
+      return res.json();
+    },
+    staleTime: 60000,
   });
 
   async function handleTestSend() {
@@ -125,6 +163,13 @@ function WhatsAppPanel() {
 
   const isConnected = waStatus?.connected === true;
   const isConfigured = waStatus?.configured === true;
+  const devices = devicesData?.devices ?? [];
+
+  function selectDevice(d: FonnteDevice) {
+    setSenderPhone(d.phone);
+    setSenderLabel(d.name);
+    setSenderDirty(true);
+  }
 
   return (
     <Card>
@@ -137,10 +182,9 @@ function WhatsAppPanel() {
           <div className="flex items-center gap-2">
             <WaStatusBadge status={waStatus} />
             <Button
-              variant="ghost"
-              size="sm"
+              variant="ghost" size="sm"
               className="h-7 px-2 text-xs text-muted-foreground"
-              onClick={() => refetchStatus()}
+              onClick={() => { void refetchStatus(); void refetchDevices(); }}
               disabled={waFetching}
             >
               <RefreshCw className={`h-3 w-3 mr-1 ${waFetching ? "animate-spin" : ""}`} />
@@ -157,28 +201,116 @@ function WhatsAppPanel() {
         {/* Status detail */}
         {!waLoading && waStatus && (
           <div className={`flex items-start gap-2.5 rounded-lg border px-3 py-2.5 text-xs ${
-            isConnected
-              ? "bg-green-50 border-green-200 text-green-800"
-              : !isConfigured
-              ? "bg-orange-50 border-orange-200 text-orange-800"
-              : "bg-red-50 border-red-200 text-red-800"
+            isConnected ? "bg-green-50 border-green-200 text-green-800"
+            : !isConfigured ? "bg-orange-50 border-orange-200 text-orange-800"
+            : "bg-red-50 border-red-200 text-red-800"
           }`}>
             {isConnected
               ? <Wifi className="h-4 w-4 mt-0.5 shrink-0 text-green-600" />
-              : <WifiOff className="h-4 w-4 mt-0.5 shrink-0 text-red-500" />
-            }
+              : <WifiOff className="h-4 w-4 mt-0.5 shrink-0 text-red-500" />}
             <div className="space-y-0.5">
               <p className="font-medium">{waStatus.message}</p>
-              {isConnected && (
-                <p className="text-green-700 opacity-80">Semua fitur notifikasi WA siap digunakan.</p>
-              )}
+              {isConnected && <p className="text-green-700 opacity-80">Semua fitur notifikasi WA siap digunakan.</p>}
             </div>
           </div>
         )}
 
         <Separator />
 
-        {/* Panduan Setup */}
+        {/* ─── Perangkat / Nomor Pengirim ─────────────────────────────────────── */}
+        <div className="space-y-3">
+          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
+            <Smartphone className="h-3.5 w-3.5" />
+            Perangkat Pengirim WA
+          </p>
+          <p className="text-xs text-muted-foreground">
+            Pilih nomor HP (device Fonnte) yang digunakan untuk mengirim pesan ke penyewa tenant. Klik baris perangkat untuk memilih.
+          </p>
+
+          {/* Daftar device dari Fonnte */}
+          {devicesLoading ? (
+            <div className="flex items-center gap-2 text-xs text-muted-foreground py-2">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" /> Memuat daftar perangkat...
+            </div>
+          ) : !isConfigured ? (
+            <p className="text-xs text-orange-600 bg-orange-50 border border-orange-200 rounded-md px-3 py-2">
+              Konfigurasi FONNTE_TOKEN terlebih dahulu untuk melihat daftar perangkat.
+            </p>
+          ) : devices.length === 0 ? (
+            <p className="text-xs text-muted-foreground bg-muted/40 border rounded-md px-3 py-2">
+              {devicesData?.error ?? "Belum ada perangkat terhubung di akun Fonnte Anda."}
+            </p>
+          ) : (
+            <div className="space-y-1.5">
+              {devices.map((d) => {
+                const isSelected = senderPhone === d.phone;
+                return (
+                  <button
+                    key={d.phone}
+                    type="button"
+                    onClick={() => selectDevice(d)}
+                    className={`w-full text-left rounded-lg border px-3 py-2.5 text-xs transition-colors ${
+                      isSelected
+                        ? "border-green-400 bg-green-50 text-green-900"
+                        : "border-border bg-background hover:bg-muted/50"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2.5">
+                        <div className={`h-2 w-2 rounded-full flex-shrink-0 ${d.connected ? "bg-green-500" : "bg-gray-300"}`} />
+                        <div>
+                          <p className="font-semibold">{d.name}</p>
+                          <p className="font-mono text-muted-foreground mt-0.5">{d.phone}</p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2 flex-shrink-0">
+                        <Badge variant="outline" className={`text-[10px] h-5 ${d.connected ? "border-green-300 text-green-700 bg-green-50" : "text-muted-foreground"}`}>
+                          {d.connected ? "Terhubung" : "Terputus"}
+                        </Badge>
+                        {isSelected && <CheckCircle2 className="h-4 w-4 text-green-600" />}
+                      </div>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Field manual override */}
+          <div className="space-y-1.5">
+            <Label className="text-xs text-muted-foreground">Nomor Pengirim (manual / override)</Label>
+            <div className="flex gap-2">
+              <Input
+                value={senderPhone}
+                onChange={e => { setSenderPhone(e.target.value); setSenderDirty(true); }}
+                placeholder="628xxxxxxxxxx (kosongkan = default Fonnte)"
+                className="h-8 text-sm font-mono flex-1"
+              />
+              <Input
+                value={senderLabel}
+                onChange={e => { setSenderLabel(e.target.value); setSenderDirty(true); }}
+                placeholder="Label (opsional)"
+                className="h-8 text-sm w-36"
+              />
+              <Button
+                size="sm"
+                className="h-8 gap-1.5 whitespace-nowrap"
+                disabled={!senderDirty}
+                onClick={() => { onSaveSender(senderPhone, senderLabel); setSenderDirty(false); }}
+              >
+                <Save className="h-3.5 w-3.5" />
+                Simpan
+              </Button>
+            </div>
+            <p className="text-[10px] text-muted-foreground">
+              Nomor yang dipilih akan digunakan sebagai pengirim semua pesan WA ke tenant. Kosongkan untuk menggunakan device default akun Fonnte.
+            </p>
+          </div>
+        </div>
+
+        <Separator />
+
+        {/* ─── Panduan Setup ────────────────────────────────────────────────────── */}
         <div className="space-y-2">
           <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
             <Info className="h-3.5 w-3.5" />
@@ -191,33 +323,33 @@ function WhatsAppPanel() {
             </li>
             <li className="flex gap-2">
               <span className="flex-shrink-0 h-5 w-5 rounded-full bg-muted flex items-center justify-center text-[10px] font-bold">2</span>
-              <span>Pilih <strong>Device</strong> → klik tombol <strong>"Connect"</strong> / <strong>"Scan QR"</strong>.</span>
+              <span>Pilih <strong>Device</strong> → klik <strong>"Connect"</strong> / <strong>"Scan QR"</strong>.</span>
             </li>
             <li className="flex gap-2">
               <span className="flex-shrink-0 h-5 w-5 rounded-full bg-muted flex items-center justify-center text-[10px] font-bold">3</span>
-              <span>Di HP Anda, buka <strong>WhatsApp</strong> → <strong>Setelan</strong> → <strong>Perangkat Tertaut</strong> → <strong>Tautkan Perangkat</strong> → scan QR.</span>
+              <span>Di HP, buka <strong>WhatsApp → Setelan → Perangkat Tertaut → Tautkan Perangkat</strong> → scan QR.</span>
             </li>
             <li className="flex gap-2">
               <span className="flex-shrink-0 h-5 w-5 rounded-full bg-muted flex items-center justify-center text-[10px] font-bold">4</span>
-              <span>Salin <strong>Token API</strong> dari dashboard Fonnte, lalu simpan sebagai secret <code className="bg-muted px-1 rounded font-mono">FONNTE_TOKEN</code> di Replit.</span>
+              <span>Salin <strong>Token API</strong> dari dashboard Fonnte → simpan sebagai secret <code className="bg-muted px-1 rounded font-mono">FONNTE_TOKEN</code> di Replit.</span>
             </li>
             <li className="flex gap-2">
               <span className="flex-shrink-0 h-5 w-5 rounded-full bg-muted flex items-center justify-center text-[10px] font-bold">5</span>
-              <span>Klik tombol <strong>Refresh</strong> di atas atau gunakan form tes di bawah untuk konfirmasi koneksi aktif.</span>
+              <span>Kembali ke halaman ini → klik <strong>Refresh</strong> → pilih perangkat yang ingin digunakan sebagai pengirim.</span>
             </li>
           </ol>
         </div>
 
         <Separator />
 
-        {/* Test Send */}
+        {/* ─── Tes Kirim ────────────────────────────────────────────────────────── */}
         <div className="space-y-2.5">
           <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
-            <Smartphone className="h-3.5 w-3.5" />
+            <Send className="h-3.5 w-3.5" />
             Tes Kirim Pesan WA
           </p>
           <p className="text-xs text-muted-foreground">
-            Masukkan nomor HP untuk mengirim pesan tes. Gunakan nomor Anda sendiri untuk verifikasi.
+            Kirim pesan tes ke nomor HP untuk verifikasi koneksi dan nomor pengirim.
           </p>
           <div className="flex gap-2">
             <Input
@@ -225,39 +357,28 @@ function WhatsAppPanel() {
               onChange={e => { setTestPhone(e.target.value); setLastTestResult(null); }}
               placeholder="08123456789 atau 6281234567890"
               className="h-8 text-sm flex-1"
-              onKeyDown={e => e.key === "Enter" && handleTestSend()}
+              onKeyDown={e => e.key === "Enter" && void handleTestSend()}
             />
             <Button
-              size="sm"
-              className="h-8 gap-1.5 whitespace-nowrap"
+              size="sm" className="h-8 gap-1.5 whitespace-nowrap"
               onClick={handleTestSend}
               disabled={testSending || !testPhone.trim()}
             >
               {testSending
                 ? <><Loader2 className="h-3.5 w-3.5 animate-spin" />Mengirim...</>
-                : <><Send className="h-3.5 w-3.5" />Kirim Tes</>
-              }
+                : <><Send className="h-3.5 w-3.5" />Kirim Tes</>}
             </Button>
           </div>
-
-          {/* Hasil test */}
           {lastTestResult && (
             <div className={`flex items-start gap-2 rounded-lg border px-3 py-2 text-xs ${
-              lastTestResult.ok
-                ? "bg-green-50 border-green-200 text-green-800"
-                : "bg-red-50 border-red-200 text-red-800"
+              lastTestResult.ok ? "bg-green-50 border-green-200 text-green-800" : "bg-red-50 border-red-200 text-red-800"
             }`}>
               {lastTestResult.ok
                 ? <CheckCircle2 className="h-4 w-4 mt-0.5 shrink-0 text-green-600" />
-                : <XCircle className="h-4 w-4 mt-0.5 shrink-0 text-red-500" />
-              }
+                : <XCircle className="h-4 w-4 mt-0.5 shrink-0 text-red-500" />}
               <div>
-                <p className="font-medium">
-                  {lastTestResult.ok ? "Berhasil!" : "Gagal"}
-                </p>
-                <p className="opacity-80">
-                  {lastTestResult.ok ? lastTestResult.message : lastTestResult.error}
-                </p>
+                <p className="font-medium">{lastTestResult.ok ? "Berhasil!" : "Gagal"}</p>
+                <p className="opacity-80">{lastTestResult.ok ? lastTestResult.message : lastTestResult.error}</p>
               </div>
             </div>
           )}
@@ -265,7 +386,7 @@ function WhatsAppPanel() {
 
         <Separator />
 
-        {/* Info FONNTE_TOKEN */}
+        {/* Info token */}
         <div className="rounded-lg bg-muted/60 px-3 py-2.5 space-y-1">
           <p className="text-xs font-medium flex items-center gap-1.5">
             <AlertCircle className="h-3.5 w-3.5 text-muted-foreground" />
@@ -273,8 +394,7 @@ function WhatsAppPanel() {
           </p>
           <p className="text-xs text-muted-foreground leading-relaxed">
             Token Fonnte disimpan sebagai secret <code className="bg-background border px-1 rounded font-mono text-[10px]">FONNTE_TOKEN</code>.
-            Untuk mengubahnya, buka tab <strong>Secrets</strong> di sidebar Replit, cari <code className="bg-background border px-1 rounded font-mono text-[10px]">FONNTE_TOKEN</code>,
-            dan perbarui nilainya. Restart server setelah mengubah secret.
+            Untuk mengubahnya, buka tab <strong>Secrets</strong> di sidebar Replit dan perbarui nilainya. Restart server setelah mengubah secret.
           </p>
         </div>
       </CardContent>
@@ -509,7 +629,23 @@ export default function SettingsPage() {
       </form>
 
       {/* Panel WhatsApp — di luar form karena punya state/action sendiri */}
-      <WhatsAppPanel />
+      <WhatsAppPanel
+        config={config}
+        onSaveSender={async (waSenderPhone, waSenderLabel) => {
+          try {
+            const res = await apiFetch("/api/settings", {
+              method: "PUT",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ waSenderPhone, waSenderLabel }),
+            });
+            if (!res.ok) throw new Error("Gagal menyimpan");
+            toast({ title: "Pengirim WA disimpan", description: waSenderPhone ? `Nomor pengirim diatur ke ${waSenderPhone}` : "Menggunakan device default Fonnte." });
+            void qc.invalidateQueries({ queryKey: ["settings"] });
+          } catch {
+            toast({ title: "Gagal", description: "Tidak dapat menyimpan pengaturan pengirim WA.", variant: "destructive" });
+          }
+        }}
+      />
     </div>
   );
 }
