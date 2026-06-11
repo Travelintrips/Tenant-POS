@@ -59,10 +59,19 @@ export default defineConfig({
     },
     proxy: {
       "/api": {
-        target: "http://localhost:8080",
+        target: "http://127.0.0.1:8080",
         changeOrigin: true,
         cookieDomainRewrite: "",
+        proxyTimeout: 30000,
+        timeout: 30000,
         configure: (proxy) => {
+          proxy.on("error", (err, _req, res) => {
+            console.error("[vite-proxy] error:", err.message);
+            if ("writeHead" in res && typeof res.writeHead === "function") {
+              res.writeHead(502, { "Content-Type": "application/json" });
+              res.end(JSON.stringify({ error: "API server sedang tidak tersedia, coba beberapa saat lagi" }));
+            }
+          });
           proxy.on("proxyRes", (proxyRes) => {
             const setCookie = proxyRes.headers["set-cookie"];
             if (setCookie) {
@@ -76,7 +85,7 @@ export default defineConfig({
         },
       },
       "/uploads": {
-        target: "http://localhost:8080",
+        target: "http://127.0.0.1:8080",
         changeOrigin: true,
       },
     },
