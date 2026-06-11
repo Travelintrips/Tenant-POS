@@ -1,12 +1,17 @@
 const isDev = (process.env["NODE_ENV"] ?? "development") === "development";
 
-const rawUrl =
-  process.env["DATABASE_URL"] ??
-  process.env["SUPABASE_DATABASE_URL"] ??
-  process.env["SUPABASE_PG_URL"] ??
-  (() => {
-    throw new Error("DATABASE_URL atau SUPABASE_PG_URL harus diset");
-  })();
+const rawUrl = isDev
+  ? (
+    process.env["SUPABASE_DATABASE_URL_DEV"] ??
+    process.env["SUPABASE_PG_URL"] ??
+    process.env["DATABASE_URL"] ??
+    (() => { throw new Error("SUPABASE_DATABASE_URL_DEV harus diset di development"); })()
+  )
+  : (
+    process.env["SUPABASE_PG_URL"] ??
+    process.env["DATABASE_URL"] ??
+    (() => { throw new Error("SUPABASE_PG_URL harus diset di production"); })()
+  );
 
 const isSupabase = rawUrl.includes("supabase") || rawUrl.includes("pooler");
 
