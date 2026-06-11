@@ -302,6 +302,57 @@ router.post("/whatsapp/blast-link-unpaid", async (req, res) => {
 });
 
 /**
+ * POST /api/whatsapp/test-send
+ * Kirim pesan WA percobaan ke nomor tertentu (untuk verifikasi koneksi)
+ */
+router.post("/whatsapp/test-send", async (req, res) => {
+  const { phone, message } = req.body as { phone?: string; message?: string };
+
+  if (!phone || phone.trim().length < 8) {
+    res.status(400).json({ error: "Nomor HP tidak valid. Masukkan minimal 8 digit." });
+    return;
+  }
+
+  const token = process.env.FONNTE_TOKEN;
+  if (!token) {
+    res.status(400).json({ ok: false, skipped: true, error: "FONNTE_TOKEN belum dikonfigurasi di Replit Secrets." });
+    return;
+  }
+
+  const testMsg = message?.trim() ||
+    "✅ *Tes Koneksi WhatsApp Berhasil!*\n\nNotifikasi dari Portal Admin Mall sudah aktif dan berfungsi dengan baik.\n\n_Pesan ini dikirim otomatis oleh sistem._";
+
+  const digits = phone.replace(/\D/g, "");
+  const normalized = digits.startsWith("0") ? "62" + digits.slice(1) : digits.startsWith("62") ? digits : "62" + digits;
+  const sender = process.env.FONNTE_SENDER ?? "";
+  const params: Record<string, string> = { target: normalized, message: testMsg, delay: "1" };
+  if (sender) params.sender = sender;
+
+  try {
+    const r = await fetch("https://api.fonnte.com/send", {
+      method: "POST",
+      headers: { Authorization: token, "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams(params).toString(),
+      signal: AbortSignal.timeout(10000),
+    });
+    const data = await r.json() as Record<string, unknown>;
+    if (!r.ok || data["status"] === false) {
+      const reason = String(data["reason"] ?? data["message"] ?? "Gagal kirim WA");
+      const r2 = reason.toLowerCase();
+      let errMsg = reason;
+      if (r2.includes("disconnected")) errMsg = "Perangkat WhatsApp tidak terhubung. Scan ulang QR di dashboard Fonnte.";
+      else if (r2.includes("invalid token") || r2.includes("unauthorized")) errMsg = "Token Fonnte tidak valid.";
+      else if (r2.includes("target")) errMsg = "Nomor HP tujuan tidak valid.";
+      res.json({ ok: false, error: errMsg, raw: reason });
+    } else {
+      res.json({ ok: true, message: `Pesan tes berhasil dikirim ke ${normalized}`, target: normalized });
+    }
+  } catch (err) {
+    res.status(502).json({ ok: false, error: err instanceof Error ? err.message : "Gagal menghubungi Fonnte" });
+  }
+});
+
+/**
  * GET /api/whatsapp/status
  * Cek status konfigurasi WA + konektivitas perangkat Fonnte
  */
