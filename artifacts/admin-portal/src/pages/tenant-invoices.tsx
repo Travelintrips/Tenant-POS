@@ -23,7 +23,7 @@ import { useToast } from "@/hooks/use-toast";
 import {
   Plus, FileText, Printer, CreditCard, X, Search, Zap, AlertCircle,
   CheckCircle2, Clock, Ban, CircleDashed, MessageCircle, Send, Link2, Loader2,
-  Copy, WifiOff, CheckCheck,
+  Copy, WifiOff, CheckCheck, Download,
 } from "lucide-react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -127,6 +127,97 @@ function formatPeriod(start: string | null, end: string | null): string {
   const e = end ? new Intl.DateTimeFormat("id-ID", opts).format(new Date(end)) : "";
   if (s === e) return s;
   return `${s} – ${e}`;
+}
+
+// ─── CSV Export ───────────────────────────────────────────────────────────────
+
+type ExportableInvoice = {
+  invoiceNumber: string;
+  tenantName: string | null;
+  ownerName: string | null;
+  boothNumber: string | null;
+  areaName: string | null;
+  unitCode: string | null;
+  periodStart: string | null;
+  periodEnd: string | null;
+  dueDate: string | null;
+  rentAmount: string;
+  serviceChargeAmount: string;
+  electricityChargeAmount: string;
+  waterChargeAmount: string;
+  otherChargeAmount: string;
+  discountAmount: string;
+  penaltyAmount: string;
+  taxAmount: string;
+  totalAmount: string;
+  paidAmount: string;
+  outstandingAmount: string;
+  status: string;
+  notes: string | null;
+  createdAt: string;
+};
+
+function csvEscape(v: string | null | undefined): string {
+  const s = v == null ? "" : String(v);
+  if (s.includes(",") || s.includes('"') || s.includes("\n")) {
+    return `"${s.replace(/"/g, '""')}"`;
+  }
+  return s;
+}
+
+function exportInvoicesToCSV(rows: ExportableInvoice[], filename: string) {
+  const headers = [
+    "No. Invoice", "Tenant", "Pemilik", "Unit/Booth", "Area/Lantai", "Kode Unit",
+    "Periode Mulai", "Periode Selesai", "Jatuh Tempo",
+    "Sewa (Rp)", "Service Charge (Rp)", "Listrik (Rp)", "Air (Rp)", "Lainnya (Rp)",
+    "Diskon (Rp)", "Denda (Rp)", "Pajak (Rp)",
+    "Total (Rp)", "Terbayar (Rp)", "Sisa (Rp)",
+    "Status", "Catatan", "Dibuat",
+  ];
+
+  const STATUS_ID: Record<string, string> = {
+    draft: "Draft", unpaid: "Belum Bayar", partial: "Sebagian",
+    paid: "Lunas", overdue: "Jatuh Tempo", cancelled: "Dibatalkan",
+  };
+
+  const lines = [
+    headers.join(","),
+    ...rows.map((r) => [
+      csvEscape(r.invoiceNumber),
+      csvEscape(r.tenantName),
+      csvEscape(r.ownerName),
+      csvEscape(r.boothNumber),
+      csvEscape(r.areaName),
+      csvEscape(r.unitCode),
+      csvEscape(r.periodStart ? new Date(r.periodStart).toLocaleDateString("id-ID") : null),
+      csvEscape(r.periodEnd   ? new Date(r.periodEnd  ).toLocaleDateString("id-ID") : null),
+      csvEscape(r.dueDate     ? new Date(r.dueDate    ).toLocaleDateString("id-ID") : null),
+      Number(r.rentAmount              ?? 0),
+      Number(r.serviceChargeAmount     ?? 0),
+      Number(r.electricityChargeAmount ?? 0),
+      Number(r.waterChargeAmount       ?? 0),
+      Number(r.otherChargeAmount       ?? 0),
+      Number(r.discountAmount          ?? 0),
+      Number(r.penaltyAmount           ?? 0),
+      Number(r.taxAmount               ?? 0),
+      Number(r.totalAmount             ?? 0),
+      Number(r.paidAmount              ?? 0),
+      Number(r.outstandingAmount       ?? 0),
+      csvEscape(STATUS_ID[r.status] ?? r.status),
+      csvEscape(r.notes),
+      csvEscape(r.createdAt ? new Date(r.createdAt).toLocaleDateString("id-ID") : null),
+    ].join(",")),
+  ];
+
+  // BOM agar Excel buka dengan encoding UTF-8 yang benar
+  const bom = "\uFEFF";
+  const blob = new Blob([bom + lines.join("\r\n")], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 function todayStr(): string {
@@ -688,6 +779,20 @@ export default function TenantInvoices() {
           >
             <Send className="h-4 w-4" />
             {waBlastMutation.isPending ? "Mengirim..." : `Blast WA Overdue (${summary.overdue})`}
+          </Button>
+          <Button
+            variant="outline"
+            className="gap-2"
+            disabled={filteredInvoices.length === 0}
+            onClick={() => {
+              const now = new Date();
+              const stamp = `${now.getFullYear()}${String(now.getMonth()+1).padStart(2,"0")}${String(now.getDate()).padStart(2,"0")}`;
+              exportInvoicesToCSV(filteredInvoices, `invoice-tenant-${stamp}.csv`);
+            }}
+            title={filteredInvoices.length === 0 ? "Tidak ada data untuk diekspor" : `Ekspor ${filteredInvoices.length} invoice ke CSV`}
+          >
+            <Download className="h-4 w-4" />
+            Ekspor CSV ({filteredInvoices.length})
           </Button>
           <Button variant="outline" onClick={() => { setGenerateForm({ bookingId: "", notes: "" }); setGenerateOpen(true); }} className="gap-2">
             <Zap className="h-4 w-4" />
