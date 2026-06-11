@@ -7,7 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { useToast } from "@/hooks/use-toast";
-import { Settings, Building2, FileText, DollarSign, Save, RefreshCw } from "lucide-react";
+import { Settings, Building2, FileText, DollarSign, Save, RefreshCw, MessageSquare } from "lucide-react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -21,6 +21,7 @@ interface MallConfig {
   taxRate: number;
   currency: string;
   logoUrl: string;
+  adminPhone: string;
 }
 
 // ─── Page ────────────────────────────────────────────────────────────────────
@@ -194,6 +195,42 @@ export default function SettingsPage() {
                 </div>
                 <p className="text-xs text-muted-foreground mt-5">
                   Isi 0 jika tidak ada pajak. Contoh: 11 untuk PPN 11%.
+                </p>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Notifikasi WhatsApp */}
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-sm flex items-center gap-2">
+              <MessageSquare className="h-4 w-4 text-primary" />
+              Notifikasi WhatsApp Admin
+            </CardTitle>
+            <CardDescription className="text-xs">
+              Nomor WA yang menerima notifikasi saat tenant upload bukti bayar. Admin dapat membalas
+              <span className="font-mono mx-1 bg-muted px-1 rounded">SETUJU {"{ID}"}</span>
+              atau
+              <span className="font-mono mx-1 bg-muted px-1 rounded">TOLAK {"{ID}"} alasan</span>
+              untuk memproses langsung dari WA.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {isLoading ? (
+              <div className="h-12 flex items-center justify-center text-sm text-muted-foreground">Memuat...</div>
+            ) : (
+              <div className="space-y-1.5">
+                <Label className="text-xs">Nomor WhatsApp Admin</Label>
+                <Input
+                  {...register("adminPhone")}
+                  placeholder="08123456789 atau 6281234567890"
+                  className="h-8 text-sm"
+                />
+                <p className="text-[10px] text-muted-foreground">
+                  Isi nomor HP admin (format 08xxx atau 628xxx). Kosongkan jika tidak ingin menerima notifikasi WA.
+                  Bisa di-override via env <span className="font-mono">ADMIN_WHATSAPP</span>.
+                  Pastikan <span className="font-mono">FONNTE_TOKEN</span> sudah dikonfigurasi agar notifikasi terkirim.
                 </p>
               </div>
             )}

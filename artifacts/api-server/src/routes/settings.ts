@@ -18,6 +18,9 @@ const DEFAULT_SETTINGS = {
   taxRate: 0,
   currency: "IDR",
   logoUrl: "",
+  // Nomor WA admin yang menerima notifikasi bukti bayar dari tenant.
+  // Format: 08xxx atau 628xxx. Bisa di-override via env ADMIN_WHATSAPP.
+  adminPhone: "",
 };
 
 router.get("/settings", requireAuth, requireAnyRole("owner", "admin", "finance"), async (_req, res) => {

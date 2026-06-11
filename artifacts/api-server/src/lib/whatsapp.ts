@@ -235,6 +235,48 @@ export async function sendPaymentRejected(params: PaymentRejectedParams): Promis
   return sendMessage(params.phone, message);
 }
 
+export interface AdminPaymentAlertParams {
+  ownerName: string;
+  businessName: string;
+  invoiceNumber: string;
+  amount: string | number;
+  paymentMethod: string;
+  referenceNumber?: string | null;
+  paymentId: number;
+  adminPhone: string;
+  reviewLink: string;
+}
+
+/**
+ * Kirim notifikasi ke admin saat tenant submit bukti pembayaran.
+ * Admin dapat membalas WA dengan:
+ *   SETUJU {paymentId}       → approve
+ *   TOLAK {paymentId} alasan → reject
+ */
+export async function sendAdminPaymentAlert(params: AdminPaymentAlertParams): Promise<WaResult> {
+  const methodLabel: Record<string, string> = {
+    transfer: "Transfer Bank",
+    tunai: "Tunai / Cash",
+    qris: "QRIS",
+    edc: "EDC / Debit",
+    other: "Lainnya",
+  };
+
+  const message =
+    `🔔 *Bukti Pembayaran Baru Masuk*\n\n` +
+    `Tenant  : *${params.ownerName}* (${params.businessName})\n` +
+    `Invoice : *${params.invoiceNumber}*\n` +
+    `Jumlah  : *${formatRupiah(params.amount)}*\n` +
+    `Metode  : ${methodLabel[params.paymentMethod] ?? params.paymentMethod}\n` +
+    (params.referenceNumber ? `Ref No  : ${params.referenceNumber}\n` : "") +
+    `\nBalas pesan ini untuk memproses:\n` +
+    `✅ *SETUJU ${params.paymentId}*\n` +
+    `❌ *TOLAK ${params.paymentId} <alasan>*\n\n` +
+    `🔗 ${params.reviewLink}`;
+
+  return sendMessage(params.adminPhone, message);
+}
+
 /**
  * Kirim pengingat tagihan overdue ke tenant
  */

@@ -17,6 +17,7 @@ import tenantPortalRouter from "./tenant-portal";
 import tenantUsersRouter from "./tenant-users";
 import whatsappRouter from "./whatsapp";
 import paymentProofRouter from "./payment-proof";
+import whatsappWebhookRouter from "./whatsapp-webhook";
 import pendingPaymentsRouter from "./pending-payments";
 import dashboardRouter from "./dashboard";
 import settingsRouter from "./settings";
@@ -31,6 +32,7 @@ router.use(whatsappAuthRouter);
 
 // Public routes (tidak perlu login)
 router.use(paymentProofRouter);
+router.use(whatsappWebhookRouter); // Fonnte incoming message webhook
 
 router.use(requireAuth);
 

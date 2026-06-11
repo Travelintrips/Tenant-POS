@@ -4,12 +4,36 @@ import path from "path";
 import fs from "fs";
 import crypto from "crypto";
 import { db } from "@workspace/db";
-import { tenantInvoicesTable, tenantPaymentsTable, tenantsTable } from "@workspace/db/schema";
+import { tenantInvoicesTable, tenantPaymentsTable, tenantsTable, systemSettingsTable } from "@workspace/db/schema";
 import { eq, sql } from "drizzle-orm";
 import { z } from "zod/v4";
 import { sseBroker } from "../lib/sse-broker";
-import { sendPaymentReceived } from "../lib/whatsapp";
+import { sendPaymentReceived, sendAdminPaymentAlert } from "../lib/whatsapp";
 import { uploadRateLimiter } from "../middlewares/rate-limit";
+
+/** Ambil nomor WA admin dari env (prioritas) atau settings DB */
+async function getAdminPhone(): Promise<string | null> {
+  if (process.env.ADMIN_WHATSAPP) return process.env.ADMIN_WHATSAPP;
+  try {
+    const [row] = await db
+      .select({ value: systemSettingsTable.value })
+      .from(systemSettingsTable)
+      .where(eq(systemSettingsTable.key, "mall_config"));
+    const phone = (row?.value as Record<string, unknown> | undefined)?.adminPhone;
+    return typeof phone === "string" && phone.length > 0 ? phone : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Bangun URL review pembayaran berdasarkan domain yang dideteksi */
+function buildReviewLink(): string {
+  const domain =
+    process.env.REPLIT_DEV_DOMAIN ??
+    process.env.REPLIT_DOMAINS?.split(",")[0] ??
+    process.env.APP_URL;
+  return domain ? `https://${domain}/tinjau-pembayaran` : "/tinjau-pembayaran";
+}
 
 const router: IRouter = Router();
 
@@ -229,6 +253,22 @@ router.post("/pay/:token/proof", uploadRateLimiter, async (req, res) => {
         phone: invoice.phone,
       }).catch(() => {});
     }
+
+    // Notifikasi admin via WA — fire-and-forget
+    getAdminPhone().then((adminPhone) => {
+      if (!adminPhone) return;
+      sendAdminPaymentAlert({
+        ownerName: invoice.ownerName ?? "Tenant",
+        businessName: invoice.businessName ?? "",
+        invoiceNumber: invoice.invoiceNumber,
+        amount,
+        paymentMethod,
+        referenceNumber: referenceNumber ?? null,
+        paymentId: payment.id,
+        adminPhone,
+        reviewLink: buildReviewLink(),
+      }).catch(() => {});
+    }).catch(() => {});
 
     res.status(201).json({
       success: true,
