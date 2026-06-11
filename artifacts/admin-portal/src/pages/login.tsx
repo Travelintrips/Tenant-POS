@@ -16,12 +16,16 @@ const DEV_ACCOUNTS: { role: UserRole; label: string; color: string }[] = [
   { role: "tenant_user", label: "Tenant User",   color: "bg-teal-100 text-teal-800 hover:bg-teal-200" },
 ];
 
+declare const __DEV_LOGIN_ENABLED__: boolean;
+
 type Step = "phone" | "otp";
 
 export default function Login() {
   const error = new URLSearchParams(window.location.search).get("error");
   const [loadingRole, setLoadingRole] = useState<UserRole | null>(null);
-  const [devLoginEnabled, setDevLoginEnabled] = useState<boolean | null>(null);
+  const [devLoginEnabled, setDevLoginEnabled] = useState<boolean>(
+    typeof __DEV_LOGIN_ENABLED__ !== "undefined" ? __DEV_LOGIN_ENABLED__ : false,
+  );
   const [loginError, setLoginError] = useState<string | null>(null);
   const [step, setStep] = useState<Step>("phone");
   const [phoneNumber, setPhoneNumber] = useState("");

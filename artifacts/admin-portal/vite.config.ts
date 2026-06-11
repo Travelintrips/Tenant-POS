@@ -12,6 +12,7 @@ if (Number.isNaN(port) || port <= 0) {
 }
 
 const basePath = process.env.BASE_PATH ?? "/";
+const devLoginEnabled = process.env.ENABLE_DEV_LOGIN === "true";
 
 export default defineConfig({
   base: basePath,
@@ -33,6 +34,9 @@ export default defineConfig({
         ]
       : []),
   ],
+  define: {
+    __DEV_LOGIN_ENABLED__: JSON.stringify(devLoginEnabled),
+  },
   resolve: {
     alias: {
       "@": path.resolve(import.meta.dirname, "src"),
