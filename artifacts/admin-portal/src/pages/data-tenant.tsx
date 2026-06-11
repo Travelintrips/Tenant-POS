@@ -24,7 +24,10 @@ import {
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, Pencil, Trash2, Search, Upload, X, ImageIcon, Building2, Dumbbell, Eye, CalendarClock } from "lucide-react";
+import { Plus, Pencil, Trash2, Search, Upload, X, ImageIcon, Building2, Dumbbell, Eye, CalendarClock, Download } from "lucide-react";
+import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { useLocation } from "wouter";
 import { useSite } from "@/contexts/site-context";
 
@@ -415,6 +418,46 @@ export default function DataTenant() {
     .map((t) => t.businessName)
     .slice(0, 5);
 
+  // ─── Export CSV ───────────────────────────────────────────────────────────────
+  function exportCSV(scope: "filtered" | "all") {
+    const rows = scope === "filtered" ? filtered : (tenants ?? []);
+    const headers = [
+      "No", "Nama Usaha", "Pemilik", "Email", "Telepon",
+      "Kategori", "No. Booth", "Area", "Status", "Akhir Kontrak", "Catatan",
+    ];
+    const body = rows.map((t, i) => [
+      i + 1,
+      t.businessName,
+      t.ownerName,
+      t.email ?? "",
+      t.phone ?? "",
+      t.category ?? "",
+      t.boothNumber ?? "",
+      t.areaName,
+      STATUS_LABEL[t.status] ?? t.status,
+      t.contractEndDate
+        ? new Date(t.contractEndDate).toLocaleDateString("id-ID")
+        : "",
+      t.notes ?? "",
+    ]);
+    const escape = (v: unknown) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+    const csv =
+      "\uFEFF" + // UTF-8 BOM agar Excel langsung baca encoding
+      [headers, ...body].map((r) => r.map(escape).join(",")).join("\r\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    const siteName = (activeSite?.name ?? "tenant").replace(/\s+/g, "-");
+    const date = new Date().toISOString().slice(0, 10);
+    a.href = url;
+    a.download = `data-tenant-${siteName}-${date}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    toast({ title: "Export Berhasil", description: `${rows.length} tenant diekspor ke CSV.` });
+  }
+
   return (
     <div className="flex flex-col gap-6">
       {/* Header */}
@@ -517,6 +560,22 @@ export default function DataTenant() {
                   <SelectItem value="blacklisted">Blacklist</SelectItem>
                 </SelectContent>
               </Select>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" size="sm" className="h-9 gap-1.5" disabled={!tenants || tenants.length === 0}>
+                    <Download className="h-4 w-4" />
+                    Export
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem onClick={() => exportCSV("filtered")}>
+                    Export tampilan ini ({filtered.length} tenant)
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => exportCSV("all")}>
+                    Export semua ({tenants?.length ?? 0} tenant)
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
           </div>
         </CardHeader>
