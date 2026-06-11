@@ -67,9 +67,10 @@ type Tenant = {
   defaultElectricityChargeAmount: string | null;
   defaultWaterChargeAmount: string | null;
   defaultOtherChargeAmount: string | null;
+  contractStartDate: string | null;
+  contractEndDate: string | null;
   createdAt: string;
   updatedAt: string;
-  contractEndDate?: string | null;
 };
 
 function getContractInfo(endDate: string | null | undefined): {
@@ -107,6 +108,8 @@ type TenantForm = {
   defaultElectricityChargeAmount: string;
   defaultWaterChargeAmount: string;
   defaultOtherChargeAmount: string;
+  contractStartDate: string;
+  contractEndDate: string;
 };
 
 const EMPTY_FORM: TenantForm = {
@@ -125,6 +128,8 @@ const EMPTY_FORM: TenantForm = {
   defaultElectricityChargeAmount: "",
   defaultWaterChargeAmount: "",
   defaultOtherChargeAmount: "",
+  contractStartDate: "",
+  contractEndDate: "",
 };
 
 const STATUS_LABEL: Record<string, string> = {
@@ -357,6 +362,8 @@ export default function DataTenant() {
       defaultElectricityChargeAmount: tenant.defaultElectricityChargeAmount ?? "",
       defaultWaterChargeAmount: tenant.defaultWaterChargeAmount ?? "",
       defaultOtherChargeAmount: tenant.defaultOtherChargeAmount ?? "",
+      contractStartDate: tenant.contractStartDate ?? "",
+      contractEndDate: tenant.contractEndDate ?? "",
     });
     setLogoFile(null);
     setLogoPreview(tenant.logoUrl ?? "");
@@ -406,7 +413,8 @@ export default function DataTenant() {
     }
 
     const toNum = (v: string) => (v === "" ? "0" : v);
-    const payload: TenantForm = {
+    const toDate = (v: string) => (v === "" ? null : v);
+    const payload = {
       ...form,
       logoUrl: finalLogoUrl,
       notes: form.notes || "",
@@ -415,6 +423,8 @@ export default function DataTenant() {
       defaultElectricityChargeAmount: toNum(form.defaultElectricityChargeAmount),
       defaultWaterChargeAmount: toNum(form.defaultWaterChargeAmount),
       defaultOtherChargeAmount: toNum(form.defaultOtherChargeAmount),
+      contractStartDate: toDate(form.contractStartDate),
+      contractEndDate: toDate(form.contractEndDate),
     };
 
     if (editTarget) {
@@ -766,6 +776,7 @@ export default function DataTenant() {
                   <TableHead>No. HP</TableHead>
                   <TableHead>Unit / Lantai</TableHead>
                   <TableHead>Kategori</TableHead>
+                  <TableHead>Harga Sewa</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead>Masa Kontrak</TableHead>
                   <TableHead className="w-[100px] text-right">Aksi</TableHead>
@@ -775,7 +786,7 @@ export default function DataTenant() {
                 {isLoading
                   ? Array.from({ length: 5 }).map((_, i) => (
                       <TableRow key={i}>
-                        {Array.from({ length: 11 }).map((_, j) => (
+                        {Array.from({ length: 12 }).map((_, j) => (
                           <TableCell key={j}><Skeleton className="h-4 w-full" /></TableCell>
                         ))}
                       </TableRow>
@@ -783,7 +794,7 @@ export default function DataTenant() {
                   : filtered.length === 0
                   ? (
                     <TableRow>
-                      <TableCell colSpan={11} className="text-center py-8 text-muted-foreground">
+                      <TableCell colSpan={12} className="text-center py-8 text-muted-foreground">
                         {tenants?.length === 0 ? "Belum ada tenant terdaftar." : "Tidak ada hasil pencarian."}
                       </TableCell>
                     </TableRow>
@@ -822,6 +833,11 @@ export default function DataTenant() {
                           {tenant.areaName ? <span className="text-muted-foreground"> · {tenant.areaName}</span> : ""}
                         </TableCell>
                         <TableCell>{tenant.category ?? "-"}</TableCell>
+                        <TableCell className="font-medium text-sm">
+                          {tenant.defaultRentAmount && Number(tenant.defaultRentAmount) > 0
+                            ? formatRupiah(Number(tenant.defaultRentAmount))
+                            : <span className="text-muted-foreground">—</span>}
+                        </TableCell>
                         <TableCell>
                           <span className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium ${statusClass(tenant.status)}`}>
                             {STATUS_LABEL[tenant.status] ?? tenant.status}
@@ -830,17 +846,23 @@ export default function DataTenant() {
                         <TableCell>
                           {(() => {
                             const info = getContractInfo(tenant.contractEndDate);
-                            if (!tenant.contractEndDate) {
+                            if (!tenant.contractStartDate && !tenant.contractEndDate) {
                               return <span className="text-xs text-muted-foreground">—</span>;
                             }
+                            const fmtDate = (d: string) =>
+                              new Date(d).toLocaleDateString("id-ID", { day: "numeric", month: "short", year: "numeric" });
                             return (
                               <div className="flex flex-col gap-0.5">
-                                <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-semibold ${info.bgClass} ${info.colorClass}`}>
-                                  <CalendarClock className="h-3 w-3" />
-                                  {info.label}
-                                </span>
+                                {tenant.contractEndDate && (
+                                  <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-semibold ${info.bgClass} ${info.colorClass}`}>
+                                    <CalendarClock className="h-3 w-3" />
+                                    {info.label}
+                                  </span>
+                                )}
                                 <span className="text-[10px] text-muted-foreground">
-                                  s/d {new Date(tenant.contractEndDate).toLocaleDateString("id-ID", { day: "numeric", month: "short", year: "numeric" })}
+                                  {tenant.contractStartDate ? fmtDate(tenant.contractStartDate) : "?"}
+                                  {" – "}
+                                  {tenant.contractEndDate ? fmtDate(tenant.contractEndDate) : "?"}
                                 </span>
                               </div>
                             );
@@ -1133,6 +1155,37 @@ export default function DataTenant() {
                       value={form.defaultOtherChargeAmount}
                       onChange={(e) => setForm(f => ({ ...f, defaultOtherChargeAmount: e.target.value }))}
                       placeholder="0"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* ── Masa Kontrak ─────────────────────────────────────── */}
+              <div className="flex flex-col gap-3 pt-1">
+                <div className="flex items-center gap-2">
+                  <div className="h-px flex-1 bg-border" />
+                  <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide px-1">
+                    Masa Kontrak
+                  </span>
+                  <div className="h-px flex-1 bg-border" />
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="flex flex-col gap-1.5">
+                    <Label htmlFor="contractStartDate">Tanggal Mulai Kontrak</Label>
+                    <Input
+                      id="contractStartDate"
+                      type="date"
+                      value={form.contractStartDate}
+                      onChange={(e) => setForm(f => ({ ...f, contractStartDate: e.target.value }))}
+                    />
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <Label htmlFor="contractEndDate">Tanggal Selesai Kontrak</Label>
+                    <Input
+                      id="contractEndDate"
+                      type="date"
+                      value={form.contractEndDate}
+                      onChange={(e) => setForm(f => ({ ...f, contractEndDate: e.target.value }))}
                     />
                   </div>
                 </div>

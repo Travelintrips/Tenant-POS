@@ -1,4 +1,4 @@
-import { pgTable, serial, integer, text, numeric, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, serial, integer, text, numeric, timestamp, date } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 import { mallSitesTable } from "./mall-sites";
@@ -28,6 +28,8 @@ export const tenantsTable = pgTable("tenants", {
   defaultElectricityChargeAmount: numeric("default_electricity_charge_amount").default("0"),
   defaultWaterChargeAmount: numeric("default_water_charge_amount").default("0"),
   defaultOtherChargeAmount: numeric("default_other_charge_amount").default("0"),
+  contractStartDate: date("contract_start_date"),
+  contractEndDate: date("contract_end_date"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });

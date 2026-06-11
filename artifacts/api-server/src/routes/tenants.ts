@@ -39,9 +39,12 @@ router.get("/tenants", async (req, res) => {
       )
       .groupBy(tenantBookingsTable.tenantId);
 
-    const endDateMap = new Map(bookingDates.map((b) => [b.tenantId, b.contractEndDate]));
+    const bookingEndDateMap = new Map(bookingDates.map((b) => [b.tenantId, b.contractEndDate]));
 
-    res.json(rows.map((t) => ({ ...t, contractEndDate: endDateMap.get(t.id) ?? null })));
+    res.json(rows.map((t) => ({
+      ...t,
+      contractEndDate: t.contractEndDate ?? bookingEndDateMap.get(t.id) ?? null,
+    })));
   } catch (err) {
     req.log.error(err, "Failed to list tenants");
     res.status(500).json({ error: "Gagal mengambil data tenant" });

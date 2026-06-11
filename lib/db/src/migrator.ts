@@ -1419,6 +1419,19 @@ CREATE INDEX IF NOT EXISTS "wa_send_logs_site_id_idx" ON "wa_send_logs" ("site_i
     `.trim(),
   },
   {
+    name: "0026_tenant_contract_dates",
+    sql: `
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='tenants' AND column_name='contract_start_date') THEN
+    ALTER TABLE "tenants" ADD COLUMN "contract_start_date" date;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='tenants' AND column_name='contract_end_date') THEN
+    ALTER TABLE "tenants" ADD COLUMN "contract_end_date" date;
+  END IF;
+END $$;
+    `.trim(),
+  },
+  {
     name: "0025_tenant_default_prices",
     sql: `
 DO $$ BEGIN
