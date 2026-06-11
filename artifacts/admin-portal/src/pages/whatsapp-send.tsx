@@ -77,7 +77,7 @@ function StatusBadge({ status }: { status: WaLog["status"] }) {
 export default function WhatsAppSend() {
   const { toast } = useToast();
   const qc = useQueryClient();
-  const { currentSite } = useSite();
+  const { activeSite: currentSite } = useSite();
 
   const [testPhone, setTestPhone] = useState("");
   const [testMsg, setTestMsg] = useState("");

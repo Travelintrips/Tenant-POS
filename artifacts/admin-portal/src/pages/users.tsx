@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -348,6 +349,85 @@ function DeleteUserDialog({ user, open, onClose }: { user: User | null; open: bo
   );
 }
 
+// ─── Bulk Delete Confirm Dialog ───────────────────────────────────────────────
+
+function BulkDeleteDialog({
+  open,
+  ids,
+  users,
+  onClose,
+  onSuccess,
+}: {
+  open: boolean;
+  ids: string[];
+  users: User[];
+  onClose: () => void;
+  onSuccess: () => void;
+}) {
+  const { toast } = useToast();
+  const qc = useQueryClient();
+
+  const mutation = useMutation({
+    mutationFn: async () => {
+      const results = await Promise.allSettled(
+        ids.map((id) => fetch(`/api/users/${id}`, { method: "DELETE" })),
+      );
+      const failed = results.filter((r) => r.status === "rejected").length;
+      if (failed > 0) throw new Error(`${failed} user gagal dihapus`);
+    },
+    onSuccess: () => {
+      toast({ title: `${ids.length} user berhasil dihapus` });
+      qc.invalidateQueries({ queryKey: ["users"] });
+      onSuccess();
+      onClose();
+    },
+    onError: (err: Error) => {
+      toast({ title: "Sebagian gagal", description: err.message, variant: "destructive" });
+      qc.invalidateQueries({ queryKey: ["users"] });
+      onSuccess();
+      onClose();
+    },
+  });
+
+  const names = users.filter((u) => ids.includes(u.id)).map((u) => u.name);
+
+  return (
+    <AlertDialog open={open} onOpenChange={(v) => !v && onClose()}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle className="flex items-center gap-2">
+            <Trash2 className="h-4 w-4 text-red-500" /> Hapus {ids.length} Pengguna?
+          </AlertDialogTitle>
+          <AlertDialogDescription asChild>
+            <div className="space-y-2">
+              <p>Pengguna berikut akan dihapus secara permanen beserta seluruh akses tenant mereka:</p>
+              <ul className="text-sm text-foreground space-y-0.5 max-h-40 overflow-y-auto border rounded p-2 bg-muted/30">
+                {names.map((n, i) => (
+                  <li key={i} className="flex items-center gap-1.5">
+                    <Trash2 className="h-3 w-3 text-red-400 shrink-0" />
+                    <span>{n}</span>
+                  </li>
+                ))}
+              </ul>
+              <p className="text-xs text-muted-foreground">Tindakan ini tidak dapat dibatalkan.</p>
+            </div>
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={mutation.isPending}>Batal</AlertDialogCancel>
+          <AlertDialogAction
+            className="bg-red-600 hover:bg-red-700 text-white"
+            onClick={() => mutation.mutate()}
+            disabled={mutation.isPending}
+          >
+            {mutation.isPending ? "Menghapus..." : `Ya, Hapus ${ids.length} User`}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  );
+}
+
 // ─── Reset Session Confirm Dialog ─────────────────────────────────────────────
 
 function ResetSessionDialog({ user, open, onClose }: { user: User | null; open: boolean; onClose: () => void }) {
@@ -409,11 +489,12 @@ function StatusBadge({ status }: { status: string }) {
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
-type ModalType = "add" | "edit" | "delete" | "reset-session" | null;
+type ModalType = "add" | "edit" | "delete" | "reset-session" | "bulk-delete" | null;
 
 export default function UsersPage() {
   const [modal, setModal] = useState<ModalType>(null);
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const { data: currentUser } = useAuth();
   const isOwner = currentUser?.role === "owner";
 
@@ -440,6 +521,37 @@ export default function UsersPage() {
   function closeModal() {
     setModal(null);
     setSelectedUser(null);
+  }
+
+  const deletableUsers = users.filter((u) => u.id !== currentUser?.dbId);
+
+  const allDeletableSelected =
+    deletableUsers.length > 0 && deletableUsers.every((u) => selectedIds.has(u.id));
+  const someSelected = selectedIds.size > 0;
+  const indeterminate = someSelected && !allDeletableSelected;
+
+  function toggleSelectAll() {
+    if (allDeletableSelected) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(deletableUsers.map((u) => u.id)));
+    }
+  }
+
+  function toggleSelect(id: string) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  }
+
+  function clearSelection() {
+    setSelectedIds(new Set());
   }
 
   return (
@@ -486,7 +598,35 @@ export default function UsersPage() {
         <CardHeader className="pb-3">
           <CardTitle className="text-base flex items-center justify-between">
             <span>Daftar Pengguna</span>
-            <span className="text-sm font-normal text-muted-foreground">{users.length} user</span>
+            <div className="flex items-center gap-2">
+              {someSelected && isOwner && (
+                <div className="flex items-center gap-2 animate-in fade-in slide-in-from-right-2 duration-150">
+                  <span className="text-xs text-muted-foreground">
+                    {selectedIds.size} dipilih
+                  </span>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-7 text-xs gap-1.5 border-dashed"
+                    onClick={clearSelection}
+                  >
+                    Batal Pilih
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="destructive"
+                    className="h-7 text-xs gap-1.5"
+                    onClick={() => setModal("bulk-delete")}
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                    Hapus {selectedIds.size} User
+                  </Button>
+                </div>
+              )}
+              {!someSelected && (
+                <span className="text-sm font-normal text-muted-foreground">{users.length} user</span>
+              )}
+            </div>
           </CardTitle>
         </CardHeader>
         <CardContent className="p-0">
@@ -504,6 +644,17 @@ export default function UsersPage() {
               <Table>
                 <TableHeader>
                   <TableRow className="bg-muted/50">
+                    {isOwner && (
+                      <TableHead className="w-10 py-2 pl-4">
+                        <Checkbox
+                          checked={allDeletableSelected}
+                          data-state={indeterminate ? "indeterminate" : allDeletableSelected ? "checked" : "unchecked"}
+                          onCheckedChange={toggleSelectAll}
+                          aria-label="Pilih semua"
+                          className="translate-y-[1px]"
+                        />
+                      </TableHead>
+                    )}
                     <TableHead className="text-xs py-2">Pengguna</TableHead>
                     <TableHead className="text-xs py-2">Peran</TableHead>
                     <TableHead className="text-xs py-2">Status</TableHead>
@@ -516,8 +667,24 @@ export default function UsersPage() {
                   {users.map((user) => {
                     const roleInfo = getRoleInfo(user.role);
                     const isSelf = currentUser?.dbId === user.id;
+                    const isChecked = selectedIds.has(user.id);
                     return (
-                      <TableRow key={user.id} className="hover:bg-muted/30">
+                      <TableRow
+                        key={user.id}
+                        className={`hover:bg-muted/30 ${isChecked ? "bg-primary/5" : ""}`}
+                      >
+                        {isOwner && (
+                          <TableCell className="py-2 pl-4 w-10">
+                            {!isSelf && (
+                              <Checkbox
+                                checked={isChecked}
+                                onCheckedChange={() => toggleSelect(user.id)}
+                                aria-label={`Pilih ${user.name}`}
+                                className="translate-y-[1px]"
+                              />
+                            )}
+                          </TableCell>
+                        )}
                         <TableCell className="py-2">
                           <div className="flex items-center gap-2.5">
                             <Avatar className="h-8 w-8">
@@ -630,6 +797,13 @@ export default function UsersPage() {
       <EditUserDialog user={selectedUser} open={modal === "edit"} onClose={closeModal} />
       <DeleteUserDialog user={selectedUser} open={modal === "delete"} onClose={closeModal} />
       <ResetSessionDialog user={selectedUser} open={modal === "reset-session"} onClose={closeModal} />
+      <BulkDeleteDialog
+        open={modal === "bulk-delete"}
+        ids={[...selectedIds]}
+        users={users}
+        onClose={closeModal}
+        onSuccess={clearSelection}
+      />
     </div>
   );
 }
