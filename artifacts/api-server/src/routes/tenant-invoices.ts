@@ -280,6 +280,82 @@ router.get("/tenant-invoices/:id", async (req, res) => {
   }
 });
 
+// ─── POST /api/tenant-invoices/bulk ──────────────────────────────────────────
+const bulkInvoiceItemSchema = z.object({
+  tenantId: z.number().int().positive({ message: "Tenant wajib dipilih" }),
+  unitCode: z.string().optional().nullable(),
+  periodStart: z.string().optional().nullable(),
+  periodEnd: z.string().optional().nullable(),
+  dueDate: z.string().optional().nullable(),
+  rentAmount: z.union([z.string(), z.number()]).optional().nullable(),
+  serviceChargeAmount: z.union([z.string(), z.number()]).optional().nullable(),
+  electricityChargeAmount: z.union([z.string(), z.number()]).optional().nullable(),
+  waterChargeAmount: z.union([z.string(), z.number()]).optional().nullable(),
+  otherChargeAmount: z.union([z.string(), z.number()]).optional().nullable(),
+  discountAmount: z.union([z.string(), z.number()]).optional().nullable(),
+  penaltyAmount: z.union([z.string(), z.number()]).optional().nullable(),
+  taxAmount: z.union([z.string(), z.number()]).optional().nullable(),
+  notes: z.string().optional().nullable(),
+  status: z.enum(["draft", "unpaid", "partial", "paid", "overdue", "cancelled"]).optional(),
+});
+
+router.post("/tenant-invoices/bulk", async (req, res) => {
+  const parsed = z.array(bulkInvoiceItemSchema).min(1, "Minimal 1 invoice").safeParse(req.body);
+  if (!parsed.success) {
+    const msg = parsed.error.issues.map((i) => i.message).join("; ");
+    res.status(400).json({ error: msg });
+    return;
+  }
+
+  const results: { tenantId: number; invoiceNumber: string; success: boolean; error?: string }[] = [];
+
+  for (const item of parsed.data) {
+    try {
+      const { subtotal, totalAmount, outstandingAmount } = calcAmounts(item);
+      const status = item.status ?? resolveStatus(Number(totalAmount), 0, item.dueDate ?? null);
+
+      const invoice = await insertInvoiceSafe({
+        ...(req.siteId > 0 ? { siteId: req.siteId } : {}),
+        tenantId: item.tenantId,
+        unitCode: item.unitCode ?? null,
+        periodStart: item.periodStart ?? null,
+        periodEnd: item.periodEnd ?? null,
+        dueDate: item.dueDate ?? null,
+        rentAmount: String(item.rentAmount ?? "0"),
+        serviceChargeAmount: String(item.serviceChargeAmount ?? "0"),
+        electricityChargeAmount: String(item.electricityChargeAmount ?? "0"),
+        waterChargeAmount: String(item.waterChargeAmount ?? "0"),
+        otherChargeAmount: String(item.otherChargeAmount ?? "0"),
+        discountAmount: String(item.discountAmount ?? "0"),
+        penaltyAmount: String(item.penaltyAmount ?? "0"),
+        taxAmount: String(item.taxAmount ?? "0"),
+        subtotal,
+        totalAmount,
+        paidAmount: "0",
+        outstandingAmount,
+        status,
+        notes: item.notes ?? null,
+      });
+
+      logAudit(req, {
+        action: "create_invoice",
+        entityType: "invoice",
+        entityId: invoice.id,
+        afterData: { ...invoice, bulk: true },
+      });
+
+      results.push({ tenantId: item.tenantId, invoiceNumber: invoice.invoiceNumber, success: true });
+    } catch (err) {
+      req.log.error(err, `Failed to create bulk invoice for tenant ${item.tenantId}`);
+      results.push({ tenantId: item.tenantId, invoiceNumber: "", success: false, error: (err as Error).message });
+    }
+  }
+
+  const succeeded = results.filter((r) => r.success).length;
+  const failed = results.filter((r) => !r.success).length;
+  res.status(succeeded > 0 ? 201 : 500).json({ results, succeeded, failed });
+});
+
 // ─── POST /api/tenant-invoices ─────────────────────────────────────────────────
 const createInvoiceSchema = z.object({
   tenantId: z.number().int().positive({ message: "Tenant wajib dipilih" }),

@@ -20,10 +20,11 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Plus, FileText, Printer, CreditCard, X, Search, Zap, AlertCircle,
   CheckCircle2, Clock, Ban, CircleDashed, MessageCircle, Send, Link2, Loader2,
-  Copy, WifiOff, CheckCheck, Download,
+  Copy, WifiOff, CheckCheck, Download, Layers, ChevronDown, ChevronRight,
 } from "lucide-react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -485,6 +486,17 @@ export default function TenantInvoices() {
   const [paymentLinkDialog, setPaymentLinkDialog] = useState<{ link: string; error: string } | null>(null);
   const [linkCopied, setLinkCopied] = useState(false);
 
+  // ─── Bulk invoice state ──────────────────────────────────────────────────────
+  const [bulkOpen, setBulkOpen] = useState(false);
+  const [bulkCommon, setBulkCommon] = useState({
+    periodStart: "", periodEnd: "", dueDate: "", status: "unpaid" as InvoiceStatus, notes: "",
+  });
+  const [bulkSelected, setBulkSelected] = useState<Set<number>>(new Set());
+  type BulkPrice = { unitCode: string; rentAmount: string; serviceChargeAmount: string; electricityChargeAmount: string; waterChargeAmount: string; otherChargeAmount: string; };
+  const [bulkPrices, setBulkPrices] = useState<Record<number, BulkPrice>>({});
+  const [bulkExpanded, setBulkExpanded] = useState<number | null>(null);
+  const [bulkResult, setBulkResult] = useState<{ succeeded: number; failed: number; results: { tenantId: number; invoiceNumber: string; success: boolean; error?: string }[] } | null>(null);
+
   // ─── Queries ────────────────────────────────────────────────────────────────
 
   const qParams = new URLSearchParams();
@@ -534,6 +546,28 @@ export default function TenantInvoices() {
       void queryClient.invalidateQueries({ queryKey: ["/api/tenant-invoices"] });
       toast({ title: "Berhasil", description: "Invoice baru berhasil dibuat." });
       setCreateOpen(false);
+    },
+    onError: (e: Error) => toast({ title: "Gagal", description: e.message, variant: "destructive" }),
+  });
+
+  const bulkMutation = useMutation({
+    mutationFn: (items: object[]) =>
+      apiPost<{ results: { tenantId: number; invoiceNumber: string; success: boolean; error?: string }[]; succeeded: number; failed: number }>(
+        `${BASE}/api/tenant-invoices/bulk`,
+        items,
+      ),
+    onSuccess: (res) => {
+      void queryClient.invalidateQueries({ queryKey: ["/api/tenant-invoices"] });
+      setBulkResult(res);
+      if (res.failed === 0) {
+        toast({ title: `${res.succeeded} Invoice Dibuat`, description: "Semua invoice berhasil dibuat." });
+      } else {
+        toast({
+          title: `${res.succeeded} Berhasil, ${res.failed} Gagal`,
+          description: "Beberapa invoice gagal dibuat. Lihat detail di dialog.",
+          variant: "destructive",
+        });
+      }
     },
     onError: (e: Error) => toast({ title: "Gagal", description: e.message, variant: "destructive" }),
   });
@@ -741,6 +775,68 @@ export default function TenantInvoices() {
     setDetailOpen(true);
   }
 
+  function openBulkDialog() {
+    const allTenants = tenants ?? [];
+    const prices: Record<number, { unitCode: string; rentAmount: string; serviceChargeAmount: string; electricityChargeAmount: string; waterChargeAmount: string; otherChargeAmount: string }> = {};
+    for (const t of allTenants) {
+      prices[t.id] = {
+        unitCode: t.boothNumber ?? "",
+        rentAmount: t.defaultRentAmount ?? "",
+        serviceChargeAmount: t.defaultServiceChargeAmount ?? "",
+        electricityChargeAmount: t.defaultElectricityChargeAmount ?? "",
+        waterChargeAmount: t.defaultWaterChargeAmount ?? "",
+        otherChargeAmount: t.defaultOtherChargeAmount ?? "",
+      };
+    }
+    setBulkPrices(prices);
+    setBulkSelected(new Set(allTenants.map((t) => t.id)));
+    setBulkCommon({ periodStart: "", periodEnd: "", dueDate: "", status: "unpaid", notes: "" });
+    setBulkExpanded(null);
+    setBulkResult(null);
+    setBulkOpen(true);
+  }
+
+  function handleBulkSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (bulkSelected.size === 0) {
+      toast({ title: "Validasi Gagal", description: "Pilih minimal 1 tenant.", variant: "destructive" });
+      return;
+    }
+    const items = Array.from(bulkSelected).map((tenantId) => {
+      const p = bulkPrices[tenantId] ?? {};
+      return {
+        tenantId,
+        unitCode: p.unitCode || null,
+        periodStart: bulkCommon.periodStart || null,
+        periodEnd: bulkCommon.periodEnd || null,
+        dueDate: bulkCommon.dueDate || null,
+        rentAmount: p.rentAmount || "0",
+        serviceChargeAmount: p.serviceChargeAmount || "0",
+        electricityChargeAmount: p.electricityChargeAmount || "0",
+        waterChargeAmount: p.waterChargeAmount || "0",
+        otherChargeAmount: p.otherChargeAmount || "0",
+        discountAmount: "0",
+        penaltyAmount: "0",
+        taxAmount: "0",
+        notes: bulkCommon.notes || null,
+        status: bulkCommon.status,
+      };
+    });
+    bulkMutation.mutate(items);
+  }
+
+  function calcBulkTotal(tenantId: number): number {
+    const p = bulkPrices[tenantId];
+    if (!p) return 0;
+    return (
+      Number(p.rentAmount || 0) +
+      Number(p.serviceChargeAmount || 0) +
+      Number(p.electricityChargeAmount || 0) +
+      Number(p.waterChargeAmount || 0) +
+      Number(p.otherChargeAmount || 0)
+    );
+  }
+
   // ─── Render ────────────────────────────────────────────────────────────────
 
   return (
@@ -823,6 +919,15 @@ export default function TenantInvoices() {
           <Button variant="outline" onClick={() => { setGenerateForm({ bookingId: "", notes: "" }); setGenerateOpen(true); }} className="gap-2">
             <Zap className="h-4 w-4" />
             Generate dari Booking
+          </Button>
+          <Button
+            variant="outline"
+            className="gap-2 border-violet-300 text-violet-700 hover:bg-violet-50"
+            onClick={openBulkDialog}
+            disabled={!tenants || tenants.length === 0}
+          >
+            <Layers className="h-4 w-4" />
+            Invoice Massal
           </Button>
           <Button onClick={() => { setCreateForm(EMPTY_FORM); setCreateOpen(true); }} className="gap-2">
             <Plus className="h-4 w-4" />
@@ -1489,6 +1594,206 @@ export default function TenantInvoices() {
               }
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ─── Dialog: Invoice Massal ───────────────────────────────────────────── */}
+      <Dialog open={bulkOpen} onOpenChange={(o) => { if (!o) { setBulkOpen(false); setBulkResult(null); } }}>
+        <DialogContent className="max-w-4xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Layers className="h-5 w-5 text-violet-600" />
+              Buat Invoice Massal
+            </DialogTitle>
+          </DialogHeader>
+
+          {/* ── Setelah berhasil: tampilkan ringkasan ── */}
+          {bulkResult ? (
+            <div className="flex flex-col gap-4 py-2">
+              <div className="flex items-center gap-3 rounded-lg border p-4">
+                <CheckCircle2 className="h-8 w-8 text-green-500 shrink-0" />
+                <div>
+                  <p className="font-semibold">{bulkResult.succeeded} invoice berhasil dibuat</p>
+                  {bulkResult.failed > 0 && (
+                    <p className="text-sm text-destructive">{bulkResult.failed} gagal</p>
+                  )}
+                </div>
+              </div>
+              <ScrollArea className="max-h-60">
+                <div className="flex flex-col gap-1 pr-2">
+                  {bulkResult.results.map((r) => {
+                    const t = (tenants ?? []).find(x => x.id === r.tenantId);
+                    return (
+                      <div key={r.tenantId} className={`flex items-center justify-between rounded border px-3 py-2 text-sm ${r.success ? "border-green-200 bg-green-50" : "border-red-200 bg-red-50"}`}>
+                        <span className="font-medium">{t?.businessName ?? `Tenant #${r.tenantId}`}</span>
+                        {r.success
+                          ? <span className="font-mono text-xs text-green-700">{r.invoiceNumber}</span>
+                          : <span className="text-xs text-red-600">{r.error ?? "Gagal"}</span>
+                        }
+                      </div>
+                    );
+                  })}
+                </div>
+              </ScrollArea>
+              <DialogFooter>
+                <Button onClick={() => { setBulkOpen(false); setBulkResult(null); }}>Tutup</Button>
+              </DialogFooter>
+            </div>
+          ) : (
+            <form onSubmit={handleBulkSubmit} className="flex flex-col gap-4">
+              {/* ── Baris field bersama ── */}
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                <div className="flex flex-col gap-1.5">
+                  <Label>Periode Mulai</Label>
+                  <Input type="date" value={bulkCommon.periodStart} onChange={e => setBulkCommon(f => ({ ...f, periodStart: e.target.value }))} />
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <Label>Periode Selesai</Label>
+                  <Input type="date" value={bulkCommon.periodEnd} onChange={e => setBulkCommon(f => ({ ...f, periodEnd: e.target.value }))} />
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <Label>Jatuh Tempo</Label>
+                  <Input type="date" value={bulkCommon.dueDate} onChange={e => setBulkCommon(f => ({ ...f, dueDate: e.target.value }))} />
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <Label>Status Awal</Label>
+                  <Select value={bulkCommon.status} onValueChange={(v) => setBulkCommon(f => ({ ...f, status: v as InvoiceStatus }))}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="draft">Draft</SelectItem>
+                      <SelectItem value="unpaid">Belum Bayar</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <Label>Catatan (untuk semua invoice)</Label>
+                <Input value={bulkCommon.notes} onChange={e => setBulkCommon(f => ({ ...f, notes: e.target.value }))} placeholder="Opsional" />
+              </div>
+
+              <Separator />
+
+              {/* ── Header tabel ── */}
+              <div className="flex items-center justify-between">
+                <p className="text-sm font-semibold">
+                  Pilih Tenant
+                  <span className="ml-2 text-muted-foreground font-normal">({bulkSelected.size} dari {(tenants ?? []).length} dipilih)</span>
+                </p>
+                <div className="flex gap-2">
+                  <Button type="button" variant="ghost" size="sm" className="h-7 text-xs"
+                    onClick={() => setBulkSelected(new Set((tenants ?? []).map(t => t.id)))}>
+                    Pilih Semua
+                  </Button>
+                  <Button type="button" variant="ghost" size="sm" className="h-7 text-xs"
+                    onClick={() => setBulkSelected(new Set())}>
+                    Batal Semua
+                  </Button>
+                </div>
+              </div>
+
+              {/* ── Tabel tenant ── */}
+              <ScrollArea className="max-h-72 rounded-md border">
+                <div className="divide-y">
+                  {(tenants ?? []).map((t) => {
+                    const isSelected = bulkSelected.has(t.id);
+                    const isExpanded = bulkExpanded === t.id;
+                    const p = bulkPrices[t.id] ?? { unitCode: "", rentAmount: "", serviceChargeAmount: "", electricityChargeAmount: "", waterChargeAmount: "", otherChargeAmount: "" };
+                    const total = calcBulkTotal(t.id);
+                    return (
+                      <div key={t.id} className={`transition-colors ${isSelected ? "" : "opacity-50"}`}>
+                        {/* Baris utama */}
+                        <div className="flex items-center gap-3 px-3 py-2.5">
+                          <Checkbox
+                            checked={isSelected}
+                            onCheckedChange={(checked) => {
+                              setBulkSelected(prev => {
+                                const next = new Set(prev);
+                                if (checked) next.add(t.id); else next.delete(t.id);
+                                return next;
+                              });
+                            }}
+                          />
+                          <div className="flex-1 min-w-0">
+                            <p className="font-medium text-sm truncate">{t.businessName}</p>
+                            <p className="text-xs text-muted-foreground truncate">{p.unitCode || t.boothNumber || "—"}</p>
+                          </div>
+                          <div className="text-right shrink-0">
+                            <p className="text-sm font-semibold">{total > 0 ? formatRupiah(total) : <span className="text-muted-foreground text-xs">belum diisi</span>}</p>
+                          </div>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 w-7 p-0 shrink-0"
+                            onClick={() => setBulkExpanded(isExpanded ? null : t.id)}
+                          >
+                            {isExpanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+                          </Button>
+                        </div>
+
+                        {/* Baris expand — edit harga per tenant */}
+                        {isExpanded && (
+                          <div className="bg-muted/30 px-3 pb-3 pt-1 grid grid-cols-2 gap-2 sm:grid-cols-3">
+                            {[
+                              { key: "unitCode", label: "Unit / Kode", type: "text", placeholder: "A-01" },
+                              { key: "rentAmount", label: "Harga Sewa", type: "number", placeholder: "0" },
+                              { key: "serviceChargeAmount", label: "Service Charge", type: "number", placeholder: "0" },
+                              { key: "electricityChargeAmount", label: "Biaya Listrik", type: "number", placeholder: "0" },
+                              { key: "waterChargeAmount", label: "Biaya Air", type: "number", placeholder: "0" },
+                              { key: "otherChargeAmount", label: "Lain-lain", type: "number", placeholder: "0" },
+                            ].map(({ key, label, type, placeholder }) => (
+                              <div key={key} className="flex flex-col gap-1">
+                                <Label className="text-xs">{label}</Label>
+                                <Input
+                                  type={type}
+                                  min={type === "number" ? "0" : undefined}
+                                  placeholder={placeholder}
+                                  value={(p as any)[key]}
+                                  onChange={(e) => setBulkPrices(prev => ({
+                                    ...prev,
+                                    [t.id]: { ...prev[t.id], [key]: e.target.value },
+                                  }))}
+                                  className="h-8 text-sm"
+                                />
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </ScrollArea>
+
+              {/* ── Footer ── */}
+              <div className="flex items-center justify-between pt-1">
+                <div className="text-sm text-muted-foreground">
+                  Total estimasi:{" "}
+                  <span className="font-semibold text-foreground">
+                    {formatRupiah(
+                      Array.from(bulkSelected).reduce((sum, id) => sum + calcBulkTotal(id), 0)
+                    )}
+                  </span>
+                  {" "}dari {bulkSelected.size} tenant
+                </div>
+                <div className="flex gap-2">
+                  <Button type="button" variant="outline" onClick={() => setBulkOpen(false)} disabled={bulkMutation.isPending}>
+                    Batal
+                  </Button>
+                  <Button
+                    type="submit"
+                    disabled={bulkMutation.isPending || bulkSelected.size === 0}
+                    className="gap-2 bg-violet-600 hover:bg-violet-700"
+                  >
+                    {bulkMutation.isPending
+                      ? <><Loader2 className="h-4 w-4 animate-spin" />Membuat {bulkSelected.size} Invoice...</>
+                      : <><Layers className="h-4 w-4" />Buat {bulkSelected.size} Invoice</>
+                    }
+                  </Button>
+                </div>
+              </div>
+            </form>
+          )}
         </DialogContent>
       </Dialog>
     </div>
