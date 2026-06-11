@@ -181,11 +181,10 @@ async function deleteTenant(id: number): Promise<void> {
 }
 
 async function bulkDeleteTenants(ids: number[]): Promise<{ deleted: number }> {
-  const res = await apiFetch(`${BASE}/api/tenants/bulk`, {
+  const params = new URLSearchParams();
+  ids.forEach((id) => params.append("ids", String(id)));
+  const res = await apiFetch(`${BASE}/api/tenants/bulk?${params.toString()}`, {
     method: "DELETE",
-    credentials: "include",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ ids }),
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));

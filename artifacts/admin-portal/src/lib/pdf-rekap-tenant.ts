@@ -245,7 +245,7 @@ export function generateRekapTenantPDF(opts: {
         12: { halign: "center", cellWidth: 24 },
       },
       alternateRowStyles: { fillColor: [249, 250, 251] },
-      didParseCell(info) {
+      didParseCell(info: import("jspdf-autotable").CellHookData) {
         // Warnai baris menunggak
         const row = rows[info.row.index];
         if (!row) return;
@@ -270,7 +270,7 @@ export function generateRekapTenantPDF(opts: {
           if (row.contractStatus === "expired") info.cell.styles.textColor = MUTED;
         }
       },
-      didDrawPage(info) {
+      didDrawPage(info: import("jspdf-autotable").HookData) {
         currentY = (info.cursor?.y ?? currentY);
       },
     });

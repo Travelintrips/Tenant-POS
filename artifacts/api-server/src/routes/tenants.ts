@@ -200,14 +200,26 @@ router.put("/tenants/:id", async (req, res) => {
 });
 
 // ─── DELETE /api/tenants/bulk — hapus massal (harus sebelum /:id) ────────────
+// IDs dikirim via query string (?ids=1,2,3) karena Vite proxy tidak selalu
+// meneruskan request body untuk method DELETE.
 router.delete("/tenants/bulk", async (req, res) => {
-  const { ids } = req.body as { ids?: unknown };
-  if (!Array.isArray(ids) || ids.length === 0) {
+  // Baca IDs dari query string (prioritas) atau body sebagai fallback
+  let rawIds: unknown;
+  const qIds = req.query.ids;
+  if (typeof qIds === "string" && qIds.length > 0) {
+    rawIds = qIds.split(",").filter(Boolean);
+  } else if (Array.isArray(qIds)) {
+    rawIds = qIds;
+  } else {
+    rawIds = (req.body as { ids?: unknown } | undefined)?.ids;
+  }
+
+  if (!Array.isArray(rawIds) || rawIds.length === 0) {
     res.status(400).json({ error: "Daftar ID tidak valid atau kosong" });
     return;
   }
 
-  const numIds = ids.map(Number).filter((n) => !isNaN(n) && n > 0);
+  const numIds = (rawIds as unknown[]).map(Number).filter((n) => !isNaN(n) && n > 0);
   if (numIds.length === 0) {
     res.status(400).json({ error: "Tidak ada ID yang valid" });
     return;
