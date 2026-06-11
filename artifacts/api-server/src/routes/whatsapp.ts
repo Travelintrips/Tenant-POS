@@ -77,7 +77,7 @@ router.post("/whatsapp/invoice/:id/send", async (req, res) => {
     }
 
     if (!result.ok) {
-      res.status(502).json({ error: "Gagal kirim WA", detail: result.error });
+      res.status(502).json({ error: result.error ?? "Gagal kirim WA" });
       return;
     }
 
@@ -136,7 +136,7 @@ router.post("/whatsapp/invoice/:id/overdue-reminder", async (req, res) => {
     }
 
     if (!result.ok) {
-      res.status(502).json({ error: "Gagal kirim WA", detail: result.error });
+      res.status(502).json({ error: result.error ?? "Gagal kirim WA" });
       return;
     }
 
@@ -252,6 +252,7 @@ router.post("/whatsapp/blast-link-unpaid", async (req, res) => {
     let sent = 0;
     let failed = 0;
     let skipped = false;
+    let lastError: string | undefined;
 
     for (const invoice of unpaidInvoices) {
       if (!invoice.phone) { failed++; continue; }
@@ -280,7 +281,7 @@ router.post("/whatsapp/blast-link-unpaid", async (req, res) => {
       });
 
       if (result.skipped) { skipped = true; break; }
-      if (result.ok) sent++; else failed++;
+      if (result.ok) sent++; else { failed++; lastError = result.error; }
     }
 
     if (skipped) {
@@ -290,7 +291,9 @@ router.post("/whatsapp/blast-link-unpaid", async (req, res) => {
 
     res.json({
       ok: true, sent, failed, total: unpaidInvoices.length,
-      message: `Blast link selesai: ${sent} terkirim, ${failed} gagal dari ${unpaidInvoices.length} invoice belum lunas.`,
+      message: failed > 0
+        ? `Blast link selesai: ${sent} terkirim, ${failed} gagal. ${lastError ?? ""}`
+        : `Blast link selesai: ${sent} terkirim dari ${unpaidInvoices.length} invoice belum lunas.`,
     });
   } catch (err) {
     res.status(500).json({ error: "Terjadi kesalahan server" });
@@ -299,11 +302,34 @@ router.post("/whatsapp/blast-link-unpaid", async (req, res) => {
 
 /**
  * GET /api/whatsapp/status
- * Cek status konfigurasi WA
+ * Cek status konfigurasi WA + konektivitas perangkat Fonnte
  */
-router.get("/whatsapp/status", (_req, res) => {
-  const configured = !!process.env.FONNTE_TOKEN;
-  res.json({ configured, provider: "Fonnte", message: configured ? "WhatsApp aktif" : "FONNTE_TOKEN belum dikonfigurasi" });
+router.get("/whatsapp/status", async (_req, res) => {
+  const token = process.env.FONNTE_TOKEN;
+  if (!token) {
+    res.json({ configured: false, connected: false, provider: "Fonnte", message: "FONNTE_TOKEN belum dikonfigurasi" });
+    return;
+  }
+
+  try {
+    // Probe Fonnte dengan pesan kosong ke nomor dummy — cukup untuk deteksi status device
+    const probe = await fetch("https://api.fonnte.com/send", {
+      method: "POST",
+      headers: { Authorization: token, "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ target: "000", message: "_" }).toString(),
+      signal: AbortSignal.timeout(5000),
+    });
+    const data = await probe.json() as Record<string, unknown>;
+    // Fonnte: status=false + reason contains "disconnected" → device off
+    const reason = String(data["reason"] ?? "");
+    const connected = !reason.toLowerCase().includes("disconnected");
+    const message = connected
+      ? "WhatsApp aktif dan terhubung"
+      : "Perangkat WhatsApp tidak terhubung — scan ulang QR di dashboard Fonnte";
+    res.json({ configured: true, connected, provider: "Fonnte", message });
+  } catch {
+    res.json({ configured: true, connected: null, provider: "Fonnte", message: "Tidak dapat menghubungi server Fonnte" });
+  }
 });
 
 export default router;

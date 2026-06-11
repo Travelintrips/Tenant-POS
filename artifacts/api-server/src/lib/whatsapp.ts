@@ -7,7 +7,19 @@
  */
 
 const FONNTE_TOKEN = process.env.FONNTE_TOKEN;
+const FONNTE_SENDER = process.env.FONNTE_SENDER ?? "";
 const FONNTE_URL = "https://api.fonnte.com/send";
+
+/** Terjemahkan pesan error Fonnte ke Bahasa Indonesia yang lebih jelas */
+function translateFonnteError(reason: string): string {
+  const r = reason.toLowerCase();
+  if (r.includes("disconnected")) return "Perangkat WhatsApp Fonnte tidak terhubung. Silakan scan ulang QR di dashboard Fonnte.";
+  if (r.includes("invalid token") || r.includes("unauthorized")) return "Token Fonnte tidak valid. Periksa FONNTE_TOKEN di pengaturan.";
+  if (r.includes("target")) return "Nomor HP tujuan tidak valid.";
+  if (r.includes("message")) return "Pesan tidak boleh kosong.";
+  if (r.includes("quota") || r.includes("limit")) return "Kuota pengiriman Fonnte habis.";
+  return reason;
+}
 
 export interface WaResult {
   ok: boolean;
@@ -46,7 +58,9 @@ async function sendMessage(phone: string, message: string): Promise<WaResult> {
 
   try {
     const target = normalizePhone(phone);
-    const body = new URLSearchParams({ target, message, delay: "2" });
+    const params: Record<string, string> = { target, message, delay: "2" };
+    if (FONNTE_SENDER) params.sender = FONNTE_SENDER;
+    const body = new URLSearchParams(params);
 
     const res = await fetch(FONNTE_URL, {
       method: "POST",
@@ -60,7 +74,8 @@ async function sendMessage(phone: string, message: string): Promise<WaResult> {
     const data = await res.json() as Record<string, unknown>;
 
     if (!res.ok || data["status"] === false) {
-      return { ok: false, error: String(data["reason"] ?? data["message"] ?? "Gagal kirim WA"), response: data };
+      const rawReason = String(data["reason"] ?? data["message"] ?? "Gagal kirim WA");
+      return { ok: false, error: translateFonnteError(rawReason), response: data };
     }
 
     return { ok: true, response: data };
