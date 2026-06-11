@@ -92,7 +92,7 @@ export default function WhatsAppSend() {
 
   const { data: invoicesData, isLoading: invoicesLoading } = useQuery<{ data: Invoice[] }>({
     queryKey: ["invoices-overdue", currentSite?.id],
-    queryFn: () => apiFetch(`/api/invoices?status=overdue&limit=50`).then(r => r.json()),
+    queryFn: () => apiFetch(`/api/tenant-invoices?status=overdue&limit=50`).then(r => r.json()),
   });
 
   const { data: logsData, isLoading: logsLoading, refetch: refetchLogs } = useQuery<{ data: WaLog[] }>({

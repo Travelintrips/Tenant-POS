@@ -1814,9 +1814,12 @@ type TenantListItem = {
   logoUrl: string | null;
 };
 
-// Fetch semua tenant tanpa filter site (plain fetch, tanpa x-site-id)
+// Fetch semua tenant dari SEMUA site (x-site-code: ALL)
 async function fetchAllTenantsList(): Promise<TenantListItem[]> {
-  const r = await fetch(`${BASE}/api/tenants`, { credentials: "include" });
+  const r = await fetch(`${BASE}/api/tenants`, {
+    credentials: "include",
+    headers: { "x-site-code": "ALL" },
+  });
   if (!r.ok) throw new Error(`HTTP ${r.status}`);
   return r.json();
 }

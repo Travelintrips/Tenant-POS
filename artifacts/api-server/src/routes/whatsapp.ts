@@ -129,6 +129,7 @@ router.post("/whatsapp/invoice/:id/overdue-reminder", async (req, res) => {
     const [invoice] = await db
       .select({
         id: tenantInvoicesTable.id,
+        tenantId: tenantInvoicesTable.tenantId,
         invoiceNumber: tenantInvoicesTable.invoiceNumber,
         dueDate: tenantInvoicesTable.dueDate,
         totalAmount: tenantInvoicesTable.totalAmount,
