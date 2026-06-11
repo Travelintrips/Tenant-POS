@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -21,6 +21,7 @@ import { useAuth } from "@/hooks/use-auth";
 import {
   Users, RefreshCw, UserCog, ShieldCheck, UserPlus, Trash2,
   LogOut, Pencil, Phone, Mail, CheckCircle2, XCircle, AlertCircle,
+  Search, X, Filter,
 } from "lucide-react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -495,6 +496,9 @@ export default function UsersPage() {
   const [modal, setModal] = useState<ModalType>(null);
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [search, setSearch] = useState("");
+  const [filterRole, setFilterRole] = useState("all");
+  const [filterStatus, setFilterStatus] = useState("all");
   const { data: currentUser } = useAuth();
   const isOwner = currentUser?.role === "owner";
 
@@ -513,6 +517,27 @@ export default function UsersPage() {
     return acc;
   }, {});
 
+  const filteredUsers = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return users.filter((u) => {
+      if (filterRole !== "all" && u.role !== filterRole) return false;
+      if (filterStatus !== "all" && u.status !== filterStatus) return false;
+      if (q) {
+        const haystack = [u.name, u.email, u.phoneNumber].filter(Boolean).join(" ").toLowerCase();
+        if (!haystack.includes(q)) return false;
+      }
+      return true;
+    });
+  }, [users, search, filterRole, filterStatus]);
+
+  const hasActiveFilter = search.trim() !== "" || filterRole !== "all" || filterStatus !== "all";
+
+  function clearFilters() {
+    setSearch("");
+    setFilterRole("all");
+    setFilterStatus("all");
+  }
+
   function openModal(type: ModalType, user?: User) {
     setSelectedUser(user ?? null);
     setModal(type);
@@ -523,7 +548,7 @@ export default function UsersPage() {
     setSelectedUser(null);
   }
 
-  const deletableUsers = users.filter((u) => u.id !== currentUser?.dbId);
+  const deletableUsers = filteredUsers.filter((u) => u.id !== currentUser?.dbId);
 
   const allDeletableSelected =
     deletableUsers.length > 0 && deletableUsers.every((u) => selectedIds.has(u.id));
@@ -593,6 +618,79 @@ export default function UsersPage() {
         ))}
       </div>
 
+      {/* Filter bar */}
+      <Card className="py-0">
+        <CardContent className="px-4 py-3">
+          <div className="flex flex-col sm:flex-row gap-2 items-start sm:items-center">
+            <div className="relative flex-1 min-w-0">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
+              <Input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Cari nama, email, atau no. HP..."
+                className="h-8 pl-8 text-sm pr-8"
+              />
+              {search && (
+                <button
+                  onClick={() => setSearch("")}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              )}
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <Select value={filterRole} onValueChange={setFilterRole}>
+                <SelectTrigger className="h-8 text-xs w-32">
+                  <SelectValue placeholder="Semua Peran" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all" className="text-xs">Semua Peran</SelectItem>
+                  {ROLES.map((r) => (
+                    <SelectItem key={r.value} value={r.value} className="text-xs">
+                      <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-medium ${r.color}`}>{r.label}</span>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Select value={filterStatus} onValueChange={setFilterStatus}>
+                <SelectTrigger className="h-8 text-xs w-32">
+                  <SelectValue placeholder="Semua Status" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all" className="text-xs">Semua Status</SelectItem>
+                  {STATUSES.map((s) => (
+                    <SelectItem key={s.value} value={s.value} className="text-xs">
+                      <span className="flex items-center gap-1.5">
+                        <s.icon className={`h-3 w-3 ${s.color}`} />
+                        {s.label}
+                      </span>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {hasActiveFilter && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-8 text-xs gap-1 px-2 text-muted-foreground hover:text-foreground"
+                  onClick={clearFilters}
+                >
+                  <X className="h-3.5 w-3.5" />
+                  Reset
+                </Button>
+              )}
+            </div>
+          </div>
+          {hasActiveFilter && (
+            <p className="text-xs text-muted-foreground mt-2 flex items-center gap-1">
+              <Filter className="h-3 w-3" />
+              Menampilkan <strong>{filteredUsers.length}</strong> dari {users.length} pengguna
+            </p>
+          )}
+        </CardContent>
+      </Card>
+
       {/* Table */}
       <Card>
         <CardHeader className="pb-3">
@@ -624,7 +722,9 @@ export default function UsersPage() {
                 </div>
               )}
               {!someSelected && (
-                <span className="text-sm font-normal text-muted-foreground">{users.length} user</span>
+                <span className="text-sm font-normal text-muted-foreground">
+                  {hasActiveFilter ? `${filteredUsers.length} / ${users.length}` : `${users.length}`} user
+                </span>
               )}
             </div>
           </CardTitle>
@@ -634,10 +734,22 @@ export default function UsersPage() {
             <div className="flex items-center justify-center h-32 text-muted-foreground text-sm">
               Memuat data...
             </div>
-          ) : users.length === 0 ? (
+          ) : filteredUsers.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-32 text-muted-foreground">
-              <Users className="h-8 w-8 mb-2 opacity-30" />
-              <p className="text-sm">Belum ada user terdaftar</p>
+              {users.length === 0 ? (
+                <>
+                  <Users className="h-8 w-8 mb-2 opacity-30" />
+                  <p className="text-sm">Belum ada user terdaftar</p>
+                </>
+              ) : (
+                <>
+                  <Search className="h-8 w-8 mb-2 opacity-30" />
+                  <p className="text-sm">Tidak ada user yang cocok dengan filter</p>
+                  <button onClick={clearFilters} className="text-xs text-primary hover:underline mt-1">
+                    Reset filter
+                  </button>
+                </>
+              )}
             </div>
           ) : (
             <div className="overflow-x-auto">
@@ -664,7 +776,7 @@ export default function UsersPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {users.map((user) => {
+                  {filteredUsers.map((user) => {
                     const roleInfo = getRoleInfo(user.role);
                     const isSelf = currentUser?.dbId === user.id;
                     const isChecked = selectedIds.has(user.id);
