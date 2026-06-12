@@ -74,6 +74,7 @@ SESSION_SECRET = "MXF8tVM+GYDQyrAOg0o79vPvEg7V7xTWd3C6pPOS/ee7T0gNLD2LO/PRk+97KR
 CI = "true"
 NODE_ENV = "development"
 LOG_LEVEL = "info"
+APP_URL = "https://tenant.travelintrips.co.id"
 
 [userenv.development]
 SUPABASE_URL = "https://nzdweipzckfszczzqtuw.supabase.co"

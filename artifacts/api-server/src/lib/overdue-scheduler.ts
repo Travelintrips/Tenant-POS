@@ -40,10 +40,11 @@ export function startOverdueScheduler(): void {
 
 function buildPaymentLink(token: string | null | undefined): string | undefined {
   if (!token) return undefined;
+  const appUrl = process.env.APP_URL?.replace(/\/$/, "");
+  if (appUrl) return `${appUrl}/bayar/${token}`;
   const domain =
     process.env.REPLIT_DEV_DOMAIN ??
-    process.env.REPLIT_DOMAINS?.split(",")[0] ??
-    process.env.APP_URL;
+    process.env.REPLIT_DOMAINS?.split(",")[0];
   return domain ? `https://${domain}/bayar/${token}` : undefined;
 }
 

@@ -78,12 +78,11 @@ router.post("/whatsapp/invoice/:id/send", async (req, res) => {
       ? new Date(invoice.dueDate).toLocaleDateString("id-ID", { day: "numeric", month: "long", year: "numeric" })
       : "-";
 
-    const appDomain =
-      process.env.REPLIT_DEV_DOMAIN ??
-      process.env.REPLIT_DOMAINS?.split(",")[0] ??
-      process.env.APP_URL;
-    const paymentLink = invoice.paymentToken && appDomain
-      ? `https://${appDomain}/bayar/${invoice.paymentToken}`
+    const _appUrl = process.env.APP_URL?.replace(/\/$/, "");
+    const _domain = process.env.REPLIT_DEV_DOMAIN ?? process.env.REPLIT_DOMAINS?.split(",")[0];
+    const _baseUrl = _appUrl ?? (_domain ? `https://${_domain}` : undefined);
+    const paymentLink = invoice.paymentToken && _baseUrl
+      ? `${_baseUrl}/bayar/${invoice.paymentToken}`
       : undefined;
 
     const result = await sendInvoiceNotification({
@@ -264,10 +263,9 @@ router.post("/whatsapp/blast-link-unpaid", async (req, res) => {
     const siteId = req.siteId;
     const siteFilter = siteId > 0 ? eq(tenantInvoicesTable.siteId, siteId) : undefined;
 
-    const appDomain =
-      process.env.REPLIT_DEV_DOMAIN ??
-      process.env.REPLIT_DOMAINS?.split(",")[0] ??
-      process.env.APP_URL;
+    const _blastAppUrl = process.env.APP_URL?.replace(/\/$/, "");
+    const _blastDomain = process.env.REPLIT_DEV_DOMAIN ?? process.env.REPLIT_DOMAINS?.split(",")[0];
+    const appDomain = _blastAppUrl ?? (_blastDomain ? `https://${_blastDomain}` : undefined);
 
     const unpaidInvoices = await db
       .select({
@@ -312,7 +310,7 @@ router.post("/whatsapp/blast-link-unpaid", async (req, res) => {
         : "-";
 
       const paymentLink = invoice.paymentToken && appDomain
-        ? `https://${appDomain}/bayar/${invoice.paymentToken}`
+        ? `${appDomain}/bayar/${invoice.paymentToken}`
         : undefined;
 
       const result = await sendInvoiceNotification({
