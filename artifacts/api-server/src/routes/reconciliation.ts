@@ -77,6 +77,7 @@ router.post("/reconciliation/export", async (req, res) => {
 
   const headers = [
     "No", "No. Invoice", "Nama Tenant", "Pemilik", "Unit",
+    "Kunci Pencocokan", "Hasil Pencocokan Bank",
     "Periode Mulai", "Periode Selesai", "Jatuh Tempo",
     "Sewa (Rp)", "Service Charge (Rp)", "Listrik (Rp)", "Air (Rp)", "Lainnya (Rp)",
     "Diskon (Rp)", "Denda (Rp)", "Total Tagihan (Rp)",
@@ -84,30 +85,37 @@ router.post("/reconciliation/export", async (req, res) => {
     "Verifikasi Bank ✓", "Catatan Rekonsiliasi", "Catatan Invoice",
   ];
 
-  const rows = invoices.map((inv, i) => [
-    i + 1,
-    inv.invoiceNumber ?? "",
-    inv.tenantName ?? "",
-    inv.ownerName ?? "",
-    inv.unitCode ?? "",
-    inv.periodStart ?? "",
-    inv.periodEnd ?? "",
-    inv.dueDate ?? "",
-    Number(inv.rentAmount ?? 0),
-    Number(inv.serviceChargeAmount ?? 0),
-    Number(inv.electricityChargeAmount ?? 0),
-    Number(inv.waterChargeAmount ?? 0),
-    Number(inv.otherChargeAmount ?? 0),
-    Number(inv.discountAmount ?? 0),
-    Number(inv.penaltyAmount ?? 0),
-    Number(inv.totalAmount ?? 0),
-    Number(inv.paidAmount ?? 0),
-    Number(inv.outstandingAmount ?? 0),
-    statusLabel[inv.status ?? ""] ?? inv.status ?? "",
-    "",
-    "",
-    inv.notes ?? "",
-  ]);
+  const rows = invoices.map((inv, i) => {
+    const rowNo = i + 1;
+    const pemilik = inv.ownerName ?? "";
+    const kunci = `${rowNo}/${pemilik}`;
+    return [
+      rowNo,
+      inv.invoiceNumber ?? "",
+      inv.tenantName ?? "",
+      pemilik,
+      inv.unitCode ?? "",
+      kunci,
+      "",
+      inv.periodStart ?? "",
+      inv.periodEnd ?? "",
+      inv.dueDate ?? "",
+      Number(inv.rentAmount ?? 0),
+      Number(inv.serviceChargeAmount ?? 0),
+      Number(inv.electricityChargeAmount ?? 0),
+      Number(inv.waterChargeAmount ?? 0),
+      Number(inv.otherChargeAmount ?? 0),
+      Number(inv.discountAmount ?? 0),
+      Number(inv.penaltyAmount ?? 0),
+      Number(inv.totalAmount ?? 0),
+      Number(inv.paidAmount ?? 0),
+      Number(inv.outstandingAmount ?? 0),
+      statusLabel[inv.status ?? ""] ?? inv.status ?? "",
+      "",
+      "",
+      inv.notes ?? "",
+    ];
+  });
 
   try {
     await writeToSheet({ spreadsheetId, sheetTitle, headers, rows });

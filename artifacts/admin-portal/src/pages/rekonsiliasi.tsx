@@ -123,8 +123,12 @@ export default function Rekonsiliasi() {
   const verifikasiColIdx = headers.findIndex((h) => h.startsWith("Verifikasi"));
   const totalColIdx = headers.findIndex((h) => h.startsWith("Total Tagihan"));
   const sisaColIdx = headers.findIndex((h) => h.startsWith("Sisa"));
+  const kunciColIdx = headers.findIndex((h) => h === "Kunci Pencocokan");
+  const hasilColIdx = headers.findIndex((h) => h === "Hasil Pencocokan Bank");
 
-  const sudahVerifikasi = dataRows.filter((r) => r[verifikasiColIdx]?.trim() !== "").length;
+  const sudahCocok = hasilColIdx >= 0
+    ? dataRows.filter((r) => r[hasilColIdx]?.trim() !== "").length
+    : dataRows.filter((r) => r[verifikasiColIdx]?.trim() !== "").length;
   const totalTagihan = dataRows.reduce((s, r) => s + (parseFloat(r[totalColIdx] ?? "0") || 0), 0);
   const totalSisa = dataRows.reduce((s, r) => s + (parseFloat(r[sisaColIdx] ?? "0") || 0), 0);
 
@@ -143,7 +147,7 @@ export default function Rekonsiliasi() {
 
   const visibleColIndices = headers
     .map((_, i) => i)
-    .filter((i) => !["Sewa (Rp)","Service Charge (Rp)","Listrik (Rp)","Air (Rp)","Lainnya (Rp)","Diskon (Rp)","Denda (Rp)"].includes(headers[i]));
+    .filter((i) => !["Sewa (Rp)","Service Charge (Rp)","Listrik (Rp)","Air (Rp)","Lainnya (Rp)","Diskon (Rp)","Denda (Rp)","Catatan Invoice"].includes(headers[i]));
 
   return (
     <div className="space-y-6 p-6">
@@ -317,12 +321,12 @@ export default function Rekonsiliasi() {
                 </div>
               </div>
 
-              {verifikasiColIdx >= 0 && (
+              {(hasilColIdx >= 0 || verifikasiColIdx >= 0) && (
                 <div className="flex items-center gap-2 text-sm text-muted-foreground">
                   <CheckCircle2 className="h-4 w-4 text-green-600" />
                   <span>
-                    <strong className="text-green-700">{sudahVerifikasi}</strong> dari{" "}
-                    <strong>{dataRows.length}</strong> invoice sudah diverifikasi bank
+                    <strong className="text-green-700">{sudahCocok}</strong> dari{" "}
+                    <strong>{dataRows.length}</strong> invoice sudah cocok/diverifikasi bank
                   </span>
                 </div>
               )}
@@ -344,7 +348,8 @@ export default function Rekonsiliasi() {
                       <TableRow
                         key={ri}
                         className={
-                          verifikasiColIdx >= 0 && row[verifikasiColIdx]?.trim()
+                          (hasilColIdx >= 0 && row[hasilColIdx]?.trim()) ||
+                          (verifikasiColIdx >= 0 && row[verifikasiColIdx]?.trim())
                             ? "bg-green-50/60"
                             : ""
                         }
@@ -357,6 +362,28 @@ export default function Rekonsiliasi() {
                                 <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${statusBadge(val)}`}>
                                   {val || "—"}
                                 </span>
+                              </TableCell>
+                            );
+                          }
+                          if (ci === kunciColIdx) {
+                            return (
+                              <TableCell key={ci} className="py-1.5">
+                                <span className="font-mono text-xs bg-muted px-1.5 py-0.5 rounded border text-muted-foreground">
+                                  {val || "—"}
+                                </span>
+                              </TableCell>
+                            );
+                          }
+                          if (ci === hasilColIdx) {
+                            return (
+                              <TableCell key={ci} className="py-1.5 text-center">
+                                {val ? (
+                                  <Badge variant="outline" className="bg-emerald-100 text-emerald-800 border-emerald-300 text-xs font-medium">
+                                    <CheckCircle2 className="h-3 w-3 mr-1" />{val}
+                                  </Badge>
+                                ) : (
+                                  <span className="text-xs text-muted-foreground">—</span>
+                                )}
                               </TableCell>
                             );
                           }
