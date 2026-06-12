@@ -1,7 +1,6 @@
 import { Router, type Request, type Response, type IRouter } from "express";
 import multer from "multer";
 import path from "path";
-import fs from "fs";
 import crypto from "crypto";
 import { db } from "@workspace/db";
 import { tenantInvoicesTable, tenantPaymentsTable, tenantsTable, systemSettingsTable } from "@workspace/db/schema";
@@ -10,6 +9,7 @@ import { z } from "zod/v4";
 import { sseBroker } from "../lib/sse-broker";
 import { sendPaymentReceived, sendAdminPaymentAlert } from "../lib/whatsapp";
 import { uploadRateLimiter } from "../middlewares/rate-limit";
+import { uploadToStorage } from "../lib/supabase-storage";
 
 /** Ambil nomor WA admin dari env (prioritas) atau settings DB */
 async function getAdminPhone(): Promise<string | null> {
@@ -37,12 +37,6 @@ function buildReviewLink(): string {
 
 const router: IRouter = Router();
 
-const UPLOAD_DIR = path.join(process.cwd(), "uploads");
-
-function ensureDir(dir: string) {
-  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-}
-
 const PROOF_ALLOWED_MIME = new Set([
   "image/jpeg",
   "image/jpg",
@@ -52,17 +46,7 @@ const PROOF_ALLOWED_MIME = new Set([
 ]);
 
 const uploadProof = multer({
-  storage: multer.diskStorage({
-    destination: (_req, _file, cb) => {
-      const dir = path.join(UPLOAD_DIR, "payment-proofs");
-      ensureDir(dir);
-      cb(null, dir);
-    },
-    filename: (_req, file, cb) => {
-      const ext = path.extname(file.originalname).toLowerCase();
-      cb(null, crypto.randomUUID() + ext);
-    },
-  }),
+  storage: multer.memoryStorage(),
   limits: { fileSize: 5 * 1024 * 1024 },
   fileFilter: (_req, file, cb) => {
     if (PROOF_ALLOWED_MIME.has(file.mimetype)) {
@@ -201,9 +185,12 @@ router.post("/pay/:token/proof", uploadRateLimiter, async (req, res) => {
       return;
     }
 
-    const proofUrl = req.file
-      ? `/uploads/payment-proofs/${req.file.filename}`
-      : null;
+    let proofUrl: string | null = null;
+    if (req.file) {
+      const ext = path.extname(req.file.originalname).toLowerCase() || ".jpg";
+      const filename = `${crypto.randomUUID()}${ext}`;
+      proofUrl = await uploadToStorage("payment-proofs", filename, req.file.buffer, req.file.mimetype);
+    }
 
     const datePart = new Date().toISOString().slice(0, 10).replace(/-/g, "");
     const prefix = `TENANT-PAY-${datePart}-`;
