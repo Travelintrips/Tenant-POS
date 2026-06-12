@@ -296,4 +296,35 @@ router.delete("/tenants/:id", async (req, res) => {
   }
 });
 
+// ─── PATCH /api/tenants/:id/logo — update logo URL saja ──────────────────────
+router.patch("/tenants/:id/logo", async (req, res) => {
+  const id = Number(req.params.id);
+  if (isNaN(id)) {
+    res.status(400).json({ error: "ID tidak valid" });
+    return;
+  }
+  const { logoUrl } = req.body as { logoUrl?: unknown };
+  if (typeof logoUrl !== "string" || !logoUrl.startsWith("/uploads/")) {
+    res.status(400).json({ error: "logoUrl tidak valid" });
+    return;
+  }
+  try {
+    const [tenant] = await db
+      .update(tenantsTable)
+      .set({ logoUrl, updatedAt: new Date() })
+      .where(eq(tenantsTable.id, id))
+      .returning();
+    if (!tenant) {
+      res.status(404).json({ error: "Tenant tidak ditemukan" });
+      return;
+    }
+    logAudit(req, { action: "update_tenant_logo", entityType: "tenant", entityId: id, afterData: { logoUrl } });
+    sseBroker.publish("tenant_updated", { tenantId: id, action: "logo_updated" });
+    res.json({ success: true, logoUrl: tenant.logoUrl });
+  } catch (err) {
+    req.log.error(err, "Failed to update tenant logo");
+    res.status(500).json({ error: "Gagal memperbarui foto tenant" });
+  }
+});
+
 export default router;

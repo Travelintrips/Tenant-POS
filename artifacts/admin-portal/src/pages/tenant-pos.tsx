@@ -1,6 +1,6 @@
 import { apiFetch } from "@/lib/api";
 import { useSite, ALL_SITES_SENTINEL } from "@/contexts/site-context";
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Building2, Receipt, X, CheckCircle2, AlertCircle, CircleDashed,
@@ -9,7 +9,7 @@ import {
   MoreHorizontal, History, Filter, Search, RotateCcw, ChevronDown,
   ChevronRight, MapPin, Wrench, Package, RefreshCw, Info, FileText,
   Layers, LogIn, LogOut, Ban, ShieldAlert, DollarSign, Dumbbell,
-  Plus, UserPlus,
+  Plus, UserPlus, Camera, ImagePlus, Trash2,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -1123,6 +1123,7 @@ function DetailPanel({ item, onClose, onProses, onBayarInvoice, currentShiftId }
 }) {
   const user = useAuth().data;
   const canVoidRefund = !!user && ["owner", "admin", "finance"].includes(user.role);
+  const canEditLogo = !!user && ["owner", "admin"].includes(user.role);
   const paymentHistory = usePaymentHistory(item?.bookingId ?? null);
   const tenantInvoices = useTenantInvoices(item?.tenantId ?? null);
   const [receiptPaymentId, setReceiptPaymentId] = useState<number | null>(null);
@@ -1130,6 +1131,40 @@ function DetailPanel({ item, onClose, onProses, onBayarInvoice, currentShiftId }
   const [refundTarget, setRefundTarget] = useState<PaymentHistoryItem | null>(null);
   const [activeTab, setActiveTab] = useState<"info" | "tagihan" | "riwayat">("info");
   const queryClient = useQueryClient();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const { toast } = useToast();
+
+  const uploadLogoMutation = useMutation({
+    mutationFn: async (file: File) => {
+      const formData = new FormData();
+      formData.append("file", file);
+      const uploadRes = await apiFetch(`${BASE}/api/uploads/tenant-logo`, {
+        method: "POST",
+        credentials: "include",
+        body: formData,
+      });
+      if (!uploadRes.ok) {
+        const err = await uploadRes.json().catch(() => ({})) as { error?: string };
+        throw new Error(err.error ?? "Upload gagal");
+      }
+      const { url } = await uploadRes.json() as { url: string };
+      const patchRes = await apiFetch(`${BASE}/api/tenants/${item!.tenantId}/logo`, {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ logoUrl: url }),
+      });
+      if (!patchRes.ok) throw new Error("Gagal menyimpan foto");
+      return url;
+    },
+    onSuccess: () => {
+      toast({ title: "Foto berhasil diperbarui", description: "Foto tenant akan tampil sebagai background kartu." });
+      void queryClient.invalidateQueries({ queryKey: ["tenant-pos-floor-plan"] });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Gagal upload foto", description: err.message, variant: "destructive" });
+    },
+  });
 
   if (!item) {
     return (
@@ -1214,6 +1249,59 @@ function DetailPanel({ item, onClose, onProses, onBayarInvoice, currentShiftId }
           </div>
         ) : activeTab === "info" ? (
           <div className="p-4 space-y-4">
+            {/* ── Foto Tenant ── */}
+            {canEditLogo && (
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">Foto / Logo Tenant</p>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp"
+                  className="hidden"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) uploadLogoMutation.mutate(file);
+                    e.target.value = "";
+                  }}
+                />
+                {item.logoUrl ? (
+                  <div className="relative rounded-xl overflow-hidden border border-slate-200 bg-slate-50 h-28">
+                    <img src={item.logoUrl} alt="Foto tenant" className="w-full h-full object-cover" />
+                    <div className="absolute inset-0 flex items-end justify-end p-2 gap-1.5 bg-gradient-to-t from-black/30 to-transparent">
+                      <button
+                        onClick={() => fileInputRef.current?.click()}
+                        disabled={uploadLogoMutation.isPending}
+                        className="flex items-center gap-1 text-[10px] bg-white/90 hover:bg-white text-slate-700 rounded-md px-2 py-1 font-medium shadow transition-colors"
+                      >
+                        <Camera className="w-3 h-3" />Ganti
+                      </button>
+                    </div>
+                    {uploadLogoMutation.isPending && (
+                      <div className="absolute inset-0 flex items-center justify-center bg-white/70">
+                        <RefreshCw className="w-5 h-5 text-primary animate-spin" />
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={uploadLogoMutation.isPending}
+                    className="w-full h-20 border-2 border-dashed border-slate-300 rounded-xl flex flex-col items-center justify-center gap-1.5 hover:border-primary hover:bg-primary/5 transition-colors text-slate-400 hover:text-primary"
+                  >
+                    {uploadLogoMutation.isPending ? (
+                      <RefreshCw className="w-5 h-5 animate-spin" />
+                    ) : (
+                      <>
+                        <ImagePlus className="w-5 h-5" />
+                        <span className="text-[11px] font-medium">Upload foto tenant</span>
+                        <span className="text-[10px]">JPG, PNG, WEBP · maks 5MB</span>
+                      </>
+                    )}
+                  </button>
+                )}
+              </div>
+            )}
+
             <div>
               <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">Info Bisnis &amp; Penyewa</p>
               <div className="bg-muted/30 rounded-lg px-3 divide-y divide-border/60">
