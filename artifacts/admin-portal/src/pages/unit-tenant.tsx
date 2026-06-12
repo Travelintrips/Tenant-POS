@@ -103,6 +103,19 @@ interface UnitFormData {
   notes: string;
 }
 
+// ─── Validation ───────────────────────────────────────────────────────────────
+
+const UNIT_CODE_REGEX = /^[A-Z0-9]+(-[A-Z0-9]+)*$/;
+
+function validateUnitCode(code: string): string | null {
+  if (!code.trim()) return "Kode unit wajib diisi";
+  if (code.length < 2) return "Kode unit minimal 2 karakter";
+  if (code.length > 30) return "Kode unit maksimal 30 karakter";
+  if (!UNIT_CODE_REGEX.test(code))
+    return "Hanya huruf kapital, angka, dan tanda hubung (-). Tidak boleh diawali/diakhiri tanda hubung atau tanda hubung berurutan.";
+  return null;
+}
+
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const UNIT_TYPES = [
@@ -467,6 +480,7 @@ function UnitFormDrawer({
   isSaving: boolean;
 }) {
   const [form, setForm] = useState<UnitFormData>(DEFAULT_FORM);
+  const [unitCodeTouched, setUnitCodeTouched] = useState(false);
 
   useEffect(() => {
     if (editingUnit) {
@@ -486,10 +500,14 @@ function UnitFormDrawer({
     } else {
       setForm(DEFAULT_FORM);
     }
+    setUnitCodeTouched(false);
   }, [editingUnit, open]);
 
   const set = (field: keyof UnitFormData, value: string) =>
     setForm(prev => ({ ...prev, [field]: value }));
+
+  const unitCodeError = unitCodeTouched ? validateUnitCode(form.unitCode) : null;
+  const isUnitCodeValid = validateUnitCode(form.unitCode) === null;
 
   return (
     <Sheet open={open} onOpenChange={v => { if (!v) onClose(); }}>
@@ -511,12 +529,23 @@ function UnitFormDrawer({
                 </Label>
                 <Input
                   id="unitCode"
-                  className="mt-1 h-9 text-sm"
+                  className={`mt-1 h-9 text-sm font-mono ${unitCodeError ? "border-red-500 focus-visible:ring-red-500" : ""}`}
                   value={form.unitCode}
-                  onChange={e => set("unitCode", e.target.value.toUpperCase())}
+                  onChange={e => {
+                    const val = e.target.value.toUpperCase().replace(/[^A-Z0-9-]/g, "");
+                    set("unitCode", val);
+                  }}
+                  onBlur={() => setUnitCodeTouched(true)}
                   placeholder="Contoh: SC-KTN-04"
                   disabled={!!editingUnit}
                 />
+                {unitCodeError ? (
+                  <p className="text-xs text-red-500 mt-1">{unitCodeError}</p>
+                ) : (
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Gunakan huruf kapital, angka, dan tanda hubung. Contoh: <span className="font-mono">TOD-ELMIRA-01</span>
+                  </p>
+                )}
               </div>
 
               <div className="col-span-2">
@@ -665,8 +694,12 @@ function UnitFormDrawer({
           </Button>
           <Button
             className="flex-1 h-9"
-            onClick={() => onSave(form)}
-            disabled={isSaving || !form.unitCode.trim()}
+            onClick={() => {
+              setUnitCodeTouched(true);
+              if (!editingUnit && !isUnitCodeValid) return;
+              onSave(form);
+            }}
+            disabled={isSaving || (!editingUnit && !isUnitCodeValid)}
           >
             {isSaving
               ? "Menyimpan..."
