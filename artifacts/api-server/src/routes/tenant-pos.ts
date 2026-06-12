@@ -191,6 +191,7 @@ router.get("/tenant-pos/floor-plan", async (req, res) => {
       periodLabel: row.periodLabel ?? null,
       openInvoiceCount: invoiceCountMap.get(row.tenantId) ?? 0,
       logoUrl: row.logoUrl ?? null,
+      tenantStatus: row.tenantStatus ?? null,
     }));
 
     res.json(result);
