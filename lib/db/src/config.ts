@@ -1,7 +1,8 @@
 const rawUrl =
-  process.env["DATABASE_URL"] ??
-  process.env["SUPABASE_DATABASE_URL_DEV"] ??
+  process.env["DB_URL_OVERRIDE"] ??
   process.env["SUPABASE_PG_URL"] ??
+  process.env["SUPABASE_DATABASE_URL_DEV"] ??
+  process.env["DATABASE_URL"] ??
   (() => { throw new Error("DATABASE_URL harus diset"); })();
 
 const isSupabase = rawUrl.includes("supabase") || rawUrl.includes("pooler");
