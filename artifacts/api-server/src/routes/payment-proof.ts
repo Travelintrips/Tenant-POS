@@ -10,6 +10,7 @@ import { sseBroker } from "../lib/sse-broker";
 import { sendPaymentReceived, sendAdminPaymentAlert } from "../lib/whatsapp";
 import { uploadRateLimiter } from "../middlewares/rate-limit";
 import { uploadToStorage } from "../lib/supabase-storage";
+import { getBaseUrl } from "../lib/app-url";
 
 /** Ambil nomor WA admin dari env (prioritas) atau settings DB */
 async function getAdminPhone(): Promise<string | null> {
@@ -26,14 +27,10 @@ async function getAdminPhone(): Promise<string | null> {
   }
 }
 
-/** Bangun URL review pembayaran berdasarkan domain yang dideteksi */
-function buildReviewLink(): string {
-  const appUrl = process.env.APP_URL?.replace(/\/$/, "");
-  if (appUrl) return `${appUrl}/tinjau-pembayaran`;
-  const domain =
-    process.env.REPLIT_DEV_DOMAIN ??
-    process.env.REPLIT_DOMAINS?.split(",")[0];
-  return domain ? `https://${domain}/tinjau-pembayaran` : "/tinjau-pembayaran";
+/** Bangun URL review pembayaran — prioritas: DB → APP_URL → REPLIT_DEV_DOMAIN */
+async function buildReviewLink(): Promise<string> {
+  const base = await getBaseUrl();
+  return base ? `${base}/tinjau-pembayaran` : "/tinjau-pembayaran";
 }
 
 const router: IRouter = Router();
@@ -243,7 +240,7 @@ router.post("/pay/:token/proof", uploadRateLimiter, async (req, res) => {
     }
 
     // Notifikasi admin via WA — fire-and-forget
-    getAdminPhone().then((adminPhone) => {
+    getAdminPhone().then(async (adminPhone) => {
       if (!adminPhone) return;
       sendAdminPaymentAlert({
         ownerName: invoice.ownerName ?? "Tenant",
@@ -254,7 +251,7 @@ router.post("/pay/:token/proof", uploadRateLimiter, async (req, res) => {
         referenceNumber: referenceNumber ?? null,
         paymentId: payment.id,
         adminPhone,
-        reviewLink: buildReviewLink(),
+        reviewLink: await buildReviewLink(),
       }).catch(() => {});
     }).catch(() => {});
 

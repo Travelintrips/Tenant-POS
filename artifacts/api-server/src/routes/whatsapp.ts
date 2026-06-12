@@ -3,6 +3,7 @@ import { db } from "@workspace/db";
 import { tenantInvoicesTable, tenantsTable, tenantBookingsTable, waLogsTable } from "@workspace/db/schema";
 import { eq, and, inArray, desc } from "drizzle-orm";
 import { requireAnyRole, requireAuth } from "../middlewares/auth";
+import { getBaseUrl } from "../lib/app-url";
 import {
   sendInvoiceNotification,
   sendPaymentConfirmation,
@@ -78,9 +79,7 @@ router.post("/whatsapp/invoice/:id/send", async (req, res) => {
       ? new Date(invoice.dueDate).toLocaleDateString("id-ID", { day: "numeric", month: "long", year: "numeric" })
       : "-";
 
-    const _appUrl = process.env.APP_URL?.replace(/\/$/, "");
-    const _domain = process.env.REPLIT_DEV_DOMAIN ?? process.env.REPLIT_DOMAINS?.split(",")[0];
-    const _baseUrl = _appUrl ?? (_domain ? `https://${_domain}` : undefined);
+    const _baseUrl = await getBaseUrl();
     const paymentLink = invoice.paymentToken && _baseUrl
       ? `${_baseUrl}/bayar/${invoice.paymentToken}`
       : undefined;
@@ -263,9 +262,7 @@ router.post("/whatsapp/blast-link-unpaid", async (req, res) => {
     const siteId = req.siteId;
     const siteFilter = siteId > 0 ? eq(tenantInvoicesTable.siteId, siteId) : undefined;
 
-    const _blastAppUrl = process.env.APP_URL?.replace(/\/$/, "");
-    const _blastDomain = process.env.REPLIT_DEV_DOMAIN ?? process.env.REPLIT_DOMAINS?.split(",")[0];
-    const appDomain = _blastAppUrl ?? (_blastDomain ? `https://${_blastDomain}` : undefined);
+    const appDomain = await getBaseUrl();
 
     const unpaidInvoices = await db
       .select({

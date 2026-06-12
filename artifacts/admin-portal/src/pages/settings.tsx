@@ -11,7 +11,7 @@ import { useToast } from "@/hooks/use-toast";
 import {
   Settings, Building2, FileText, DollarSign, Save, RefreshCw,
   MessageSquare, CheckCircle2, XCircle, Wifi, WifiOff, Send,
-  AlertCircle, Loader2, ExternalLink, Smartphone, Info,
+  AlertCircle, Loader2, ExternalLink, Smartphone, Info, Link,
 } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 
@@ -30,6 +30,7 @@ interface MallConfig {
   adminPhone: string;
   waSenderPhone: string;
   waSenderLabel: string;
+  paymentDomain: string;
 }
 
 interface FonnteDevice {
@@ -607,6 +608,41 @@ export default function SettingsPage() {
                 />
                 <p className="text-[10px] text-muted-foreground">
                   Isi nomor HP admin (format 08xxx atau 628xxx). Kosongkan jika tidak ingin menerima notifikasi WA.
+                </p>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Domain Link Pembayaran */}
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-sm flex items-center gap-2">
+              <Link className="h-4 w-4 text-primary" />
+              Domain Link Pembayaran Tenant
+            </CardTitle>
+            <CardDescription className="text-xs">
+              Domain yang digunakan pada link bayar yang dikirim via WhatsApp ke tenant.
+              Jika diisi, akan menimpa konfigurasi server secara otomatis.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {isLoading ? (
+              <div className="h-12 flex items-center justify-center text-sm text-muted-foreground">Memuat...</div>
+            ) : (
+              <div className="space-y-1.5">
+                <Label className="text-xs">URL Domain</Label>
+                <Input
+                  {...register("paymentDomain")}
+                  placeholder="https://tenant.travelintrips.co.id"
+                  className="h-8 text-sm font-mono"
+                />
+                <p className="text-[10px] text-muted-foreground">
+                  Format: <span className="font-mono">https://domain.anda.com</span> — tanpa garis miring di akhir.
+                  Link bayar yang dikirim akan menjadi:{" "}
+                  <span className="font-mono bg-muted px-1 rounded">
+                    {(config?.paymentDomain || "https://tenant.travelintrips.co.id").replace(/\/$/, "")}/bayar/&#123;token&#125;
+                  </span>
                 </p>
               </div>
             )}
