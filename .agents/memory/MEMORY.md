@@ -20,4 +20,5 @@
 - [tenant-portal-router-mount](tenant-portal-router-mount.md) — tenantPortalRouter mounted at "/tenant-portal" in index.ts; route paths inside must be "/me" not "/tenant-portal/me" (prefix already stripped by Express)
 - [api-server-dist-stale](api-server-dist-stale.md) — api-server "dev" script does build+start; if workflow not restarted after code changes, dist is stale and new routes return 404; restart "artifacts/api-server: API Server" workflow to rebuild
 - [replit-db-config-priority](replit-db-config.md) — lib/db/src/config.ts must use DATABASE_URL FIRST (Replit Postgres); SUPABASE_PG_URL is stale/wrong after migration; old priority order caused dev-login 500 errors
+- [drizzle-schema-both-sides](drizzle-schema-both-sides.md) — adding a DB column requires BOTH: edit lib/db/src/schema/*.ts AND add migration in migrator.ts; schema-only edit = column missing from Drizzle SELECT (returns undefined silently)
 - [booking-status-bilingual](booking-status-bilingual.md) — booking_status has mixed values: 'aktif' (Indonesian, site 1) and 'active' (English, site 2 Sport Center); always use IN ('aktif','active') in joins/filters

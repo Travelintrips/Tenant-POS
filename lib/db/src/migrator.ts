@@ -1453,6 +1453,10 @@ DO $$ BEGIN
 END $$;
     `.trim(),
   },
+  {
+    name: "0027_mall_units_default_rent",
+    sql: `ALTER TABLE mall_units ADD COLUMN IF NOT EXISTS default_rent_amount numeric DEFAULT 0;`,
+  },
 ];
 
 const MIGRATIONS_TABLE = "schema_migrations";

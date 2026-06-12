@@ -60,6 +60,7 @@ interface MallUnit {
   areaKantin: string | null;
   unitType: string;
   sizeM2: string | null;
+  defaultRentAmount: string | null;
   storedStatus: string;
   status: string;
   positionX: number;
@@ -93,6 +94,7 @@ interface UnitFormData {
   areaKantin: string;
   unitType: string;
   sizeM2: string;
+  defaultRentAmount: string;
   status: string;
   positionX: string;
   positionY: string;
@@ -148,6 +150,7 @@ const DEFAULT_FORM: UnitFormData = {
   areaKantin: "",
   unitType: "other",
   sizeM2: "",
+  defaultRentAmount: "",
   status: "available",
   positionX: "0",
   positionY: "0",
@@ -366,6 +369,12 @@ function UnitDetailPanel({
               <dd className="text-xs font-medium">{unit.areaKantin ?? "—"}</dd>
               <dt className="text-xs text-muted-foreground">Luas</dt>
               <dd className="text-xs font-medium">{unit.sizeM2 ? `${unit.sizeM2} m²` : "—"}</dd>
+              <dt className="text-xs text-muted-foreground">Harga Sewa</dt>
+              <dd className="text-xs font-medium text-emerald-700">
+                {unit.defaultRentAmount && Number(unit.defaultRentAmount) > 0
+                  ? `Rp ${Number(unit.defaultRentAmount).toLocaleString("id-ID")}`
+                  : "—"}
+              </dd>
               <dt className="text-xs text-muted-foreground">Posisi</dt>
               <dd className="text-xs font-medium">({unit.positionX}, {unit.positionY}) {unit.width}×{unit.height}</dd>
               {unit.notes && (
@@ -466,6 +475,7 @@ function UnitFormDrawer({
         areaKantin: editingUnit.areaKantin ?? "",
         unitType: editingUnit.unitType ?? "other",
         sizeM2: editingUnit.sizeM2 ?? "",
+        defaultRentAmount: editingUnit.defaultRentAmount ?? "",
         status: editingUnit.storedStatus ?? "available",
         positionX: String(editingUnit.positionX),
         positionY: String(editingUnit.positionY),
@@ -546,6 +556,21 @@ function UnitFormDrawer({
                   onChange={e => set("sizeM2", e.target.value)}
                   placeholder="0"
                 />
+              </div>
+
+              <div className="col-span-2">
+                <Label htmlFor="defaultRentAmount" className="text-xs">Harga Sewa (Rp)</Label>
+                <Input
+                  id="defaultRentAmount"
+                  type="number"
+                  className="mt-1 h-9 text-sm"
+                  value={form.defaultRentAmount}
+                  onChange={e => set("defaultRentAmount", e.target.value)}
+                  placeholder="Contoh: 3000000"
+                />
+                <p className="text-xs text-muted-foreground mt-1">
+                  Harga sewa default untuk unit ini (akan otomatis terisi saat tambah tenant).
+                </p>
               </div>
 
               <div className="col-span-2">
@@ -784,6 +809,7 @@ export default function UnitTenant() {
       areaKantin: formData.areaKantin.trim() || undefined,
       unitType: formData.unitType,
       sizeM2: formData.sizeM2 || undefined,
+      defaultRentAmount: formData.defaultRentAmount || "0",
       status: formData.status,
       positionX: parseInt(formData.positionX, 10) || 0,
       positionY: parseInt(formData.positionY, 10) || 0,
@@ -970,6 +996,7 @@ export default function UnitTenant() {
                   <TableHead className="text-xs">Area</TableHead>
                   <TableHead className="text-xs">Jenis</TableHead>
                   <TableHead className="text-xs w-16">Luas</TableHead>
+                  <TableHead className="text-xs w-28">Harga Sewa</TableHead>
                   <TableHead className="text-xs w-24">Status</TableHead>
                   <TableHead className="text-xs">Tenant Aktif</TableHead>
                   <TableHead className="text-xs w-24">Status Bayar</TableHead>
@@ -982,7 +1009,7 @@ export default function UnitTenant() {
                 {filtered.length === 0 ? (
                   <TableRow>
                     <TableCell
-                      colSpan={canEdit ? 8 : 7}
+                      colSpan={canEdit ? 9 : 8}
                       className="text-center py-12 text-muted-foreground text-sm"
                     >
                       {units.length === 0
@@ -1010,6 +1037,11 @@ export default function UnitTenant() {
                       </TableCell>
                       <TableCell className="py-2.5 text-xs text-muted-foreground">
                         {u.sizeM2 ? `${u.sizeM2} m²` : "—"}
+                      </TableCell>
+                      <TableCell className="py-2.5 text-xs font-medium">
+                        {u.defaultRentAmount && Number(u.defaultRentAmount) > 0
+                          ? `Rp ${Number(u.defaultRentAmount).toLocaleString("id-ID")}`
+                          : <span className="text-muted-foreground">—</span>}
                       </TableCell>
                       <TableCell className="py-2.5">
                         <StatusBadge status={u.status} />

@@ -183,6 +183,7 @@ type MallUnit = {
   status: string;
   tenantId: number | null;
   businessName: string | null;
+  defaultRentAmount: string | null;
 };
 
 async function fetchMallUnits(): Promise<MallUnit[]> {
@@ -1020,7 +1021,15 @@ export default function DataTenant() {
                       }
                       const unit = unitOptions.find((u) => u.unitCode === v);
                       const area = unit?.areaKantin ?? unit?.zone ?? (unit?.floor ? `Lantai ${unit.floor}` : "");
-                      setForm(f => ({ ...f, boothNumber: v, areaName: area || f.areaName }));
+                      const rentAmount = unit?.defaultRentAmount && Number(unit.defaultRentAmount) > 0
+                        ? unit.defaultRentAmount
+                        : undefined;
+                      setForm(f => ({
+                        ...f,
+                        boothNumber: v,
+                        areaName: area || f.areaName,
+                        ...(rentAmount !== undefined && { defaultRentAmount: rentAmount }),
+                      }));
                     }}
                   >
                     <SelectTrigger id="boothNumber">

@@ -18,6 +18,7 @@ export const mallUnitsTable = pgTable("mall_units", {
   areaKantin: text("area_kantin"),
   unitType: text("unit_type").notNull().default("other"),
   sizeM2: numeric("size_m2"),
+  defaultRentAmount: numeric("default_rent_amount").default("0"),
   status: text("status").notNull().default("available"),
   positionX: integer("position_x").notNull().default(0),
   positionY: integer("position_y").notNull().default(0),
