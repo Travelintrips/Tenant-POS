@@ -191,6 +191,7 @@ export default function Rekonsiliasi() {
   const sudahCocok = hasilColIdx >= 0
     ? dataRows.filter((r) => r[hasilColIdx]?.trim() !== "").length
     : dataRows.filter((r) => r[verifikasiColIdx]?.trim() !== "").length;
+  const sudahVerifikasi = dataRows.filter((r) => r[verifikasiColIdx]?.trim() !== "").length;
   const totalTagihan = dataRows.reduce((s, r) => s + (parseFloat(r[totalColIdx] ?? "0") || 0), 0);
   const totalSisa = dataRows.reduce((s, r) => s + (parseFloat(r[sisaColIdx] ?? "0") || 0), 0);
 
