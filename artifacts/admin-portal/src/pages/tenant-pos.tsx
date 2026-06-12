@@ -951,63 +951,78 @@ function BoothCard({ item, selected, onClick }: { item: FloorPlanItem; selected:
   const status = resolveStatus(item);
   const cfg = statusConfig[status];
   const isVacant = status === "VACANT";
-  const hasLogo = !isVacant && !!item.logoUrl;
 
   return (
     <button
       onClick={onClick}
       className={cn(
-        "relative rounded-2xl border-2 p-3.5 text-left transition-all duration-200 cursor-pointer select-none w-full min-h-[110px] flex flex-col group overflow-hidden",
+        "relative rounded-2xl border-2 text-left transition-all duration-200 cursor-pointer select-none w-full flex flex-col group overflow-hidden",
         cfg.box,
         selected
           ? "ring-2 ring-offset-2 ring-primary shadow-lg scale-[1.02] z-10"
           : "hover:shadow-md hover:scale-[1.01]"
       )}
     >
-      {/* Background foto tenant */}
-      {hasLogo && (
-        <div
-          className="absolute inset-0 rounded-2xl bg-cover bg-center opacity-15 group-hover:opacity-20 transition-opacity duration-200"
-          style={{ backgroundImage: `url(${item.logoUrl})` }}
-        />
-      )}
-
       {/* Status stripe top */}
-      <div className={cn("absolute top-0 left-0 right-0 h-0.5 rounded-t-2xl opacity-70",
+      <div className={cn("absolute top-0 left-0 right-0 h-0.5 z-10",
         status === "PAID" ? "bg-emerald-400" :
         status === "OVERDUE" ? "bg-red-400" :
         status === "PARTIAL" ? "bg-blue-400" :
-        status === "UNPAID" ? "bg-amber-400" : "bg-slate-200"
+        status === "UNPAID" ? "bg-amber-400" : "bg-slate-300"
       )} />
 
-      <div className="relative flex items-start justify-between gap-1 mb-2">
-        <span className="text-[11px] font-black text-slate-500 uppercase tracking-widest leading-none">{item.boothNumber}</span>
-        <span className={cn("inline-flex items-center gap-0.5 text-[10px] px-2 py-0.5 rounded-full border font-semibold shrink-0", cfg.badge)}>
+      {/* Foto Tenant */}
+      <div className="w-full h-[88px] bg-slate-100 overflow-hidden shrink-0 relative">
+        {item.logoUrl ? (
+          <img
+            src={item.logoUrl}
+            alt={item.businessName}
+            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+          />
+        ) : (
+          <div className={cn(
+            "w-full h-full flex flex-col items-center justify-center gap-1",
+            isVacant ? "text-slate-300" : "text-slate-300"
+          )}>
+            <Building2 className="w-7 h-7" />
+            <span className="text-[9px] font-medium tracking-wide text-slate-300">Belum ada foto</span>
+          </div>
+        )}
+        {/* Status badge overlay */}
+        <span className={cn(
+          "absolute bottom-1.5 right-1.5 inline-flex items-center gap-0.5 text-[9px] px-1.5 py-0.5 rounded-full border font-semibold shadow-sm",
+          cfg.badge
+        )}>
           {cfg.icon}{cfg.label}
         </span>
       </div>
 
-      <p className={cn("relative text-[13px] font-bold leading-tight truncate flex-1", isVacant ? "text-slate-300 italic" : "text-slate-800")}>
-        {isVacant ? "Kosong" : item.businessName}
-      </p>
+      {/* Info section */}
+      <div className="p-2.5 flex flex-col gap-0.5">
+        {/* No. Tenant */}
+        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none">
+          No. {item.boothNumber}
+        </p>
 
-      {!isVacant && item.bookingId && (
-        <div className="relative mt-2 pt-2 border-t border-current/10 space-y-0.5">
-          {item.periodLabel && (
-            <p className="text-[10px] text-slate-400 truncate font-medium">{item.periodLabel}</p>
-          )}
-          <p className={cn("text-[12px] font-bold",
-            status === "PAID" ? "text-emerald-600" :
-            status === "OVERDUE" ? "text-red-600" :
-            status === "PARTIAL" ? "text-blue-600" : "text-amber-600"
-          )}>
-            {status === "PAID" ? "✓ Lunas" : `Sisa ${formatRupiah(item.remainingAmount)}`}
-          </p>
-          {item.openInvoiceCount > 0 && (
-            <p className="text-[10px] text-blue-500 font-semibold">{item.openInvoiceCount} invoice terbuka</p>
-          )}
-        </div>
-      )}
+        {/* Nama bisnis */}
+        <p className={cn("text-[12px] font-bold leading-tight truncate", isVacant ? "text-slate-300 italic" : "text-slate-800")}>
+          {isVacant ? "Kosong" : item.businessName}
+        </p>
+
+        {/* Harga Sewa */}
+        {!isVacant && item.totalAmount > 0 && (
+          <div className="mt-1 pt-1.5 border-t border-slate-200/60">
+            <p className="text-[9px] text-slate-400 font-medium uppercase tracking-wide">Harga Sewa</p>
+            <p className={cn("text-[11px] font-bold",
+              status === "PAID" ? "text-emerald-600" :
+              status === "OVERDUE" ? "text-red-600" :
+              status === "PARTIAL" ? "text-blue-600" : "text-amber-600"
+            )}>
+              {formatRupiah(item.totalAmount)}
+            </p>
+          </div>
+        )}
+      </div>
     </button>
   );
 }
