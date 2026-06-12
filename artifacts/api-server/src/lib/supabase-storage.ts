@@ -1,14 +1,7 @@
 import { StorageClient } from "@supabase/storage-js";
 
-const isDev = (process.env["NODE_ENV"] ?? "development") !== "production";
-
-const supabaseUrl = isDev
-  ? (process.env["SUPABASE_URL_DEV"] ?? process.env["SUPABASE_URL"] ?? "")
-  : (process.env["SUPABASE_URL"] ?? "");
-
-const supabaseKey = isDev
-  ? (process.env["SUPABASE_SERVICE_ROLE_KEY_DEV"] ?? process.env["SUPABASE_SERVICE_ROLE_KEY"] ?? "")
-  : (process.env["SUPABASE_SERVICE_ROLE_KEY"] ?? "");
+const supabaseUrl = process.env["SUPABASE_URL"] ?? "";
+const supabaseKey = process.env["SUPABASE_SERVICE_ROLE_KEY"] ?? "";
 
 let _client: StorageClient | null = null;
 
@@ -27,19 +20,20 @@ function getClient(): StorageClient {
 
 const ensuredBuckets = new Set<string>();
 
-async function ensureBucket(bucket: string): Promise<void> {
+async function ensureBucket(bucket: string, isPublic = true): Promise<void> {
+  if (ensuredBuckets.has(bucket)) return;
   const client = getClient();
-  const { data: existing, error } = await client.getBucket(bucket);
-  if (!existing || error) {
-    const isPublic = true;
+  const { data: existing } = await client.getBucket(bucket);
+  if (!existing) {
     const { error: createErr } = await client.createBucket(bucket, {
       public: isPublic,
-      fileSizeLimit: 5 * 1024 * 1024,
+      fileSizeLimit: 10 * 1024 * 1024,
     });
     if (createErr && !createErr.message.includes("already exists")) {
       throw new Error(`Gagal membuat bucket "${bucket}": ${createErr.message}`);
     }
   }
+  ensuredBuckets.add(bucket);
 }
 
 export async function uploadToStorage(
@@ -47,13 +41,10 @@ export async function uploadToStorage(
   filename: string,
   buffer: Buffer,
   contentType: string,
+  isPublic = true,
 ): Promise<string> {
   const client = getClient();
-
-  if (!ensuredBuckets.has(bucket)) {
-    await ensureBucket(bucket);
-    ensuredBuckets.add(bucket);
-  }
+  await ensureBucket(bucket, isPublic);
 
   const { data, error } = await client
     .from(bucket)
@@ -69,3 +60,11 @@ export async function deleteFromStorage(bucket: string, filePath: string): Promi
   const client = getClient();
   await client.from(bucket).remove([filePath]);
 }
+
+export function getStoragePublicUrl(bucket: string, filePath: string): string {
+  const client = getClient();
+  const { data } = client.from(bucket).getPublicUrl(filePath);
+  return data.publicUrl;
+}
+
+export { supabaseUrl };

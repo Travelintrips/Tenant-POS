@@ -33,6 +33,7 @@ router.use(authRouter);
 router.use(whatsappAuthRouter);
 
 // Public routes (tidak perlu login)
+router.use(configRouter);
 router.use(paymentProofRouter);
 router.use(whatsappWebhookRouter); // Fonnte incoming message webhook
 
@@ -46,7 +47,6 @@ router.use(siteContext);
 
 router.use(eventsRouter);
 router.use(uploadsRouter);
-router.use(configRouter);
 router.use(sitesRouter);
 router.use(tenantsRouter);
 router.use(tenantUsersRouter);
