@@ -1458,6 +1458,21 @@ END $$;
     sql: `ALTER TABLE mall_units ADD COLUMN IF NOT EXISTS default_rent_amount numeric DEFAULT 0;`,
   },
   {
+    name: "0029_short_payment_tokens",
+    sql: `
+-- Perbarui token pembayaran yang ada (UUID panjang) ke format 12-karakter hex pendek
+-- Token lama (UUID) diganti dengan encode(gen_random_bytes(6), 'hex') = 12 karakter
+UPDATE "tenant_invoices"
+SET payment_token = encode(gen_random_bytes(6), 'hex')
+WHERE payment_token IS NOT NULL
+  AND LENGTH(payment_token) > 20;
+
+-- Ganti default kolom ke format 12-karakter hex pendek
+ALTER TABLE "tenant_invoices"
+  ALTER COLUMN payment_token SET DEFAULT encode(gen_random_bytes(6), 'hex');
+    `.trim(),
+  },
+  {
     name: "0028_bank_reconciliation",
     sql: `
 CREATE TABLE IF NOT EXISTS "bank_mutations" (

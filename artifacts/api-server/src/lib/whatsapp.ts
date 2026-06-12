@@ -134,7 +134,7 @@ export async function sendInvoiceNotification(params: InvoiceNotifParams): Promi
     linkLine +
     `\nMohon segera lakukan pembayaran sebelum tanggal jatuh tempo.\n\n` +
     `Terima kasih 🙏\n` +
-    `_Manajemen Mall_`;
+    `_Manajemen CST_`;
 
   return sendMessage(params.phone, message);
 }
@@ -158,7 +158,7 @@ export async function sendPaymentConfirmation(params: PaymentConfirmParams): Pro
     `Jumlah      : *${formatRupiah(params.amountPaid)}*\n` +
     `Metode      : ${methodLabel[params.paymentMethod] ?? params.paymentMethod}\n\n` +
     `Pembayaran Anda telah kami terima. Terima kasih! 🙏\n\n` +
-    `_Manajemen Mall_`;
+    `_Manajemen CST_`;
 
   return sendMessage(params.phone, message);
 }
@@ -199,7 +199,7 @@ export async function sendPaymentReceived(params: PaymentReceivedParams): Promis
     `Bukti pembayaran Anda telah kami terima dan sedang dalam proses verifikasi oleh admin.\n` +
     `Anda akan mendapat konfirmasi setelah diverifikasi.\n\n` +
     `Terima kasih 🙏\n` +
-    `_Manajemen Mall_`;
+    `_Manajemen CST_`;
 
   return sendMessage(params.phone, message);
 }
@@ -214,7 +214,7 @@ export async function sendPaymentApproved(params: PaymentApprovedParams): Promis
     `No. Invoice : *${params.invoiceNumber}*\n` +
     `Jumlah      : *${formatRupiah(params.amount)}*\n\n` +
     `Pembayaran Anda telah diverifikasi dan disetujui. Terima kasih! 🙏\n\n` +
-    `_Manajemen Mall_`;
+    `_Manajemen CST_`;
 
   return sendMessage(params.phone, message);
 }
@@ -230,7 +230,7 @@ export async function sendPaymentRejected(params: PaymentRejectedParams): Promis
     `Alasan      : ${params.rejectionReason}\n\n` +
     `Mohon upload ulang bukti pembayaran yang valid atau hubungi kami untuk informasi lebih lanjut.\n\n` +
     `Terima kasih 🙏\n` +
-    `_Manajemen Mall_`;
+    `_Manajemen CST_`;
 
   return sendMessage(params.phone, message);
 }
@@ -305,7 +305,7 @@ export async function sendReconciliationReminder(params: ReconciliationReminderP
     `2️⃣ Kirimkan bukti transfer jika sudah membayar\n\n` +
     `Hubungi kami untuk informasi lebih lanjut.\n` +
     `Terima kasih 🙏\n\n` +
-    `_Manajemen Mall_`;
+    `_Manajemen CST_`;
 
   return sendMessage(params.phone, message);
 }
@@ -324,7 +324,7 @@ export async function sendOverdueReminder(params: OverdueReminderParams): Promis
     `Mohon segera lakukan pembayaran untuk menghindari sanksi keterlambatan lebih lanjut.\n\n` +
     `Hubungi kami jika ada pertanyaan.\n` +
     `Terima kasih 🙏\n\n` +
-    `_Manajemen Mall_`;
+    `_Manajemen CST_`;
 
   return sendMessage(params.phone, message);
 }
