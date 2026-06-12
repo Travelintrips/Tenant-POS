@@ -23,3 +23,4 @@
 - [drizzle-schema-both-sides](drizzle-schema-both-sides.md) — adding a DB column requires BOTH: edit lib/db/src/schema/*.ts AND add migration in migrator.ts; schema-only edit = column missing from Drizzle SELECT (returns undefined silently)
 - [supabase-env-split](supabase-env-split.md) — SUPABASE_PG_URL was split: dev=xssrfshdrtdfupgqwfdw (wrong creds), prod=nzdweipzckfszczzqtuw (correct); fixed by deleting from both and setting in shared env pointing to nzdweipzckfszczzqtuw pooler
 - [booking-status-bilingual](booking-status-bilingual.md) — booking_status has mixed values: 'aktif' (Indonesian, site 1) and 'active' (English, site 2 Sport Center); always use IN ('aktif','active') in joins/filters
+- [api-route-path-prefix](api-route-path-prefix.md) — routes di dalam router yang di-mount di `/api` harus pakai path tanpa `/api/` prefix (e.g. `/tenants` bukan `/api/tenants`)

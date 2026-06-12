@@ -7,7 +7,7 @@ import { writeToSheet, readFromSheet, extractSheetId, getServiceAccountEmail } f
 
 const router: IRouter = Router();
 
-router.get("/api/reconciliation/info", (_req, res) => {
+router.get("/reconciliation/info", (_req, res) => {
   res.json({ serviceAccountEmail: getServiceAccountEmail() });
 });
 
@@ -17,7 +17,7 @@ const exportSchema = z.object({
   month: z.number().int().min(1).max(12),
 });
 
-router.post("/api/reconciliation/export", async (req, res) => {
+router.post("/reconciliation/export", async (req, res) => {
   const parsed = exportSchema.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: "Parameter tidak valid", detail: parsed.error.issues });
@@ -130,7 +130,7 @@ const importSchema = z.object({
   sheetTitle: z.string().min(1),
 });
 
-router.post("/api/reconciliation/read", async (req, res) => {
+router.post("/reconciliation/read", async (req, res) => {
   const parsed = importSchema.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: "Parameter tidak valid" });
