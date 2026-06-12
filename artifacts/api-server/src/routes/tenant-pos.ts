@@ -130,6 +130,7 @@ router.get("/tenant-pos/floor-plan", async (req, res) => {
         boothNumber: tenantsTable.boothNumber,
         areaName: tenantsTable.areaName,
         tenantStatus: tenantsTable.status,
+        logoUrl: tenantsTable.logoUrl,
         bookingId: tenantBookingsTable.id,
         startDate: tenantBookingsTable.startDate,
         endDate: tenantBookingsTable.endDate,
@@ -146,7 +147,7 @@ router.get("/tenant-pos/floor-plan", async (req, res) => {
         tenantBookingsTable,
         and(
           eq(tenantBookingsTable.tenantId, tenantsTable.id),
-          eq(tenantBookingsTable.bookingStatus, "aktif")
+          sql`${tenantBookingsTable.bookingStatus} IN ('aktif', 'active')`
         )
       )
       .where(tenantSiteFilter)
@@ -189,6 +190,7 @@ router.get("/tenant-pos/floor-plan", async (req, res) => {
       dueDate: row.dueDate ?? null,
       periodLabel: row.periodLabel ?? null,
       openInvoiceCount: invoiceCountMap.get(row.tenantId) ?? 0,
+      logoUrl: row.logoUrl ?? null,
     }));
 
     res.json(result);
