@@ -29,6 +29,7 @@ import TenantProfile from "@/pages/tenant-profile";
 import WhatsAppSend from "@/pages/whatsapp-send";
 import WhatsAppTemplates from "@/pages/whatsapp-templates";
 import Rekonsiliasi from "@/pages/rekonsiliasi";
+import BankRekonsiliasi from "@/pages/bank-rekonsiliasi";
 
 const queryClient = new QueryClient();
 
@@ -176,6 +177,13 @@ function Router() {
         <AuthGuard roles={["owner", "admin", "finance"]}>
           <SidebarLayout>
             <Rekonsiliasi />
+          </SidebarLayout>
+        </AuthGuard>
+      </Route>
+      <Route path="/bank-rekonsiliasi">
+        <AuthGuard roles={["owner", "admin", "finance"]}>
+          <SidebarLayout>
+            <BankRekonsiliasi />
           </SidebarLayout>
         </AuthGuard>
       </Route>

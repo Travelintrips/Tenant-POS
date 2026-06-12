@@ -22,6 +22,7 @@ import pendingPaymentsRouter from "./pending-payments";
 import dashboardRouter from "./dashboard";
 import settingsRouter from "./settings";
 import reconciliationRouter from "./reconciliation";
+import bankReconciliationRouter from "./bank-reconciliation";
 import { requireAuth, requireNonTenantUser } from "../middlewares/auth";
 import { siteContext } from "../middlewares/site-context";
 
@@ -60,5 +61,6 @@ router.use(pendingPaymentsRouter);
 router.use(dashboardRouter);
 router.use(settingsRouter);
 router.use(reconciliationRouter);
+router.use(bankReconciliationRouter);
 
 export default router;
