@@ -53,14 +53,27 @@ type ReadResult = {
   rows: string[][];
 };
 
+const LS_URL_KEY = "rekonsiliasi_spreadsheet_url";
+const LS_TITLE_KEY = "rekonsiliasi_sheet_title";
+
 export default function Rekonsiliasi() {
   const { toast } = useToast();
-  const [spreadsheetUrl, setSpreadsheetUrl] = useState("");
+  const [spreadsheetUrl, setSpreadsheetUrlRaw] = useState(() => localStorage.getItem(LS_URL_KEY) ?? "");
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth() + 1);
   const [exportResult, setExportResult] = useState<ExportResult | null>(null);
   const [sheetData, setSheetData] = useState<string[][] | null>(null);
-  const [readSheetTitle, setReadSheetTitle] = useState("");
+  const [readSheetTitle, setReadSheetTitleRaw] = useState(() => localStorage.getItem(LS_TITLE_KEY) ?? "");
+
+  function setSpreadsheetUrl(val: string) {
+    setSpreadsheetUrlRaw(val);
+    localStorage.setItem(LS_URL_KEY, val);
+  }
+
+  function setReadSheetTitle(val: string) {
+    setReadSheetTitleRaw(val);
+    localStorage.setItem(LS_TITLE_KEY, val);
+  }
 
   const { data: info } = useQuery<{ serviceAccountEmail: string }>({
     queryKey: ["/api/reconciliation/info"],
