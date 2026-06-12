@@ -1457,6 +1457,67 @@ END $$;
     name: "0027_mall_units_default_rent",
     sql: `ALTER TABLE mall_units ADD COLUMN IF NOT EXISTS default_rent_amount numeric DEFAULT 0;`,
   },
+  {
+    name: "0028_bank_reconciliation",
+    sql: `
+CREATE TABLE IF NOT EXISTS "bank_mutations" (
+  "id" serial PRIMARY KEY NOT NULL,
+  "bank_account_id" text,
+  "transaction_date" text NOT NULL,
+  "description" text NOT NULL DEFAULT '',
+  "credit_amount" numeric NOT NULL DEFAULT '0',
+  "debit_amount" numeric NOT NULL DEFAULT '0',
+  "amount" numeric NOT NULL,
+  "direction" text NOT NULL,
+  "mutation_key" text NOT NULL,
+  "normalized_description" text NOT NULL DEFAULT '',
+  "provider_name" text,
+  "provider_order_id" text,
+  "raw_payload" jsonb,
+  "status" text NOT NULL DEFAULT 'unmatched',
+  "matched_payment_id" integer,
+  "matched_order_id" integer,
+  "uploaded_proof_url" text,
+  "site_id" integer REFERENCES "mall_sites"("id"),
+  "created_at" timestamptz NOT NULL DEFAULT now(),
+  "updated_at" timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS "bank_reconciliation_matches" (
+  "id" serial PRIMARY KEY NOT NULL,
+  "mutation_id" integer NOT NULL REFERENCES "bank_mutations"("id") ON DELETE CASCADE,
+  "candidate_type" text NOT NULL,
+  "candidate_id" integer NOT NULL,
+  "match_score" integer NOT NULL DEFAULT 0,
+  "match_reason" text,
+  "amount_match" boolean NOT NULL DEFAULT false,
+  "date_match" boolean NOT NULL DEFAULT false,
+  "name_match" boolean NOT NULL DEFAULT false,
+  "order_id_match" boolean NOT NULL DEFAULT false,
+  "proof_match" boolean NOT NULL DEFAULT false,
+  "status" text NOT NULL DEFAULT 'candidate',
+  "created_at" timestamptz NOT NULL DEFAULT now()
+);
+
+DO $$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_indexes WHERE tablename = 'bank_mutations' AND indexname = 'bank_mutations_mutation_key_idx'
+  ) THEN
+    CREATE INDEX bank_mutations_mutation_key_idx ON "bank_mutations" ("mutation_key");
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_indexes WHERE tablename = 'bank_mutations' AND indexname = 'bank_mutations_status_idx'
+  ) THEN
+    CREATE INDEX bank_mutations_status_idx ON "bank_mutations" ("status");
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_indexes WHERE tablename = 'bank_reconciliation_matches' AND indexname = 'brm_mutation_id_idx'
+  ) THEN
+    CREATE INDEX brm_mutation_id_idx ON "bank_reconciliation_matches" ("mutation_id");
+  END IF;
+END $$;
+    `.trim(),
+  },
 ];
 
 const MIGRATIONS_TABLE = "schema_migrations";
