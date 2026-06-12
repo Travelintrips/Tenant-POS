@@ -118,8 +118,8 @@ type TenantForm = {
   defaultElectricityChargeAmount: string;
   defaultWaterChargeAmount: string;
   defaultOtherChargeAmount: string;
-  contractStartDate: string;
-  contractEndDate: string;
+  contractStartDate: string | null;
+  contractEndDate: string | null;
 };
 
 const EMPTY_FORM: TenantForm = {
@@ -436,7 +436,7 @@ export default function DataTenant() {
     }
 
     const toNum = (v: string) => (v === "" ? "0" : v);
-    const toDate = (v: string) => (v === "" ? null : v);
+    const toDate = (v: string | null) => (!v || v === "" ? null : v);
     const payload = {
       ...form,
       logoUrl: finalLogoUrl,
@@ -1243,8 +1243,8 @@ export default function DataTenant() {
                     <Input
                       id="contractStartDate"
                       type="date"
-                      value={form.contractStartDate}
-                      onChange={(e) => setForm(f => ({ ...f, contractStartDate: e.target.value }))}
+                      value={form.contractStartDate ?? ""}
+                      onChange={(e) => setForm(f => ({ ...f, contractStartDate: e.target.value || null }))}
                     />
                   </div>
                   <div className="flex flex-col gap-1.5">
@@ -1252,8 +1252,8 @@ export default function DataTenant() {
                     <Input
                       id="contractEndDate"
                       type="date"
-                      value={form.contractEndDate}
-                      onChange={(e) => setForm(f => ({ ...f, contractEndDate: e.target.value }))}
+                      value={form.contractEndDate ?? ""}
+                      onChange={(e) => setForm(f => ({ ...f, contractEndDate: e.target.value || null }))}
                     />
                   </div>
                 </div>
