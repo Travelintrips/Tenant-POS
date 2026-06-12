@@ -72,6 +72,8 @@ ENABLE_DEV_LOGIN = "true"
 FONNTE_ADMIN_WA = "085121073537"
 SESSION_SECRET = "MXF8tVM+GYDQyrAOg0o79vPvEg7V7xTWd3C6pPOS/ee7T0gNLD2LO/PRk+97KR2x01VdMHK1Oc3VuoZoOR/naw=="
 CI = "true"
+NODE_ENV = "development"
+LOG_LEVEL = "info"
 
 [userenv.development]
 SUPABASE_URL = "https://nzdweipzckfszczzqtuw.supabase.co"
