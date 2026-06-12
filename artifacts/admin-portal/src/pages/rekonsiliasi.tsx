@@ -83,7 +83,6 @@ export default function Rekonsiliasi() {
     setReadSheetTitleRaw(val);
     localStorage.setItem(LS_TITLE_KEY, val);
   }
-  const [readSheetTitle, setReadSheetTitle] = useState("");
   const [notifyResult, setNotifyResult] = useState<NotifyResult | null>(null);
 
   const { data: info } = useQuery<{ serviceAccountEmail: string }>({
@@ -391,6 +390,9 @@ export default function Rekonsiliasi() {
                     <strong className="text-green-700">{sudahCocok}</strong> dari{" "}
                     <strong>{dataRows.length}</strong> invoice sudah cocok/diverifikasi bank
                   </span>
+                </div>
+              )}
+
               {verifikasiColIdx >= 0 && (
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between rounded-lg border bg-muted/20 px-4 py-3">
                   <div className="flex items-center gap-2 text-sm">
