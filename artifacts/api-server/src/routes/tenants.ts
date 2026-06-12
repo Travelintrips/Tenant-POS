@@ -304,7 +304,10 @@ router.patch("/tenants/:id/logo", async (req, res) => {
     return;
   }
   const { logoUrl } = req.body as { logoUrl?: unknown };
-  if (typeof logoUrl !== "string" || !logoUrl.startsWith("/uploads/")) {
+  const isValidLogoUrl =
+    typeof logoUrl === "string" &&
+    (logoUrl.startsWith("/uploads/") || logoUrl.startsWith("https://"));
+  if (!isValidLogoUrl) {
     res.status(400).json({ error: "logoUrl tidak valid" });
     return;
   }
