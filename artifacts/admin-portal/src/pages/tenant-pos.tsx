@@ -59,6 +59,7 @@ type FloorPlanItem = {
   periodLabel: string | null;
   openInvoiceCount: number;
   logoUrl: string | null;
+  tenantStatus: string | null;
 };
 
 type Overview = {
@@ -222,7 +223,10 @@ function formatTanggalID(dateStr: string | null): string {
   return d.toLocaleDateString("id-ID", { day: "numeric", month: "long", year: "numeric" });
 }
 function resolveStatus(item: FloorPlanItem): PaymentStatus | "VACANT" {
-  if (!item.bookingId) return "VACANT";
+  if (!item.bookingId) {
+    const isActive = item.tenantStatus === "aktif" || item.tenantStatus === "active";
+    return isActive ? "UNPAID" : "VACANT";
+  }
   const upper = (item.paymentStatus ?? "UNPAID").toUpperCase() as PaymentStatus;
   return statusConfig[upper] ? upper : "UNPAID";
 }
