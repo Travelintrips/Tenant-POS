@@ -5,7 +5,8 @@ import { startOverdueScheduler } from "./lib/overdue-scheduler";
 
 async function start() {
   try {
-    const { runMigrations } = await import("@workspace/db");
+    const { runMigrations, runUsersIdTextMigration } = await import("@workspace/db");
+    await runUsersIdTextMigration();
     await runMigrations();
   } catch (err) {
     logger.warn({ err }, "[migrate] Schema sync gagal — server tetap jalan");

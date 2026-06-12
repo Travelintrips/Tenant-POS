@@ -1498,3 +1498,44 @@ export async function runMigrations(): Promise<void> {
     await client.end();
   }
 }
+
+// Migration tambahan: konversi users.id dari integer ke text (untuk Supabase lama)
+export async function runUsersIdTextMigration(): Promise<void> {
+  const client = new pg.Client({
+    connectionString: dbConfig.url,
+    ssl: dbConfig.ssl,
+  });
+
+  await client.connect();
+
+  try {
+    const res = await client.query(
+      `SELECT data_type FROM information_schema.columns WHERE table_name = 'users' AND column_name = 'id'`
+    );
+    const dataType = res.rows[0]?.data_type;
+
+    if (dataType === "integer") {
+      console.log("[migrate] Mengkonversi users.id dari integer ke text...");
+
+      // Drop FK dari user_site_access
+      await client.query(`
+        ALTER TABLE user_site_access DROP CONSTRAINT IF EXISTS user_site_access_user_id_users_id_fk;
+        ALTER TABLE user_site_access DROP CONSTRAINT IF EXISTS user_site_access_user_id_fkey;
+      `);
+
+      // Konversi users.id ke text
+      await client.query(`ALTER TABLE users ALTER COLUMN id DROP DEFAULT`);
+      await client.query(`ALTER TABLE users ALTER COLUMN id TYPE text USING id::text`);
+      await client.query(`ALTER TABLE users ALTER COLUMN id SET DEFAULT gen_random_uuid()::text`);
+
+      // Konversi user_site_access.user_id ke text
+      await client.query(`ALTER TABLE user_site_access ALTER COLUMN user_id TYPE text USING user_id::text`);
+
+      console.log("[migrate] Konversi users.id selesai ✓");
+    } else {
+      console.log("[migrate] users.id sudah text, dilewati");
+    }
+  } finally {
+    await client.end();
+  }
+}
