@@ -28,10 +28,11 @@ async function getAdminPhone(): Promise<string | null> {
 
 /** Bangun URL review pembayaran berdasarkan domain yang dideteksi */
 function buildReviewLink(): string {
+  const appUrl = process.env.APP_URL?.replace(/\/$/, "");
+  if (appUrl) return `${appUrl}/tinjau-pembayaran`;
   const domain =
     process.env.REPLIT_DEV_DOMAIN ??
-    process.env.REPLIT_DOMAINS?.split(",")[0] ??
-    process.env.APP_URL;
+    process.env.REPLIT_DOMAINS?.split(",")[0];
   return domain ? `https://${domain}/tinjau-pembayaran` : "/tinjau-pembayaran";
 }
 
