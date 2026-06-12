@@ -955,6 +955,7 @@ function BoothCard({ item, selected, onClick }: { item: FloorPlanItem; selected:
   const status = resolveStatus(item);
   const cfg = statusConfig[status];
   const isVacant = status === "VACANT";
+  const [imgError, setImgError] = useState(false);
 
   return (
     <button
@@ -977,11 +978,12 @@ function BoothCard({ item, selected, onClick }: { item: FloorPlanItem; selected:
 
       {/* Foto Tenant */}
       <div className="w-full h-[88px] bg-slate-100 overflow-hidden shrink-0 relative">
-        {item.logoUrl ? (
+        {item.logoUrl && !imgError ? (
           <img
             src={item.logoUrl}
             alt={item.businessName}
             className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+            onError={() => setImgError(true)}
           />
         ) : (
           <div className={cn(
@@ -1149,9 +1151,12 @@ function DetailPanel({ item, onClose, onProses, onBayarInvoice, currentShiftId }
   const [voidTarget, setVoidTarget] = useState<PaymentHistoryItem | null>(null);
   const [refundTarget, setRefundTarget] = useState<PaymentHistoryItem | null>(null);
   const [activeTab, setActiveTab] = useState<"info" | "tagihan" | "riwayat">("info");
+  const [imgError, setImgError] = useState(false);
   const queryClient = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
+
+  React.useEffect(() => { setImgError(false); }, [item?.tenantId]);
 
   const uploadLogoMutation = useMutation({
     mutationFn: async (file: File) => {
@@ -1283,9 +1288,9 @@ function DetailPanel({ item, onClose, onProses, onBayarInvoice, currentShiftId }
                     e.target.value = "";
                   }}
                 />
-                {item.logoUrl ? (
+                {item.logoUrl && !imgError ? (
                   <div className="relative rounded-xl overflow-hidden border border-slate-200 bg-slate-50 h-28">
-                    <img src={item.logoUrl} alt="Foto tenant" className="w-full h-full object-cover" />
+                    <img src={item.logoUrl} alt="Foto tenant" className="w-full h-full object-cover" onError={() => setImgError(true)} />
                     <div className="absolute inset-0 flex items-end justify-end p-2 gap-1.5 bg-gradient-to-t from-black/30 to-transparent">
                       <button
                         onClick={() => fileInputRef.current?.click()}
