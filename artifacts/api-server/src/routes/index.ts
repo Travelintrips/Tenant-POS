@@ -21,6 +21,7 @@ import whatsappWebhookRouter from "./whatsapp-webhook";
 import pendingPaymentsRouter from "./pending-payments";
 import dashboardRouter from "./dashboard";
 import settingsRouter from "./settings";
+import reconciliationRouter from "./reconciliation";
 import { requireAuth, requireNonTenantUser } from "../middlewares/auth";
 import { siteContext } from "../middlewares/site-context";
 
@@ -58,5 +59,6 @@ router.use(whatsappRouter);
 router.use(pendingPaymentsRouter);
 router.use(dashboardRouter);
 router.use(settingsRouter);
+router.use(reconciliationRouter);
 
 export default router;
