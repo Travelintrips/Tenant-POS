@@ -277,6 +277,39 @@ export async function sendAdminPaymentAlert(params: AdminPaymentAlertParams): Pr
   return sendMessage(params.adminPhone, message);
 }
 
+export interface ReconciliationReminderParams {
+  ownerName: string;
+  businessName: string;
+  invoiceNumber: string;
+  totalAmount: string | number;
+  outstandingAmount: string | number;
+  dueDate: string;
+  phone: string;
+  monthLabel: string;
+}
+
+/**
+ * Kirim pengingat rekonsiliasi ke tenant yang invoicenya belum terverifikasi bank
+ */
+export async function sendReconciliationReminder(params: ReconciliationReminderParams): Promise<WaResult> {
+  const message =
+    `Halo *${params.ownerName}* (${params.businessName}) 👋\n\n` +
+    `📋 *Pengingat Rekonsiliasi Pembayaran — ${params.monthLabel}*\n\n` +
+    `No. Invoice  : *${params.invoiceNumber}*\n` +
+    `Total Tagihan: ${formatRupiah(params.totalAmount)}\n` +
+    `Sisa Belum Bayar: *${formatRupiah(params.outstandingAmount)}*\n` +
+    `Jatuh Tempo  : ${params.dueDate}\n\n` +
+    `Pembayaran Anda untuk periode *${params.monthLabel}* belum kami temukan dalam rekonsiliasi bank.\n\n` +
+    `Mohon segera:\n` +
+    `1️⃣ Lakukan pembayaran jika belum, atau\n` +
+    `2️⃣ Kirimkan bukti transfer jika sudah membayar\n\n` +
+    `Hubungi kami untuk informasi lebih lanjut.\n` +
+    `Terima kasih 🙏\n\n` +
+    `_Manajemen Mall_`;
+
+  return sendMessage(params.phone, message);
+}
+
 /**
  * Kirim pengingat tagihan overdue ke tenant
  */

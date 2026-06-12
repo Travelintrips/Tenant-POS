@@ -1,9 +1,10 @@
 import { Router, type IRouter } from "express";
 import { db } from "@workspace/db";
 import { tenantInvoicesTable, tenantsTable } from "@workspace/db/schema";
-import { eq, and, gte, lte, sql } from "drizzle-orm";
+import { eq, and, gte, lte, sql, inArray } from "drizzle-orm";
 import { z } from "zod/v4";
 import { writeToSheet, readFromSheet, extractSheetId, getServiceAccountEmail } from "../services/google-sheets";
+import { sendReconciliationReminder } from "../lib/whatsapp";
 
 const router: IRouter = Router();
 
@@ -147,6 +148,73 @@ router.post("/reconciliation/read", async (req, res) => {
     const msg = err instanceof Error ? err.message : String(err);
     res.status(500).json({ error: "Gagal membaca Google Sheets", detail: msg });
   }
+});
+
+const notifySchema = z.object({
+  invoiceNumbers: z.array(z.string().min(1)).min(1).max(100),
+  monthLabel: z.string().min(1),
+});
+
+router.post("/reconciliation/notify", async (req, res) => {
+  const parsed = notifySchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Parameter tidak valid", detail: parsed.error.issues });
+    return;
+  }
+  const { invoiceNumbers, monthLabel } = parsed.data;
+
+  const invoices = await db
+    .select({
+      invoiceNumber: tenantInvoicesTable.invoiceNumber,
+      totalAmount: tenantInvoicesTable.totalAmount,
+      outstandingAmount: tenantInvoicesTable.outstandingAmount,
+      dueDate: tenantInvoicesTable.dueDate,
+      ownerName: tenantsTable.ownerName,
+      businessName: tenantsTable.businessName,
+      phone: tenantsTable.phone,
+    })
+    .from(tenantInvoicesTable)
+    .leftJoin(tenantsTable, eq(tenantInvoicesTable.tenantId, tenantsTable.id))
+    .where(inArray(tenantInvoicesTable.invoiceNumber, invoiceNumbers));
+
+  const sent: string[] = [];
+  const failed: Array<{ invoiceNumber: string; error: string }> = [];
+  const skipped: Array<{ invoiceNumber: string; reason: string }> = [];
+
+  for (const inv of invoices) {
+    if (!inv.phone) {
+      skipped.push({ invoiceNumber: inv.invoiceNumber, reason: "Nomor HP tidak terdaftar" });
+      continue;
+    }
+
+    const result = await sendReconciliationReminder({
+      ownerName: inv.ownerName ?? "Tenant",
+      businessName: inv.businessName ?? "",
+      invoiceNumber: inv.invoiceNumber,
+      totalAmount: inv.totalAmount ?? 0,
+      outstandingAmount: inv.outstandingAmount ?? 0,
+      dueDate: inv.dueDate ?? "-",
+      phone: inv.phone,
+      monthLabel,
+    });
+
+    if (result.skipped) {
+      skipped.push({ invoiceNumber: inv.invoiceNumber, reason: "FONNTE_TOKEN belum dikonfigurasi" });
+    } else if (result.ok) {
+      sent.push(inv.invoiceNumber);
+    } else {
+      failed.push({ invoiceNumber: inv.invoiceNumber, error: result.error ?? "Gagal kirim" });
+    }
+  }
+
+  const notFound = invoiceNumbers.filter(
+    (n) => !invoices.find((inv) => inv.invoiceNumber === n)
+  );
+  for (const n of notFound) {
+    skipped.push({ invoiceNumber: n, reason: "Invoice tidak ditemukan di database" });
+  }
+
+  res.json({ sent, failed, skipped });
 });
 
 export default router;

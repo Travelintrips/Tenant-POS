@@ -33,6 +33,10 @@ import {
   FileSpreadsheet,
   RefreshCw,
   Copy,
+  MessageCircle,
+  Send,
+  XCircle,
+  SkipForward,
 } from "lucide-react";
 
 const MONTH_NAMES = [
@@ -53,6 +57,12 @@ type ReadResult = {
   rows: string[][];
 };
 
+type NotifyResult = {
+  sent: string[];
+  failed: Array<{ invoiceNumber: string; error: string }>;
+  skipped: Array<{ invoiceNumber: string; reason: string }>;
+};
+
 export default function Rekonsiliasi() {
   const { toast } = useToast();
   const [spreadsheetUrl, setSpreadsheetUrl] = useState("");
@@ -61,6 +71,7 @@ export default function Rekonsiliasi() {
   const [exportResult, setExportResult] = useState<ExportResult | null>(null);
   const [sheetData, setSheetData] = useState<string[][] | null>(null);
   const [readSheetTitle, setReadSheetTitle] = useState("");
+  const [notifyResult, setNotifyResult] = useState<NotifyResult | null>(null);
 
   const { data: info } = useQuery<{ serviceAccountEmail: string }>({
     queryKey: ["/api/reconciliation/info"],
@@ -111,6 +122,45 @@ export default function Rekonsiliasi() {
     },
     onError: (err) => {
       toast({ title: "Gagal membaca sheet", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const invoiceColIdx = (sheetData?.[0] ?? []).findIndex((h) => h === "No. Invoice");
+  const verifikasiColIdxEarly = (sheetData?.[0] ?? []).findIndex((h) => h.startsWith("Verifikasi"));
+  const statusColIdxEarly = (sheetData?.[0] ?? []).findIndex((h) => h === "Status");
+
+  const unverifiedInvoiceNumbers = (sheetData?.slice(1) ?? [])
+    .filter((r) => {
+      const belumVerif = !r[verifikasiColIdxEarly]?.trim();
+      const bukan = r[statusColIdxEarly] !== "Dibatalkan";
+      return belumVerif && bukan && r[invoiceColIdx]?.trim();
+    })
+    .map((r) => r[invoiceColIdx].trim());
+
+  const notifyMutation = useMutation<NotifyResult, Error, void>({
+    mutationFn: async () => {
+      const r = await fetch("/api/reconciliation/notify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          invoiceNumbers: unverifiedInvoiceNumbers,
+          monthLabel: `${MONTH_NAMES[month - 1]} ${year}`,
+        }),
+      });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error ?? "Gagal mengirim notifikasi");
+      return data;
+    },
+    onSuccess: (data) => {
+      setNotifyResult(data);
+      const total = data.sent.length + data.failed.length + data.skipped.length;
+      toast({
+        title: `Notifikasi WA selesai`,
+        description: `${data.sent.length} terkirim, ${data.failed.length} gagal, ${data.skipped.length} dilewati dari ${total} invoice`,
+      });
+    },
+    onError: (err) => {
+      toast({ title: "Gagal mengirim notifikasi", description: err.message, variant: "destructive" });
     },
   });
 
@@ -318,12 +368,89 @@ export default function Rekonsiliasi() {
               </div>
 
               {verifikasiColIdx >= 0 && (
-                <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                  <CheckCircle2 className="h-4 w-4 text-green-600" />
-                  <span>
-                    <strong className="text-green-700">{sudahVerifikasi}</strong> dari{" "}
-                    <strong>{dataRows.length}</strong> invoice sudah diverifikasi bank
-                  </span>
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between rounded-lg border bg-muted/20 px-4 py-3">
+                  <div className="flex items-center gap-2 text-sm">
+                    <CheckCircle2 className="h-4 w-4 text-green-600 shrink-0" />
+                    <span>
+                      <strong className="text-green-700">{sudahVerifikasi}</strong> dari{" "}
+                      <strong>{dataRows.length}</strong> invoice sudah diverifikasi bank
+                      {unverifiedInvoiceNumbers.length > 0 && (
+                        <span className="ml-1 text-muted-foreground">
+                          — <strong className="text-orange-600">{unverifiedInvoiceNumbers.length}</strong> belum terverifikasi
+                        </span>
+                      )}
+                    </span>
+                  </div>
+                  {unverifiedInvoiceNumbers.length > 0 && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="shrink-0 border-green-600 text-green-700 hover:bg-green-50"
+                      onClick={() => { setNotifyResult(null); notifyMutation.mutate(); }}
+                      disabled={notifyMutation.isPending}
+                    >
+                      {notifyMutation.isPending ? (
+                        <><RefreshCw className="mr-2 h-3.5 w-3.5 animate-spin" />Mengirim...</>
+                      ) : (
+                        <><MessageCircle className="mr-2 h-3.5 w-3.5" />Kirim Notifikasi WA ({unverifiedInvoiceNumbers.length})</>
+                      )}
+                    </Button>
+                  )}
+                </div>
+              )}
+
+              {notifyResult && (
+                <div className="rounded-lg border bg-muted/10 p-4 space-y-3">
+                  <p className="text-sm font-semibold flex items-center gap-2">
+                    <MessageCircle className="h-4 w-4 text-green-600" />
+                    Hasil Pengiriman Notifikasi WhatsApp
+                  </p>
+                  <div className="grid grid-cols-3 gap-2 text-center">
+                    <div className="rounded border bg-green-50 py-2">
+                      <p className="text-xs text-muted-foreground">Terkirim</p>
+                      <p className="text-lg font-bold text-green-700">{notifyResult.sent.length}</p>
+                    </div>
+                    <div className="rounded border bg-red-50 py-2">
+                      <p className="text-xs text-muted-foreground">Gagal</p>
+                      <p className="text-lg font-bold text-red-700">{notifyResult.failed.length}</p>
+                    </div>
+                    <div className="rounded border bg-yellow-50 py-2">
+                      <p className="text-xs text-muted-foreground">Dilewati</p>
+                      <p className="text-lg font-bold text-yellow-700">{notifyResult.skipped.length}</p>
+                    </div>
+                  </div>
+                  {notifyResult.failed.length > 0 && (
+                    <div className="space-y-1">
+                      <p className="text-xs font-medium text-red-700 flex items-center gap-1">
+                        <XCircle className="h-3.5 w-3.5" />Gagal:
+                      </p>
+                      {notifyResult.failed.map((f) => (
+                        <p key={f.invoiceNumber} className="text-xs text-red-600 pl-5">
+                          {f.invoiceNumber} — {f.error}
+                        </p>
+                      ))}
+                    </div>
+                  )}
+                  {notifyResult.skipped.length > 0 && (
+                    <div className="space-y-1">
+                      <p className="text-xs font-medium text-yellow-700 flex items-center gap-1">
+                        <SkipForward className="h-3.5 w-3.5" />Dilewati:
+                      </p>
+                      {notifyResult.skipped.map((s) => (
+                        <p key={s.invoiceNumber} className="text-xs text-yellow-700 pl-5">
+                          {s.invoiceNumber} — {s.reason}
+                        </p>
+                      ))}
+                    </div>
+                  )}
+                  {notifyResult.sent.length > 0 && (
+                    <div className="space-y-1">
+                      <p className="text-xs font-medium text-green-700 flex items-center gap-1">
+                        <Send className="h-3.5 w-3.5" />Terkirim:
+                      </p>
+                      <p className="text-xs text-green-700 pl-5">{notifyResult.sent.join(", ")}</p>
+                    </div>
+                  )}
                 </div>
               )}
 
