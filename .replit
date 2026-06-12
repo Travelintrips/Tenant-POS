@@ -72,6 +72,7 @@ ENABLE_DEV_LOGIN = "true"
 FONNTE_ADMIN_WA = "085121073537"
 SESSION_SECRET = "MXF8tVM+GYDQyrAOg0o79vPvEg7V7xTWd3C6pPOS/ee7T0gNLD2LO/PRk+97KR2x01VdMHK1Oc3VuoZoOR/naw=="
 DB_URL_OVERRIDE = "postgresql://postgres.nzdweipzckfszczzqtuw:%24%23Admin12345%40%24@aws-1-ap-southeast-2.pooler.supabase.com:6543/postgres"
+CI = "true"
 
 [userenv.development]
 SUPABASE_URL = "https://xssrfshdrtdfupgqwfdw.supabase.co"
