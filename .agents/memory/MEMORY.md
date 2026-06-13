@@ -25,6 +25,7 @@
 - [zod-v4-import](zod-v4-import.md) — workspace uses zod@3.x (catalog); `import { z } from "zod/v4"` fails at runtime (no such export path); always use `import { z } from "zod"`
 - [supabase-storage-symlink](supabase-storage-symlink.md) — @supabase/storage-js in package.json but symlink missing from api-server/node_modules after pnpm install; fix: `ln -sf /home/runner/workspace/node_modules/.pnpm/@supabase+storage-js@2.108.1/node_modules/@supabase/storage-js artifacts/api-server/node_modules/@supabase/storage-js`
 - [api-route-path-prefix](api-route-path-prefix.md) — routes di dalam router yang di-mount di `/api` harus pakai path tanpa `/api/` prefix (e.g. `/tenants` bukan `/api/tenants`)
+- [bank-recon-e2e](bank-recon-e2e.md) — API contract bank recon, import pakai `rows:string[][]`, manual-match ≠ approve (journal hanya dibuat di /approve)
 - [finance-payment-events](finance-payment-events.md) — tabel FPE di-track via writePaymentEvent helper (idempotent); paymentStatus: pending→waiting_confirmation→confirmed; bank recon approve candidateType=invoice wajib buat tenant_payment + update invoice.paidAmount dalam TX
 - [bank-accounting-journal](bank-accounting-journal.md) — postAccountingJournal in src/lib/accounting-journal.ts; bash heredoc required to create files (write tool does not persist to disk)
 - [googleapis-external-package](googleapis-external-package.md) — googleapis is esbuild-external; must be installed in artifacts/api-server; if missing, entire dist fails to load causing all bank-reconciliation routes to 404
