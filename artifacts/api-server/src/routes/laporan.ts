@@ -746,4 +746,105 @@ router.get("/laporan/rekap-tenant", async (req, res) => {
   }
 });
 
+/**
+ * GET /api/laporan/rekonsiliasi?tahun=2026&dari=&sampai=&groupBy=bulan|harian
+ * Ringkasan rekonsiliasi per periode untuk keperluan audit.
+ * Kolom: periodeKey, periodeLabel, totalMutasi, totalMatched, totalTagihan, totalBayar, totalOutstanding, collectionRate
+ */
+router.get("/laporan/rekonsiliasi", async (req, res) => {
+  const { tahun: tahunRaw, dari, sampai, groupBy: groupByRaw } = req.query;
+  const tahun = tahunRaw ? parseInt(String(tahunRaw), 10) : new Date().getFullYear();
+  const groupBy = String(groupByRaw ?? "bulan") === "harian" ? "harian" : "bulan";
+  const siteId = req.siteId;
+
+  if (isNaN(tahun)) {
+    return res.status(400).json({ error: "Parameter tahun tidak valid" });
+  }
+
+  let dateClause: ReturnType<typeof sql>;
+  if (dari && sampai) {
+    dateClause = sql`ti.period_start >= ${String(dari)} AND ti.period_start <= ${String(sampai)}`;
+  } else {
+    dateClause = sql`EXTRACT(YEAR FROM ti.period_start) = ${tahun}`;
+  }
+
+  const siteClause = siteId > 0 ? sql`AND ti.site_id = ${siteId}` : sql``;
+
+  const truncExpr = groupBy === "harian"
+    ? sql`DATE_TRUNC('day', ti.period_start)`
+    : sql`DATE_TRUNC('month', ti.period_start)`;
+
+  const fmtExpr = groupBy === "harian"
+    ? sql`TO_CHAR(DATE_TRUNC('day', ti.period_start), 'DD Mon YYYY')`
+    : sql`TO_CHAR(DATE_TRUNC('month', ti.period_start), 'Mon YYYY')`;
+
+  const keyExpr = groupBy === "harian"
+    ? sql`TO_CHAR(DATE_TRUNC('day', ti.period_start), 'YYYY-MM-DD')`
+    : sql`TO_CHAR(DATE_TRUNC('month', ti.period_start), 'YYYY-MM')`;
+
+  const rows = await db.execute(sql`
+    SELECT
+      ${keyExpr}                                                        AS periode_key,
+      ${fmtExpr}                                                        AS periode_label,
+      ${truncExpr}                                                       AS periode_sort,
+      COUNT(*)::int                                                      AS total_mutasi,
+      COUNT(*) FILTER (WHERE ti.status = 'paid')::int                   AS total_matched,
+      SUM(ti.total_amount)::numeric                                      AS total_tagihan,
+      SUM(ti.paid_amount)::numeric                                       AS total_bayar,
+      SUM(ti.outstanding_amount)::numeric                                AS total_outstanding,
+      COUNT(*) FILTER (WHERE ti.status = 'overdue')::int                 AS total_overdue,
+      COUNT(*) FILTER (WHERE ti.status IN ('unpaid','partial'))::int     AS total_belum_bayar
+    FROM tenant_invoices ti
+    WHERE ${dateClause} ${siteClause}
+      AND ti.status != 'cancelled'
+    GROUP BY ${truncExpr}, ${keyExpr}, ${fmtExpr}
+    ORDER BY ${truncExpr}
+  `);
+
+  const data = ((rows as any).rows ?? rows) as any[];
+
+  const result = data.map((r: any) => {
+    const tagihan = Number(r.total_tagihan ?? 0);
+    const bayar = Number(r.total_bayar ?? 0);
+    return {
+      periodeKey:       r.periode_key,
+      periodeLabel:     r.periode_label,
+      totalMutasi:      Number(r.total_mutasi),
+      totalMatched:     Number(r.total_matched),
+      totalTagihan:     tagihan,
+      totalBayar:       bayar,
+      totalOutstanding: Number(r.total_outstanding ?? 0),
+      totalOverdue:     Number(r.total_overdue ?? 0),
+      totalBelumBayar:  Number(r.total_belum_bayar ?? 0),
+      collectionRate:   tagihan > 0 ? Math.round((bayar / tagihan) * 100) : 0,
+    };
+  });
+
+  const grand = result.reduce(
+    (acc, r) => ({
+      totalMutasi:      acc.totalMutasi + r.totalMutasi,
+      totalMatched:     acc.totalMatched + r.totalMatched,
+      totalTagihan:     acc.totalTagihan + r.totalTagihan,
+      totalBayar:       acc.totalBayar + r.totalBayar,
+      totalOutstanding: acc.totalOutstanding + r.totalOutstanding,
+    }),
+    { totalMutasi: 0, totalMatched: 0, totalTagihan: 0, totalBayar: 0, totalOutstanding: 0 },
+  );
+
+  return res.json({
+    data: result,
+    grand: {
+      ...grand,
+      collectionRate: grand.totalTagihan > 0
+        ? Math.round((grand.totalBayar / grand.totalTagihan) * 100)
+        : 0,
+    },
+    tahun,
+    dari: dari ? String(dari) : null,
+    sampai: sampai ? String(sampai) : null,
+    groupBy,
+  });
+});
+
 export default router;
+
