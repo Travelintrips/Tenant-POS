@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Link } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -38,6 +39,8 @@ import {
   XCircle,
   SkipForward,
   FileText,
+  ArrowRight,
+  TriangleAlert,
 } from "lucide-react";
 
 const MONTH_NAMES = [
@@ -219,6 +222,23 @@ export default function Rekonsiliasi() {
 
   return (
     <div className="space-y-6 p-6">
+      {/* ─── Banner Legacy ─── */}
+      <div className="rounded-lg border border-amber-300 bg-amber-50 p-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:gap-4">
+        <TriangleAlert className="h-5 w-5 text-amber-600 shrink-0 mt-0.5" />
+        <div className="flex-1 min-w-0">
+          <p className="font-semibold text-amber-800 text-sm">Halaman ini adalah versi lama berbasis Google Sheets.</p>
+          <p className="text-amber-700 text-xs mt-1">
+            Gunakan <strong>Rekonsiliasi Bank</strong> untuk approval, matching, jurnal, dan closing.
+            Halaman ini tetap tersedia untuk ekspor referensi dan notifikasi WA manual.
+          </p>
+        </div>
+        <Link href="/bank-rekonsiliasi">
+          <button className="inline-flex items-center gap-2 rounded-md bg-amber-600 px-3 py-2 text-xs font-semibold text-white hover:bg-amber-700 whitespace-nowrap shrink-0">
+            Buka Rekonsiliasi Bank Baru
+            <ArrowRight className="h-3.5 w-3.5" />
+          </button>
+        </Link>
+      </div>
       <div>
         <h1 className="text-2xl font-bold tracking-tight">Rekonsiliasi Pembayaran</h1>
         <p className="text-muted-foreground mt-1">

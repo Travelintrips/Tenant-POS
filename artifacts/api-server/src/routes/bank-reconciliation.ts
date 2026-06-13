@@ -15,6 +15,8 @@ import {
 import { eq, and, desc, sql, inArray, isNull, gt, ne } from "drizzle-orm";
 import { z } from "zod/v4";
 import { logAudit } from "../lib/audit";
+import { writeToSheet, extractSheetId, getServiceAccountEmail } from "../services/google-sheets";
+import { sendReconciliationReminder } from "../lib/whatsapp";
 import {
   normalizeDescription,
   extractOrderId,
@@ -95,6 +97,10 @@ function parseRows(rows: string[][]): Array<typeof bankMutationsTable.$inferInse
 const importJsonSchema = z.object({
   rows: z.array(z.array(z.string())).min(2),
   bankAccountId: z.string().optional(),
+});
+
+router.get("/bank-reconciliation/info", (_req, res) => {
+  res.json({ serviceAccountEmail: getServiceAccountEmail() });
 });
 
 router.post("/bank-reconciliation/import", upload.single("file"), async (req, res) => {
@@ -708,6 +714,10 @@ router.get("/bank-reconciliation/audit", async (req, res) => {
     mutationsWithoutCompany,
     journalsWithoutCompany,
     overpaidInvoices,
+    needReviewCount,
+    unmatchedCount,
+    unpaidInvoiceCount,
+    pendingPaymentEventCount,
   ] = await Promise.all([
     db.execute<{ id: number; mutation_key: string; amount: string; transaction_date: string }>(
       sql`SELECT bm.id, bm.mutation_key, bm.amount, bm.transaction_date
@@ -765,9 +775,36 @@ router.get("/bank-reconciliation/audit", async (req, res) => {
             AND total_amount::numeric > 0
           LIMIT 50`
     ),
+
+    db.execute<{ cnt: string }>(
+      sql`SELECT COUNT(*)::text AS cnt FROM bank_mutations bm
+          WHERE bm.status = 'duplicate_need_review' ${siteFilter}`
+    ),
+
+    db.execute<{ cnt: string }>(
+      sql`SELECT COUNT(*)::text AS cnt FROM bank_mutations bm
+          WHERE bm.status = 'unmatched' ${siteFilter}`
+    ),
+
+    db.execute<{ cnt: string }>(
+      sql`SELECT COUNT(*)::text AS cnt FROM tenant_invoices ti
+          WHERE ti.status IN ('unpaid','partial','overdue')
+          ${siteId ? sql`AND ti.site_id = ${siteId}` : sql``}`
+    ),
+
+    db.execute<{ cnt: string }>(
+      sql`SELECT COUNT(*)::text AS cnt FROM finance_payment_events fpe
+          WHERE fpe.payment_status IN ('pending','waiting_confirmation')
+          ${siteId ? sql`AND fpe.site_id = ${siteId}` : sql``}`
+    ),
   ]);
 
   const issues = {
+    legacyRouteActive: { count: 1, note: "POST /api/reconciliation/export, /reconciliation/notify masih aktif — sudah diberi warning log" },
+    needReviewMutations: { count: parseInt(needReviewCount!.rows[0]?.cnt ?? "0") },
+    unmatchedMutations: { count: parseInt(unmatchedCount!.rows[0]?.cnt ?? "0") },
+    unpaidInvoices: { count: parseInt(unpaidInvoiceCount!.rows[0]?.cnt ?? "0") },
+    pendingPaymentEvents: { count: parseInt(pendingPaymentEventCount!.rows[0]?.cnt ?? "0") },
     approvedWithoutJournal: {
       count: approvedWithoutJournal.rows.length,
       items: approvedWithoutJournal.rows,
@@ -803,5 +840,232 @@ router.get("/bank-reconciliation/audit", async (req, res) => {
     issues,
   });
 });
+
+// ── POST /bank-reconciliation/export-google-sheet ─────────────────────────
+const exportSheetSchema = z.object({
+  spreadsheetId: z.string().min(1),
+  sheetTitle: z.string().trim().min(1).optional(),
+  dateFrom: z.string().optional(),
+  dateTo: z.string().optional(),
+});
+
+router.post("/bank-reconciliation/export-google-sheet", async (req, res) => {
+  const parsed = exportSheetSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Parameter tidak valid", detail: parsed.error.issues });
+    return;
+  }
+  const { spreadsheetId: rawId, sheetTitle: customTitle, dateFrom, dateTo } = parsed.data;
+  const spreadsheetId = extractSheetId(rawId);
+  const siteId: number | undefined = (req as any).siteId > 0 ? (req as any).siteId : undefined;
+
+  const MONTH_ID = ["","Januari","Februari","Maret","April","Mei","Juni","Juli","Agustus","September","Oktober","November","Desember"];
+  const now = new Date();
+  const sheetTitle = customTitle ?? `Rekonsiliasi Bank ${MONTH_ID[now.getMonth() + 1]} ${now.getFullYear()}`;
+
+  const mutations = await db.execute<{
+    id: number; transaction_date: string; description: string; direction: string; amount: string;
+    status: string; mutation_key: string; bank_account_id: string | null; provider_name: string | null;
+    accounting_posted: boolean; journal_id: string | null; approved_by_role: string | null;
+    approved_at: string | null; match_score: number | null; candidate_type: string | null;
+    match_reason: string | null; invoice_number: string | null; total_amount: string | null;
+    paid_amount: string | null; outstanding_amount: string | null; invoice_status: string | null;
+    due_date: string | null; tenant_name: string | null; owner_name: string | null;
+  }>(sql`
+    SELECT
+      bm.id, bm.transaction_date, bm.description, bm.direction, bm.amount,
+      bm.status, bm.mutation_key, bm.bank_account_id, bm.provider_name,
+      bm.accounting_posted, bm.journal_id, bm.approved_by_role,
+      bm.updated_at AS approved_at,
+      brm.match_score, brm.candidate_type, brm.match_reason,
+      ti.invoice_number, ti.total_amount, ti.paid_amount, ti.outstanding_amount,
+      ti.status AS invoice_status, ti.due_date,
+      t.business_name AS tenant_name, t.owner_name
+    FROM bank_mutations bm
+    LEFT JOIN bank_reconciliation_matches brm
+      ON brm.mutation_id = bm.id AND brm.status = 'approved'
+    LEFT JOIN bank_journal_entries bje
+      ON bje.mutation_id = bm.id
+    LEFT JOIN tenant_invoices ti
+      ON ti.id = bm.matched_order_id
+    LEFT JOIN tenants t
+      ON t.id = ti.tenant_id
+    WHERE 1=1
+      ${siteId ? sql`AND bm.site_id = ${siteId}` : sql``}
+      ${dateFrom ? sql`AND bm.transaction_date >= ${dateFrom}` : sql``}
+      ${dateTo ? sql`AND bm.transaction_date <= ${dateTo}` : sql``}
+    ORDER BY bm.transaction_date DESC, bm.id DESC
+    LIMIT 2000
+  `);
+
+  const statusLabel: Record<string, string> = {
+    unmatched: "Tidak Cocok", matched: "Ada Kandidat", approved: "Disetujui",
+    rejected: "Ditolak", duplicate_need_review: "Duplikat - Perlu Review",
+    need_review: "Perlu Review",
+  };
+  const invoiceStatusLabel: Record<string, string> = {
+    paid: "Lunas", partial: "Sebagian", unpaid: "Belum Bayar",
+    overdue: "Jatuh Tempo", cancelled: "Dibatalkan",
+  };
+
+  const headers = [
+    "No", "Tanggal Mutasi", "Keterangan", "Arah", "Nominal (Rp)",
+    "Status Rekonsiliasi", "Match Score", "Tipe Kandidat", "Alasan Match",
+    "Nama Tenant", "No. Invoice", "Total Invoice (Rp)", "Sudah Bayar (Rp)", "Sisa (Rp)",
+    "Status Invoice", "Jatuh Tempo",
+    "Journal ID", "Akuntansi Posted",
+    "Disetujui Oleh", "Tanggal Approve",
+    "Catatan Audit",
+  ];
+
+  const rows = mutations.rows.map((r, i) => [
+    i + 1,
+    r.transaction_date ?? "",
+    r.description ?? "",
+    r.direction ?? "",
+    parseFloat(r.amount ?? "0") || 0,
+    statusLabel[r.status] ?? r.status ?? "",
+    r.match_score ?? "",
+    r.candidate_type ?? "",
+    r.match_reason ?? "",
+    r.tenant_name ?? "",
+    r.invoice_number ?? "",
+    parseFloat(r.total_amount ?? "0") || "",
+    parseFloat(r.paid_amount ?? "0") || "",
+    parseFloat(r.outstanding_amount ?? "0") || "",
+    invoiceStatusLabel[r.invoice_status ?? ""] ?? r.invoice_status ?? "",
+    r.due_date ?? "",
+    r.journal_id ?? "",
+    r.accounting_posted ? "Ya" : "Belum",
+    r.approved_by_role ?? "",
+    r.approved_at ? new Date(r.approved_at).toLocaleDateString("id-ID") : "",
+    "",
+  ]);
+
+  try {
+    await writeToSheet({ spreadsheetId, sheetTitle, headers, rows });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    res.status(500).json({ error: "Gagal menulis ke Google Sheets", detail: msg });
+    return;
+  }
+
+  logAudit(req, {
+    action: "bank_reconciliation_export_sheet",
+    entityType: "bank_mutations",
+    afterData: { sheetTitle, rowCount: rows.length },
+  });
+
+  res.json({
+    success: true,
+    sheetTitle,
+    rowCount: rows.length,
+    sheetUrl: `https://docs.google.com/spreadsheets/d/${spreadsheetId}`,
+  });
+});
+
+// ── POST /bank-reconciliation/send-reminder-wa ────────────────────────────
+const sendReminderWaSchema = z.object({
+  types: z.array(z.enum(["unpaid_invoice", "need_review", "unmatched", "approved_no_journal"])).min(1),
+  daysThreshold: z.number().int().min(1).max(365).optional().default(3),
+  monthLabel: z.string().optional(),
+});
+
+router.post("/bank-reconciliation/send-reminder-wa", async (req, res) => {
+  const parsed = sendReminderWaSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Parameter tidak valid", detail: parsed.error.issues });
+    return;
+  }
+  const { types, monthLabel: customMonthLabel } = parsed.data;
+  const siteId: number | undefined = (req as any).siteId > 0 ? (req as any).siteId : undefined;
+
+  const MONTH_ID = ["","Januari","Februari","Maret","April","Mei","Juni","Juli","Agustus","September","Oktober","November","Desember"];
+  const now = new Date();
+  const monthLabel = customMonthLabel ?? `${MONTH_ID[now.getMonth() + 1]} ${now.getFullYear()}`;
+
+  const sent: string[] = [];
+  const failed: Array<{ ref: string; error: string }> = [];
+  const skipped: Array<{ ref: string; reason: string }> = [];
+  const summary: Record<string, number> = {};
+
+  if (types.includes("unpaid_invoice")) {
+    const unpaidResult = await db.execute<{
+      invoice_number: string; total_amount: string; outstanding_amount: string;
+      due_date: string | null; owner_name: string | null; business_name: string | null; phone: string | null;
+    }>(sql`
+      SELECT ti.invoice_number, ti.total_amount, ti.outstanding_amount, ti.due_date,
+             t.owner_name, t.business_name, t.phone
+      FROM tenant_invoices ti
+      LEFT JOIN tenants t ON t.id = ti.tenant_id
+      WHERE ti.status IN ('unpaid', 'partial', 'overdue')
+        ${siteId ? sql`AND ti.site_id = ${siteId}` : sql``}
+      ORDER BY ti.due_date ASC
+      LIMIT 100
+    `);
+
+    for (const inv of unpaidResult.rows) {
+      if (!inv.phone) {
+        skipped.push({ ref: inv.invoice_number, reason: "No HP tidak tersedia" });
+        continue;
+      }
+      const result = await sendReconciliationReminder({
+        ownerName: inv.owner_name ?? "Tenant",
+        businessName: inv.business_name ?? "",
+        invoiceNumber: inv.invoice_number,
+        totalAmount: parseFloat(inv.total_amount ?? "0"),
+        outstandingAmount: parseFloat(inv.outstanding_amount ?? "0"),
+        dueDate: inv.due_date ?? "-",
+        phone: inv.phone,
+        monthLabel,
+      });
+      if (result.skipped) {
+        skipped.push({ ref: inv.invoice_number, reason: "FONNTE_TOKEN belum dikonfigurasi" });
+      } else if (result.ok) {
+        sent.push(inv.invoice_number);
+      } else {
+        failed.push({ ref: inv.invoice_number, error: result.error ?? "Gagal kirim" });
+      }
+    }
+    summary.unpaidInvoices = unpaidResult.rows.length;
+  }
+
+  if (types.includes("need_review")) {
+    const r = await db.execute<{ cnt: string }>(sql`
+      SELECT COUNT(*)::text AS cnt FROM bank_mutations
+      WHERE status = 'duplicate_need_review'
+        ${siteId ? sql`AND site_id = ${siteId}` : sql``}
+    `);
+    summary.needReview = parseInt(r.rows[0]?.cnt ?? "0");
+  }
+
+  if (types.includes("unmatched")) {
+    const r = await db.execute<{ cnt: string }>(sql`
+      SELECT COUNT(*)::text AS cnt FROM bank_mutations
+      WHERE status = 'unmatched'
+        ${siteId ? sql`AND site_id = ${siteId}` : sql``}
+    `);
+    summary.unmatched = parseInt(r.rows[0]?.cnt ?? "0");
+  }
+
+  if (types.includes("approved_no_journal")) {
+    const r = await db.execute<{ cnt: string }>(sql`
+      SELECT COUNT(*)::text AS cnt FROM bank_mutations
+      WHERE status = 'approved'
+        AND (accounting_posted = false OR accounting_posted IS NULL)
+        ${siteId ? sql`AND site_id = ${siteId}` : sql``}
+    `);
+    summary.approvedNoJournal = parseInt(r.rows[0]?.cnt ?? "0");
+  }
+
+  logAudit(req, {
+    action: "bank_reconciliation_send_reminder_wa",
+    entityType: "bank_mutations",
+    afterData: { types, sent: sent.length, failed: failed.length, skipped: skipped.length, summary },
+  });
+
+  res.json({ sent, failed, skipped, summary, monthLabel });
+});
+
 
 export default router;

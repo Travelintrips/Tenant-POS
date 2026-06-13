@@ -335,8 +335,8 @@ export function SidebarLayout({ children }: { children: React.ReactNode }) {
                     data-testid="nav-rekonsiliasi"
                   >
                     <Link href="/rekonsiliasi">
-                      <ClipboardList className="mr-2 h-4 w-4" />
-                      <span>Laporan Rekonsiliasi</span>
+                      <ClipboardList className="mr-2 h-4 w-4 opacity-60" />
+                      <span className="text-muted-foreground">Laporan Rekonsiliasi [Lama]</span>
                     </Link>
                   </SidebarMenuButton>
                 </SidebarMenuItem>
@@ -359,8 +359,8 @@ export function SidebarLayout({ children }: { children: React.ReactNode }) {
                     data-testid="nav-rekonsiliasi"
                   >
                     <Link href="/rekonsiliasi">
-                      <FileSpreadsheet className="mr-2 h-4 w-4" />
-                      <span>Rekonsiliasi</span>
+                      <FileSpreadsheet className="mr-2 h-4 w-4 opacity-60" />
+                      <span className="text-muted-foreground">Rekonsiliasi [Lama]</span>
                     </Link>
                   </SidebarMenuButton>
                 </SidebarMenuItem>

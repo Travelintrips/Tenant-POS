@@ -20,6 +20,7 @@ import { useToast } from "@/hooks/use-toast";
 import {
   Upload, RefreshCw, CheckCircle2, XCircle, AlertTriangle, HelpCircle,
   Zap, Search, ChevronRight, FileUp, BarChart2, Banknote, Receipt, FileCheck,
+  FileSpreadsheet, MessageCircle, Send, ExternalLink, Archive,
 } from "lucide-react";
 
 const formatRp = (n: string | number | null | undefined) =>
@@ -110,6 +111,17 @@ export default function BankRekonsiliasi() {
   const [selectedMutation, setSelectedMutation] = useState<BankMutation | null>(null);
   const [manualCandidateType, setManualCandidateType] = useState<"payment" | "invoice">("payment");
   const [manualCandidateId, setManualCandidateId] = useState("");
+
+  // Export Google Sheets
+  const [showExport, setShowExport] = useState(false);
+  const [exportSheetUrl, setExportSheetUrl] = useState(() => localStorage.getItem("bank_rekon_sheet_url") ?? "");
+  const [exportSheetTitle, setExportSheetTitle] = useState("");
+  const [exportDateFrom, setExportDateFrom] = useState("");
+  const [exportDateTo, setExportDateTo] = useState("");
+
+  // WA Reminder
+  const [showWa, setShowWa] = useState(false);
+  const [waTypes, setWaTypes] = useState<string[]>(["unpaid_invoice"]);
 
   // Build query params
   const params = new URLSearchParams();
@@ -237,6 +249,43 @@ export default function BankRekonsiliasi() {
     onError: (e: Error) => toast({ title: "Gagal", description: e.message, variant: "destructive" }),
   });
 
+  const exportSheetMut = useMutation({
+    mutationFn: async (payload: { spreadsheetId: string; sheetTitle?: string; dateFrom?: string; dateTo?: string }) => {
+      const r = await fetch("/api/bank-reconciliation/export-google-sheet", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error ?? "Gagal export");
+      return data as { success: boolean; sheetTitle: string; rowCount: number; sheetUrl: string };
+    },
+    onSuccess: (data) => {
+      toast({ title: "Export berhasil!", description: `${data.rowCount} baris ditulis ke sheet "${data.sheetTitle}"` });
+      setShowExport(false);
+    },
+    onError: (e: Error) => toast({ title: "Export gagal", description: e.message, variant: "destructive" }),
+  });
+
+  const sendWaMut = useMutation({
+    mutationFn: async (payload: { types: string[] }) => {
+      const r = await fetch("/api/bank-reconciliation/send-reminder-wa", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error ?? "Gagal kirim");
+      return data as { sent: string[]; failed: { ref: string; error: string }[]; skipped: { ref: string; reason: string }[]; summary: Record<string, number>; monthLabel: string };
+    },
+    onSuccess: (data) => {
+      const total = data.sent.length + data.failed.length + data.skipped.length;
+      toast({ title: "Reminder WA selesai", description: `${data.sent.length} terkirim, ${data.failed.length} gagal, ${data.skipped.length} dilewati dari ${total} invoice` });
+      setShowWa(false);
+    },
+    onError: (e: Error) => toast({ title: "Gagal kirim WA", description: e.message, variant: "destructive" }),
+  });
+
   // Stats
   const stats = {
     total: mutations.length,
@@ -249,11 +298,18 @@ export default function BankRekonsiliasi() {
 
   return (
     <div className="space-y-5 p-6">
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight">Rekonsiliasi Mutasi Bank</h1>
-        <p className="text-muted-foreground mt-1 text-sm">
-          Import mutasi rekening, cocokkan otomatis dengan transaksi/invoice, lalu setujui atau tolak.
-        </p>
+      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+        <div>
+          <div className="flex items-center gap-2 flex-wrap">
+            <h1 className="text-2xl font-bold tracking-tight">Rekonsiliasi Mutasi Bank</h1>
+            <span className="inline-flex items-center rounded-full border border-emerald-300 bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">Engine Baru</span>
+            <span className="inline-flex items-center rounded-full border border-blue-300 bg-blue-50 px-2 py-0.5 text-[11px] font-semibold text-blue-700">Jurnal Aktif</span>
+            <span className="inline-flex items-center rounded-full border border-purple-300 bg-purple-50 px-2 py-0.5 text-[11px] font-semibold text-purple-700">Closing Aktif</span>
+          </div>
+          <p className="text-muted-foreground mt-1 text-sm">
+            Import mutasi rekening, cocokkan otomatis dengan transaksi/invoice, lalu setujui atau tolak.
+          </p>
+        </div>
       </div>
 
       {/* KPI Panel */}
@@ -388,9 +444,30 @@ export default function BankRekonsiliasi() {
             ? <><RefreshCw className="mr-2 h-4 w-4 animate-spin" />Memproses...</>
             : <><Zap className="mr-2 h-4 w-4" />Jalankan Auto-Match</>}
         </Button>
-        <Button variant="ghost" size="icon" onClick={() => refetch()} disabled={isLoading}>
+        <Button variant="ghost" size="icon" onClick={() => { refetch(); refetchKpi(); }} disabled={isLoading}>
           <RefreshCw className={`h-4 w-4 ${isLoading ? "animate-spin" : ""}`} />
         </Button>
+        <div className="w-px bg-border h-8 mx-1" />
+        <Button
+          variant="outline"
+          className="border-green-300 text-green-700 hover:bg-green-50"
+          onClick={() => setShowExport(true)}
+        >
+          <FileSpreadsheet className="mr-2 h-4 w-4" />
+          Export Google Sheets
+        </Button>
+        <Button
+          variant="outline"
+          className="border-blue-300 text-blue-700 hover:bg-blue-50"
+          onClick={() => setShowWa(true)}
+        >
+          <MessageCircle className="mr-2 h-4 w-4" />
+          Kirim Reminder WA
+        </Button>
+        <a href="/rekonsiliasi" className="inline-flex items-center gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-700 hover:bg-amber-100">
+          <Archive className="h-3.5 w-3.5" />
+          Laporan Legacy
+        </a>
       </div>
 
       {/* CSV format hint */}
@@ -536,6 +613,128 @@ export default function BankRekonsiliasi() {
           </TableBody>
         </Table>
       </div>
+
+
+      {/* ─── Dialog: Export Google Sheets ─── */}
+      <Dialog open={showExport} onOpenChange={setShowExport}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <FileSpreadsheet className="h-5 w-5 text-green-600" />
+              Export Laporan ke Google Sheets
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 text-sm">
+            <div className="space-y-1">
+              <Label className="text-xs">URL / ID Google Spreadsheet <span className="text-red-500">*</span></Label>
+              <Input
+                className="text-xs"
+                placeholder="https://docs.google.com/spreadsheets/d/..."
+                value={exportSheetUrl}
+                onChange={(e) => {
+                  setExportSheetUrl(e.target.value);
+                  localStorage.setItem("bank_rekon_sheet_url", e.target.value);
+                }}
+              />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Judul Sheet (opsional)</Label>
+              <Input
+                className="text-xs"
+                placeholder="Rekonsiliasi Bank Juni 2026"
+                value={exportSheetTitle}
+                onChange={(e) => setExportSheetTitle(e.target.value)}
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div className="space-y-1">
+                <Label className="text-xs">Dari Tanggal</Label>
+                <Input type="date" className="text-xs" value={exportDateFrom} onChange={(e) => setExportDateFrom(e.target.value)} />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Sampai Tanggal</Label>
+                <Input type="date" className="text-xs" value={exportDateTo} onChange={(e) => setExportDateTo(e.target.value)} />
+              </div>
+            </div>
+            <div className="rounded-md border border-blue-200 bg-blue-50 p-2 text-xs text-blue-700">
+              Data export dari <strong>engine baru</strong>: bank_mutations, bank_reconciliation_matches, bank_journal_entries, tenant_invoices, tenant_payments.
+            </div>
+          </div>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" size="sm" onClick={() => setShowExport(false)}>Batal</Button>
+            <Button
+              size="sm"
+              className="bg-green-600 hover:bg-green-700 text-white"
+              disabled={!exportSheetUrl.trim() || exportSheetMut.isPending}
+              onClick={() => exportSheetMut.mutate({
+                spreadsheetId: exportSheetUrl.trim(),
+                sheetTitle: exportSheetTitle.trim() || undefined,
+                dateFrom: exportDateFrom || undefined,
+                dateTo: exportDateTo || undefined,
+              })}
+            >
+              {exportSheetMut.isPending
+                ? <><RefreshCw className="mr-2 h-3.5 w-3.5 animate-spin" />Mengexport...</>
+                : <><FileSpreadsheet className="mr-2 h-3.5 w-3.5" />Export Sekarang</>}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ─── Dialog: Kirim Reminder WA ─── */}
+      <Dialog open={showWa} onOpenChange={setShowWa}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <MessageCircle className="h-5 w-5 text-blue-600" />
+              Kirim Reminder WA dari Engine Baru
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 text-sm">
+            <p className="text-xs text-muted-foreground">Pilih kategori yang akan diingatkan via WhatsApp:</p>
+            <div className="space-y-2">
+              {[
+                { value: "unpaid_invoice", label: "Invoice belum lunas (unpaid / sebagian / overdue)", count: kpi ? kpi.invoices.unpaid + kpi.invoices.partial + kpi.invoices.overdue : null },
+                { value: "need_review", label: "Mutasi duplikat perlu review", count: kpi ? kpi.mutations.duplicateNeedReview : null },
+                { value: "unmatched", label: "Mutasi tidak cocok (unmatched)", count: kpi ? kpi.mutations.unmatched : null },
+                { value: "approved_no_journal", label: "Mutasi disetujui belum posting jurnal", count: null },
+              ].map(({ value, label, count }) => (
+                <label key={value} className="flex items-center gap-2.5 cursor-pointer rounded-md border p-2.5 hover:bg-muted/40">
+                  <input
+                    type="checkbox"
+                    checked={waTypes.includes(value)}
+                    onChange={(e) => {
+                      if (e.target.checked) setWaTypes((p) => [...p, value]);
+                      else setWaTypes((p) => p.filter((t) => t !== value));
+                    }}
+                    className="rounded"
+                  />
+                  <span className="text-xs flex-1">{label}</span>
+                  {count !== null && count !== undefined && (
+                    <span className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-bold ${count > 0 ? "bg-red-100 text-red-700" : "bg-gray-100 text-gray-500"}`}>{count}</span>
+                  )}
+                </label>
+              ))}
+            </div>
+            <div className="rounded-md border border-amber-200 bg-amber-50 p-2 text-xs text-amber-700">
+              WA hanya dikirim untuk invoice unpaid/partial/overdue. Kategori lain dicatat sebagai ringkasan jumlah.
+            </div>
+          </div>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" size="sm" onClick={() => setShowWa(false)}>Batal</Button>
+            <Button
+              size="sm"
+              className="bg-blue-600 hover:bg-blue-700 text-white"
+              disabled={waTypes.length === 0 || sendWaMut.isPending}
+              onClick={() => sendWaMut.mutate({ types: waTypes })}
+            >
+              {sendWaMut.isPending
+                ? <><RefreshCw className="mr-2 h-3.5 w-3.5 animate-spin" />Mengirim...</>
+                : <><Send className="mr-2 h-3.5 w-3.5" />Kirim Reminder</>}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Detail Dialog */}
       <Dialog open={!!selectedMutation} onOpenChange={(o) => { if (!o) setSelectedMutation(null); }}>
