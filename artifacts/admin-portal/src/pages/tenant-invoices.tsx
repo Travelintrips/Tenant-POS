@@ -436,19 +436,21 @@ function buildInvoiceHtml(inv: Invoice, cfg: MallInvoiceConfig): string {
   const accent = cfg.invoiceColor || "#1e3a5f";
   const accentLight = accent + "14";
 
-  const logoHtml = cfg.logoUrl
-    ? `<img src="${cfg.logoUrl}" alt="Logo" style="height:52px;max-width:200px;object-fit:contain;display:block;margin-bottom:4px;" crossorigin="anonymous" />`
-    : "";
-
   const brandBlock = cfg.logoUrl
-    ? `${logoHtml}<div style="font-size:13px;font-weight:700;color:${accent}">${cfg.mallName}</div>
-       <div style="font-size:11px;color:#666;margin-top:1px">${cfg.tagline}</div>`
+    ? `<div style="display:flex;align-items:center;gap:14px">
+         <img src="${cfg.logoUrl}" alt="Logo" style="height:56px;width:56px;object-fit:contain;flex-shrink:0" crossorigin="anonymous" />
+         <div>
+           <div style="font-size:20px;font-weight:700;color:${accent};line-height:1.2">${cfg.mallName}</div>
+           <div style="font-size:11px;color:#777;margin-top:3px;letter-spacing:0.02em">${cfg.tagline}</div>
+         </div>
+       </div>`
     : `<div style="font-size:22px;font-weight:700;color:${accent}">${cfg.mallName}</div>
        <div style="font-size:12px;color:#666;margin-top:2px">${cfg.tagline}</div>`;
 
-  const contactLines = [cfg.address, cfg.phone, cfg.email].filter(Boolean);
-  const contactHtml = contactLines.length
-    ? `<div style="font-size:10px;color:#888;margin-top:4px;line-height:1.6">${contactLines.join(" · ")}</div>`
+  const addressLine = cfg.address ? `<div style="margin-bottom:2px">${cfg.address}</div>` : "";
+  const contactLine = [cfg.phone, cfg.email].filter(Boolean).join("  ·  ");
+  const contactHtml = (cfg.address || contactLine)
+    ? `<div style="font-size:10px;color:#888;margin-top:8px;line-height:1.7">${addressLine}${contactLine ? `<div>${contactLine}</div>` : ""}</div>`
     : "";
 
   const rows = [
