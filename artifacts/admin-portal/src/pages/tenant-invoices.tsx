@@ -397,9 +397,63 @@ async function apiPatch<T>(url: string, body: object): Promise<T> {
 
 // ─── Print Invoice ────────────────────────────────────────────────────────────
 
-function printInvoice(inv: Invoice) {
+interface MallInvoiceConfig {
+  mallName: string;
+  tagline: string;
+  address: string;
+  phone: string;
+  email: string;
+  logoUrl: string;
+  invoiceColor: string;
+  invoiceFooterNote: string;
+  invoiceSignerName: string;
+}
+
+const DEFAULT_INVOICE_CONFIG: MallInvoiceConfig = {
+  mallName: "Mall Admin",
+  tagline: "Manajemen Tenant Mall",
+  address: "",
+  phone: "",
+  email: "",
+  logoUrl: "",
+  invoiceColor: "#1e3a5f",
+  invoiceFooterNote: "",
+  invoiceSignerName: "",
+};
+
+async function fetchInvoiceConfig(): Promise<MallInvoiceConfig> {
+  try {
+    const res = await apiFetchBase("/api/settings", { credentials: "include" });
+    if (!res.ok) throw new Error();
+    const data = await res.json();
+    return { ...DEFAULT_INVOICE_CONFIG, ...data };
+  } catch {
+    return DEFAULT_INVOICE_CONFIG;
+  }
+}
+
+async function printInvoice(inv: Invoice) {
+  const cfg = await fetchInvoiceConfig();
   const win = window.open("", "_blank", "width=800,height=900");
   if (!win) return;
+
+  const accent = cfg.invoiceColor || "#1e3a5f";
+  const accentLight = accent + "14";
+
+  const logoHtml = cfg.logoUrl
+    ? `<img src="${cfg.logoUrl}" alt="Logo" style="height:52px;max-width:200px;object-fit:contain;display:block;margin-bottom:4px;" />`
+    : "";
+
+  const brandBlock = cfg.logoUrl
+    ? `${logoHtml}<div style="font-size:13px;font-weight:700;color:${accent}">${cfg.mallName}</div>
+       <div style="font-size:11px;color:#666;margin-top:1px">${cfg.tagline}</div>`
+    : `<div style="font-size:22px;font-weight:700;color:${accent}">${cfg.mallName}</div>
+       <div style="font-size:12px;color:#666;margin-top:2px">${cfg.tagline}</div>`;
+
+  const contactLines = [cfg.address, cfg.phone, cfg.email].filter(Boolean);
+  const contactHtml = contactLines.length
+    ? `<div style="font-size:10px;color:#888;margin-top:4px;line-height:1.6">${contactLines.join(" · ")}</div>`
+    : "";
 
   const rows = [
     ["Sewa Ruang / Booth", inv.rentAmount],
@@ -410,8 +464,19 @@ function printInvoice(inv: Invoice) {
   ]
     .filter(([, v]) => Number(v) > 0)
     .map(([label, v]) =>
-      `<tr><td style="padding:4px 8px">${label}</td><td style="padding:4px 8px;text-align:right">${formatRupiah(v)}</td></tr>`
+      `<tr><td style="padding:5px 10px">${label}</td><td style="padding:5px 10px;text-align:right">${formatRupiah(v)}</td></tr>`
     ).join("");
+
+  const signerHtml = cfg.invoiceSignerName
+    ? `<div style="margin-top:40px;text-align:right;font-size:12px;color:#444">
+        <div>Hormat kami,</div>
+        <div style="margin-top:36px;border-top:1px solid #ccc;padding-top:4px;display:inline-block;min-width:140px;font-weight:600">${cfg.invoiceSignerName}</div>
+       </div>`
+    : "";
+
+  const footerNote = cfg.invoiceFooterNote
+    ? `<div style="margin-bottom:6px;font-weight:500;color:#555">${cfg.invoiceFooterNote}</div>`
+    : "";
 
   const html = `<!DOCTYPE html>
 <html lang="id">
@@ -420,35 +485,32 @@ function printInvoice(inv: Invoice) {
   <title>Invoice ${inv.invoiceNumber}</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: 'Segoe UI', Arial, sans-serif; color: #1a1a1a; background: #fff; padding: 40px; max-width: 700px; margin: auto; }
-    .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 32px; }
-    .brand { font-size: 22px; font-weight: 700; color: #1e3a5f; }
-    .brand-sub { font-size: 12px; color: #666; margin-top: 2px; }
+    body { font-family: 'Segoe UI', Arial, sans-serif; color: #1a1a1a; background: #fff; padding: 40px; max-width: 720px; margin: auto; }
+    .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 28px; }
     .inv-meta { text-align: right; }
-    .inv-number { font-size: 15px; font-weight: 700; color: #1e3a5f; }
+    .inv-number { font-size: 15px; font-weight: 700; color: ${accent}; }
     .status-badge { display: inline-block; margin-top: 6px; padding: 3px 10px; border-radius: 20px; font-size: 11px; font-weight: 600; background: #fef3c7; color: #b45309; border: 1px solid #fcd34d; }
     .divider { border: none; border-top: 2px solid #e5e7eb; margin: 20px 0; }
+    .accent-divider { border: none; border-top: 3px solid ${accent}; margin: 20px 0; }
     .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 24px; }
-    .label { font-size: 11px; color: #888; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 4px; }
+    .label { font-size: 10px; color: #888; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 4px; font-weight: 600; }
     .value { font-size: 13px; color: #1a1a1a; font-weight: 500; }
     table { width: 100%; border-collapse: collapse; margin-bottom: 16px; }
-    thead tr { background: #f1f5f9; }
-    th { text-align: left; padding: 8px 10px; font-size: 11px; text-transform: uppercase; color: #64748b; letter-spacing: 0.05em; }
+    thead tr { background: ${accent}; }
+    th { text-align: left; padding: 9px 10px; font-size: 11px; text-transform: uppercase; color: #fff; letter-spacing: 0.05em; font-weight: 600; }
     td { padding: 6px 10px; font-size: 13px; border-bottom: 1px solid #f1f5f9; }
-    .totals { margin-left: auto; width: 280px; }
+    tr:nth-child(even) td { background: ${accentLight}; }
+    .totals { margin-left: auto; width: 300px; }
     .total-row { display: flex; justify-content: space-between; padding: 4px 0; font-size: 13px; }
-    .total-grand { display: flex; justify-content: space-between; padding: 8px 0; font-size: 16px; font-weight: 700; border-top: 2px solid #1e3a5f; margin-top: 4px; color: #1e3a5f; }
+    .total-grand { display: flex; justify-content: space-between; padding: 9px 0; font-size: 16px; font-weight: 700; border-top: 2px solid ${accent}; margin-top: 4px; color: ${accent}; }
     .outstanding { display: flex; justify-content: space-between; padding: 6px 10px; background: #fff7ed; border: 1px solid #fed7aa; border-radius: 8px; margin-top: 8px; font-weight: 600; color: #c2410c; }
-    .footer { margin-top: 40px; font-size: 11px; color: #999; text-align: center; border-top: 1px solid #e5e7eb; padding-top: 16px; }
-    @media print { body { padding: 20px; } }
+    .footer { margin-top: 36px; font-size: 11px; color: #aaa; text-align: center; border-top: 1px solid #e5e7eb; padding-top: 14px; }
+    @media print { body { padding: 20px; } @page { margin: 10mm 15mm; } }
   </style>
 </head>
 <body>
   <div class="header">
-    <div>
-      <div class="brand">Portal Admin Mall</div>
-      <div class="brand-sub">Manajemen Tenant Mall</div>
-    </div>
+    <div>${brandBlock}${contactHtml}</div>
     <div class="inv-meta">
       <div class="inv-number">${inv.invoiceNumber}</div>
       <div style="font-size:12px;color:#666;margin-top:4px">Tanggal: ${formatDate(inv.createdAt)}</div>
@@ -456,11 +518,11 @@ function printInvoice(inv: Invoice) {
     </div>
   </div>
 
-  <hr class="divider" />
+  <hr class="accent-divider" />
 
   <div class="grid-2">
     <div>
-      <div class="label">Tenant</div>
+      <div class="label">Tagihan Kepada</div>
       <div class="value">${inv.tenantName ?? "-"}</div>
       <div style="font-size:12px;color:#666;margin-top:2px">${inv.ownerName ?? ""}</div>
       ${inv.email ? `<div style="font-size:12px;color:#666">${inv.email}</div>` : ""}
@@ -482,8 +544,8 @@ function printInvoice(inv: Invoice) {
     </thead>
     <tbody>
       ${rows}
-      ${Number(inv.discountAmount) > 0 ? `<tr><td style="padding:4px 8px;color:#059669">Diskon</td><td style="padding:4px 8px;text-align:right;color:#059669">- ${formatRupiah(inv.discountAmount)}</td></tr>` : ""}
-      ${Number(inv.penaltyAmount) > 0 ? `<tr><td style="padding:4px 8px;color:#dc2626">Denda</td><td style="padding:4px 8px;text-align:right;color:#dc2626">+ ${formatRupiah(inv.penaltyAmount)}</td></tr>` : ""}
+      ${Number(inv.discountAmount) > 0 ? `<tr><td style="padding:5px 10px;color:#059669">Diskon</td><td style="padding:5px 10px;text-align:right;color:#059669">- ${formatRupiah(inv.discountAmount)}</td></tr>` : ""}
+      ${Number(inv.penaltyAmount) > 0 ? `<tr><td style="padding:5px 10px;color:#dc2626">Denda</td><td style="padding:5px 10px;text-align:right;color:#dc2626">+ ${formatRupiah(inv.penaltyAmount)}</td></tr>` : ""}
     </tbody>
   </table>
 
@@ -497,8 +559,11 @@ function printInvoice(inv: Invoice) {
 
   ${inv.notes ? `<div style="margin-top:24px;padding:12px;background:#f8fafc;border-radius:8px;font-size:12px;color:#555"><strong>Catatan:</strong> ${inv.notes}</div>` : ""}
 
+  ${signerHtml}
+
   <div class="footer">
-    Dokumen ini dibuat secara otomatis oleh sistem Portal Admin Mall. Harap simpan sebagai bukti pembayaran.
+    ${footerNote}
+    <div>Dokumen ini dibuat secara otomatis oleh sistem ${cfg.mallName}. Harap simpan sebagai bukti pembayaran.</div>
   </div>
 </body>
 </html>`;
@@ -1298,7 +1363,7 @@ export default function TenantInvoices() {
                               <MessageCircle className="h-3.5 w-3.5" />
                             </Button>
                           )}
-                          <Button size="sm" variant="ghost" className="h-7 w-7 p-0" title="Print" onClick={() => printInvoice(inv)}>
+                          <Button size="sm" variant="ghost" className="h-7 w-7 p-0" title="Print" onClick={() => { void printInvoice(inv); }}>
                             <Printer className="h-3.5 w-3.5" />
                           </Button>
                           {inv.status !== "paid" && inv.status !== "cancelled" && (
@@ -1680,7 +1745,7 @@ export default function TenantInvoices() {
             </ScrollArea>
           ) : null}
           <DialogFooter className="flex-wrap gap-2">
-            <Button variant="outline" onClick={() => { if (detailData) printInvoice(detailData); }} className="gap-2">
+            <Button variant="outline" onClick={() => { if (detailData) void printInvoice(detailData); }} className="gap-2">
               <Printer className="h-4 w-4" />
               Print Invoice
             </Button>

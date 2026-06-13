@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -7,11 +7,13 @@ import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
+import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import {
   Settings, Building2, FileText, DollarSign, Save, RefreshCw,
   MessageSquare, CheckCircle2, XCircle, Wifi, WifiOff, Send,
   AlertCircle, Loader2, ExternalLink, Smartphone, Info, Link,
+  Upload, Palette, Eye, ImageIcon, X,
 } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 
@@ -31,6 +33,9 @@ interface MallConfig {
   waSenderPhone: string;
   waSenderLabel: string;
   paymentDomain: string;
+  invoiceColor: string;
+  invoiceFooterNote: string;
+  invoiceSignerName: string;
 }
 
 interface FonnteDevice {
