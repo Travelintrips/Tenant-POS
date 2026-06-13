@@ -162,7 +162,7 @@ export async function sendPaymentConfirmation(params: PaymentConfirmParams): Pro
     `• No. Invoice : *${params.invoiceNumber}*\n` +
     `• Jumlah         : *${formatRupiah(params.amountPaid)}*\n` +
     `• Metode         : ${methodLabel[params.paymentMethod] ?? params.paymentMethod}\n\n` +
-    `Terima kasih atas pembayaran Anda yang tepat waktu. 🙏\n\n` +
+    `Terima kasih atas pembayaran Anda yang tepat waktu. 🙏\n` +
     `_Manajemen CST_`;
 
   return sendMessage(params.phone, message);
@@ -204,7 +204,7 @@ export async function sendPaymentReceived(params: PaymentReceivedParams): Promis
     `• No. Invoice : *${params.invoiceNumber}*\n` +
     `• Jumlah         : *${formatRupiah(params.amount)}*\n\n` +
     `Pembayaran Anda sedang dalam proses verifikasi oleh tim kami. Anda akan mendapat konfirmasi setelah proses selesai.\n\n` +
-    `Terima kasih atas kesabaran Anda. 🙏\n\n` +
+    `Terima kasih atas kesabaran Anda. 🙏\n` +
     `_Manajemen CST_`;
 
   return sendMessage(params.phone, message);
@@ -222,7 +222,7 @@ export async function sendPaymentApproved(params: PaymentApprovedParams): Promis
     `• No. Invoice : *${params.invoiceNumber}*\n` +
     `• Jumlah         : *${formatRupiah(params.amount)}*\n\n` +
     `Simpan pesan ini sebagai bukti konfirmasi pembayaran Anda.\n\n` +
-    `Terima kasih atas kepercayaan Anda. 🙏\n\n` +
+    `Terima kasih atas kepercayaan Anda. 🙏\n` +
     `_Manajemen CST_`;
 
   return sendMessage(params.phone, message);
@@ -240,7 +240,7 @@ export async function sendPaymentRejected(params: PaymentRejectedParams): Promis
     `• No. Invoice : *${params.invoiceNumber}*\n` +
     `• Alasan         : ${params.rejectionReason}\n\n` +
     `Mohon upload ulang bukti pembayaran yang valid melalui link yang telah dikirimkan sebelumnya, atau hubungi kami untuk informasi lebih lanjut.\n\n` +
-    `Terima kasih. 🙏\n\n` +
+    `Terima kasih. 🙏\n` +
     `_Manajemen CST_`;
 
   return sendMessage(params.phone, message);
@@ -317,7 +317,7 @@ export async function sendReconciliationReminder(params: ReconciliationReminderP
     `1️⃣ Lakukan pembayaran jika belum dilakukan, atau\n` +
     `2️⃣ Kirimkan bukti transfer jika sudah membayar\n\n` +
     `Hubungi kami jika ada pertanyaan atau kendala pembayaran.\n\n` +
-    `Terima kasih. 🙏\n\n` +
+    `Terima kasih. 🙏\n` +
     `_Manajemen CST_`;
 
   return sendMessage(params.phone, message);
@@ -338,7 +338,7 @@ export async function sendOverdueReminder(params: OverdueReminderParams): Promis
     `• Keterlambatan     : *${params.daysOverdue} hari*\n\n` +
     `Mohon segera lakukan pembayaran untuk menghindari sanksi keterlambatan lebih lanjut.\n\n` +
     `Hubungi kami jika ada pertanyaan atau kendala.\n\n` +
-    `Terima kasih. 🙏\n\n` +
+    `Terima kasih. 🙏\n` +
     `_Manajemen CST_`;
 
   return sendMessage(params.phone, message);

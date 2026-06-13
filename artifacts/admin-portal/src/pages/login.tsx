@@ -151,7 +151,7 @@ export default function Login() {
           </div>
           <CardTitle className="text-2xl font-bold">Portal Admin</CardTitle>
           <CardDescription className="text-sm">
-            Manajemen Tenant Mall
+            Manajemen CST
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-3 pt-4">
