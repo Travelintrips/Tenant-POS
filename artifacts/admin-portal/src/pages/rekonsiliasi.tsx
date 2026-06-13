@@ -37,6 +37,7 @@ import {
   Send,
   XCircle,
   SkipForward,
+  FileText,
 } from "lucide-react";
 
 const MONTH_NAMES = [
