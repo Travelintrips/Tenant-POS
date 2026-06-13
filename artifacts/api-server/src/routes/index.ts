@@ -41,6 +41,10 @@ router.use(requireAuth);
 
 router.use("/tenant-portal", tenantPortalRouter);
 
+// Bank reconciliation diakses sebelum requireNonTenantUser agar tenant_user
+// bisa akses data rekonsiliasi mereka sendiri (API sudah scope via appContextMiddleware)
+router.use(bankReconciliationRouter);
+
 router.use(requireNonTenantUser);
 
 router.use(siteContext);
@@ -61,6 +65,5 @@ router.use(pendingPaymentsRouter);
 router.use(dashboardRouter);
 router.use(settingsRouter);
 router.use(reconciliationRouter);
-router.use(bankReconciliationRouter);
 
 export default router;
