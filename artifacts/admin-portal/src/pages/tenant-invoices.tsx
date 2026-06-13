@@ -248,6 +248,114 @@ function exportInvoicesToCSV(rows: ExportableInvoice[], filename: string) {
   URL.revokeObjectURL(url);
 }
 
+// ─── PDF Export ───────────────────────────────────────────────────────────────
+
+const STATUS_ID_PDF: Record<string, string> = {
+  draft: "Draft", unpaid: "Belum Bayar", partial: "Sebagian",
+  paid: "Lunas", overdue: "Jatuh Tempo", cancelled: "Dibatalkan",
+  sent: "Terkirim",
+};
+
+function fmtRp(v: string | number | null | undefined): string {
+  const n = Number(v ?? 0);
+  if (isNaN(n)) return "0";
+  return n.toLocaleString("id-ID");
+}
+
+async function exportInvoicesToPDF(rows: ExportableInvoice[], filename: string, filterLabel?: string) {
+  const { default: jsPDF } = await import("jspdf");
+  const { default: autoTable } = await import("jspdf-autotable");
+
+  const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
+
+  const now = new Date();
+  const tgl = now.toLocaleDateString("id-ID", { day: "2-digit", month: "long", year: "numeric" });
+  const jam = now.toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" });
+
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(14);
+  doc.text("LAPORAN INVOICE TENANT", 148, 14, { align: "center" });
+
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(9);
+  doc.text("Manajemen CST", 148, 20, { align: "center" });
+  if (filterLabel) doc.text(`Filter: ${filterLabel}`, 148, 25, { align: "center" });
+  doc.text(`Dicetak: ${tgl}, ${jam}  |  Total: ${rows.length} invoice`, 148, filterLabel ? 30 : 25, { align: "center" });
+
+  const tableTop = filterLabel ? 34 : 30;
+
+  const tableRows = rows.map((r, i) => [
+    i + 1,
+    r.invoiceNumber,
+    r.tenantName ?? "-",
+    r.periodStart ? new Date(r.periodStart).toLocaleDateString("id-ID", { month: "short", year: "numeric" }) : "-",
+    r.dueDate ? new Date(r.dueDate).toLocaleDateString("id-ID") : "-",
+    fmtRp(r.totalAmount),
+    fmtRp(r.paidAmount),
+    fmtRp(r.outstandingAmount),
+    STATUS_ID_PDF[r.status] ?? r.status,
+  ]);
+
+  autoTable(doc, {
+    startY: tableTop,
+    head: [[
+      "#", "No. Invoice", "Tenant", "Periode", "Jatuh Tempo",
+      "Total (Rp)", "Terbayar (Rp)", "Sisa (Rp)", "Status",
+    ]],
+    body: tableRows,
+    styles: { fontSize: 7.5, cellPadding: 2 },
+    headStyles: { fillColor: [30, 64, 175], textColor: 255, fontStyle: "bold", fontSize: 8 },
+    columnStyles: {
+      0: { halign: "center", cellWidth: 8 },
+      1: { cellWidth: 38 },
+      2: { cellWidth: 40 },
+      3: { cellWidth: 22, halign: "center" },
+      4: { cellWidth: 22, halign: "center" },
+      5: { cellWidth: 28, halign: "right" },
+      6: { cellWidth: 28, halign: "right" },
+      7: { cellWidth: 28, halign: "right" },
+      8: { cellWidth: 20, halign: "center" },
+    },
+    alternateRowStyles: { fillColor: [245, 247, 255] },
+    didDrawCell: (data) => {
+      if (data.column.index === 8 && data.cell.section === "body") {
+        const val = String(data.cell.raw ?? "");
+        const colors: Record<string, [number, number, number]> = {
+          "Lunas":        [22, 163, 74],
+          "Sebagian":     [234, 179, 8],
+          "Jatuh Tempo":  [220, 38, 38],
+          "Belum Bayar":  [249, 115, 22],
+          "Dibatalkan":   [107, 114, 128],
+          "Draft":        [100, 116, 139],
+          "Terkirim":     [59, 130, 246],
+        };
+        const c = colors[val];
+        if (c) {
+          doc.setFontSize(6.5);
+          doc.setTextColor(255, 255, 255);
+          const x = data.cell.x + 1;
+          const y = data.cell.y + 1;
+          const w = data.cell.width - 2;
+          const h = data.cell.height - 2;
+          doc.setFillColor(...c);
+          doc.roundedRect(x, y, w, h, 1, 1, "F");
+          doc.text(val, x + w / 2, y + h / 2 + 0.5, { align: "center", baseline: "middle" });
+        }
+      }
+    },
+    didDrawPage: (data) => {
+      const pgCount: number = (doc as unknown as { internal: { getNumberOfPages: () => number } }).internal.getNumberOfPages();
+      const pgN: number = data.pageNumber;
+      doc.setFontSize(7);
+      doc.setTextColor(150);
+      doc.text(`Halaman ${pgN} dari ${pgCount}`, doc.internal.pageSize.getWidth() - 10, doc.internal.pageSize.getHeight() - 5, { align: "right" });
+      doc.text("Manajemen CST — Laporan Invoice Tenant", 10, doc.internal.pageSize.getHeight() - 5);
+    },
+  });
+
+  doc.save(filename);
+}
+
 function todayStr(): string {
   return new Date().toISOString().slice(0, 10);
 }
@@ -484,7 +592,8 @@ export default function TenantInvoices() {
 
   const [cancelTarget, setCancelTarget] = useState<Invoice | null>(null);
   const [sendingLinkId, setSendingLinkId] = useState<number | null>(null);
-  const [paymentLinkDialog, setPaymentLinkDialog] = useState<{ link: string; error: string } | null>(null);
+  const [copyingLinkId, setCopyingLinkId] = useState<number | null>(null);
+  const [paymentLinkDialog, setPaymentLinkDialog] = useState<{ link: string; error?: string; mode: "manual" | "wa-failed" } | null>(null);
   const [linkCopied, setLinkCopied] = useState(false);
 
   // ─── Bulk invoice state ──────────────────────────────────────────────────────
@@ -635,14 +744,14 @@ export default function TenantInvoices() {
       if (res.skipped) {
         if (res.paymentLink) {
           setLinkCopied(false);
-          setPaymentLinkDialog({ link: res.paymentLink, error: "WhatsApp belum dikonfigurasi (FONNTE_TOKEN kosong)." });
+          setPaymentLinkDialog({ link: res.paymentLink, error: "WhatsApp belum dikonfigurasi (FONNTE_TOKEN kosong).", mode: "wa-failed" });
         } else {
           toast({ title: "WA Tidak Terkirim", description: "FONNTE_TOKEN belum dikonfigurasi.", variant: "destructive" });
         }
       } else if (res.waFailed) {
         if (res.paymentLink) {
           setLinkCopied(false);
-          setPaymentLinkDialog({ link: res.paymentLink, error: res.error ?? "Gagal kirim WA" });
+          setPaymentLinkDialog({ link: res.paymentLink, error: res.error ?? "Gagal kirim WA", mode: "wa-failed" });
         } else {
           toast({ title: "Gagal Kirim WA", description: res.error, variant: "destructive" });
         }
@@ -651,6 +760,20 @@ export default function TenantInvoices() {
       }
     },
     onError: (e: Error) => toast({ title: "Gagal Kirim Link", description: e.message, variant: "destructive" }),
+  });
+
+  const copyLinkMutation = useMutation({
+    mutationFn: async (id: number) => {
+      const res = await apiFetch<{ link: string; invoiceNumber: string; error?: string }>(`${BASE}/api/tenant-invoices/${id}/payment-link`);
+      return res;
+    },
+    onMutate: (id) => setCopyingLinkId(id),
+    onSettled: () => setCopyingLinkId(null),
+    onSuccess: (res) => {
+      setLinkCopied(false);
+      setPaymentLinkDialog({ link: res.link, mode: "manual" });
+    },
+    onError: (e: Error) => toast({ title: "Gagal Ambil Link", description: e.message, variant: "destructive" }),
   });
 
   const waBlastMutation = useMutation({
@@ -942,6 +1065,28 @@ export default function TenantInvoices() {
             <Download className="h-4 w-4" />
             Ekspor CSV ({filteredInvoices.length})
           </Button>
+          <Button
+            variant="outline"
+            className="gap-2 border-red-300 text-red-700 hover:bg-red-50"
+            disabled={filteredInvoices.length === 0}
+            onClick={() => {
+              const now = new Date();
+              const stamp = `${now.getFullYear()}${String(now.getMonth()+1).padStart(2,"0")}${String(now.getDate()).padStart(2,"0")}`;
+              const STATUS_LABEL: Record<string, string> = {
+                all: "", draft: "Draft", unpaid: "Belum Bayar", partial: "Sebagian",
+                paid: "Lunas", overdue: "Jatuh Tempo", cancelled: "Dibatalkan", sent: "Terkirim",
+              };
+              const parts: string[] = [];
+              if (filterStatus !== "all") parts.push(`Status: ${STATUS_LABEL[filterStatus] ?? filterStatus}`);
+              if (search) parts.push(`Cari: "${search}"`);
+              const filterLabel = parts.length ? parts.join("  •  ") : undefined;
+              void exportInvoicesToPDF(filteredInvoices, `laporan-invoice-${stamp}.pdf`, filterLabel);
+            }}
+            title={filteredInvoices.length === 0 ? "Tidak ada data untuk diekspor" : `Ekspor ${filteredInvoices.length} invoice ke PDF`}
+          >
+            <FileText className="h-4 w-4" />
+            Ekspor PDF ({filteredInvoices.length})
+          </Button>
           <Button variant="outline" onClick={() => { setGenerateForm({ bookingId: "", notes: "" }); setGenerateOpen(true); }} className="gap-2">
             <Zap className="h-4 w-4" />
             Generate dari Booking
@@ -1124,6 +1269,22 @@ export default function TenantInvoices() {
                                 : <Link2 className="h-3 w-3" />
                               }
                               Kirim Link
+                            </Button>
+                          )}
+                          {inv.status !== "paid" && inv.status !== "cancelled" && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-7 px-2 text-xs gap-1 text-blue-700 border-blue-200 hover:bg-blue-50 hover:text-blue-800"
+                              title="Pratinjau & salin link bayar untuk dikirim manual"
+                              disabled={copyingLinkId === inv.id}
+                              onClick={() => copyLinkMutation.mutate(inv.id)}
+                            >
+                              {copyingLinkId === inv.id
+                                ? <Loader2 className="h-3 w-3 animate-spin" />
+                                : <Copy className="h-3 w-3" />
+                              }
+                              Salin Link
                             </Button>
                           )}
                           {inv.status === "overdue" && inv.phone && (
@@ -1569,30 +1730,53 @@ export default function TenantInvoices() {
         </DialogContent>
       </Dialog>
 
-      {/* ─── Dialog: Fallback Link Bayar (WA gagal) ───────────────────────────── */}
+      {/* ─── Dialog: Pratinjau & Salin Link Bayar ──────────────────────────────── */}
       <Dialog open={!!paymentLinkDialog} onOpenChange={(o) => { if (!o) { setPaymentLinkDialog(null); setLinkCopied(false); } }}>
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <WifiOff className="h-5 w-5 text-orange-500" />
-              WhatsApp Tidak Terhubung
+              {paymentLinkDialog?.mode === "wa-failed"
+                ? <><WifiOff className="h-5 w-5 text-orange-500" />WhatsApp Tidak Terhubung</>
+                : <><Link2 className="h-5 w-5 text-blue-500" />Link Pembayaran Tenant</>
+              }
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
-            <div className="rounded-md border border-orange-200 bg-orange-50 px-4 py-3 text-sm text-orange-800">
-              <p className="font-medium mb-1">Pengiriman WA gagal</p>
-              <p className="text-orange-700">{paymentLinkDialog?.error}</p>
-            </div>
+            {paymentLinkDialog?.mode === "wa-failed" && paymentLinkDialog.error && (
+              <div className="rounded-md border border-orange-200 bg-orange-50 px-4 py-3 text-sm text-orange-800">
+                <p className="font-medium mb-1">Pengiriman WA gagal</p>
+                <p className="text-orange-700">{paymentLinkDialog.error}</p>
+              </div>
+            )}
             <div>
               <p className="text-sm text-muted-foreground mb-2">
-                Anda bisa kirim link bayar ini secara manual ke tenant (copy lalu kirim via WA, SMS, atau email):
+                {paymentLinkDialog?.mode === "wa-failed"
+                  ? "Kirim link ini secara manual ke tenant (copy lalu kirim via WA, SMS, atau email):"
+                  : "Salin link berikut dan kirimkan ke tenant melalui WA, SMS, atau media lain:"
+                }
               </p>
-              <div className="flex items-center gap-2 rounded-md border bg-muted/40 px-3 py-2">
+              <div
+                className="flex items-center gap-2 rounded-md border bg-muted/40 px-3 py-2 cursor-pointer hover:bg-muted/60 transition-colors group"
+                title="Klik untuk menyalin"
+                onClick={() => {
+                  if (paymentLinkDialog?.link) {
+                    void navigator.clipboard.writeText(paymentLinkDialog.link);
+                    setLinkCopied(true);
+                    setTimeout(() => setLinkCopied(false), 3000);
+                  }
+                }}
+              >
                 <Link2 className="h-4 w-4 text-muted-foreground shrink-0" />
                 <span className="flex-1 text-xs font-mono break-all select-all">
                   {paymentLinkDialog?.link}
                 </span>
+                <Copy className="h-3.5 w-3.5 text-muted-foreground shrink-0 opacity-0 group-hover:opacity-100 transition-opacity" />
               </div>
+              {linkCopied && (
+                <p className="text-xs text-green-600 mt-1.5 flex items-center gap-1">
+                  <CheckCheck className="h-3.5 w-3.5" />Link berhasil disalin ke clipboard!
+                </p>
+              )}
             </div>
           </div>
           <DialogFooter className="gap-2">

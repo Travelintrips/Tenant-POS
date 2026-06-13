@@ -1,6 +1,6 @@
 import { apiFetch } from "@/lib/api";
 import { useSite, ALL_SITES_SENTINEL } from "@/contexts/site-context";
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Building2, Receipt, X, CheckCircle2, AlertCircle, CircleDashed,
@@ -9,7 +9,7 @@ import {
   MoreHorizontal, History, Filter, Search, RotateCcw, ChevronDown,
   ChevronRight, MapPin, Wrench, Package, RefreshCw, Info, FileText,
   Layers, LogIn, LogOut, Ban, ShieldAlert, DollarSign, Dumbbell,
-  Plus, UserPlus,
+  Plus, UserPlus, Camera, ImagePlus, Trash2,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -58,6 +58,8 @@ type FloorPlanItem = {
   dueDate: string | null;
   periodLabel: string | null;
   openInvoiceCount: number;
+  logoUrl: string | null;
+  tenantStatus: string | null;
 };
 
 type Overview = {
@@ -221,7 +223,10 @@ function formatTanggalID(dateStr: string | null): string {
   return d.toLocaleDateString("id-ID", { day: "numeric", month: "long", year: "numeric" });
 }
 function resolveStatus(item: FloorPlanItem): PaymentStatus | "VACANT" {
-  if (!item.bookingId) return "VACANT";
+  if (!item.bookingId) {
+    const isActive = item.tenantStatus === "aktif" || item.tenantStatus === "active";
+    return isActive ? "UNPAID" : "VACANT";
+  }
   const upper = (item.paymentStatus ?? "UNPAID").toUpperCase() as PaymentStatus;
   return statusConfig[upper] ? upper : "UNPAID";
 }
@@ -950,11 +955,13 @@ function BoothCard({ item, selected, onClick }: { item: FloorPlanItem; selected:
   const status = resolveStatus(item);
   const cfg = statusConfig[status];
   const isVacant = status === "VACANT";
+  const [imgError, setImgError] = useState(false);
+
   return (
     <button
       onClick={onClick}
       className={cn(
-        "relative rounded-2xl border-2 p-3.5 text-left transition-all duration-200 cursor-pointer select-none w-full min-h-[110px] flex flex-col group",
+        "relative rounded-2xl border-2 text-left transition-all duration-200 cursor-pointer select-none w-full flex flex-col group overflow-hidden",
         cfg.box,
         selected
           ? "ring-2 ring-offset-2 ring-primary shadow-lg scale-[1.02] z-10"
@@ -962,41 +969,66 @@ function BoothCard({ item, selected, onClick }: { item: FloorPlanItem; selected:
       )}
     >
       {/* Status stripe top */}
-      <div className={cn("absolute top-0 left-0 right-0 h-0.5 rounded-t-2xl opacity-70",
+      <div className={cn("absolute top-0 left-0 right-0 h-0.5 z-10",
         status === "PAID" ? "bg-emerald-400" :
         status === "OVERDUE" ? "bg-red-400" :
         status === "PARTIAL" ? "bg-blue-400" :
-        status === "UNPAID" ? "bg-amber-400" : "bg-slate-200"
+        status === "UNPAID" ? "bg-amber-400" : "bg-slate-300"
       )} />
 
-      <div className="flex items-start justify-between gap-1 mb-2">
-        <span className="text-[11px] font-black text-slate-500 uppercase tracking-widest leading-none">{item.boothNumber}</span>
-        <span className={cn("inline-flex items-center gap-0.5 text-[10px] px-2 py-0.5 rounded-full border font-semibold shrink-0", cfg.badge)}>
+      {/* Foto Tenant */}
+      <div className="w-full h-[88px] bg-slate-100 overflow-hidden shrink-0 relative">
+        {item.logoUrl && !imgError ? (
+          <img
+            src={item.logoUrl}
+            alt={item.businessName}
+            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+            onError={() => setImgError(true)}
+          />
+        ) : (
+          <div className={cn(
+            "w-full h-full flex flex-col items-center justify-center gap-1",
+            isVacant ? "text-slate-300" : "text-slate-300"
+          )}>
+            <Building2 className="w-7 h-7" />
+            <span className="text-[9px] font-medium tracking-wide text-slate-300">Belum ada foto</span>
+          </div>
+        )}
+        {/* Status badge overlay */}
+        <span className={cn(
+          "absolute bottom-1.5 right-1.5 inline-flex items-center gap-0.5 text-[9px] px-1.5 py-0.5 rounded-full border font-semibold shadow-sm",
+          cfg.badge
+        )}>
           {cfg.icon}{cfg.label}
         </span>
       </div>
 
-      <p className={cn("text-[13px] font-bold leading-tight truncate flex-1", isVacant ? "text-slate-300 italic" : "text-slate-800")}>
-        {isVacant ? "Kosong" : item.businessName}
-      </p>
+      {/* Info section */}
+      <div className="p-2.5 flex flex-col gap-0.5">
+        {/* No. Tenant */}
+        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none">
+          No. {item.boothNumber}
+        </p>
 
-      {!isVacant && item.bookingId && (
-        <div className="mt-2 pt-2 border-t border-current/10 space-y-0.5">
-          {item.periodLabel && (
-            <p className="text-[10px] text-slate-400 truncate font-medium">{item.periodLabel}</p>
-          )}
-          <p className={cn("text-[12px] font-bold",
-            status === "PAID" ? "text-emerald-600" :
-            status === "OVERDUE" ? "text-red-600" :
-            status === "PARTIAL" ? "text-blue-600" : "text-amber-600"
-          )}>
-            {status === "PAID" ? "✓ Lunas" : `Sisa ${formatRupiah(item.remainingAmount)}`}
-          </p>
-          {item.openInvoiceCount > 0 && (
-            <p className="text-[10px] text-blue-500 font-semibold">{item.openInvoiceCount} invoice terbuka</p>
-          )}
-        </div>
-      )}
+        {/* Nama bisnis */}
+        <p className={cn("text-[12px] font-bold leading-tight truncate", isVacant ? "text-slate-300 italic" : "text-slate-800")}>
+          {isVacant ? "Kosong" : item.businessName}
+        </p>
+
+        {/* Harga Sewa */}
+        {!isVacant && item.totalAmount > 0 && (
+          <div className="mt-1 pt-1.5 border-t border-slate-200/60">
+            <p className="text-[9px] text-slate-400 font-medium uppercase tracking-wide">Harga Sewa</p>
+            <p className={cn("text-[11px] font-bold",
+              status === "PAID" ? "text-emerald-600" :
+              status === "OVERDUE" ? "text-red-600" :
+              status === "PARTIAL" ? "text-blue-600" : "text-amber-600"
+            )}>
+              {formatRupiah(item.totalAmount)}
+            </p>
+          </div>
+        )}
+      </div>
     </button>
   );
 }
@@ -1112,13 +1144,51 @@ function DetailPanel({ item, onClose, onProses, onBayarInvoice, currentShiftId }
 }) {
   const user = useAuth().data;
   const canVoidRefund = !!user && ["owner", "admin", "finance"].includes(user.role);
+  const canEditLogo = !!user && ["owner", "admin"].includes(user.role);
   const paymentHistory = usePaymentHistory(item?.bookingId ?? null);
   const tenantInvoices = useTenantInvoices(item?.tenantId ?? null);
   const [receiptPaymentId, setReceiptPaymentId] = useState<number | null>(null);
   const [voidTarget, setVoidTarget] = useState<PaymentHistoryItem | null>(null);
   const [refundTarget, setRefundTarget] = useState<PaymentHistoryItem | null>(null);
   const [activeTab, setActiveTab] = useState<"info" | "tagihan" | "riwayat">("info");
+  const [imgError, setImgError] = useState(false);
   const queryClient = useQueryClient();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const { toast } = useToast();
+
+  React.useEffect(() => { setImgError(false); }, [item?.tenantId]);
+
+  const uploadLogoMutation = useMutation({
+    mutationFn: async (file: File) => {
+      const formData = new FormData();
+      formData.append("file", file);
+      const uploadRes = await apiFetch(`${BASE}/api/uploads/tenant-logo`, {
+        method: "POST",
+        credentials: "include",
+        body: formData,
+      });
+      if (!uploadRes.ok) {
+        const err = await uploadRes.json().catch(() => ({})) as { error?: string };
+        throw new Error(err.error ?? "Upload gagal");
+      }
+      const { url } = await uploadRes.json() as { url: string };
+      const patchRes = await apiFetch(`${BASE}/api/tenants/${item!.tenantId}/logo`, {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ logoUrl: url }),
+      });
+      if (!patchRes.ok) throw new Error("Gagal menyimpan foto");
+      return url;
+    },
+    onSuccess: () => {
+      toast({ title: "Foto berhasil diperbarui", description: "Foto tenant akan tampil sebagai background kartu." });
+      void queryClient.invalidateQueries({ queryKey: ["tenant-pos-floor-plan"] });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Gagal upload foto", description: err.message, variant: "destructive" });
+    },
+  });
 
   if (!item) {
     return (
@@ -1203,6 +1273,59 @@ function DetailPanel({ item, onClose, onProses, onBayarInvoice, currentShiftId }
           </div>
         ) : activeTab === "info" ? (
           <div className="p-4 space-y-4">
+            {/* ── Foto Tenant ── */}
+            {canEditLogo && (
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">Foto / Logo Tenant</p>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp"
+                  className="hidden"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) uploadLogoMutation.mutate(file);
+                    e.target.value = "";
+                  }}
+                />
+                {item.logoUrl && !imgError ? (
+                  <div className="relative rounded-xl overflow-hidden border border-slate-200 bg-slate-50 h-28">
+                    <img src={item.logoUrl} alt="Foto tenant" className="w-full h-full object-cover" onError={() => setImgError(true)} />
+                    <div className="absolute inset-0 flex items-end justify-end p-2 gap-1.5 bg-gradient-to-t from-black/30 to-transparent">
+                      <button
+                        onClick={() => fileInputRef.current?.click()}
+                        disabled={uploadLogoMutation.isPending}
+                        className="flex items-center gap-1 text-[10px] bg-white/90 hover:bg-white text-slate-700 rounded-md px-2 py-1 font-medium shadow transition-colors"
+                      >
+                        <Camera className="w-3 h-3" />Ganti
+                      </button>
+                    </div>
+                    {uploadLogoMutation.isPending && (
+                      <div className="absolute inset-0 flex items-center justify-center bg-white/70">
+                        <RefreshCw className="w-5 h-5 text-primary animate-spin" />
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={uploadLogoMutation.isPending}
+                    className="w-full h-20 border-2 border-dashed border-slate-300 rounded-xl flex flex-col items-center justify-center gap-1.5 hover:border-primary hover:bg-primary/5 transition-colors text-slate-400 hover:text-primary"
+                  >
+                    {uploadLogoMutation.isPending ? (
+                      <RefreshCw className="w-5 h-5 animate-spin" />
+                    ) : (
+                      <>
+                        <ImagePlus className="w-5 h-5" />
+                        <span className="text-[11px] font-medium">Upload foto tenant</span>
+                        <span className="text-[10px]">JPG, PNG, WEBP · maks 5MB</span>
+                      </>
+                    )}
+                  </button>
+                )}
+              </div>
+            )}
+
             <div>
               <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">Info Bisnis &amp; Penyewa</p>
               <div className="bg-muted/30 rounded-lg px-3 divide-y divide-border/60">

@@ -15,6 +15,7 @@ import {
   SidebarTrigger
 } from "@/components/ui/sidebar";
 import { Building2, Store, CalendarRange, Calculator, BarChart3, LogOut, FileText, Shield, ChevronDown, GitCompare, Dumbbell, MapPin, Check, Layers, ClipboardCheck, LayoutGrid, Users, Bell, AlertTriangle, Clock, LayoutDashboard, Settings, MessageCircle, BookTemplate, ClipboardList } from "lucide-react";
+import { Building2, Store, CalendarRange, Calculator, BarChart3, LogOut, FileText, Shield, ChevronDown, GitCompare, Dumbbell, MapPin, Check, Layers, ClipboardCheck, LayoutGrid, Users, Bell, AlertTriangle, Clock, LayoutDashboard, Settings, MessageCircle, BookTemplate, FileSpreadsheet, Landmark } from "lucide-react";
 import { Separator } from "@/components/ui/separator";
 import { useAuth, useLogout, ROLE_LABELS, type UserRole } from "@/hooks/use-auth";
 import { Button } from "@/components/ui/button";
@@ -349,6 +350,30 @@ export function SidebarLayout({ children }: { children: React.ReactNode }) {
                     <Link href="/laporan">
                       <BarChart3 className="mr-2 h-4 w-4" />
                       <span>Laporan Keuangan</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+                <SidebarMenuItem>
+                  <SidebarMenuButton
+                    asChild
+                    isActive={location === "/rekonsiliasi"}
+                    data-testid="nav-rekonsiliasi"
+                  >
+                    <Link href="/rekonsiliasi">
+                      <FileSpreadsheet className="mr-2 h-4 w-4" />
+                      <span>Rekonsiliasi</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+                <SidebarMenuItem>
+                  <SidebarMenuButton
+                    asChild
+                    isActive={location === "/bank-rekonsiliasi"}
+                    data-testid="nav-bank-rekonsiliasi"
+                  >
+                    <Link href="/bank-rekonsiliasi">
+                      <Landmark className="mr-2 h-4 w-4" />
+                      <span>Rekonsiliasi Bank</span>
                     </Link>
                   </SidebarMenuButton>
                 </SidebarMenuItem>

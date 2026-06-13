@@ -1,15 +1,16 @@
 import { Router, type Request, type Response, type IRouter } from "express";
 import multer from "multer";
 import path from "path";
-import fs from "fs";
 import crypto from "crypto";
 import { db } from "@workspace/db";
-import { tenantInvoicesTable, tenantPaymentsTable, tenantsTable, systemSettingsTable } from "@workspace/db/schema";
-import { eq, sql } from "drizzle-orm";
+import { tenantInvoicesTable, tenantPaymentsTable, tenantsTable, systemSettingsTable, waLogsTable } from "@workspace/db/schema";
+import { eq, sql, and, desc } from "drizzle-orm";
 import { z } from "zod/v4";
 import { sseBroker } from "../lib/sse-broker";
 import { sendPaymentReceived, sendAdminPaymentAlert } from "../lib/whatsapp";
 import { uploadRateLimiter } from "../middlewares/rate-limit";
+import { uploadToStorage } from "../lib/supabase-storage";
+import { getBaseUrl } from "../lib/app-url";
 
 /** Ambil nomor WA admin dari env (prioritas) atau settings DB */
 async function getAdminPhone(): Promise<string | null> {
@@ -26,22 +27,13 @@ async function getAdminPhone(): Promise<string | null> {
   }
 }
 
-/** Bangun URL review pembayaran berdasarkan domain yang dideteksi */
-function buildReviewLink(): string {
-  const domain =
-    process.env.REPLIT_DEV_DOMAIN ??
-    process.env.REPLIT_DOMAINS?.split(",")[0] ??
-    process.env.APP_URL;
-  return domain ? `https://${domain}/tinjau-pembayaran` : "/tinjau-pembayaran";
+/** Bangun URL review pembayaran — prioritas: DB → APP_URL → REPLIT_DEV_DOMAIN */
+async function buildReviewLink(): Promise<string> {
+  const base = await getBaseUrl();
+  return base ? `${base}/tinjau-pembayaran` : "/tinjau-pembayaran";
 }
 
 const router: IRouter = Router();
-
-const UPLOAD_DIR = path.join(process.cwd(), "uploads");
-
-function ensureDir(dir: string) {
-  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-}
 
 const PROOF_ALLOWED_MIME = new Set([
   "image/jpeg",
@@ -52,17 +44,7 @@ const PROOF_ALLOWED_MIME = new Set([
 ]);
 
 const uploadProof = multer({
-  storage: multer.diskStorage({
-    destination: (_req, _file, cb) => {
-      const dir = path.join(UPLOAD_DIR, "payment-proofs");
-      ensureDir(dir);
-      cb(null, dir);
-    },
-    filename: (_req, file, cb) => {
-      const ext = path.extname(file.originalname).toLowerCase();
-      cb(null, crypto.randomUUID() + ext);
-    },
-  }),
+  storage: multer.memoryStorage(),
   limits: { fileSize: 5 * 1024 * 1024 },
   fileFilter: (_req, file, cb) => {
     if (PROOF_ALLOWED_MIME.has(file.mimetype)) {
@@ -201,9 +183,12 @@ router.post("/pay/:token/proof", uploadRateLimiter, async (req, res) => {
       return;
     }
 
-    const proofUrl = req.file
-      ? `/uploads/payment-proofs/${req.file.filename}`
-      : null;
+    let proofUrl: string | null = null;
+    if (req.file) {
+      const ext = path.extname(req.file.originalname).toLowerCase() || ".jpg";
+      const filename = `${crypto.randomUUID()}${ext}`;
+      proofUrl = await uploadToStorage("payment-proofs", filename, req.file.buffer, req.file.mimetype);
+    }
 
     const datePart = new Date().toISOString().slice(0, 10).replace(/-/g, "");
     const prefix = `TENANT-PAY-${datePart}-`;
@@ -245,17 +230,31 @@ router.post("/pay/:token/proof", uploadRateLimiter, async (req, res) => {
     });
 
     if (invoice.phone) {
-      await sendPaymentReceived({
-        ownerName: invoice.ownerName ?? "Tenant",
-        businessName: invoice.businessName ?? "",
-        invoiceNumber: invoice.invoiceNumber,
-        amount,
-        phone: invoice.phone,
-      }).catch(() => {});
+      // Cooldown 1 jam per invoice — cegah spam saat tenant re-upload berkali-kali
+      const [recentWa] = await db
+        .select({ id: waLogsTable.id })
+        .from(waLogsTable)
+        .where(and(
+          eq(waLogsTable.invoiceId, invoice.id),
+          eq(waLogsTable.messageType, "payment_received"),
+          eq(waLogsTable.status, "sent"),
+          sql`${waLogsTable.createdAt} > NOW() - INTERVAL '1 hour'`,
+        ))
+        .limit(1);
+
+      if (!recentWa) {
+        await sendPaymentReceived({
+          ownerName: invoice.ownerName ?? "Tenant",
+          businessName: invoice.businessName ?? "",
+          invoiceNumber: invoice.invoiceNumber,
+          amount,
+          phone: invoice.phone,
+        }).catch(() => {});
+      }
     }
 
-    // Notifikasi admin via WA — fire-and-forget
-    getAdminPhone().then((adminPhone) => {
+    // Notifikasi admin via WA — fire-and-forget (selalu kirim agar admin tahu ada upload baru)
+    getAdminPhone().then(async (adminPhone) => {
       if (!adminPhone) return;
       sendAdminPaymentAlert({
         ownerName: invoice.ownerName ?? "Tenant",
@@ -266,7 +265,7 @@ router.post("/pay/:token/proof", uploadRateLimiter, async (req, res) => {
         referenceNumber: referenceNumber ?? null,
         paymentId: payment.id,
         adminPhone,
-        reviewLink: buildReviewLink(),
+        reviewLink: await buildReviewLink(),
       }).catch(() => {});
     }).catch(() => {});
 

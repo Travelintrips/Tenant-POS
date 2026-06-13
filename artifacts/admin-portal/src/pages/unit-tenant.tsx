@@ -60,6 +60,7 @@ interface MallUnit {
   areaKantin: string | null;
   unitType: string;
   sizeM2: string | null;
+  defaultRentAmount: string | null;
   storedStatus: string;
   status: string;
   positionX: number;
@@ -93,12 +94,26 @@ interface UnitFormData {
   areaKantin: string;
   unitType: string;
   sizeM2: string;
+  defaultRentAmount: string;
   status: string;
   positionX: string;
   positionY: string;
   width: string;
   height: string;
   notes: string;
+}
+
+// ─── Validation ───────────────────────────────────────────────────────────────
+
+const UNIT_CODE_REGEX = /^[A-Z0-9]+(-[A-Z0-9]+)*$/;
+
+function validateUnitCode(code: string): string | null {
+  if (!code.trim()) return "Kode unit wajib diisi";
+  if (code.length < 2) return "Kode unit minimal 2 karakter";
+  if (code.length > 30) return "Kode unit maksimal 30 karakter";
+  if (!UNIT_CODE_REGEX.test(code))
+    return "Hanya huruf kapital, angka, dan tanda hubung (-). Tidak boleh diawali/diakhiri tanda hubung atau tanda hubung berurutan.";
+  return null;
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -148,6 +163,7 @@ const DEFAULT_FORM: UnitFormData = {
   areaKantin: "",
   unitType: "other",
   sizeM2: "",
+  defaultRentAmount: "",
   status: "available",
   positionX: "0",
   positionY: "0",
@@ -366,6 +382,12 @@ function UnitDetailPanel({
               <dd className="text-xs font-medium">{unit.areaKantin ?? "—"}</dd>
               <dt className="text-xs text-muted-foreground">Luas</dt>
               <dd className="text-xs font-medium">{unit.sizeM2 ? `${unit.sizeM2} m²` : "—"}</dd>
+              <dt className="text-xs text-muted-foreground">Harga Sewa</dt>
+              <dd className="text-xs font-medium text-emerald-700">
+                {unit.defaultRentAmount && Number(unit.defaultRentAmount) > 0
+                  ? `Rp ${Number(unit.defaultRentAmount).toLocaleString("id-ID")}`
+                  : "—"}
+              </dd>
               <dt className="text-xs text-muted-foreground">Posisi</dt>
               <dd className="text-xs font-medium">({unit.positionX}, {unit.positionY}) {unit.width}×{unit.height}</dd>
               {unit.notes && (
@@ -458,6 +480,7 @@ function UnitFormDrawer({
   isSaving: boolean;
 }) {
   const [form, setForm] = useState<UnitFormData>(DEFAULT_FORM);
+  const [unitCodeTouched, setUnitCodeTouched] = useState(false);
 
   useEffect(() => {
     if (editingUnit) {
@@ -466,6 +489,7 @@ function UnitFormDrawer({
         areaKantin: editingUnit.areaKantin ?? "",
         unitType: editingUnit.unitType ?? "other",
         sizeM2: editingUnit.sizeM2 ?? "",
+        defaultRentAmount: editingUnit.defaultRentAmount ?? "",
         status: editingUnit.storedStatus ?? "available",
         positionX: String(editingUnit.positionX),
         positionY: String(editingUnit.positionY),
@@ -476,10 +500,14 @@ function UnitFormDrawer({
     } else {
       setForm(DEFAULT_FORM);
     }
+    setUnitCodeTouched(false);
   }, [editingUnit, open]);
 
   const set = (field: keyof UnitFormData, value: string) =>
     setForm(prev => ({ ...prev, [field]: value }));
+
+  const unitCodeError = unitCodeTouched ? validateUnitCode(form.unitCode) : null;
+  const isUnitCodeValid = validateUnitCode(form.unitCode) === null;
 
   return (
     <Sheet open={open} onOpenChange={v => { if (!v) onClose(); }}>
@@ -501,12 +529,23 @@ function UnitFormDrawer({
                 </Label>
                 <Input
                   id="unitCode"
-                  className="mt-1 h-9 text-sm"
+                  className={`mt-1 h-9 text-sm font-mono ${unitCodeError ? "border-red-500 focus-visible:ring-red-500" : ""}`}
                   value={form.unitCode}
-                  onChange={e => set("unitCode", e.target.value.toUpperCase())}
+                  onChange={e => {
+                    const val = e.target.value.toUpperCase().replace(/[^A-Z0-9-]/g, "");
+                    set("unitCode", val);
+                  }}
+                  onBlur={() => setUnitCodeTouched(true)}
                   placeholder="Contoh: SC-KTN-04"
                   disabled={!!editingUnit}
                 />
+                {unitCodeError ? (
+                  <p className="text-xs text-red-500 mt-1">{unitCodeError}</p>
+                ) : (
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Gunakan huruf kapital, angka, dan tanda hubung. Contoh: <span className="font-mono">TOD-ELMIRA-01</span>
+                  </p>
+                )}
               </div>
 
               <div className="col-span-2">
@@ -546,6 +585,21 @@ function UnitFormDrawer({
                   onChange={e => set("sizeM2", e.target.value)}
                   placeholder="0"
                 />
+              </div>
+
+              <div className="col-span-2">
+                <Label htmlFor="defaultRentAmount" className="text-xs">Harga Sewa (Rp)</Label>
+                <Input
+                  id="defaultRentAmount"
+                  type="number"
+                  className="mt-1 h-9 text-sm"
+                  value={form.defaultRentAmount}
+                  onChange={e => set("defaultRentAmount", e.target.value)}
+                  placeholder="Contoh: 3000000"
+                />
+                <p className="text-xs text-muted-foreground mt-1">
+                  Harga sewa default untuk unit ini (akan otomatis terisi saat tambah tenant).
+                </p>
               </div>
 
               <div className="col-span-2">
@@ -640,8 +694,12 @@ function UnitFormDrawer({
           </Button>
           <Button
             className="flex-1 h-9"
-            onClick={() => onSave(form)}
-            disabled={isSaving || !form.unitCode.trim()}
+            onClick={() => {
+              setUnitCodeTouched(true);
+              if (!editingUnit && !isUnitCodeValid) return;
+              onSave(form);
+            }}
+            disabled={isSaving || (!editingUnit && !isUnitCodeValid)}
           >
             {isSaving
               ? "Menyimpan..."
@@ -784,6 +842,7 @@ export default function UnitTenant() {
       areaKantin: formData.areaKantin.trim() || undefined,
       unitType: formData.unitType,
       sizeM2: formData.sizeM2 || undefined,
+      defaultRentAmount: formData.defaultRentAmount || "0",
       status: formData.status,
       positionX: parseInt(formData.positionX, 10) || 0,
       positionY: parseInt(formData.positionY, 10) || 0,
@@ -970,6 +1029,7 @@ export default function UnitTenant() {
                   <TableHead className="text-xs">Area</TableHead>
                   <TableHead className="text-xs">Jenis</TableHead>
                   <TableHead className="text-xs w-16">Luas</TableHead>
+                  <TableHead className="text-xs w-28">Harga Sewa</TableHead>
                   <TableHead className="text-xs w-24">Status</TableHead>
                   <TableHead className="text-xs">Tenant Aktif</TableHead>
                   <TableHead className="text-xs w-24">Status Bayar</TableHead>
@@ -982,7 +1042,7 @@ export default function UnitTenant() {
                 {filtered.length === 0 ? (
                   <TableRow>
                     <TableCell
-                      colSpan={canEdit ? 8 : 7}
+                      colSpan={canEdit ? 9 : 8}
                       className="text-center py-12 text-muted-foreground text-sm"
                     >
                       {units.length === 0
@@ -1010,6 +1070,11 @@ export default function UnitTenant() {
                       </TableCell>
                       <TableCell className="py-2.5 text-xs text-muted-foreground">
                         {u.sizeM2 ? `${u.sizeM2} m²` : "—"}
+                      </TableCell>
+                      <TableCell className="py-2.5 text-xs font-medium">
+                        {u.defaultRentAmount && Number(u.defaultRentAmount) > 0
+                          ? `Rp ${Number(u.defaultRentAmount).toLocaleString("id-ID")}`
+                          : <span className="text-muted-foreground">—</span>}
                       </TableCell>
                       <TableCell className="py-2.5">
                         <StatusBadge status={u.status} />

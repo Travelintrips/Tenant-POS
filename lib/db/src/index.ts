@@ -13,5 +13,5 @@ export const pool = new Pool({
 export const db = drizzle(pool, { schema });
 
 export * from "./schema";
-export { runMigrations } from "./migrator";
+export { runMigrations, runUsersIdTextMigration } from "./migrator";
 export { dbConfig } from "./config";

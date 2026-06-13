@@ -14,6 +14,9 @@ import { Checkbox } from "@/components/ui/checkbox";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
+import { cn } from "@/lib/utils";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from "@/components/ui/dialog";
@@ -24,7 +27,7 @@ import {
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, Pencil, Trash2, Search, Upload, X, ImageIcon, Building2, Dumbbell, Eye, CalendarClock, Download, Filter, Tag } from "lucide-react";
+import { Plus, Pencil, Trash2, Search, Upload, X, ImageIcon, Building2, Dumbbell, Eye, CalendarClock, Download, Filter, Tag, Check, ChevronsUpDown } from "lucide-react";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
@@ -115,8 +118,8 @@ type TenantForm = {
   defaultElectricityChargeAmount: string;
   defaultWaterChargeAmount: string;
   defaultOtherChargeAmount: string;
-  contractStartDate: string;
-  contractEndDate: string;
+  contractStartDate: string | null;
+  contractEndDate: string | null;
 };
 
 const EMPTY_FORM: TenantForm = {
@@ -183,6 +186,7 @@ type MallUnit = {
   status: string;
   tenantId: number | null;
   businessName: string | null;
+  defaultRentAmount: string | null;
 };
 
 async function fetchMallUnits(): Promise<MallUnit[]> {
@@ -271,6 +275,9 @@ export default function DataTenant() {
   const [logoPreview, setLogoPreview] = useState<string>("");
   const [isUploadingLogo, setIsUploadingLogo] = useState(false);
 
+  // ─── Unit combobox state ──────────────────────────────────────────────────────
+  const [unitComboOpen, setUnitComboOpen] = useState(false);
+
   // ─── Bulk selection state ────────────────────────────────────────────────────
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
@@ -286,15 +293,24 @@ export default function DataTenant() {
     enabled: dialogOpen,
   });
 
-  const availableUnits = mallUnits.filter((u) => u.status === "available");
-  const unitOptions = editTarget
-    ? [
-        ...(editTarget.boothNumber && !availableUnits.find((u) => u.unitCode === editTarget.boothNumber)
-          ? [{ unitCode: editTarget.boothNumber, areaKantin: editTarget.areaName, zone: null, floor: null, status: "occupied", tenantId: null, businessName: null, id: -1 }]
-          : []),
-        ...availableUnits,
-      ]
-    : availableUnits;
+  // Tampilkan SEMUA unit; jika edit, pastikan unit saat ini selalu ada
+  const unitOptions = (() => {
+    const allUnits = [...mallUnits];
+    if (editTarget?.boothNumber && !allUnits.find((u) => u.unitCode === editTarget.boothNumber)) {
+      allUnits.unshift({
+        id: -1,
+        unitCode: editTarget.boothNumber,
+        areaKantin: editTarget.areaName,
+        zone: null,
+        floor: null,
+        status: "occupied",
+        tenantId: null,
+        businessName: null,
+        defaultRentAmount: null,
+      });
+    }
+    return allUnits;
+  })();
 
   const createMutation = useMutation({
     mutationFn: createTenant,
@@ -420,7 +436,7 @@ export default function DataTenant() {
     }
 
     const toNum = (v: string) => (v === "" ? "0" : v);
-    const toDate = (v: string) => (v === "" ? null : v);
+    const toDate = (v: string | null) => (!v || v === "" ? null : v);
     const payload = {
       ...form,
       logoUrl: finalLogoUrl,
@@ -1010,44 +1026,89 @@ export default function DataTenant() {
                   />
                 </div>
                 <div className="flex flex-col gap-1.5">
-                  <Label htmlFor="boothNumber">No. Booth / Unit</Label>
-                  <Select
-                    value={form.boothNumber || "__none__"}
-                    onValueChange={(v) => {
-                      if (v === "__none__") {
-                        setForm(f => ({ ...f, boothNumber: "" }));
-                        return;
-                      }
-                      const unit = unitOptions.find((u) => u.unitCode === v);
-                      const area = unit?.areaKantin ?? unit?.zone ?? (unit?.floor ? `Lantai ${unit.floor}` : "");
-                      setForm(f => ({ ...f, boothNumber: v, areaName: area || f.areaName }));
-                    }}
-                  >
-                    <SelectTrigger id="boothNumber">
-                      <SelectValue placeholder="Pilih unit..." />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="__none__">— Tidak dipilih —</SelectItem>
-                      {unitOptions.length === 0 && (
-                        <div className="px-2 py-3 text-sm text-muted-foreground text-center">
-                          Semua unit sudah terisi
-                        </div>
-                      )}
-                      {unitOptions.map((u) => (
-                        <SelectItem key={u.unitCode} value={u.unitCode}>
-                          <span className="font-mono font-medium">{u.unitCode}</span>
-                          {(u.areaKantin ?? u.zone) && (
-                            <span className="text-muted-foreground ml-1.5 text-xs">
-                              — {u.areaKantin ?? u.zone}
-                            </span>
-                          )}
-                          {u.status === "occupied" && (
-                            <span className="text-orange-600 ml-1.5 text-xs">(saat ini)</span>
-                          )}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <Label>No. Booth / Unit</Label>
+                  <Popover open={unitComboOpen} onOpenChange={setUnitComboOpen}>
+                    <PopoverTrigger asChild>
+                      <Button
+                        variant="outline"
+                        role="combobox"
+                        aria-expanded={unitComboOpen}
+                        className="w-full justify-between font-normal"
+                      >
+                        {form.boothNumber
+                          ? (() => {
+                              const u = unitOptions.find(x => x.unitCode === form.boothNumber);
+                              return (
+                                <span className="flex items-center gap-1.5">
+                                  <span className="font-mono font-medium">{form.boothNumber}</span>
+                                  {(u?.areaKantin ?? u?.zone) && (
+                                    <span className="text-muted-foreground text-xs">— {u?.areaKantin ?? u?.zone}</span>
+                                  )}
+                                </span>
+                              );
+                            })()
+                          : <span className="text-muted-foreground">— Tidak dipilih —</span>
+                        }
+                        <ChevronsUpDown className="ml-auto h-4 w-4 shrink-0 opacity-50" />
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
+                      <Command>
+                        <CommandInput placeholder="Cari kode unit..." />
+                        <CommandList>
+                          <CommandEmpty>Unit tidak ditemukan.</CommandEmpty>
+                          <CommandGroup>
+                            <CommandItem
+                              value="__none__"
+                              onSelect={() => {
+                                setForm(f => ({ ...f, boothNumber: "" }));
+                                setUnitComboOpen(false);
+                              }}
+                            >
+                              <Check className={cn("mr-2 h-4 w-4", !form.boothNumber ? "opacity-100" : "opacity-0")} />
+                              <span className="text-muted-foreground">— Tidak dipilih —</span>
+                            </CommandItem>
+                            {unitOptions.map((u) => {
+                              const isAvailable = u.status === "available";
+                              const isCurrentUnit = editTarget?.boothNumber === u.unitCode;
+                              return (
+                                <CommandItem
+                                  key={u.unitCode}
+                                  value={`${u.unitCode} ${u.areaKantin ?? u.zone ?? ""}`}
+                                  disabled={!isAvailable && !isCurrentUnit}
+                                  onSelect={() => {
+                                    if (!isAvailable && !isCurrentUnit) return;
+                                    const area = u.areaKantin ?? u.zone ?? (u.floor ? `Lantai ${u.floor}` : "");
+                                    const rentAmount = u.defaultRentAmount && Number(u.defaultRentAmount) > 0
+                                      ? u.defaultRentAmount : undefined;
+                                    setForm(f => ({
+                                      ...f,
+                                      boothNumber: u.unitCode,
+                                      areaName: area || f.areaName,
+                                      ...(rentAmount !== undefined && { defaultRentAmount: rentAmount }),
+                                    }));
+                                    setUnitComboOpen(false);
+                                  }}
+                                  className={cn(!isAvailable && !isCurrentUnit && "opacity-50 cursor-not-allowed")}
+                                >
+                                  <Check className={cn("mr-2 h-4 w-4", form.boothNumber === u.unitCode ? "opacity-100" : "opacity-0")} />
+                                  <span className="font-mono font-medium">{u.unitCode}</span>
+                                  {(u.areaKantin ?? u.zone) && (
+                                    <span className="text-muted-foreground ml-1.5 text-xs">— {u.areaKantin ?? u.zone}</span>
+                                  )}
+                                  {!isAvailable && (
+                                    <span className={cn("ml-auto text-xs", isCurrentUnit ? "text-blue-600" : "text-orange-500")}>
+                                      {isCurrentUnit ? "unit ini" : "terisi"}
+                                    </span>
+                                  )}
+                                </CommandItem>
+                              );
+                            })}
+                          </CommandGroup>
+                        </CommandList>
+                      </Command>
+                    </PopoverContent>
+                  </Popover>
                 </div>
                 <div className="flex flex-col gap-1.5">
                   <Label htmlFor="areaName">Nama Area / Lantai</Label>
@@ -1182,8 +1243,8 @@ export default function DataTenant() {
                     <Input
                       id="contractStartDate"
                       type="date"
-                      value={form.contractStartDate}
-                      onChange={(e) => setForm(f => ({ ...f, contractStartDate: e.target.value }))}
+                      value={form.contractStartDate ?? ""}
+                      onChange={(e) => setForm(f => ({ ...f, contractStartDate: e.target.value || null }))}
                     />
                   </div>
                   <div className="flex flex-col gap-1.5">
@@ -1191,8 +1252,8 @@ export default function DataTenant() {
                     <Input
                       id="contractEndDate"
                       type="date"
-                      value={form.contractEndDate}
-                      onChange={(e) => setForm(f => ({ ...f, contractEndDate: e.target.value }))}
+                      value={form.contractEndDate ?? ""}
+                      onChange={(e) => setForm(f => ({ ...f, contractEndDate: e.target.value || null }))}
                     />
                   </div>
                 </div>

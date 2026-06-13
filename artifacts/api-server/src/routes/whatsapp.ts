@@ -1,8 +1,9 @@
 import { Router, type IRouter } from "express";
 import { db } from "@workspace/db";
 import { tenantInvoicesTable, tenantsTable, tenantBookingsTable, waLogsTable } from "@workspace/db/schema";
-import { eq, and, inArray, desc } from "drizzle-orm";
+import { eq, and, inArray, desc, sql } from "drizzle-orm";
 import { requireAnyRole, requireAuth } from "../middlewares/auth";
+import { getBaseUrl } from "../lib/app-url";
 import {
   sendInvoiceNotification,
   sendPaymentConfirmation,
@@ -33,6 +34,34 @@ async function logWa(params: {
   } catch {
     // jangan gagalkan request utama jika logging error
   }
+}
+
+/**
+ * Cek apakah WA jenis tertentu sudah dikirim baru-baru ini (anti-spam / cooldown).
+ * Mengembalikan { recent: true, sentAt } jika sudah, { recent: false } jika belum.
+ */
+async function hasSentRecently(params: {
+  invoiceId?: number | null;
+  siteId?: number | null;
+  messageType: string;
+  withinHours: number;
+}): Promise<{ recent: boolean; sentAt?: Date }> {
+  const conditions: ReturnType<typeof eq>[] = [
+    eq(waLogsTable.messageType, params.messageType),
+    eq(waLogsTable.status, "sent"),
+    sql`${waLogsTable.createdAt} > NOW() - (${params.withinHours} * INTERVAL '1 hour')`,
+  ];
+  if (params.invoiceId != null) conditions.push(eq(waLogsTable.invoiceId, params.invoiceId));
+  if (params.siteId != null) conditions.push(eq(waLogsTable.siteId, params.siteId));
+
+  const [row] = await db
+    .select({ sentAt: waLogsTable.createdAt })
+    .from(waLogsTable)
+    .where(and(...conditions))
+    .orderBy(desc(waLogsTable.createdAt))
+    .limit(1);
+
+  return row ? { recent: true, sentAt: row.sentAt as Date } : { recent: false };
 }
 
 const router: IRouter = Router();
@@ -70,6 +99,14 @@ router.post("/whatsapp/invoice/:id/send", async (req, res) => {
     if (!invoice) { res.status(404).json({ error: "Invoice tidak ditemukan" }); return; }
     if (!invoice.phone) { res.status(400).json({ error: "Nomor HP tenant tidak terdaftar" }); return; }
 
+    // Cooldown 6 jam — cegah kirim berulang untuk invoice yang sama
+    const cooldown = await hasSentRecently({ invoiceId: id, messageType: "invoice", withinHours: 6 });
+    if (cooldown.recent) {
+      const sentAt = cooldown.sentAt?.toLocaleString("id-ID", { timeZone: "Asia/Jakarta" }) ?? "-";
+      res.status(429).json({ ok: false, cooldown: true, error: `Notifikasi invoice ini sudah dikirim pada ${sentAt}. Tunggu 6 jam sebelum kirim ulang.` });
+      return;
+    }
+
     const periodLabel = invoice.periodStart && invoice.periodEnd
       ? `${invoice.periodStart} s/d ${invoice.periodEnd}`
       : "-";
@@ -78,12 +115,9 @@ router.post("/whatsapp/invoice/:id/send", async (req, res) => {
       ? new Date(invoice.dueDate).toLocaleDateString("id-ID", { day: "numeric", month: "long", year: "numeric" })
       : "-";
 
-    const appDomain =
-      process.env.REPLIT_DEV_DOMAIN ??
-      process.env.REPLIT_DOMAINS?.split(",")[0] ??
-      process.env.APP_URL;
-    const paymentLink = invoice.paymentToken && appDomain
-      ? `https://${appDomain}/bayar/${invoice.paymentToken}`
+    const _baseUrl = await getBaseUrl();
+    const paymentLink = invoice.paymentToken && _baseUrl
+      ? `${_baseUrl}/bayar/${invoice.paymentToken}`
       : undefined;
 
     const result = await sendInvoiceNotification({
@@ -146,6 +180,14 @@ router.post("/whatsapp/invoice/:id/overdue-reminder", async (req, res) => {
     if (!invoice) { res.status(404).json({ error: "Invoice tidak ditemukan" }); return; }
     if (!invoice.phone) { res.status(400).json({ error: "Nomor HP tenant tidak terdaftar" }); return; }
 
+    // Cooldown 24 jam — pengingat overdue tidak boleh dikirim lebih dari sekali sehari
+    const cooldown = await hasSentRecently({ invoiceId: id, messageType: "overdue_reminder", withinHours: 24 });
+    if (cooldown.recent) {
+      const sentAt = cooldown.sentAt?.toLocaleString("id-ID", { timeZone: "Asia/Jakarta" }) ?? "-";
+      res.status(429).json({ ok: false, cooldown: true, error: `Pengingat overdue sudah dikirim pada ${sentAt}. Tunggu 24 jam sebelum kirim ulang.` });
+      return;
+    }
+
     const dueDate = invoice.dueDate ? new Date(invoice.dueDate) : null;
     const daysOverdue = dueDate
       ? Math.max(0, Math.floor((Date.now() - dueDate.getTime()) / 86400000))
@@ -187,6 +229,15 @@ router.post("/whatsapp/invoice/:id/overdue-reminder", async (req, res) => {
  */
 router.post("/whatsapp/blast-overdue", async (req, res) => {
   try {
+    // Cooldown 24 jam per site — cegah blast berulang dalam sehari
+    const siteIdForCheck = req.siteId > 0 ? req.siteId : null;
+    const cooldown = await hasSentRecently({ siteId: siteIdForCheck, messageType: "blast_overdue", withinHours: 24 });
+    if (cooldown.recent) {
+      const sentAt = cooldown.sentAt?.toLocaleString("id-ID", { timeZone: "Asia/Jakarta" }) ?? "-";
+      res.status(429).json({ ok: false, cooldown: true, error: `Blast overdue sudah dikirim pada ${sentAt}. Tunggu 24 jam sebelum kirim ulang.` });
+      return;
+    }
+
     const overdueInvoices = await db
       .select({
         id: tenantInvoicesTable.id,
@@ -262,12 +313,19 @@ router.post("/whatsapp/blast-overdue", async (req, res) => {
 router.post("/whatsapp/blast-link-unpaid", async (req, res) => {
   try {
     const siteId = req.siteId;
+
+    // Cooldown 6 jam per site — cegah blast link berulang dalam sehari
+    const siteIdForCheck = siteId > 0 ? siteId : null;
+    const cooldown = await hasSentRecently({ siteId: siteIdForCheck, messageType: "blast_link", withinHours: 6 });
+    if (cooldown.recent) {
+      const sentAt = cooldown.sentAt?.toLocaleString("id-ID", { timeZone: "Asia/Jakarta" }) ?? "-";
+      res.status(429).json({ ok: false, cooldown: true, error: `Blast link sudah dikirim pada ${sentAt}. Tunggu 6 jam sebelum kirim ulang.` });
+      return;
+    }
+
     const siteFilter = siteId > 0 ? eq(tenantInvoicesTable.siteId, siteId) : undefined;
 
-    const appDomain =
-      process.env.REPLIT_DEV_DOMAIN ??
-      process.env.REPLIT_DOMAINS?.split(",")[0] ??
-      process.env.APP_URL;
+    const appDomain = await getBaseUrl();
 
     const unpaidInvoices = await db
       .select({
@@ -312,7 +370,7 @@ router.post("/whatsapp/blast-link-unpaid", async (req, res) => {
         : "-";
 
       const paymentLink = invoice.paymentToken && appDomain
-        ? `https://${appDomain}/bayar/${invoice.paymentToken}`
+        ? `${appDomain}/bayar/${invoice.paymentToken}`
         : undefined;
 
       const result = await sendInvoiceNotification({

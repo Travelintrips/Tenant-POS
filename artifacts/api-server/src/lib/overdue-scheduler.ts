@@ -3,6 +3,7 @@ import { tenantInvoicesTable, tenantsTable } from "@workspace/db/schema";
 import { and, inArray, isNull, eq, sql } from "drizzle-orm";
 import { sendOverdueReminder, sendInvoiceNotification } from "./whatsapp";
 import { logger } from "./logger";
+import { getBaseUrl } from "./app-url";
 
 let _started = false;
 
@@ -38,13 +39,10 @@ export function startOverdueScheduler(): void {
 
 // ─── Helper: bangun payment link ─────────────────────────────────────────────
 
-function buildPaymentLink(token: string | null | undefined): string | undefined {
+async function buildPaymentLink(token: string | null | undefined): Promise<string | undefined> {
   if (!token) return undefined;
-  const domain =
-    process.env.REPLIT_DEV_DOMAIN ??
-    process.env.REPLIT_DOMAINS?.split(",")[0] ??
-    process.env.APP_URL;
-  return domain ? `https://${domain}/bayar/${token}` : undefined;
+  const base = await getBaseUrl();
+  return base ? `${base}/bayar/${token}` : undefined;
 }
 
 // ─── Helper: format label periode ────────────────────────────────────────────
@@ -145,7 +143,7 @@ async function runDueReminderCheck(): Promise<void> {
         totalAmount: invoice.outstandingAmount ?? invoice.totalAmount,
         dueDate: dueStr,
         phone: invoice.phone,
-        paymentLink: buildPaymentLink(invoice.paymentToken),
+        paymentLink: await buildPaymentLink(invoice.paymentToken),
       });
 
       if (result.ok && !result.skipped) sentH3++;
@@ -175,7 +173,7 @@ async function runDueReminderCheck(): Promise<void> {
         totalAmount: invoice.outstandingAmount ?? invoice.totalAmount,
         dueDate: dueStr,
         phone: invoice.phone,
-        paymentLink: buildPaymentLink(invoice.paymentToken),
+        paymentLink: await buildPaymentLink(invoice.paymentToken),
       });
 
       if (result.ok && !result.skipped) sentH3++;

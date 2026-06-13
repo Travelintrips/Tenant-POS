@@ -1,37 +1,19 @@
 import { Router, type Request, type Response, type IRouter } from "express";
 import multer from "multer";
-import path from "path";
-import fs from "fs";
 import crypto from "crypto";
+import path from "path";
 import { requireAuth } from "../middlewares/auth";
 import { uploadRateLimiter } from "../middlewares/rate-limit";
-
-const UPLOAD_DIR = path.join(process.cwd(), "uploads");
-
-function ensureDir(dir: string) {
-  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-}
+import { uploadToStorage } from "../lib/supabase-storage";
 
 const LOGO_ALLOWED_MIME = new Set(["image/jpeg", "image/jpg", "image/png", "image/webp"]);
-const DOC_ALLOWED_MIME = new Set(["application/pdf", "image/jpeg", "image/jpg", "image/png"]);
+const DOC_ALLOWED_MIME = new Set(["application/pdf", "image/jpeg", "image/jpg", "image/png", "image/webp"]);
 const MAX_SIZE_BYTES = 5 * 1024 * 1024;
 
-function makeStorage(subdir: string) {
-  return multer.diskStorage({
-    destination: (_req, _file, cb) => {
-      const dir = path.join(UPLOAD_DIR, subdir);
-      ensureDir(dir);
-      cb(null, dir);
-    },
-    filename: (_req, file, cb) => {
-      const ext = path.extname(file.originalname).toLowerCase();
-      cb(null, crypto.randomUUID() + ext);
-    },
-  });
-}
+const memStorage = multer.memoryStorage();
 
 const uploadLogo = multer({
-  storage: makeStorage("tenant-logos"),
+  storage: memStorage,
   limits: { fileSize: MAX_SIZE_BYTES },
   fileFilter: (_req, file, cb) => {
     if (LOGO_ALLOWED_MIME.has(file.mimetype)) {
@@ -43,7 +25,7 @@ const uploadLogo = multer({
 });
 
 const uploadDoc = multer({
-  storage: makeStorage("contract-docs"),
+  storage: memStorage,
   limits: { fileSize: MAX_SIZE_BYTES },
   fileFilter: (_req, file, cb) => {
     if (DOC_ALLOWED_MIME.has(file.mimetype)) {
@@ -86,8 +68,20 @@ router.post("/uploads/tenant-logo", uploadRateLimiter, requireAuth, async (req, 
     return;
   }
 
-  const url = `/uploads/tenant-logos/${req.file.filename}`;
-  res.json({ url });
+  try {
+    const ext = path.extname(req.file.originalname).toLowerCase() || ".png";
+    const filename = `${crypto.randomUUID()}${ext}`;
+    const url = await uploadToStorage(
+      "tenant-logos",
+      filename,
+      req.file.buffer,
+      req.file.mimetype,
+    );
+    res.json({ url });
+  } catch (err) {
+    req.log?.error(err, "Upload tenant logo gagal");
+    res.status(500).json({ error: "Gagal menyimpan file ke storage" });
+  }
 });
 
 router.post("/uploads/contract-document", uploadRateLimiter, requireAuth, async (req, res) => {
@@ -107,8 +101,20 @@ router.post("/uploads/contract-document", uploadRateLimiter, requireAuth, async 
     return;
   }
 
-  const url = `/uploads/contract-docs/${req.file.filename}`;
-  res.json({ url });
+  try {
+    const ext = path.extname(req.file.originalname).toLowerCase() || ".pdf";
+    const filename = `${crypto.randomUUID()}${ext}`;
+    const url = await uploadToStorage(
+      "contract-docs",
+      filename,
+      req.file.buffer,
+      req.file.mimetype,
+    );
+    res.json({ url });
+  } catch (err) {
+    req.log?.error(err, "Upload contract document gagal");
+    res.status(500).json({ error: "Gagal menyimpan file ke storage" });
+  }
 });
 
 export default router;

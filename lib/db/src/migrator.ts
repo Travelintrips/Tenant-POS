@@ -1453,6 +1453,140 @@ DO $$ BEGIN
 END $$;
     `.trim(),
   },
+  {
+    name: "0027_mall_units_default_rent",
+    sql: `ALTER TABLE mall_units ADD COLUMN IF NOT EXISTS default_rent_amount numeric DEFAULT 0;`,
+  },
+  {
+    name: "0029_short_payment_tokens",
+    sql: `
+-- Perbarui token pembayaran yang ada (UUID panjang) ke format 12-karakter hex pendek
+-- Token lama (UUID) diganti dengan encode(gen_random_bytes(6), 'hex') = 12 karakter
+UPDATE "tenant_invoices"
+SET payment_token = encode(gen_random_bytes(6), 'hex')
+WHERE payment_token IS NOT NULL
+  AND LENGTH(payment_token) > 20;
+
+-- Ganti default kolom ke format 12-karakter hex pendek
+ALTER TABLE "tenant_invoices"
+  ALTER COLUMN payment_token SET DEFAULT encode(gen_random_bytes(6), 'hex');
+    `.trim(),
+  },
+  {
+    name: "0028_bank_reconciliation",
+    sql: `
+CREATE TABLE IF NOT EXISTS "bank_mutations" (
+  "id" serial PRIMARY KEY NOT NULL,
+  "bank_account_id" text,
+  "transaction_date" text NOT NULL,
+  "description" text NOT NULL DEFAULT '',
+  "credit_amount" numeric NOT NULL DEFAULT '0',
+  "debit_amount" numeric NOT NULL DEFAULT '0',
+  "amount" numeric NOT NULL,
+  "direction" text NOT NULL,
+  "mutation_key" text NOT NULL,
+  "normalized_description" text NOT NULL DEFAULT '',
+  "provider_name" text,
+  "provider_order_id" text,
+  "raw_payload" jsonb,
+  "status" text NOT NULL DEFAULT 'unmatched',
+  "matched_payment_id" integer,
+  "matched_order_id" integer,
+  "uploaded_proof_url" text,
+  "site_id" integer REFERENCES "mall_sites"("id"),
+  "created_at" timestamptz NOT NULL DEFAULT now(),
+  "updated_at" timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS "bank_reconciliation_matches" (
+  "id" serial PRIMARY KEY NOT NULL,
+  "mutation_id" integer NOT NULL REFERENCES "bank_mutations"("id") ON DELETE CASCADE,
+  "candidate_type" text NOT NULL,
+  "candidate_id" integer NOT NULL,
+  "match_score" integer NOT NULL DEFAULT 0,
+  "match_reason" text,
+  "amount_match" boolean NOT NULL DEFAULT false,
+  "date_match" boolean NOT NULL DEFAULT false,
+  "name_match" boolean NOT NULL DEFAULT false,
+  "order_id_match" boolean NOT NULL DEFAULT false,
+  "proof_match" boolean NOT NULL DEFAULT false,
+  "status" text NOT NULL DEFAULT 'candidate',
+  "created_at" timestamptz NOT NULL DEFAULT now()
+);
+
+DO $$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_indexes WHERE tablename = 'bank_mutations' AND indexname = 'bank_mutations_mutation_key_idx'
+  ) THEN
+    CREATE INDEX bank_mutations_mutation_key_idx ON "bank_mutations" ("mutation_key");
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_indexes WHERE tablename = 'bank_mutations' AND indexname = 'bank_mutations_status_idx'
+  ) THEN
+    CREATE INDEX bank_mutations_status_idx ON "bank_mutations" ("status");
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_indexes WHERE tablename = 'bank_reconciliation_matches' AND indexname = 'brm_mutation_id_idx'
+  ) THEN
+    CREATE INDEX brm_mutation_id_idx ON "bank_reconciliation_matches" ("mutation_id");
+  END IF;
+END $$;
+    `.trim(),
+  },
+  {
+    name: "0030_finance_payment_events",
+    sql: `
+CREATE TABLE IF NOT EXISTS "finance_payment_events" (
+  "id" serial PRIMARY KEY NOT NULL,
+  "source_app" text NOT NULL,
+  "owner_app" text NOT NULL,
+  "source_module" text NOT NULL,
+  "source_table" text NOT NULL,
+  "source_id" integer NOT NULL,
+  "owner_company_id" integer,
+  "owner_tenant_id" integer,
+  "tenant_id" integer REFERENCES "tenants"("id"),
+  "site_id" integer REFERENCES "mall_sites"("id"),
+  "invoice_id" integer,
+  "amount" numeric NOT NULL,
+  "direction" text NOT NULL DEFAULT 'IN',
+  "payment_method" text NOT NULL,
+  "payment_reference" text,
+  "external_order_id" text,
+  "payment_status" text NOT NULL DEFAULT 'pending',
+  "proof_url" text,
+  "bank_mutation_id" integer,
+  "is_reconciled" boolean NOT NULL DEFAULT false,
+  "reconciled_at" timestamptz,
+  "metadata" jsonb,
+  "created_at" timestamptz NOT NULL DEFAULT now(),
+  "updated_at" timestamptz NOT NULL DEFAULT now()
+);
+
+DO $$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_indexes WHERE tablename = 'finance_payment_events' AND indexname = 'fpe_tenant_site_idx'
+  ) THEN
+    CREATE INDEX fpe_tenant_site_idx ON "finance_payment_events" ("tenant_id", "site_id");
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_indexes WHERE tablename = 'finance_payment_events' AND indexname = 'fpe_status_idx'
+  ) THEN
+    CREATE INDEX fpe_status_idx ON "finance_payment_events" ("payment_status");
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_indexes WHERE tablename = 'finance_payment_events' AND indexname = 'fpe_invoice_idx'
+  ) THEN
+    CREATE INDEX fpe_invoice_idx ON "finance_payment_events" ("invoice_id");
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_indexes WHERE tablename = 'finance_payment_events' AND indexname = 'fpe_source_idx'
+  ) THEN
+    CREATE INDEX fpe_source_idx ON "finance_payment_events" ("source_app", "source_table", "source_id");
+  END IF;
+END $$;
+    `.trim(),
+  },
 ];
 
 const MIGRATIONS_TABLE = "schema_migrations";
@@ -1494,6 +1628,47 @@ export async function runMigrations(): Promise<void> {
     }
 
     console.log("[migrate] Schema sinkronisasi selesai ✓");
+  } finally {
+    await client.end();
+  }
+}
+
+// Migration tambahan: konversi users.id dari integer ke text (untuk Supabase lama)
+export async function runUsersIdTextMigration(): Promise<void> {
+  const client = new pg.Client({
+    connectionString: dbConfig.url,
+    ssl: dbConfig.ssl,
+  });
+
+  await client.connect();
+
+  try {
+    const res = await client.query(
+      `SELECT data_type FROM information_schema.columns WHERE table_name = 'users' AND column_name = 'id'`
+    );
+    const dataType = res.rows[0]?.data_type;
+
+    if (dataType === "integer") {
+      console.log("[migrate] Mengkonversi users.id dari integer ke text...");
+
+      // Drop FK dari user_site_access
+      await client.query(`
+        ALTER TABLE user_site_access DROP CONSTRAINT IF EXISTS user_site_access_user_id_users_id_fk;
+        ALTER TABLE user_site_access DROP CONSTRAINT IF EXISTS user_site_access_user_id_fkey;
+      `);
+
+      // Konversi users.id ke text
+      await client.query(`ALTER TABLE users ALTER COLUMN id DROP DEFAULT`);
+      await client.query(`ALTER TABLE users ALTER COLUMN id TYPE text USING id::text`);
+      await client.query(`ALTER TABLE users ALTER COLUMN id SET DEFAULT gen_random_uuid()::text`);
+
+      // Konversi user_site_access.user_id ke text
+      await client.query(`ALTER TABLE user_site_access ALTER COLUMN user_id TYPE text USING user_id::text`);
+
+      console.log("[migrate] Konversi users.id selesai ✓");
+    } else {
+      console.log("[migrate] users.id sudah text, dilewati");
+    }
   } finally {
     await client.end();
   }

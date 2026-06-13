@@ -14,6 +14,7 @@ import { z } from "zod";
 import { requireAnyRole } from "../middlewares/auth";
 import { logAudit } from "../lib/audit";
 import { sseBroker } from "../lib/sse-broker";
+import { writePaymentEvent, normalizePaymentMethod } from "../lib/payment-events";
 
 const router: IRouter = Router();
 
@@ -130,6 +131,7 @@ router.get("/tenant-pos/floor-plan", async (req, res) => {
         boothNumber: tenantsTable.boothNumber,
         areaName: tenantsTable.areaName,
         tenantStatus: tenantsTable.status,
+        logoUrl: tenantsTable.logoUrl,
         bookingId: tenantBookingsTable.id,
         startDate: tenantBookingsTable.startDate,
         endDate: tenantBookingsTable.endDate,
@@ -146,7 +148,7 @@ router.get("/tenant-pos/floor-plan", async (req, res) => {
         tenantBookingsTable,
         and(
           eq(tenantBookingsTable.tenantId, tenantsTable.id),
-          eq(tenantBookingsTable.bookingStatus, "aktif")
+          sql`${tenantBookingsTable.bookingStatus} IN ('aktif', 'active')`
         )
       )
       .where(tenantSiteFilter)
@@ -189,6 +191,8 @@ router.get("/tenant-pos/floor-plan", async (req, res) => {
       dueDate: row.dueDate ?? null,
       periodLabel: row.periodLabel ?? null,
       openInvoiceCount: invoiceCountMap.get(row.tenantId) ?? 0,
+      logoUrl: row.logoUrl ?? null,
+      tenantStatus: row.tenantStatus ?? null,
     }));
 
     res.json(result);
@@ -515,6 +519,31 @@ router.post("/tenant-pos/payments", paymentRateLimiter, async (req, res) => {
       },
     });
     sseBroker.publish("payment_created", { paymentId: result.payment.id });
+
+    writePaymentEvent({
+      sourceApp: "tenant_pos",
+      ownerApp: "tenant_management",
+      sourceModule: "pos_sale",
+      sourceTable: "tenant_payments",
+      sourceId: result.payment.id,
+      ownerTenantId: tenantId ?? null,
+      tenantId: tenantId ?? null,
+      siteId: result.payment.siteId ?? null,
+      invoiceId: result.payment.invoiceId ?? null,
+      amount: amountPaid,
+      direction: "IN",
+      paymentMethod: normalizePaymentMethod(paymentMethod),
+      paymentReference: referenceNumber ?? null,
+      paymentStatus: paymentMethod === "transfer" ? "waiting_confirmation" : "confirmed",
+      proofUrl: proofUrl ?? null,
+      metadata: {
+        receiptNumber: result.receiptNumber,
+        bookingId,
+        paymentStatus: result.paymentStatus,
+        source: "pos_payment",
+      },
+    }).catch(() => {});
+
     res.status(201).json({
       success: true,
       payment: result.payment,

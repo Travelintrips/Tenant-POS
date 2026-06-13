@@ -152,6 +152,7 @@ router.get("/mall-units", async (req, res) => {
         areaKantin: u.areaKantin,
         unitType: u.unitType,
         sizeM2: u.sizeM2,
+        defaultRentAmount: u.defaultRentAmount,
         storedStatus: u.status,
         status: computedStatus,
         positionX: u.positionX,

@@ -121,20 +121,23 @@ export interface OverdueReminderParams {
  */
 export async function sendInvoiceNotification(params: InvoiceNotifParams): Promise<WaResult> {
   const linkLine = params.paymentLink
-    ? `\n🔗 *Link Upload Bukti Bayar:*\n${params.paymentLink}\n`
+    ? `\n🔗 *Link Pembayaran:*\n${params.paymentLink}\n`
     : "";
 
   const message =
-    `Halo *${params.ownerName}* (${params.businessName}) 👋\n\n` +
-    `📋 *Invoice Baru Telah Diterbitkan*\n\n` +
-    `No. Invoice : *${params.invoiceNumber}*\n` +
-    `Periode     : ${params.periodLabel}\n` +
-    `Total       : *${formatRupiah(params.totalAmount)}*\n` +
-    `Jatuh Tempo : ${params.dueDate}\n` +
+    `📋 *Tagihan Baru — ${params.businessName}*\n` +
+    `━━━━━━━━━━━━━━━━━━━━━\n\n` +
+    `Yth. Bapak/Ibu *${params.ownerName}*,\n\n` +
+    `Berikut adalah tagihan terbaru yang telah kami terbitkan untuk Anda:\n\n` +
+    `• No. Invoice : *${params.invoiceNumber}*\n` +
+    `• Periode       : ${params.periodLabel}\n` +
+    `• Total Tagihan : *${formatRupiah(params.totalAmount)}*\n` +
+    `• Jatuh Tempo  : *${params.dueDate}*\n` +
     linkLine +
-    `\nMohon segera lakukan pembayaran sebelum tanggal jatuh tempo.\n\n` +
+    `\nMohon lakukan pembayaran sebelum tanggal jatuh tempo untuk menghindari denda keterlambatan.\n\n` +
+    `Hubungi kami jika ada pertanyaan.\n\n` +
     `Terima kasih 🙏\n` +
-    `_Manajemen Mall_`;
+    `_Manajemen CST_`;
 
   return sendMessage(params.phone, message);
 }
@@ -152,13 +155,15 @@ export async function sendPaymentConfirmation(params: PaymentConfirmParams): Pro
   };
 
   const message =
-    `Halo *${params.ownerName}* (${params.businessName}) 👋\n\n` +
-    `✅ *Pembayaran Berhasil Dikonfirmasi*\n\n` +
-    `No. Invoice : *${params.invoiceNumber}*\n` +
-    `Jumlah      : *${formatRupiah(params.amountPaid)}*\n` +
-    `Metode      : ${methodLabel[params.paymentMethod] ?? params.paymentMethod}\n\n` +
-    `Pembayaran Anda telah kami terima. Terima kasih! 🙏\n\n` +
-    `_Manajemen Mall_`;
+    `✅ *Pembayaran Diterima — ${params.businessName}*\n` +
+    `━━━━━━━━━━━━━━━━━━━━━\n\n` +
+    `Yth. Bapak/Ibu *${params.ownerName}*,\n\n` +
+    `Pembayaran Anda telah kami terima dengan rincian sebagai berikut:\n\n` +
+    `• No. Invoice : *${params.invoiceNumber}*\n` +
+    `• Jumlah         : *${formatRupiah(params.amountPaid)}*\n` +
+    `• Metode         : ${methodLabel[params.paymentMethod] ?? params.paymentMethod}\n\n` +
+    `Terima kasih atas pembayaran Anda yang tepat waktu. 🙏\n` +
+    `_Manajemen CST_`;
 
   return sendMessage(params.phone, message);
 }
@@ -192,14 +197,15 @@ export interface PaymentRejectedParams {
  */
 export async function sendPaymentReceived(params: PaymentReceivedParams): Promise<WaResult> {
   const message =
-    `Halo *${params.ownerName}* (${params.businessName}) 👋\n\n` +
-    `🔔 *Bukti Pembayaran Diterima*\n\n` +
-    `No. Invoice : *${params.invoiceNumber}*\n` +
-    `Jumlah      : *${formatRupiah(params.amount)}*\n\n` +
-    `Bukti pembayaran Anda telah kami terima dan sedang dalam proses verifikasi oleh admin.\n` +
-    `Anda akan mendapat konfirmasi setelah diverifikasi.\n\n` +
-    `Terima kasih 🙏\n` +
-    `_Manajemen Mall_`;
+    `🔔 *Bukti Pembayaran Diterima — ${params.businessName}*\n` +
+    `━━━━━━━━━━━━━━━━━━━━━\n\n` +
+    `Yth. Bapak/Ibu *${params.ownerName}*,\n\n` +
+    `Bukti pembayaran Anda telah kami terima dengan rincian:\n\n` +
+    `• No. Invoice : *${params.invoiceNumber}*\n` +
+    `• Jumlah         : *${formatRupiah(params.amount)}*\n\n` +
+    `Pembayaran Anda sedang dalam proses verifikasi oleh tim kami. Anda akan mendapat konfirmasi setelah proses selesai.\n\n` +
+    `Terima kasih atas kesabaran Anda. 🙏\n` +
+    `_Manajemen CST_`;
 
   return sendMessage(params.phone, message);
 }
@@ -209,12 +215,15 @@ export async function sendPaymentReceived(params: PaymentReceivedParams): Promis
  */
 export async function sendPaymentApproved(params: PaymentApprovedParams): Promise<WaResult> {
   const message =
-    `Halo *${params.ownerName}* (${params.businessName}) 👋\n\n` +
-    `✅ *Pembayaran Disetujui*\n\n` +
-    `No. Invoice : *${params.invoiceNumber}*\n` +
-    `Jumlah      : *${formatRupiah(params.amount)}*\n\n` +
-    `Pembayaran Anda telah diverifikasi dan disetujui. Terima kasih! 🙏\n\n` +
-    `_Manajemen Mall_`;
+    `✅ *Pembayaran Disetujui — ${params.businessName}*\n` +
+    `━━━━━━━━━━━━━━━━━━━━━\n\n` +
+    `Yth. Bapak/Ibu *${params.ownerName}*,\n\n` +
+    `Kami informasikan bahwa pembayaran Anda telah *diverifikasi dan disetujui* oleh tim kami.\n\n` +
+    `• No. Invoice : *${params.invoiceNumber}*\n` +
+    `• Jumlah         : *${formatRupiah(params.amount)}*\n\n` +
+    `Simpan pesan ini sebagai bukti konfirmasi pembayaran Anda.\n\n` +
+    `Terima kasih atas kepercayaan Anda. 🙏\n` +
+    `_Manajemen CST_`;
 
   return sendMessage(params.phone, message);
 }
@@ -224,13 +233,15 @@ export async function sendPaymentApproved(params: PaymentApprovedParams): Promis
  */
 export async function sendPaymentRejected(params: PaymentRejectedParams): Promise<WaResult> {
   const message =
-    `Halo *${params.ownerName}* (${params.businessName}) 👋\n\n` +
-    `❌ *Pembayaran Ditolak*\n\n` +
-    `No. Invoice : *${params.invoiceNumber}*\n` +
-    `Alasan      : ${params.rejectionReason}\n\n` +
-    `Mohon upload ulang bukti pembayaran yang valid atau hubungi kami untuk informasi lebih lanjut.\n\n` +
-    `Terima kasih 🙏\n` +
-    `_Manajemen Mall_`;
+    `❌ *Pembayaran Tidak Dapat Diproses — ${params.businessName}*\n` +
+    `━━━━━━━━━━━━━━━━━━━━━\n\n` +
+    `Yth. Bapak/Ibu *${params.ownerName}*,\n\n` +
+    `Mohon maaf, bukti pembayaran Anda untuk invoice berikut tidak dapat kami proses:\n\n` +
+    `• No. Invoice : *${params.invoiceNumber}*\n` +
+    `• Alasan         : ${params.rejectionReason}\n\n` +
+    `Mohon upload ulang bukti pembayaran yang valid melalui link yang telah dikirimkan sebelumnya, atau hubungi kami untuk informasi lebih lanjut.\n\n` +
+    `Terima kasih. 🙏\n` +
+    `_Manajemen CST_`;
 
   return sendMessage(params.phone, message);
 }
@@ -263,18 +274,53 @@ export async function sendAdminPaymentAlert(params: AdminPaymentAlertParams): Pr
   };
 
   const message =
-    `🔔 *Bukti Pembayaran Baru Masuk*\n\n` +
-    `Tenant  : *${params.ownerName}* (${params.businessName})\n` +
-    `Invoice : *${params.invoiceNumber}*\n` +
-    `Jumlah  : *${formatRupiah(params.amount)}*\n` +
-    `Metode  : ${methodLabel[params.paymentMethod] ?? params.paymentMethod}\n` +
-    (params.referenceNumber ? `Ref No  : ${params.referenceNumber}\n` : "") +
-    `\nBalas pesan ini untuk memproses:\n` +
-    `✅ *SETUJU ${params.paymentId}*\n` +
-    `❌ *TOLAK ${params.paymentId} <alasan>*\n\n` +
+    `🔔 *Bukti Pembayaran Baru Masuk*\n` +
+    `━━━━━━━━━━━━━━━━━━━━━\n\n` +
+    `• Tenant   : *${params.ownerName}* (${params.businessName})\n` +
+    `• Invoice  : *${params.invoiceNumber}*\n` +
+    `• Jumlah   : *${formatRupiah(params.amount)}*\n` +
+    `• Metode   : ${methodLabel[params.paymentMethod] ?? params.paymentMethod}\n` +
+    (params.referenceNumber ? `• Ref No   : ${params.referenceNumber}\n` : "") +
+    `\n*Balas pesan ini untuk memproses:*\n` +
+    `✅ SETUJU ${params.paymentId}\n` +
+    `❌ TOLAK ${params.paymentId} <alasan>\n\n` +
     `🔗 ${params.reviewLink}`;
 
   return sendMessage(params.adminPhone, message);
+}
+
+export interface ReconciliationReminderParams {
+  ownerName: string;
+  businessName: string;
+  invoiceNumber: string;
+  totalAmount: string | number;
+  outstandingAmount: string | number;
+  dueDate: string;
+  phone: string;
+  monthLabel: string;
+}
+
+/**
+ * Kirim pengingat rekonsiliasi ke tenant yang invoicenya belum terverifikasi bank
+ */
+export async function sendReconciliationReminder(params: ReconciliationReminderParams): Promise<WaResult> {
+  const message =
+    `📋 *Pengingat Rekonsiliasi — ${params.businessName}*\n` +
+    `━━━━━━━━━━━━━━━━━━━━━\n\n` +
+    `Yth. Bapak/Ibu *${params.ownerName}*,\n\n` +
+    `Kami belum menemukan konfirmasi pembayaran Anda untuk periode *${params.monthLabel}* dalam rekonsiliasi bank kami.\n\n` +
+    `• No. Invoice       : *${params.invoiceNumber}*\n` +
+    `• Total Tagihan     : ${formatRupiah(params.totalAmount)}\n` +
+    `• Sisa Belum Bayar : *${formatRupiah(params.outstandingAmount)}*\n` +
+    `• Jatuh Tempo       : ${params.dueDate}\n\n` +
+    `Mohon segera:\n` +
+    `1️⃣ Lakukan pembayaran jika belum dilakukan, atau\n` +
+    `2️⃣ Kirimkan bukti transfer jika sudah membayar\n\n` +
+    `Hubungi kami jika ada pertanyaan atau kendala pembayaran.\n\n` +
+    `Terima kasih. 🙏\n` +
+    `_Manajemen CST_`;
+
+  return sendMessage(params.phone, message);
 }
 
 /**
@@ -282,16 +328,18 @@ export async function sendAdminPaymentAlert(params: AdminPaymentAlertParams): Pr
  */
 export async function sendOverdueReminder(params: OverdueReminderParams): Promise<WaResult> {
   const message =
-    `Halo *${params.ownerName}* (${params.businessName}) 👋\n\n` +
-    `⚠️ *Pengingat Tagihan Jatuh Tempo*\n\n` +
-    `No. Invoice : *${params.invoiceNumber}*\n` +
-    `Total Tagihan    : ${formatRupiah(params.totalAmount)}\n` +
-    `Sisa Belum Bayar : *${formatRupiah(params.outstandingAmount)}*\n` +
-    `Terlambat        : *${params.daysOverdue} hari*\n\n` +
+    `⚠️ *Tagihan Melewati Jatuh Tempo — ${params.businessName}*\n` +
+    `━━━━━━━━━━━━━━━━━━━━━\n\n` +
+    `Yth. Bapak/Ibu *${params.ownerName}*,\n\n` +
+    `Kami menginformasikan bahwa tagihan Anda telah melewati batas waktu pembayaran.\n\n` +
+    `• No. Invoice       : *${params.invoiceNumber}*\n` +
+    `• Total Tagihan     : ${formatRupiah(params.totalAmount)}\n` +
+    `• Sisa Belum Bayar : *${formatRupiah(params.outstandingAmount)}*\n` +
+    `• Keterlambatan     : *${params.daysOverdue} hari*\n\n` +
     `Mohon segera lakukan pembayaran untuk menghindari sanksi keterlambatan lebih lanjut.\n\n` +
-    `Hubungi kami jika ada pertanyaan.\n` +
-    `Terima kasih 🙏\n\n` +
-    `_Manajemen Mall_`;
+    `Hubungi kami jika ada pertanyaan atau kendala.\n\n` +
+    `Terima kasih. 🙏\n` +
+    `_Manajemen CST_`;
 
   return sendMessage(params.phone, message);
 }

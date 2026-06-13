@@ -3,6 +3,7 @@ import { db } from "@workspace/db";
 import { systemSettingsTable } from "@workspace/db/schema";
 import { eq } from "drizzle-orm";
 import { requireAuth, requireAnyRole } from "../middlewares/auth";
+import { invalidateBaseUrlCache } from "../lib/app-url";
 
 const router: IRouter = Router();
 
@@ -27,6 +28,9 @@ const DEFAULT_SETTINGS = {
   waSenderPhone: "",
   // Nama/label device Fonnte (informasi saja, untuk identifikasi)
   waSenderLabel: "",
+  // Domain publik untuk link pembayaran tenant (mis. https://tenant.travelintrips.co.id)
+  // Jika diisi, menimpa env var APP_URL. Link bayar: {paymentDomain}/bayar/{token}
+  paymentDomain: "",
 };
 
 router.get("/settings", requireAuth, requireAnyRole("owner", "admin", "finance"), async (_req, res) => {
@@ -58,12 +62,14 @@ router.put("/settings", requireAuth, requireAnyRole("owner"), async (req, res) =
         .set({ value: { ...(existing.value as object), ...payload }, updatedAt: new Date() })
         .where(eq(systemSettingsTable.key, SETTINGS_KEY))
         .returning();
+      invalidateBaseUrlCache();
       res.json({ ...(updated.value as object) });
     } else {
       const [created] = await db
         .insert(systemSettingsTable)
         .values({ key: SETTINGS_KEY, value: { ...DEFAULT_SETTINGS, ...payload } })
         .returning();
+      invalidateBaseUrlCache();
       res.json({ ...(created.value as object) });
     }
   } catch (err) {

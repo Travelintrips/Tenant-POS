@@ -21,6 +21,8 @@ import whatsappWebhookRouter from "./whatsapp-webhook";
 import pendingPaymentsRouter from "./pending-payments";
 import dashboardRouter from "./dashboard";
 import settingsRouter from "./settings";
+import reconciliationRouter from "./reconciliation";
+import bankReconciliationRouter from "./bank-reconciliation";
 import { requireAuth, requireNonTenantUser } from "../middlewares/auth";
 import { siteContext } from "../middlewares/site-context";
 
@@ -31,6 +33,7 @@ router.use(authRouter);
 router.use(whatsappAuthRouter);
 
 // Public routes (tidak perlu login)
+router.use(configRouter);
 router.use(paymentProofRouter);
 router.use(whatsappWebhookRouter); // Fonnte incoming message webhook
 
@@ -44,7 +47,6 @@ router.use(siteContext);
 
 router.use(eventsRouter);
 router.use(uploadsRouter);
-router.use(configRouter);
 router.use(sitesRouter);
 router.use(tenantsRouter);
 router.use(tenantUsersRouter);
@@ -58,5 +60,7 @@ router.use(whatsappRouter);
 router.use(pendingPaymentsRouter);
 router.use(dashboardRouter);
 router.use(settingsRouter);
+router.use(reconciliationRouter);
+router.use(bankReconciliationRouter);
 
 export default router;

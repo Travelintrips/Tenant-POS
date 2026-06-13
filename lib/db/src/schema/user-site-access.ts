@@ -1,12 +1,9 @@
-import { pgTable, serial, integer, text, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, serial, text, integer, timestamp } from "drizzle-orm/pg-core";
 import { mallSitesTable } from "./mall-sites";
-import { usersTable } from "./users";
 
 export const userSiteAccessTable = pgTable("user_site_access", {
   id: serial("id").primaryKey(),
-  userId: integer("user_id")
-    .notNull()
-    .references(() => usersTable.id),
+  userId: text("user_id").notNull(),
   siteId: integer("site_id")
     .notNull()
     .references(() => mallSitesTable.id),

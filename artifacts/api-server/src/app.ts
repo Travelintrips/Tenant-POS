@@ -86,6 +86,10 @@ app.use(passport.session());
 
 app.use("/uploads", express.static(path.join(process.cwd(), "uploads")));
 
+app.get("/api/healthz", (_req, res) => {
+  res.json({ ok: true });
+});
+
 app.use("/api", router);
 
 export default app;
