@@ -48,6 +48,7 @@ function appCtx(req: Request): AppContext {
     role: "admin",
     isBizPortal: false,
     isFullAccess: false,
+    sourceAppFilterBypass: false,
   };
 }
 

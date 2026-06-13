@@ -182,6 +182,10 @@ function Router() {
       <Route path="/reconciliation">
         <Redirect to="/bank-rekonsiliasi" />
       </Route>
+      {/* Legacy redirect — /laporan-rekonsiliasi → /bank-rekonsiliasi */}
+      <Route path="/laporan-rekonsiliasi">
+        <Redirect to="/bank-rekonsiliasi" />
+      </Route>
       <Route path="/bank-rekonsiliasi">
         <AuthGuard roles={["owner", "admin", "finance"]}>
           <SidebarLayout>
