@@ -1714,6 +1714,13 @@ CREATE INDEX IF NOT EXISTS "bral_owner_tenant_idx" ON "bank_recon_audit_logs" ("
 CREATE INDEX IF NOT EXISTS "bral_created_at_idx" ON "bank_recon_audit_logs" ("created_at");
     `.trim(),
   },
+  {
+    name: "0036_audit_logs_tenant_id",
+    sql: `
+ALTER TABLE "audit_logs" ADD COLUMN IF NOT EXISTS "tenant_id" integer;
+CREATE INDEX IF NOT EXISTS "audit_logs_tenant_id_idx" ON "audit_logs" ("tenant_id");
+    `.trim(),
+  },
 ];
 
 const MIGRATIONS_TABLE = "schema_migrations";

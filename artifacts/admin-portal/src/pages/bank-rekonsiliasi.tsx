@@ -397,6 +397,9 @@ export default function BankRekonsiliasi() {
             {appCtx?.isBizPortal && (
               <span className="inline-flex items-center rounded-full border border-indigo-300 bg-indigo-50 px-2 py-0.5 text-[11px] font-semibold text-indigo-700">BizPortal</span>
             )}
+            {appCtx?.isFullAccess && (
+              <span className="inline-flex items-center rounded-full border border-green-300 bg-green-50 px-2 py-0.5 text-[11px] font-semibold text-green-700">Akses Penuh</span>
+            )}
           </div>
           <p className="text-muted-foreground mt-1 text-sm">
             Import mutasi rekening, cocokkan otomatis dengan transaksi/invoice, lalu setujui atau tolak.

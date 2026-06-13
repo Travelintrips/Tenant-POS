@@ -31,6 +31,12 @@ router.get("/audit-logs", async (req, res) => {
     conditions.push(eq(auditLogsTable.siteId, req.siteId) as any);
   }
 
+  // Tenant user hanya boleh lihat log milik tenant-nya sendiri (tenant-scoped)
+  const appCtx = (req as any).appContext as { ownerTenantId?: number | null; role?: string } | undefined;
+  if (appCtx?.ownerTenantId != null) {
+    conditions.push(eq(auditLogsTable.tenantId, appCtx.ownerTenantId) as any);
+  }
+
   if (dari) {
     conditions.push(gte(auditLogsTable.createdAt, new Date(String(dari))) as any);
   }
