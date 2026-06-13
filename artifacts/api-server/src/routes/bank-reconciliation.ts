@@ -1565,4 +1565,90 @@ router.get("/bank-reconciliation/audit-logs", async (req, res) => {
 });
 
 
+
+// ── GET /bank-reconciliation/account-balances ─────────────────────────────────
+
+router.get("/bank-reconciliation/account-balances", async (req, res) => {
+  try {
+    const ctx = appCtx(req);
+    const conditions: any[] = [];
+
+    if (ctx.ownerTenantId != null) {
+      conditions.push(eq(bankAccountBalancesTable.ownerTenantId, ctx.ownerTenantId));
+    }
+
+    const rows = await db.select()
+      .from(bankAccountBalancesTable)
+      .where(conditions.length ? and(...conditions) : undefined)
+      .orderBy(desc(bankAccountBalancesTable.updatedAt));
+
+    res.json(rows);
+  } catch (err) {
+    console.error("account-balances error:", err);
+    res.status(500).json({ error: "Gagal memuat saldo rekening" });
+  }
+});
+
+
+// ── GET /bank-reconciliation/journal-entries ──────────────────────────────────
+
+router.get("/bank-reconciliation/journal-entries", async (req, res) => {
+  try {
+    const ctx = appCtx(req);
+    const {
+      date_from,
+      date_to,
+      page: pageStr = "1",
+      limit: limitStr = "50",
+    } = req.query as Record<string, string>;
+
+    const page = Math.max(1, parseInt(pageStr, 10) || 1);
+    const limit = Math.min(200, Math.max(1, parseInt(limitStr, 10) || 50));
+    const offset = (page - 1) * limit;
+
+    const conditions: any[] = [];
+
+    if (ctx.ownerTenantId != null) {
+      conditions.push(
+        or(
+          isNull(bankJournalEntriesTable.mutationId),
+          sql`EXISTS (
+            SELECT 1 FROM bank_mutations bm
+            WHERE bm.id = ${bankJournalEntriesTable.mutationId}
+              AND bm.owner_tenant_id = ${ctx.ownerTenantId}
+          )`
+        ) as any
+      );
+    }
+
+    if (date_from) conditions.push(sql`${bankJournalEntriesTable.transactionDate} >= ${date_from}` as any);
+    if (date_to) conditions.push(sql`${bankJournalEntriesTable.transactionDate} <= ${date_to}` as any);
+
+    const whereClause = conditions.length ? and(...conditions) : undefined;
+
+    const [rows, countResult] = await Promise.all([
+      db.select().from(bankJournalEntriesTable)
+        .where(whereClause)
+        .orderBy(desc(bankJournalEntriesTable.createdAt))
+        .limit(limit)
+        .offset(offset),
+      db.select({ count: sql<number>`count(*)::int` })
+        .from(bankJournalEntriesTable)
+        .where(whereClause),
+    ]);
+
+    res.json({
+      data: rows,
+      total: countResult[0]?.count ?? 0,
+      page,
+      limit,
+    });
+  } catch (err) {
+    console.error("journal-entries error:", err);
+    res.status(500).json({ error: "Gagal memuat jurnal" });
+  }
+});
+
+
 export default router;
+
