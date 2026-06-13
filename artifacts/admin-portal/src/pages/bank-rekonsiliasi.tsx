@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Separator } from "@/components/ui/separator";
@@ -17,17 +17,25 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from "@/components/ui/dialog";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { Textarea } from "@/components/ui/textarea";
+import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
 import {
   Upload, RefreshCw, CheckCircle2, XCircle, AlertTriangle, HelpCircle,
   Zap, Search, ChevronRight, FileUp, BarChart2, Banknote, Receipt, FileCheck,
   FileSpreadsheet, MessageCircle, Send, ExternalLink, Archive, ClipboardList,
+  LayoutDashboard, Lock, Unlock, BookOpen, Plus, Pencil, Trash2,
 } from "lucide-react";
 
 const formatRp = (n: string | number | null | undefined) =>
   new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", maximumFractionDigits: 0 }).format(
     parseFloat(String(n ?? 0)) || 0
   );
+
+const MONTH_NAMES = [
+  "Januari","Februari","Maret","April","Mei","Juni",
+  "Juli","Agustus","September","Oktober","November","Desember",
+];
 
 type AppContext = {
   ownerApp: string;
@@ -87,28 +95,6 @@ type KpiData = {
   invoices: { paid: number; partial: number; unpaid: number; overdue: number; totalPaidAmount: number; totalPartialPaidAmount: number };
 };
 
-const STATUS_CONFIG: Record<MutationStatus, { label: string; color: string; icon: React.ReactNode }> = {
-  unmatched:            { label: "Tidak Cocok",   color: "bg-gray-100 text-gray-700 border-gray-300",     icon: <HelpCircle className="h-3 w-3" /> },
-  matched:              { label: "Ada Kandidat",  color: "bg-blue-100 text-blue-700 border-blue-300",     icon: <Search className="h-3 w-3" /> },
-  duplicate_need_review:{ label: "Duplikat",      color: "bg-yellow-100 text-yellow-800 border-yellow-300",icon: <AlertTriangle className="h-3 w-3" /> },
-  approved:             { label: "Disetujui",     color: "bg-green-100 text-green-800 border-green-300",  icon: <CheckCircle2 className="h-3 w-3" /> },
-  rejected:             { label: "Ditolak",       color: "bg-red-100 text-red-700 border-red-300",        icon: <XCircle className="h-3 w-3" /> },
-};
-
-function StatusBadge({ status }: { status: MutationStatus }) {
-  const cfg = STATUS_CONFIG[status] ?? STATUS_CONFIG.unmatched;
-  return (
-    <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium ${cfg.color}`}>
-      {cfg.icon}{cfg.label}
-    </span>
-  );
-}
-
-function ScoreBadge({ score }: { score: number }) {
-  const color = score >= 95 ? "bg-green-100 text-green-800" : score >= 80 ? "bg-yellow-100 text-yellow-800" : "bg-gray-100 text-gray-600";
-  return <span className={`inline-flex rounded px-1.5 py-0.5 text-xs font-bold ${color}`}>{score}</span>;
-}
-
 type BankReconAuditLog = {
   id: number;
   mutationId: number | null;
@@ -132,16 +118,73 @@ type BankReconAuditLog = {
   createdAt: string;
 };
 
+type LaporanRow = {
+  year_month: string;
+  total: number;
+  approved: number;
+  rejected: number;
+  unmatched: number;
+  matched: number;
+  duplicate: number;
+  total_in: string;
+  total_out: string;
+  approved_amount: string;
+};
+
+type ClosingPeriod = {
+  id: number;
+  yearMonth: string;
+  lockedBy: string | null;
+  lockedByRole: string | null;
+  notes: string | null;
+  siteId: number | null;
+  createdAt: string;
+};
+
+type CoaRule = {
+  id: number;
+  providerName: string | null;
+  direction: string;
+  descriptionPattern: string | null;
+  coaCode: string;
+  coaName: string;
+  description: string | null;
+  isActive: boolean;
+  createdAt: string;
+};
+
+const STATUS_CONFIG: Record<MutationStatus, { label: string; color: string; icon: React.ReactNode }> = {
+  unmatched:            { label: "Tidak Cocok",   color: "bg-gray-100 text-gray-700 border-gray-300",      icon: <HelpCircle className="h-3 w-3" /> },
+  matched:              { label: "Ada Kandidat",  color: "bg-blue-100 text-blue-700 border-blue-300",      icon: <Search className="h-3 w-3" /> },
+  duplicate_need_review:{ label: "Duplikat",      color: "bg-yellow-100 text-yellow-800 border-yellow-300",icon: <AlertTriangle className="h-3 w-3" /> },
+  approved:             { label: "Disetujui",     color: "bg-green-100 text-green-800 border-green-300",   icon: <CheckCircle2 className="h-3 w-3" /> },
+  rejected:             { label: "Ditolak",       color: "bg-red-100 text-red-700 border-red-300",         icon: <XCircle className="h-3 w-3" /> },
+};
+
+function StatusBadge({ status }: { status: MutationStatus }) {
+  const cfg = STATUS_CONFIG[status] ?? STATUS_CONFIG.unmatched;
+  return (
+    <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium ${cfg.color}`}>
+      {cfg.icon}{cfg.label}
+    </span>
+  );
+}
+
+function ScoreBadge({ score }: { score: number }) {
+  const color = score >= 95 ? "bg-green-100 text-green-800" : score >= 80 ? "bg-yellow-100 text-yellow-800" : "bg-gray-100 text-gray-600";
+  return <span className={`inline-flex rounded px-1.5 py-0.5 text-xs font-bold ${color}`}>{score}</span>;
+}
+
 const AUDIT_ACTION_STYLES: Record<string, { label: string; color: string }> = {
-  import_mutasi:      { label: "Import",        color: "bg-blue-100 text-blue-800 border-blue-200" },
-  auto_match:         { label: "Auto Match",     color: "bg-emerald-100 text-emerald-800 border-emerald-200" },
-  need_review:        { label: "Need Review",    color: "bg-yellow-100 text-yellow-800 border-yellow-200" },
-  manual_match:       { label: "Manual Match",   color: "bg-purple-100 text-purple-800 border-purple-200" },
-  approved:           { label: "Disetujui",      color: "bg-green-100 text-green-800 border-green-200" },
-  rejected:           { label: "Ditolak",        color: "bg-red-100 text-red-800 border-red-200" },
-  run_matching:       { label: "Run Matching",   color: "bg-sky-100 text-sky-800 border-sky-200" },
-  export_sheet:       { label: "Export Sheet",   color: "bg-indigo-100 text-indigo-800 border-indigo-200" },
-  send_reminder_wa:   { label: "Kirim WA",       color: "bg-orange-100 text-orange-800 border-orange-200" },
+  import_mutasi:     { label: "Import",       color: "bg-blue-100 text-blue-800 border-blue-200" },
+  auto_match:        { label: "Auto Match",   color: "bg-emerald-100 text-emerald-800 border-emerald-200" },
+  need_review:       { label: "Need Review",  color: "bg-yellow-100 text-yellow-800 border-yellow-200" },
+  manual_match:      { label: "Manual Match", color: "bg-purple-100 text-purple-800 border-purple-200" },
+  approved:          { label: "Disetujui",    color: "bg-green-100 text-green-800 border-green-200" },
+  rejected:          { label: "Ditolak",      color: "bg-red-100 text-red-800 border-red-200" },
+  run_matching:      { label: "Run Matching", color: "bg-sky-100 text-sky-800 border-sky-200" },
+  export_sheet:      { label: "Export Sheet", color: "bg-indigo-100 text-indigo-800 border-indigo-200" },
+  send_reminder_wa:  { label: "Kirim WA",     color: "bg-orange-100 text-orange-800 border-orange-200" },
 };
 
 function AuditActionBadge({ action }: { action: string }) {
@@ -149,6 +192,16 @@ function AuditActionBadge({ action }: { action: string }) {
   if (!s) return <span className="inline-flex rounded border px-2 py-0.5 text-[10px] font-mono bg-gray-50 text-gray-600 border-gray-200">{action}</span>;
   return <span className={`inline-flex rounded border px-2 py-0.5 text-[10px] font-semibold ${s.color}`}>{s.label}</span>;
 }
+
+const EMPTY_COA_FORM = {
+  providerName: "",
+  direction: "ALL",
+  descriptionPattern: "",
+  coaCode: "",
+  coaName: "",
+  description: "",
+  isActive: true,
+};
 
 export default function BankRekonsiliasi() {
   const { toast } = useToast();
@@ -165,6 +218,7 @@ export default function BankRekonsiliasi() {
     staleTime: 60_000,
   });
 
+  // ── State: Mutasi filters ─────────────────────────────────────────────────
   const [filterStatus, setFilterStatus] = useState("all");
   const [filterDirection, setFilterDirection] = useState("all");
   const [filterProvider, setFilterProvider] = useState("");
@@ -174,46 +228,33 @@ export default function BankRekonsiliasi() {
   const [manualCandidateType, setManualCandidateType] = useState<"payment" | "invoice">("payment");
   const [manualCandidateId, setManualCandidateId] = useState("");
 
-  // Export Google Sheets
+  // ── State: Export & WA ───────────────────────────────────────────────────
   const [showExport, setShowExport] = useState(false);
   const [exportSheetUrl, setExportSheetUrl] = useState(() => localStorage.getItem("bank_rekon_sheet_url") ?? "");
   const [exportSheetTitle, setExportSheetTitle] = useState("");
   const [exportDateFrom, setExportDateFrom] = useState("");
   const [exportDateTo, setExportDateTo] = useState("");
-
-  // WA Reminder
   const [showWa, setShowWa] = useState(false);
   const [waTypes, setWaTypes] = useState<string[]>(["unpaid_invoice"]);
 
-  // Audit Log
+  // ── State: Audit Trail filters ───────────────────────────────────────────
   const [auditAction, setAuditAction] = useState("all");
   const [auditDateFrom, setAuditDateFrom] = useState("");
   const [auditDateTo, setAuditDateTo] = useState("");
 
-  const auditParams = new URLSearchParams();
-  if (auditAction !== "all") auditParams.set("action", auditAction);
-  if (auditDateFrom) auditParams.set("date_from", auditDateFrom);
-  if (auditDateTo) auditParams.set("date_to", auditDateTo);
-  auditParams.set("limit", "100");
+  // ── State: Laporan ───────────────────────────────────────────────────────
+  const [laporanYear, setLaporanYear] = useState(new Date().getFullYear());
 
-  const { data: auditLogsData, isLoading: loadingAuditLogs, refetch: refetchAuditLogs } = useQuery<{ data: BankReconAuditLog[]; total: number; page: number; limit: number }>({
-    queryKey: ["/api/bank-reconciliation/audit-logs", auditParams.toString()],
-    queryFn: async () => {
-      const r = await fetch(`/api/bank-reconciliation/audit-logs?${auditParams}`);
-      if (!r.ok) throw new Error("Gagal memuat audit log");
-      return r.json();
-    },
-  });
-  const auditLogs = auditLogsData?.data ?? [];
+  // ── State: Closing Bank ──────────────────────────────────────────────────
+  const [closingLockMonth, setClosingLockMonth] = useState("");
+  const [closingNotes, setClosingNotes] = useState("");
 
-  // Build query params
-  const params = new URLSearchParams();
-  if (filterStatus !== "all") params.set("status", filterStatus);
-  if (filterDirection !== "all") params.set("direction", filterDirection);
-  if (filterProvider) params.set("provider", filterProvider);
-  if (filterDateFrom) params.set("dateFrom", filterDateFrom);
-  if (filterDateTo) params.set("dateTo", filterDateTo);
+  // ── State: Aturan COA ────────────────────────────────────────────────────
+  const [showCoaForm, setShowCoaForm] = useState(false);
+  const [editingCoaId, setEditingCoaId] = useState<number | null>(null);
+  const [coaForm, setCoaForm] = useState(EMPTY_COA_FORM);
 
+  // ── Queries ───────────────────────────────────────────────────────────────
   const { data: kpi, refetch: refetchKpi } = useQuery<KpiData>({
     queryKey: ["/api/bank-reconciliation/kpi"],
     queryFn: async () => {
@@ -223,6 +264,13 @@ export default function BankRekonsiliasi() {
     },
     refetchInterval: 60_000,
   });
+
+  const params = new URLSearchParams();
+  if (filterStatus !== "all") params.set("status", filterStatus);
+  if (filterDirection !== "all") params.set("direction", filterDirection);
+  if (filterProvider) params.set("provider", filterProvider);
+  if (filterDateFrom) params.set("dateFrom", filterDateFrom);
+  if (filterDateTo) params.set("dateTo", filterDateTo);
 
   const { data: mutations = [], isLoading, refetch } = useQuery<BankMutation[]>({
     queryKey: ["/api/bank-reconciliation/mutations", params.toString()],
@@ -243,6 +291,60 @@ export default function BankRekonsiliasi() {
     enabled: !!selectedMutation,
   });
 
+  const auditParams = new URLSearchParams();
+  if (auditAction !== "all") auditParams.set("action", auditAction);
+  if (auditDateFrom) auditParams.set("date_from", auditDateFrom);
+  if (auditDateTo) auditParams.set("date_to", auditDateTo);
+  auditParams.set("limit", "100");
+
+  const { data: auditLogsData, isLoading: loadingAuditLogs, refetch: refetchAuditLogs } = useQuery<{ data: BankReconAuditLog[]; total: number; page: number; limit: number }>({
+    queryKey: ["/api/bank-reconciliation/audit-logs", auditParams.toString()],
+    queryFn: async () => {
+      const r = await fetch(`/api/bank-reconciliation/audit-logs?${auditParams}`);
+      if (!r.ok) throw new Error("Gagal memuat audit log");
+      return r.json();
+    },
+  });
+  const auditLogs = auditLogsData?.data ?? [];
+
+  const { data: laporanData, isLoading: loadingLaporan, refetch: refetchLaporan } = useQuery<{ year: number; rows: LaporanRow[] }>({
+    queryKey: ["/api/bank-reconciliation/laporan", laporanYear],
+    queryFn: async () => {
+      const r = await fetch(`/api/bank-reconciliation/laporan?year=${laporanYear}`);
+      if (!r.ok) throw new Error("Gagal memuat laporan");
+      return r.json();
+    },
+  });
+
+  const { data: closingPeriods = [], isLoading: loadingClosing, refetch: refetchClosing } = useQuery<ClosingPeriod[]>({
+    queryKey: ["/api/bank-reconciliation/closing"],
+    queryFn: async () => {
+      const r = await fetch("/api/bank-reconciliation/closing");
+      if (!r.ok) throw new Error("Gagal memuat data closing");
+      return r.json();
+    },
+  });
+
+  const { data: coaRules = [], isLoading: loadingCoa, refetch: refetchCoa } = useQuery<CoaRule[]>({
+    queryKey: ["/api/bank-reconciliation/coa-rules"],
+    queryFn: async () => {
+      const r = await fetch("/api/bank-reconciliation/coa-rules");
+      if (!r.ok) throw new Error("Gagal memuat aturan COA");
+      return r.json();
+    },
+  });
+
+  // ── Stats (dari data mutasi yang di-load) ─────────────────────────────────
+  const stats = {
+    total: mutations.length,
+    unmatched: mutations.filter((m) => m.status === "unmatched").length,
+    matched: mutations.filter((m) => m.status === "matched").length,
+    duplicate: mutations.filter((m) => m.status === "duplicate_need_review").length,
+    approved: mutations.filter((m) => m.status === "approved").length,
+    rejected: mutations.filter((m) => m.status === "rejected").length,
+  };
+
+  // ── Mutations ─────────────────────────────────────────────────────────────
   const importMutation = useMutation({
     mutationFn: async (file: File) => {
       const fd = new FormData();
@@ -369,22 +471,114 @@ export default function BankRekonsiliasi() {
     onError: (e: Error) => toast({ title: "Gagal kirim WA", description: e.message, variant: "destructive" }),
   });
 
-  // Stats
-  const stats = {
-    total: mutations.length,
-    unmatched: mutations.filter((m) => m.status === "unmatched").length,
-    matched: mutations.filter((m) => m.status === "matched").length,
-    duplicate: mutations.filter((m) => m.status === "duplicate_need_review").length,
-    approved: mutations.filter((m) => m.status === "approved").length,
-    rejected: mutations.filter((m) => m.status === "rejected").length,
-  };
+  const lockPeriodMut = useMutation({
+    mutationFn: async ({ yearMonth, notes }: { yearMonth: string; notes?: string }) => {
+      const r = await fetch(`/api/bank-reconciliation/closing/${yearMonth}/lock`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ notes }),
+      });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error ?? "Gagal mengunci periode");
+      return data;
+    },
+    onSuccess: () => {
+      toast({ title: "Periode dikunci" });
+      setClosingLockMonth("");
+      setClosingNotes("");
+      qc.invalidateQueries({ queryKey: ["/api/bank-reconciliation/closing"] });
+    },
+    onError: (e: Error) => toast({ title: "Gagal kunci", description: e.message, variant: "destructive" }),
+  });
 
+  const unlockPeriodMut = useMutation({
+    mutationFn: async (yearMonth: string) => {
+      const r = await fetch(`/api/bank-reconciliation/closing/${yearMonth}/lock`, { method: "DELETE" });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error ?? "Gagal membuka periode");
+      return data;
+    },
+    onSuccess: () => {
+      toast({ title: "Periode dibuka kembali" });
+      qc.invalidateQueries({ queryKey: ["/api/bank-reconciliation/closing"] });
+    },
+    onError: (e: Error) => toast({ title: "Gagal buka", description: e.message, variant: "destructive" }),
+  });
+
+  const saveCoaRuleMut = useMutation({
+    mutationFn: async (form: typeof EMPTY_COA_FORM & { id?: number }) => {
+      const { id, ...body } = form;
+      const url = id ? `/api/bank-reconciliation/coa-rules/${id}` : "/api/bank-reconciliation/coa-rules";
+      const method = id ? "PUT" : "POST";
+      const r = await fetch(url, {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error ?? "Gagal menyimpan");
+      return data;
+    },
+    onSuccess: () => {
+      toast({ title: editingCoaId ? "Aturan diperbarui" : "Aturan ditambahkan" });
+      setShowCoaForm(false);
+      setEditingCoaId(null);
+      setCoaForm(EMPTY_COA_FORM);
+      qc.invalidateQueries({ queryKey: ["/api/bank-reconciliation/coa-rules"] });
+    },
+    onError: (e: Error) => toast({ title: "Gagal simpan", description: e.message, variant: "destructive" }),
+  });
+
+  const deleteCoaRuleMut = useMutation({
+    mutationFn: async (id: number) => {
+      const r = await fetch(`/api/bank-reconciliation/coa-rules/${id}`, { method: "DELETE" });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error ?? "Gagal hapus");
+      return data;
+    },
+    onSuccess: () => {
+      toast({ title: "Aturan dihapus" });
+      qc.invalidateQueries({ queryKey: ["/api/bank-reconciliation/coa-rules"] });
+    },
+    onError: (e: Error) => toast({ title: "Gagal hapus", description: e.message, variant: "destructive" }),
+  });
+
+  // ── Helper: set COA form for editing ─────────────────────────────────────
+  function openEditCoa(rule: CoaRule) {
+    setCoaForm({
+      providerName: rule.providerName ?? "",
+      direction: rule.direction,
+      descriptionPattern: rule.descriptionPattern ?? "",
+      coaCode: rule.coaCode,
+      coaName: rule.coaName,
+      description: rule.description ?? "",
+      isActive: rule.isActive,
+    });
+    setEditingCoaId(rule.id);
+    setShowCoaForm(true);
+  }
+
+  // ── Closing: generate months for current year ─────────────────────────────
+  const lockedSet = new Set(closingPeriods.map((p) => p.yearMonth));
+  const currentYear = new Date().getFullYear();
+  const currentMonth = new Date().getMonth() + 1;
+  const closingMonthOptions: string[] = [];
+  for (let m = 1; m <= currentMonth; m++) {
+    closingMonthOptions.push(`${currentYear}-${String(m).padStart(2, "0")}`);
+  }
+  // Also include previous year months
+  for (let m = 1; m <= 12; m++) {
+    closingMonthOptions.push(`${currentYear - 1}-${String(m).padStart(2, "0")}`);
+  }
+
+  // ──────────────────────────────────────────────────────────────────────────
   return (
-    <div className="space-y-5 p-6">
+    <div className="space-y-4 p-6">
+      {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
         <div>
           <div className="flex items-center gap-2 flex-wrap">
-            <h1 className="text-2xl font-bold tracking-tight">Rekonsiliasi Mutasi Bank</h1>
+            <h1 className="text-2xl font-bold tracking-tight">Rekonsiliasi Bank</h1>
             <span className="inline-flex items-center rounded-full border border-emerald-300 bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">Engine Baru</span>
             <span className="inline-flex items-center rounded-full border border-blue-300 bg-blue-50 px-2 py-0.5 text-[11px] font-semibold text-blue-700">Jurnal Aktif</span>
             <span className="inline-flex items-center rounded-full border border-purple-300 bg-purple-50 px-2 py-0.5 text-[11px] font-semibold text-purple-700">Closing Aktif</span>
@@ -394,337 +588,221 @@ export default function BankRekonsiliasi() {
                 Tenant ID: {appCtx.ownerTenantId}
               </span>
             )}
-            {appCtx?.isBizPortal && (
-              <span className="inline-flex items-center rounded-full border border-indigo-300 bg-indigo-50 px-2 py-0.5 text-[11px] font-semibold text-indigo-700">BizPortal</span>
-            )}
             {appCtx?.isFullAccess && (
               <span className="inline-flex items-center rounded-full border border-green-300 bg-green-50 px-2 py-0.5 text-[11px] font-semibold text-green-700">Akses Penuh</span>
             )}
           </div>
           <p className="text-muted-foreground mt-1 text-sm">
-            Import mutasi rekening, cocokkan otomatis dengan transaksi/invoice, lalu setujui atau tolak.
+            Cocokkan mutasi rekening dengan transaksi di sistem
           </p>
         </div>
       </div>
 
-      {/* KPI Panel */}
-      {kpi && (
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <Card className="border-blue-200 bg-blue-50/40">
-            <CardHeader className="pb-2 pt-4 px-4">
-              <CardTitle className="text-sm font-semibold text-blue-800 flex items-center gap-1.5">
-                <Banknote className="h-4 w-4" /> Mutasi Bank
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="px-4 pb-4">
-              <div className="grid grid-cols-3 gap-2 text-center">
-                <div>
-                  <p className="text-xs text-muted-foreground">Total</p>
-                  <p className="text-lg font-bold text-blue-700">{kpi.mutations.total}</p>
-                </div>
-                <div>
-                  <p className="text-xs text-muted-foreground">Perlu Review</p>
-                  <p className="text-lg font-bold text-yellow-700">{kpi.mutations.matched + kpi.mutations.duplicateNeedReview}</p>
-                </div>
-                <div>
-                  <p className="text-xs text-muted-foreground">Selesai</p>
-                  <p className="text-lg font-bold text-green-700">{kpi.mutations.approved}</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card className="border-purple-200 bg-purple-50/40">
-            <CardHeader className="pb-2 pt-4 px-4">
-              <CardTitle className="text-sm font-semibold text-purple-800 flex items-center gap-1.5">
-                <Receipt className="h-4 w-4" /> Event Pembayaran
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="px-4 pb-4">
-              <div className="grid grid-cols-3 gap-2 text-center">
-                <div>
-                  <p className="text-xs text-muted-foreground">Total</p>
-                  <p className="text-lg font-bold text-purple-700">{kpi.paymentEvents.total}</p>
-                </div>
-                <div>
-                  <p className="text-xs text-muted-foreground">Menunggu</p>
-                  <p className="text-lg font-bold text-orange-600">{kpi.paymentEvents.pending + kpi.paymentEvents.waitingConfirmation}</p>
-                </div>
-                <div>
-                  <p className="text-xs text-muted-foreground">Dikonfirmasi</p>
-                  <p className="text-lg font-bold text-green-700">{kpi.paymentEvents.confirmed}</p>
-                </div>
-              </div>
-              {kpi.paymentEvents.totalConfirmedAmount > 0 && (
-                <p className="text-xs text-center text-muted-foreground mt-2 border-t pt-2">
-                  Total konfirmasi: <span className="font-semibold text-green-700">{formatRp(kpi.paymentEvents.totalConfirmedAmount)}</span>
-                </p>
-              )}
-            </CardContent>
-          </Card>
-
-          <Card className="border-green-200 bg-green-50/40">
-            <CardHeader className="pb-2 pt-4 px-4">
-              <CardTitle className="text-sm font-semibold text-green-800 flex items-center gap-1.5">
-                <FileCheck className="h-4 w-4" /> Status Invoice
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="px-4 pb-4">
-              <div className="grid grid-cols-4 gap-1 text-center">
-                <div>
-                  <p className="text-xs text-muted-foreground">Lunas</p>
-                  <p className="text-lg font-bold text-green-700">{kpi.invoices.paid}</p>
-                </div>
-                <div>
-                  <p className="text-xs text-muted-foreground">Sebagian</p>
-                  <p className="text-lg font-bold text-blue-700">{kpi.invoices.partial}</p>
-                </div>
-                <div>
-                  <p className="text-xs text-muted-foreground">Belum</p>
-                  <p className="text-lg font-bold text-gray-600">{kpi.invoices.unpaid}</p>
-                </div>
-                <div>
-                  <p className="text-xs text-muted-foreground">Lewat</p>
-                  <p className="text-lg font-bold text-red-600">{kpi.invoices.overdue}</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-      )}
-
-      {/* Stat cards */}
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-        {[
-          { label: "Total",        val: stats.total,     color: "text-gray-700",   bg: "" },
-          { label: "Tidak Cocok",  val: stats.unmatched, color: "text-gray-600",   bg: "bg-gray-50" },
-          { label: "Ada Kandidat", val: stats.matched,   color: "text-blue-700",   bg: "bg-blue-50" },
-          { label: "Duplikat",     val: stats.duplicate, color: "text-yellow-700", bg: "bg-yellow-50" },
-          { label: "Disetujui",    val: stats.approved,  color: "text-green-700",  bg: "bg-green-50" },
-        ].map((s) => (
-          <div key={s.label} className={`rounded-lg border p-3 text-center ${s.bg}`}>
-            <p className="text-xs text-muted-foreground">{s.label}</p>
-            <p className={`text-xl font-bold ${s.color}`}>{s.val}</p>
-          </div>
-        ))}
-      </div>
-
-      {/* Actions row */}
-      <div className="flex flex-wrap gap-2">
-        <Button
-          variant="outline"
-          onClick={() => fileRef.current?.click()}
-          disabled={importMutation.isPending}
-        >
-          {importMutation.isPending
-            ? <><RefreshCw className="mr-2 h-4 w-4 animate-spin" />Mengimport...</>
-            : <><FileUp className="mr-2 h-4 w-4" />Import CSV</>}
-        </Button>
-        <input
-          ref={fileRef}
-          type="file"
-          accept=".csv"
-          className="hidden"
-          onChange={(e) => {
-            const f = e.target.files?.[0];
-            if (f) { importMutation.mutate(f); e.target.value = ""; }
-          }}
-        />
-        <Button
-          variant="outline"
-          onClick={() => runMatchMutation.mutate()}
-          disabled={runMatchMutation.isPending}
-        >
-          {runMatchMutation.isPending
-            ? <><RefreshCw className="mr-2 h-4 w-4 animate-spin" />Memproses...</>
-            : <><Zap className="mr-2 h-4 w-4" />Jalankan Auto-Match</>}
-        </Button>
-        <Button variant="ghost" size="icon" onClick={() => { refetch(); refetchKpi(); }} disabled={isLoading}>
-          <RefreshCw className={`h-4 w-4 ${isLoading ? "animate-spin" : ""}`} />
-        </Button>
-        <div className="w-px bg-border h-8 mx-1" />
-        <Button
-          variant="outline"
-          className="border-green-300 text-green-700 hover:bg-green-50"
-          onClick={() => setShowExport(true)}
-        >
-          <FileSpreadsheet className="mr-2 h-4 w-4" />
-          Export Google Sheets
-        </Button>
-        <Button
-          variant="outline"
-          className="border-blue-300 text-blue-700 hover:bg-blue-50"
-          onClick={() => setShowWa(true)}
-        >
-          <MessageCircle className="mr-2 h-4 w-4" />
-          Kirim Reminder WA
-        </Button>
-        <a href="/rekonsiliasi" className="inline-flex items-center gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-700 hover:bg-amber-100">
-          <Archive className="h-3.5 w-3.5" />
-          Laporan Legacy
-        </a>
-      </div>
-
-      <Tabs defaultValue="mutasi" className="w-full">
-        <TabsList className="mb-0">
-          <TabsTrigger value="mutasi" className="text-xs flex items-center gap-1.5">
-            <Banknote className="h-3 w-3" />Daftar Mutasi
+      {/* 6 Tabs */}
+      <Tabs defaultValue="dashboard" className="w-full">
+        <TabsList className="mb-0 flex-wrap h-auto gap-1">
+          <TabsTrigger value="dashboard" className="text-xs flex items-center gap-1.5">
+            <LayoutDashboard className="h-3 w-3" />Dashboard
           </TabsTrigger>
-          <TabsTrigger value="audit-log" className="text-xs flex items-center gap-1.5">
-            <ClipboardList className="h-3 w-3" />Audit Log
+          <TabsTrigger value="audit-trail" className="text-xs flex items-center gap-1.5">
+            <ClipboardList className="h-3 w-3" />Audit Trail
+          </TabsTrigger>
+          <TabsTrigger value="mutasi" className="text-xs flex items-center gap-1.5">
+            <Banknote className="h-3 w-3" />Mutasi
+          </TabsTrigger>
+          <TabsTrigger value="laporan" className="text-xs flex items-center gap-1.5">
+            <BarChart2 className="h-3 w-3" />Laporan
+          </TabsTrigger>
+          <TabsTrigger value="closing-bank" className="text-xs flex items-center gap-1.5">
+            <Lock className="h-3 w-3" />Closing Bank
+          </TabsTrigger>
+          <TabsTrigger value="aturan-coa" className="text-xs flex items-center gap-1.5">
+            <BookOpen className="h-3 w-3" />Aturan COA
           </TabsTrigger>
         </TabsList>
 
-        <TabsContent value="mutasi" className="space-y-4 mt-4">
+        {/* ═══════════════ DASHBOARD ═══════════════ */}
+        <TabsContent value="dashboard" className="space-y-4 mt-4">
+          {/* Action buttons */}
+          <div className="flex flex-wrap gap-2">
+            <Button
+              variant="outline"
+              onClick={() => fileRef.current?.click()}
+              disabled={importMutation.isPending}
+            >
+              {importMutation.isPending
+                ? <><RefreshCw className="mr-2 h-4 w-4 animate-spin" />Mengimport...</>
+                : <><FileUp className="mr-2 h-4 w-4" />Import CSV</>}
+            </Button>
+            <input
+              ref={fileRef}
+              type="file"
+              accept=".csv"
+              className="hidden"
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) { importMutation.mutate(f); e.target.value = ""; }
+              }}
+            />
+            <Button
+              variant="outline"
+              onClick={() => runMatchMutation.mutate()}
+              disabled={runMatchMutation.isPending}
+            >
+              {runMatchMutation.isPending
+                ? <><RefreshCw className="mr-2 h-4 w-4 animate-spin" />Memproses...</>
+                : <><Zap className="mr-2 h-4 w-4" />Jalankan Auto-Match</>}
+            </Button>
+            <Button variant="ghost" size="icon" onClick={() => { refetch(); refetchKpi(); }} disabled={isLoading}>
+              <RefreshCw className={`h-4 w-4 ${isLoading ? "animate-spin" : ""}`} />
+            </Button>
+            <div className="w-px bg-border h-8 mx-1" />
+            <Button
+              variant="outline"
+              className="border-green-300 text-green-700 hover:bg-green-50"
+              onClick={() => setShowExport(true)}
+            >
+              <FileSpreadsheet className="mr-2 h-4 w-4" />
+              Export Google Sheets
+            </Button>
+            <Button
+              variant="outline"
+              className="border-blue-300 text-blue-700 hover:bg-blue-50"
+              onClick={() => setShowWa(true)}
+            >
+              <MessageCircle className="mr-2 h-4 w-4" />
+              Kirim Reminder WA
+            </Button>
+          </div>
 
-      {/* CSV format hint */}
-      <Alert className="border-blue-200 bg-blue-50 py-3">
-        <BarChart2 className="h-4 w-4 text-blue-600" />
-        <AlertDescription className="text-blue-700 text-xs">
-          Format CSV: kolom <strong>tanggal</strong>, <strong>keterangan</strong>, <strong>kredit</strong>, <strong>debet</strong> (atau <strong>nominal</strong>).
-          Baris pertama adalah header. GoPay/DOMPET ANAK BANGSA akan dideteksi otomatis.
-        </AlertDescription>
-      </Alert>
+          {/* KPI Panel */}
+          {kpi && (
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <Card className="border-blue-200 bg-blue-50/40">
+                <CardHeader className="pb-2 pt-4 px-4">
+                  <CardTitle className="text-sm font-semibold text-blue-800 flex items-center gap-1.5">
+                    <Banknote className="h-4 w-4" /> Mutasi Bank
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="px-4 pb-4">
+                  <div className="grid grid-cols-3 gap-2 text-center">
+                    <div>
+                      <p className="text-xs text-muted-foreground">Total</p>
+                      <p className="text-lg font-bold text-blue-700">{kpi.mutations.total}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-muted-foreground">Perlu Review</p>
+                      <p className="text-lg font-bold text-yellow-700">{kpi.mutations.matched + kpi.mutations.duplicateNeedReview}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-muted-foreground">Selesai</p>
+                      <p className="text-lg font-bold text-green-700">{kpi.mutations.approved}</p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
 
-      {/* Filters */}
-      <div className="flex flex-wrap gap-2 items-end">
-        <div className="space-y-1">
-          <Label className="text-xs">Status</Label>
-          <Select value={filterStatus} onValueChange={setFilterStatus}>
-            <SelectTrigger className="h-8 w-36 text-xs"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Semua Status</SelectItem>
-              <SelectItem value="unmatched">Tidak Cocok</SelectItem>
-              <SelectItem value="matched">Ada Kandidat</SelectItem>
-              <SelectItem value="duplicate_need_review">Duplikat</SelectItem>
-              <SelectItem value="approved">Disetujui</SelectItem>
-              <SelectItem value="rejected">Ditolak</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="space-y-1">
-          <Label className="text-xs">Arah</Label>
-          <Select value={filterDirection} onValueChange={setFilterDirection}>
-            <SelectTrigger className="h-8 w-28 text-xs"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">IN & OUT</SelectItem>
-              <SelectItem value="IN">Masuk (IN)</SelectItem>
-              <SelectItem value="OUT">Keluar (OUT)</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="space-y-1">
-          <Label className="text-xs">Provider</Label>
-          <Input
-            className="h-8 w-36 text-xs"
-            placeholder="GoPay / all"
-            value={filterProvider}
-            onChange={(e) => setFilterProvider(e.target.value)}
-          />
-        </div>
-        <div className="space-y-1">
-          <Label className="text-xs">Dari Tanggal</Label>
-          <Input type="date" className="h-8 text-xs" value={filterDateFrom} onChange={(e) => setFilterDateFrom(e.target.value)} />
-        </div>
-        <div className="space-y-1">
-          <Label className="text-xs">Sampai</Label>
-          <Input type="date" className="h-8 text-xs" value={filterDateTo} onChange={(e) => setFilterDateTo(e.target.value)} />
-        </div>
-        {(filterStatus !== "all" || filterDirection !== "all" || filterProvider || filterDateFrom || filterDateTo) && (
-          <Button variant="ghost" size="sm" className="h-8 text-xs" onClick={() => {
-            setFilterStatus("all"); setFilterDirection("all");
-            setFilterProvider(""); setFilterDateFrom(""); setFilterDateTo("");
-          }}>
-            Reset Filter
-          </Button>
-        )}
-      </div>
-
-      {/* Table */}
-      <div className="rounded-md border overflow-x-auto">
-        <Table>
-          <TableHeader>
-            <TableRow className="bg-muted/40">
-              <TableHead className="text-xs whitespace-nowrap">Tanggal</TableHead>
-              <TableHead className="text-xs">Keterangan</TableHead>
-              <TableHead className="text-xs text-right">Kredit</TableHead>
-              <TableHead className="text-xs text-right">Debet</TableHead>
-              <TableHead className="text-xs">Arah</TableHead>
-              <TableHead className="text-xs">Provider</TableHead>
-              <TableHead className="text-xs">Mutation Key</TableHead>
-              <TableHead className="text-xs">Status</TableHead>
-              <TableHead className="text-xs text-center">Aksi</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {isLoading && (
-              <TableRow><TableCell colSpan={9} className="text-center py-8 text-muted-foreground text-sm">Memuat data...</TableCell></TableRow>
-            )}
-            {!isLoading && mutations.length === 0 && (
-              <TableRow>
-                <TableCell colSpan={9} className="text-center py-12 text-muted-foreground text-sm">
-                  <Upload className="mx-auto mb-2 h-8 w-8 opacity-25" />
-                  <p>Belum ada data mutasi.</p>
-                  <p className="text-xs mt-1">Import file CSV mutasi rekening untuk memulai.</p>
-                </TableCell>
-              </TableRow>
-            )}
-            {mutations.map((m) => (
-              <TableRow
-                key={m.id}
-                className={m.status === "approved" ? "bg-green-50/40" : m.status === "duplicate_need_review" ? "bg-yellow-50/40" : ""}
-              >
-                <TableCell className="text-xs whitespace-nowrap">{m.transactionDate}</TableCell>
-                <TableCell className="text-xs max-w-xs">
-                  <p className="truncate">{m.description}</p>
-                  {m.providerOrderId && (
-                    <p className="text-[10px] text-muted-foreground font-mono mt-0.5">{m.providerOrderId}</p>
+              <Card className="border-purple-200 bg-purple-50/40">
+                <CardHeader className="pb-2 pt-4 px-4">
+                  <CardTitle className="text-sm font-semibold text-purple-800 flex items-center gap-1.5">
+                    <Receipt className="h-4 w-4" /> Event Pembayaran
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="px-4 pb-4">
+                  <div className="grid grid-cols-3 gap-2 text-center">
+                    <div>
+                      <p className="text-xs text-muted-foreground">Total</p>
+                      <p className="text-lg font-bold text-purple-700">{kpi.paymentEvents.total}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-muted-foreground">Menunggu</p>
+                      <p className="text-lg font-bold text-orange-600">{kpi.paymentEvents.pending + kpi.paymentEvents.waitingConfirmation}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-muted-foreground">Dikonfirmasi</p>
+                      <p className="text-lg font-bold text-green-700">{kpi.paymentEvents.confirmed}</p>
+                    </div>
+                  </div>
+                  {kpi.paymentEvents.totalConfirmedAmount > 0 && (
+                    <p className="text-xs text-center text-muted-foreground mt-2 border-t pt-2">
+                      Total konfirmasi: <span className="font-semibold text-green-700">{formatRp(kpi.paymentEvents.totalConfirmedAmount)}</span>
+                    </p>
                   )}
-                </TableCell>
-                <TableCell className="text-xs text-right font-medium text-green-700">
-                  {parseFloat(m.creditAmount) > 0 ? formatRp(m.creditAmount) : "—"}
-                </TableCell>
-                <TableCell className="text-xs text-right font-medium text-red-700">
-                  {parseFloat(m.debitAmount) > 0 ? formatRp(m.debitAmount) : "—"}
-                </TableCell>
-                <TableCell>
-                  <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold ${m.direction === "IN" ? "bg-green-100 text-green-800" : "bg-red-100 text-red-800"}`}>
-                    {m.direction}
-                  </span>
-                </TableCell>
-                <TableCell className="text-xs">
-                  {m.providerName ? (
-                    <Badge variant="outline" className="text-[10px] px-1.5 border-purple-300 text-purple-700 bg-purple-50">
-                      {m.providerName}
-                    </Badge>
-                  ) : "—"}
-                </TableCell>
-                <TableCell className="text-[10px] font-mono text-muted-foreground">{m.mutationKey}</TableCell>
-                <TableCell><StatusBadge status={m.status} /></TableCell>
-                <TableCell className="text-center">
-                  {m.status !== "approved" && m.status !== "rejected" && (
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      className="h-7 text-xs"
-                      onClick={() => setSelectedMutation(m)}
-                    >
-                      <ChevronRight className="h-3.5 w-3.5" />
-                      Tinjau
-                    </Button>
-                  )}
-                  {m.status === "approved" && <span className="text-xs text-green-600">✓ Selesai</span>}
-                </TableCell>
-              </TableRow>
+                </CardContent>
+              </Card>
+
+              <Card className="border-green-200 bg-green-50/40">
+                <CardHeader className="pb-2 pt-4 px-4">
+                  <CardTitle className="text-sm font-semibold text-green-800 flex items-center gap-1.5">
+                    <FileCheck className="h-4 w-4" /> Status Invoice
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="px-4 pb-4">
+                  <div className="grid grid-cols-4 gap-1 text-center">
+                    <div>
+                      <p className="text-xs text-muted-foreground">Lunas</p>
+                      <p className="text-lg font-bold text-green-700">{kpi.invoices.paid}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-muted-foreground">Sebagian</p>
+                      <p className="text-lg font-bold text-blue-700">{kpi.invoices.partial}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-muted-foreground">Belum</p>
+                      <p className="text-lg font-bold text-gray-600">{kpi.invoices.unpaid}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-muted-foreground">Lewat</p>
+                      <p className="text-lg font-bold text-red-600">{kpi.invoices.overdue}</p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          )}
+
+          {/* Stat cards (dari data yang dimuat) */}
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+            {[
+              { label: "Total Dimuat",  val: stats.total,     color: "text-gray-700",   bg: "" },
+              { label: "Tidak Cocok",   val: stats.unmatched, color: "text-gray-600",   bg: "bg-gray-50" },
+              { label: "Ada Kandidat",  val: stats.matched,   color: "text-blue-700",   bg: "bg-blue-50" },
+              { label: "Duplikat",      val: stats.duplicate, color: "text-yellow-700", bg: "bg-yellow-50" },
+              { label: "Disetujui",     val: stats.approved,  color: "text-green-700",  bg: "bg-green-50" },
+            ].map((s) => (
+              <div key={s.label} className={`rounded-lg border p-3 text-center ${s.bg}`}>
+                <p className="text-xs text-muted-foreground">{s.label}</p>
+                <p className={`text-xl font-bold ${s.color}`}>{s.val}</p>
+              </div>
             ))}
-          </TableBody>
-        </Table>
-      </div>
+          </div>
 
+          {/* Closing periods summary */}
+          {closingPeriods.length > 0 && (
+            <div className="rounded-lg border p-4 bg-amber-50/40 border-amber-200">
+              <h3 className="text-sm font-semibold text-amber-800 flex items-center gap-1.5 mb-2">
+                <Lock className="h-4 w-4" /> Periode Terkunci ({closingPeriods.length})
+              </h3>
+              <div className="flex flex-wrap gap-2">
+                {closingPeriods.slice(0, 6).map((p) => {
+                  const [yr, mo] = p.yearMonth.split("-");
+                  return (
+                    <span key={p.id} className="inline-flex items-center gap-1 rounded-full border border-amber-300 bg-amber-100 px-2.5 py-1 text-xs font-semibold text-amber-800">
+                      <Lock className="h-3 w-3" />
+                      {MONTH_NAMES[parseInt(mo, 10) - 1]} {yr}
+                    </span>
+                  );
+                })}
+                {closingPeriods.length > 6 && (
+                  <span className="text-xs text-muted-foreground">+{closingPeriods.length - 6} lainnya</span>
+                )}
+              </div>
+            </div>
+          )}
         </TabsContent>
 
-        <TabsContent value="audit-log" className="space-y-4 mt-4">
-          {/* ── Audit Log Filters ── */}
+        {/* ═══════════════ AUDIT TRAIL ═══════════════ */}
+        <TabsContent value="audit-trail" className="space-y-4 mt-4">
           <div className="flex flex-wrap gap-2 items-end">
             <div className="space-y-1">
               <Label className="text-xs">Aksi</Label>
@@ -762,7 +840,6 @@ export default function BankRekonsiliasi() {
             )}
           </div>
 
-          {/* ── Audit Log Table ── */}
           <div className="rounded-md border overflow-x-auto">
             <Table>
               <TableHeader>
@@ -795,20 +872,14 @@ export default function BankRekonsiliasi() {
                     <TableCell className="text-[10px] text-muted-foreground whitespace-nowrap font-mono">
                       {new Date(log.createdAt).toLocaleString("id-ID", { dateStyle: "short", timeStyle: "short" })}
                     </TableCell>
-                    <TableCell>
-                      <AuditActionBadge action={log.action} />
-                    </TableCell>
-                    <TableCell className="text-[10px] font-mono text-muted-foreground">
-                      {log.mutationId ?? "—"}
-                    </TableCell>
+                    <TableCell><AuditActionBadge action={log.action} /></TableCell>
+                    <TableCell className="text-[10px] font-mono text-muted-foreground">{log.mutationId ?? "—"}</TableCell>
                     <TableCell className="text-[10px] font-mono text-muted-foreground">
                       {log.matchId ? `M:${log.matchId}` : ""}{log.matchId && log.journalId ? " / " : ""}{log.journalId ? `J:${log.journalId}` : ""}{!log.matchId && !log.journalId ? "—" : ""}
                     </TableCell>
                     <TableCell className="text-xs">
                       <span className="font-medium">{log.actionUserId ?? "—"}</span>
-                      {log.actionRole && (
-                        <span className="ml-1 text-[10px] text-muted-foreground">({log.actionRole})</span>
-                      )}
+                      {log.actionRole && <span className="ml-1 text-[10px] text-muted-foreground">({log.actionRole})</span>}
                     </TableCell>
                     <TableCell className="text-[10px] text-muted-foreground">{log.ownerApp ?? "—"}</TableCell>
                     <TableCell className="text-[10px] text-muted-foreground">{log.sourceModule ?? "—"}</TableCell>
@@ -830,8 +901,512 @@ export default function BankRekonsiliasi() {
             </p>
           )}
         </TabsContent>
-      </Tabs>
 
+        {/* ═══════════════ MUTASI ═══════════════ */}
+        <TabsContent value="mutasi" className="space-y-4 mt-4">
+          {/* Import actions */}
+          <div className="flex flex-wrap gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => fileRef.current?.click()}
+              disabled={importMutation.isPending}
+            >
+              {importMutation.isPending
+                ? <><RefreshCw className="mr-2 h-3.5 w-3.5 animate-spin" />Mengimport...</>
+                : <><FileUp className="mr-2 h-3.5 w-3.5" />Import CSV</>}
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => runMatchMutation.mutate()}
+              disabled={runMatchMutation.isPending}
+            >
+              {runMatchMutation.isPending
+                ? <><RefreshCw className="mr-2 h-3.5 w-3.5 animate-spin" />Memproses...</>
+                : <><Zap className="mr-2 h-3.5 w-3.5" />Jalankan Auto-Match</>}
+            </Button>
+            <Button variant="ghost" size="sm" onClick={() => { refetch(); refetchKpi(); }} disabled={isLoading}>
+              <RefreshCw className={`mr-1 h-3.5 w-3.5 ${isLoading ? "animate-spin" : ""}`} />Refresh
+            </Button>
+          </div>
+
+          {/* CSV format hint */}
+          <Alert className="border-blue-200 bg-blue-50 py-3">
+            <BarChart2 className="h-4 w-4 text-blue-600" />
+            <AlertDescription className="text-blue-700 text-xs">
+              Format CSV: kolom <strong>tanggal</strong>, <strong>keterangan</strong>, <strong>kredit</strong>, <strong>debet</strong> (atau <strong>nominal</strong>).
+              Baris pertama adalah header. GoPay/DOMPET ANAK BANGSA akan dideteksi otomatis.
+            </AlertDescription>
+          </Alert>
+
+          {/* Filters */}
+          <div className="flex flex-wrap gap-2 items-end">
+            <div className="space-y-1">
+              <Label className="text-xs">Status</Label>
+              <Select value={filterStatus} onValueChange={setFilterStatus}>
+                <SelectTrigger className="h-8 w-36 text-xs"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Semua Status</SelectItem>
+                  <SelectItem value="unmatched">Tidak Cocok</SelectItem>
+                  <SelectItem value="matched">Ada Kandidat</SelectItem>
+                  <SelectItem value="duplicate_need_review">Duplikat</SelectItem>
+                  <SelectItem value="approved">Disetujui</SelectItem>
+                  <SelectItem value="rejected">Ditolak</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Arah</Label>
+              <Select value={filterDirection} onValueChange={setFilterDirection}>
+                <SelectTrigger className="h-8 w-28 text-xs"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">IN & OUT</SelectItem>
+                  <SelectItem value="IN">Masuk (IN)</SelectItem>
+                  <SelectItem value="OUT">Keluar (OUT)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Provider</Label>
+              <Input
+                className="h-8 w-36 text-xs"
+                placeholder="GoPay / all"
+                value={filterProvider}
+                onChange={(e) => setFilterProvider(e.target.value)}
+              />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Dari Tanggal</Label>
+              <Input type="date" className="h-8 text-xs" value={filterDateFrom} onChange={(e) => setFilterDateFrom(e.target.value)} />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Sampai</Label>
+              <Input type="date" className="h-8 text-xs" value={filterDateTo} onChange={(e) => setFilterDateTo(e.target.value)} />
+            </div>
+            {(filterStatus !== "all" || filterDirection !== "all" || filterProvider || filterDateFrom || filterDateTo) && (
+              <Button variant="ghost" size="sm" className="h-8 text-xs" onClick={() => {
+                setFilterStatus("all"); setFilterDirection("all");
+                setFilterProvider(""); setFilterDateFrom(""); setFilterDateTo("");
+              }}>
+                Reset Filter
+              </Button>
+            )}
+          </div>
+
+          {/* Table */}
+          <div className="rounded-md border overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow className="bg-muted/40">
+                  <TableHead className="text-xs whitespace-nowrap">Tanggal</TableHead>
+                  <TableHead className="text-xs">Keterangan</TableHead>
+                  <TableHead className="text-xs text-right">Kredit</TableHead>
+                  <TableHead className="text-xs text-right">Debet</TableHead>
+                  <TableHead className="text-xs">Arah</TableHead>
+                  <TableHead className="text-xs">Provider</TableHead>
+                  <TableHead className="text-xs">Mutation Key</TableHead>
+                  <TableHead className="text-xs">Status</TableHead>
+                  <TableHead className="text-xs text-center">Aksi</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {isLoading && (
+                  <TableRow><TableCell colSpan={9} className="text-center py-8 text-muted-foreground text-sm">Memuat data...</TableCell></TableRow>
+                )}
+                {!isLoading && mutations.length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={9} className="text-center py-12 text-muted-foreground text-sm">
+                      <Upload className="mx-auto mb-2 h-8 w-8 opacity-25" />
+                      <p>Belum ada data mutasi.</p>
+                      <p className="text-xs mt-1">Import file CSV mutasi rekening untuk memulai.</p>
+                    </TableCell>
+                  </TableRow>
+                )}
+                {mutations.map((m) => (
+                  <TableRow
+                    key={m.id}
+                    className={m.status === "approved" ? "bg-green-50/40" : m.status === "duplicate_need_review" ? "bg-yellow-50/40" : ""}
+                  >
+                    <TableCell className="text-xs whitespace-nowrap">{m.transactionDate}</TableCell>
+                    <TableCell className="text-xs max-w-xs">
+                      <p className="truncate">{m.description}</p>
+                      {m.providerOrderId && (
+                        <p className="text-[10px] text-muted-foreground font-mono mt-0.5">{m.providerOrderId}</p>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-xs text-right font-medium text-green-700">
+                      {parseFloat(m.creditAmount) > 0 ? formatRp(m.creditAmount) : "—"}
+                    </TableCell>
+                    <TableCell className="text-xs text-right font-medium text-red-700">
+                      {parseFloat(m.debitAmount) > 0 ? formatRp(m.debitAmount) : "—"}
+                    </TableCell>
+                    <TableCell>
+                      <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold ${m.direction === "IN" ? "bg-green-100 text-green-800" : "bg-red-100 text-red-800"}`}>
+                        {m.direction}
+                      </span>
+                    </TableCell>
+                    <TableCell className="text-xs">
+                      {m.providerName ? (
+                        <Badge variant="outline" className="text-[10px] px-1.5 border-purple-300 text-purple-700 bg-purple-50">
+                          {m.providerName}
+                        </Badge>
+                      ) : "—"}
+                    </TableCell>
+                    <TableCell className="text-[10px] font-mono text-muted-foreground">{m.mutationKey}</TableCell>
+                    <TableCell><StatusBadge status={m.status} /></TableCell>
+                    <TableCell className="text-center">
+                      {m.status !== "approved" && m.status !== "rejected" && (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-7 text-xs"
+                          onClick={() => setSelectedMutation(m)}
+                        >
+                          <ChevronRight className="h-3.5 w-3.5" />
+                          Tinjau
+                        </Button>
+                      )}
+                      {m.status === "approved" && <span className="text-xs text-green-600">✓ Selesai</span>}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        </TabsContent>
+
+        {/* ═══════════════ LAPORAN ═══════════════ */}
+        <TabsContent value="laporan" className="space-y-4 mt-4">
+          <div className="flex items-center gap-3">
+            <div className="space-y-1">
+              <Label className="text-xs">Tahun</Label>
+              <Select value={String(laporanYear)} onValueChange={(v) => setLaporanYear(parseInt(v, 10))}>
+                <SelectTrigger className="h-8 w-28 text-xs"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {[currentYear, currentYear - 1, currentYear - 2].map((yr) => (
+                    <SelectItem key={yr} value={String(yr)}>{yr}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="pt-5">
+              <Button variant="ghost" size="sm" onClick={() => refetchLaporan()} disabled={loadingLaporan}>
+                <RefreshCw className={`h-3.5 w-3.5 ${loadingLaporan ? "animate-spin" : ""}`} />
+              </Button>
+            </div>
+          </div>
+
+          {/* Summary cards */}
+          {laporanData && laporanData.rows.length > 0 && (
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              {(() => {
+                const totals = laporanData.rows.reduce(
+                  (acc, r) => ({
+                    total: acc.total + r.total,
+                    approved: acc.approved + r.approved,
+                    unmatched: acc.unmatched + r.unmatched,
+                    totalIn: acc.totalIn + parseFloat(r.total_in),
+                    approvedAmt: acc.approvedAmt + parseFloat(r.approved_amount),
+                  }),
+                  { total: 0, approved: 0, unmatched: 0, totalIn: 0, approvedAmt: 0 }
+                );
+                return (
+                  <>
+                    <div className="rounded-lg border p-3 text-center bg-blue-50">
+                      <p className="text-xs text-muted-foreground">Total Mutasi</p>
+                      <p className="text-xl font-bold text-blue-700">{totals.total}</p>
+                    </div>
+                    <div className="rounded-lg border p-3 text-center bg-green-50">
+                      <p className="text-xs text-muted-foreground">Disetujui</p>
+                      <p className="text-xl font-bold text-green-700">{totals.approved}</p>
+                    </div>
+                    <div className="rounded-lg border p-3 text-center bg-gray-50">
+                      <p className="text-xs text-muted-foreground">Tidak Cocok</p>
+                      <p className="text-xl font-bold text-gray-700">{totals.unmatched}</p>
+                    </div>
+                    <div className="rounded-lg border p-3 text-center bg-emerald-50">
+                      <p className="text-xs text-muted-foreground">Total Masuk</p>
+                      <p className="text-sm font-bold text-emerald-700">{formatRp(totals.totalIn)}</p>
+                    </div>
+                  </>
+                );
+              })()}
+            </div>
+          )}
+
+          <div className="rounded-md border overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow className="bg-muted/40">
+                  <TableHead className="text-xs">Bulan</TableHead>
+                  <TableHead className="text-xs text-right">Total</TableHead>
+                  <TableHead className="text-xs text-right">Disetujui</TableHead>
+                  <TableHead className="text-xs text-right">Ditolak</TableHead>
+                  <TableHead className="text-xs text-right">Tidak Cocok</TableHead>
+                  <TableHead className="text-xs text-right">Duplikat</TableHead>
+                  <TableHead className="text-xs text-right">Total Masuk</TableHead>
+                  <TableHead className="text-xs text-right">Total Keluar</TableHead>
+                  <TableHead className="text-xs text-right">Approved Masuk</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {loadingLaporan && (
+                  <TableRow><TableCell colSpan={9} className="text-center py-8 text-muted-foreground text-sm">Memuat laporan...</TableCell></TableRow>
+                )}
+                {!loadingLaporan && (!laporanData || laporanData.rows.length === 0) && (
+                  <TableRow>
+                    <TableCell colSpan={9} className="text-center py-12 text-muted-foreground text-sm">
+                      <BarChart2 className="mx-auto mb-2 h-8 w-8 opacity-25" />
+                      <p>Tidak ada data mutasi untuk tahun {laporanYear}.</p>
+                    </TableCell>
+                  </TableRow>
+                )}
+                {laporanData?.rows.map((row) => {
+                  const [yr, mo] = row.year_month.split("-");
+                  const isLocked = lockedSet.has(row.year_month);
+                  return (
+                    <TableRow key={row.year_month} className={isLocked ? "bg-amber-50/40" : ""}>
+                      <TableCell className="text-xs font-medium">
+                        <div className="flex items-center gap-1.5">
+                          {isLocked && <Lock className="h-3 w-3 text-amber-600" />}
+                          {MONTH_NAMES[parseInt(mo, 10) - 1]} {yr}
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-xs text-right font-bold">{row.total}</TableCell>
+                      <TableCell className="text-xs text-right text-green-700 font-semibold">{row.approved}</TableCell>
+                      <TableCell className="text-xs text-right text-red-600">{row.rejected}</TableCell>
+                      <TableCell className="text-xs text-right text-gray-600">{row.unmatched}</TableCell>
+                      <TableCell className="text-xs text-right text-yellow-700">{row.duplicate}</TableCell>
+                      <TableCell className="text-xs text-right text-emerald-700">{formatRp(row.total_in)}</TableCell>
+                      <TableCell className="text-xs text-right text-red-700">{formatRp(row.total_out)}</TableCell>
+                      <TableCell className="text-xs text-right font-semibold text-green-700">{formatRp(row.approved_amount)}</TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          </div>
+        </TabsContent>
+
+        {/* ═══════════════ CLOSING BANK ═══════════════ */}
+        <TabsContent value="closing-bank" className="space-y-4 mt-4">
+          <div className="flex items-start gap-4 flex-wrap">
+            <Card className="flex-1 min-w-64">
+              <CardHeader className="pb-2 pt-4 px-4">
+                <CardTitle className="text-sm flex items-center gap-1.5">
+                  <Lock className="h-4 w-4 text-amber-600" />
+                  Kunci Periode Baru
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="px-4 pb-4 space-y-3">
+                <div className="space-y-1">
+                  <Label className="text-xs">Pilih Bulan</Label>
+                  <Select value={closingLockMonth} onValueChange={setClosingLockMonth}>
+                    <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Pilih bulan..." /></SelectTrigger>
+                    <SelectContent>
+                      {closingMonthOptions.filter((m) => !lockedSet.has(m)).map((ym) => {
+                        const [yr, mo] = ym.split("-");
+                        return (
+                          <SelectItem key={ym} value={ym}>
+                            {MONTH_NAMES[parseInt(mo, 10) - 1]} {yr}
+                          </SelectItem>
+                        );
+                      })}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Catatan (opsional)</Label>
+                  <Input
+                    className="h-8 text-xs"
+                    placeholder="Alasan penguncian..."
+                    value={closingNotes}
+                    onChange={(e) => setClosingNotes(e.target.value)}
+                  />
+                </div>
+                <Button
+                  size="sm"
+                  className="w-full bg-amber-600 hover:bg-amber-700 text-white"
+                  disabled={!closingLockMonth || lockPeriodMut.isPending}
+                  onClick={() => lockPeriodMut.mutate({ yearMonth: closingLockMonth, notes: closingNotes || undefined })}
+                >
+                  {lockPeriodMut.isPending
+                    ? <><RefreshCw className="mr-2 h-3.5 w-3.5 animate-spin" />Mengunci...</>
+                    : <><Lock className="mr-2 h-3.5 w-3.5" />Kunci Periode</>}
+                </Button>
+              </CardContent>
+            </Card>
+          </div>
+
+          <div className="rounded-md border overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow className="bg-muted/40">
+                  <TableHead className="text-xs">Periode</TableHead>
+                  <TableHead className="text-xs">Dikunci Oleh</TableHead>
+                  <TableHead className="text-xs">Role</TableHead>
+                  <TableHead className="text-xs">Catatan</TableHead>
+                  <TableHead className="text-xs">Waktu Kunci</TableHead>
+                  <TableHead className="text-xs text-center">Aksi</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {loadingClosing && (
+                  <TableRow><TableCell colSpan={6} className="text-center py-8 text-muted-foreground text-sm">Memuat data...</TableCell></TableRow>
+                )}
+                {!loadingClosing && closingPeriods.length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={6} className="text-center py-12 text-muted-foreground text-sm">
+                      <Unlock className="mx-auto mb-2 h-8 w-8 opacity-25" />
+                      <p>Belum ada periode yang dikunci.</p>
+                      <p className="text-xs mt-1">Kunci periode untuk mencegah perubahan data rekonsiliasi.</p>
+                    </TableCell>
+                  </TableRow>
+                )}
+                {closingPeriods.map((period) => {
+                  const [yr, mo] = period.yearMonth.split("-");
+                  return (
+                    <TableRow key={period.id}>
+                      <TableCell className="text-sm font-semibold">
+                        <div className="flex items-center gap-1.5">
+                          <Lock className="h-3.5 w-3.5 text-amber-600" />
+                          {MONTH_NAMES[parseInt(mo, 10) - 1]} {yr}
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-xs">{period.lockedBy ?? "—"}</TableCell>
+                      <TableCell className="text-xs">
+                        {period.lockedByRole && (
+                          <Badge variant="outline" className="text-[10px]">{period.lockedByRole}</Badge>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-xs text-muted-foreground">{period.notes ?? "—"}</TableCell>
+                      <TableCell className="text-[10px] font-mono text-muted-foreground">
+                        {new Date(period.createdAt).toLocaleString("id-ID", { dateStyle: "short", timeStyle: "short" })}
+                      </TableCell>
+                      <TableCell className="text-center">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-7 text-xs border-red-300 text-red-600 hover:bg-red-50"
+                          disabled={unlockPeriodMut.isPending}
+                          onClick={() => unlockPeriodMut.mutate(period.yearMonth)}
+                        >
+                          <Unlock className="mr-1 h-3 w-3" />Buka
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          </div>
+        </TabsContent>
+
+        {/* ═══════════════ ATURAN COA ═══════════════ */}
+        <TabsContent value="aturan-coa" className="space-y-4 mt-4">
+          <div className="flex items-center justify-between gap-2">
+            <div>
+              <h3 className="text-sm font-semibold">Aturan Pemetaan COA</h3>
+              <p className="text-xs text-muted-foreground">Petakan provider/pola deskripsi mutasi ke kode akun COA.</p>
+            </div>
+            <div className="flex gap-2">
+              <Button variant="ghost" size="sm" onClick={() => refetchCoa()} disabled={loadingCoa}>
+                <RefreshCw className={`h-3.5 w-3.5 ${loadingCoa ? "animate-spin" : ""}`} />
+              </Button>
+              <Button
+                size="sm"
+                onClick={() => { setEditingCoaId(null); setCoaForm(EMPTY_COA_FORM); setShowCoaForm(true); }}
+              >
+                <Plus className="mr-1.5 h-3.5 w-3.5" />Tambah Aturan
+              </Button>
+            </div>
+          </div>
+
+          <div className="rounded-md border overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow className="bg-muted/40">
+                  <TableHead className="text-xs">Kode COA</TableHead>
+                  <TableHead className="text-xs">Nama COA</TableHead>
+                  <TableHead className="text-xs">Provider</TableHead>
+                  <TableHead className="text-xs">Arah</TableHead>
+                  <TableHead className="text-xs">Pola Deskripsi</TableHead>
+                  <TableHead className="text-xs">Status</TableHead>
+                  <TableHead className="text-xs text-center">Aksi</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {loadingCoa && (
+                  <TableRow><TableCell colSpan={7} className="text-center py-8 text-muted-foreground text-sm">Memuat data...</TableCell></TableRow>
+                )}
+                {!loadingCoa && coaRules.length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={7} className="text-center py-12 text-muted-foreground text-sm">
+                      <BookOpen className="mx-auto mb-2 h-8 w-8 opacity-25" />
+                      <p>Belum ada aturan COA.</p>
+                      <p className="text-xs mt-1">Tambah aturan untuk memetakan mutasi ke kode akun secara otomatis.</p>
+                    </TableCell>
+                  </TableRow>
+                )}
+                {coaRules.map((rule) => (
+                  <TableRow key={rule.id} className={!rule.isActive ? "opacity-50" : ""}>
+                    <TableCell className="text-xs font-mono font-semibold text-blue-700">{rule.coaCode}</TableCell>
+                    <TableCell className="text-xs font-medium">{rule.coaName}</TableCell>
+                    <TableCell className="text-xs">
+                      {rule.providerName ? (
+                        <Badge variant="outline" className="text-[10px] border-purple-300 text-purple-700 bg-purple-50">{rule.providerName}</Badge>
+                      ) : <span className="text-muted-foreground">Semua</span>}
+                    </TableCell>
+                    <TableCell className="text-xs">
+                      <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold border ${
+                        rule.direction === "IN" ? "bg-green-50 text-green-700 border-green-200" :
+                        rule.direction === "OUT" ? "bg-red-50 text-red-700 border-red-200" :
+                        "bg-gray-50 text-gray-700 border-gray-200"
+                      }`}>
+                        {rule.direction}
+                      </span>
+                    </TableCell>
+                    <TableCell className="text-[10px] font-mono text-muted-foreground">
+                      {rule.descriptionPattern ?? <span className="italic">—</span>}
+                    </TableCell>
+                    <TableCell>
+                      {rule.isActive
+                        ? <Badge className="bg-green-100 text-green-800 border-green-200 text-[10px]">Aktif</Badge>
+                        : <Badge variant="outline" className="text-[10px] text-gray-500">Nonaktif</Badge>}
+                    </TableCell>
+                    <TableCell className="text-center">
+                      <div className="flex items-center justify-center gap-1">
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-7 w-7 p-0"
+                          onClick={() => openEditCoa(rule)}
+                        >
+                          <Pencil className="h-3 w-3" />
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-7 w-7 p-0 text-red-500 hover:text-red-700 hover:bg-red-50"
+                          disabled={deleteCoaRuleMut.isPending}
+                          onClick={() => {
+                            if (confirm(`Hapus aturan COA "${rule.coaCode} - ${rule.coaName}"?`)) {
+                              deleteCoaRuleMut.mutate(rule.id);
+                            }
+                          }}
+                        >
+                          <Trash2 className="h-3 w-3" />
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        </TabsContent>
+      </Tabs>
 
       {/* ─── Dialog: Export Google Sheets ─── */}
       <Dialog open={showExport} onOpenChange={setShowExport}>
@@ -913,9 +1488,9 @@ export default function BankRekonsiliasi() {
             <div className="space-y-2">
               {[
                 { value: "unpaid_invoice", label: "Invoice belum lunas (unpaid / sebagian / overdue)", count: kpi ? kpi.invoices.unpaid + kpi.invoices.partial + kpi.invoices.overdue : null },
-                { value: "need_review", label: "Mutasi duplikat perlu review", count: kpi ? kpi.mutations.duplicateNeedReview : null },
-                { value: "unmatched", label: "Mutasi tidak cocok (unmatched)", count: kpi ? kpi.mutations.unmatched : null },
-                { value: "approved_no_journal", label: "Mutasi disetujui belum posting jurnal", count: null },
+                { value: "need_review",    label: "Mutasi duplikat perlu review",                       count: kpi ? kpi.mutations.duplicateNeedReview : null },
+                { value: "unmatched",      label: "Mutasi tidak cocok (unmatched)",                     count: kpi ? kpi.mutations.unmatched : null },
+                { value: "approved_no_journal", label: "Mutasi disetujui belum posting jurnal",         count: null },
               ].map(({ value, label, count }) => (
                 <label key={value} className="flex items-center gap-2.5 cursor-pointer rounded-md border p-2.5 hover:bg-muted/40">
                   <input
@@ -954,7 +1529,103 @@ export default function BankRekonsiliasi() {
         </DialogContent>
       </Dialog>
 
-      {/* Detail Dialog */}
+      {/* ─── Dialog: Tambah/Edit Aturan COA ─── */}
+      <Dialog open={showCoaForm} onOpenChange={(o) => { if (!o) { setShowCoaForm(false); setEditingCoaId(null); setCoaForm(EMPTY_COA_FORM); } }}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <BookOpen className="h-5 w-5 text-blue-600" />
+              {editingCoaId ? "Edit Aturan COA" : "Tambah Aturan COA"}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 text-sm">
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <Label className="text-xs">Kode COA <span className="text-red-500">*</span></Label>
+                <Input
+                  className="text-xs"
+                  placeholder="1-1-0001"
+                  value={coaForm.coaCode}
+                  onChange={(e) => setCoaForm((f) => ({ ...f, coaCode: e.target.value }))}
+                />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Nama COA <span className="text-red-500">*</span></Label>
+                <Input
+                  className="text-xs"
+                  placeholder="Kas Bank BCA"
+                  value={coaForm.coaName}
+                  onChange={(e) => setCoaForm((f) => ({ ...f, coaName: e.target.value }))}
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <Label className="text-xs">Provider (opsional)</Label>
+                <Input
+                  className="text-xs"
+                  placeholder="GoPay / DANA / ..."
+                  value={coaForm.providerName}
+                  onChange={(e) => setCoaForm((f) => ({ ...f, providerName: e.target.value }))}
+                />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Arah Mutasi</Label>
+                <Select value={coaForm.direction} onValueChange={(v) => setCoaForm((f) => ({ ...f, direction: v }))}>
+                  <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="ALL">Semua (IN & OUT)</SelectItem>
+                    <SelectItem value="IN">Masuk (IN)</SelectItem>
+                    <SelectItem value="OUT">Keluar (OUT)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Pola Deskripsi (regex, opsional)</Label>
+              <Input
+                className="text-xs font-mono"
+                placeholder="TRANSFER|PEMBAYARAN|GOPAY.*"
+                value={coaForm.descriptionPattern}
+                onChange={(e) => setCoaForm((f) => ({ ...f, descriptionPattern: e.target.value }))}
+              />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Keterangan</Label>
+              <Textarea
+                className="text-xs min-h-[60px]"
+                placeholder="Aturan untuk mutasi masuk dari GoPay..."
+                value={coaForm.description}
+                onChange={(e) => setCoaForm((f) => ({ ...f, description: e.target.value }))}
+              />
+            </div>
+            <div className="flex items-center gap-2">
+              <Switch
+                id="coa-active"
+                checked={coaForm.isActive}
+                onCheckedChange={(v) => setCoaForm((f) => ({ ...f, isActive: v }))}
+              />
+              <Label htmlFor="coa-active" className="text-xs cursor-pointer">Aturan aktif</Label>
+            </div>
+          </div>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" size="sm" onClick={() => { setShowCoaForm(false); setEditingCoaId(null); setCoaForm(EMPTY_COA_FORM); }}>
+              Batal
+            </Button>
+            <Button
+              size="sm"
+              disabled={!coaForm.coaCode.trim() || !coaForm.coaName.trim() || saveCoaRuleMut.isPending}
+              onClick={() => saveCoaRuleMut.mutate({ ...coaForm, id: editingCoaId ?? undefined })}
+            >
+              {saveCoaRuleMut.isPending
+                ? <><RefreshCw className="mr-2 h-3.5 w-3.5 animate-spin" />Menyimpan...</>
+                : editingCoaId ? "Perbarui" : "Simpan"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ─── Detail Mutation Dialog ─── */}
       <Dialog open={!!selectedMutation} onOpenChange={(o) => { if (!o) setSelectedMutation(null); }}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
@@ -963,7 +1634,6 @@ export default function BankRekonsiliasi() {
 
           {selectedMutation && (
             <div className="space-y-4">
-              {/* Mutation info */}
               <div className="rounded-lg border bg-muted/20 p-4 space-y-2 text-sm">
                 <div className="grid grid-cols-2 gap-x-4 gap-y-1">
                   <div><span className="text-muted-foreground text-xs">Tanggal</span><p className="font-medium">{selectedMutation.transactionDate}</p></div>
@@ -985,7 +1655,6 @@ export default function BankRekonsiliasi() {
                 </div>
               </div>
 
-              {/* Match candidates */}
               <div>
                 <h3 className="text-sm font-semibold mb-2">Kandidat Match</h3>
                 {loadingMatches && <p className="text-sm text-muted-foreground">Memuat kandidat...</p>}
@@ -1053,13 +1722,12 @@ export default function BankRekonsiliasi() {
 
               <Separator />
 
-              {/* Manual match */}
               <div>
                 <h3 className="text-sm font-semibold mb-2">Manual Match</h3>
                 <div className="flex gap-2 items-end">
                   <div className="space-y-1">
                     <Label className="text-xs">Tipe</Label>
-                    <Select value={manualCandidateType} onValueChange={(v) => setManualCandidateType(v as any)}>
+                    <Select value={manualCandidateType} onValueChange={(v) => setManualCandidateType(v as "payment" | "invoice")}>
                       <SelectTrigger className="h-8 w-28 text-xs"><SelectValue /></SelectTrigger>
                       <SelectContent>
                         <SelectItem value="payment">Payment</SelectItem>
