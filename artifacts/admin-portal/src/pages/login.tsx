@@ -145,9 +145,7 @@ export default function Login() {
       <Card className="w-full max-w-sm shadow-lg">
         <CardHeader className="text-center pb-2">
           <div className="flex justify-center mb-3">
-            <div className="flex items-center justify-center w-14 h-14 rounded-2xl bg-primary/10">
-              <Building2 className="h-8 w-8 text-primary" />
-            </div>
+            <img src="/logo-cst.png" alt="Logo CST" className="h-16 w-16 object-contain" />
           </div>
           <CardTitle className="text-2xl font-bold">Portal Admin</CardTitle>
           <CardDescription className="text-sm">
