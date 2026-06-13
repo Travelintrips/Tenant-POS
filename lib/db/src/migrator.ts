@@ -1000,10 +1000,7 @@ END $$;
   {
     name: "0022_restore_mall_units",
     sql: `
-DO $$ BEGIN
-  -- Restore TOD M1 units (site_id=1) jika belum ada
-  IF NOT EXISTS (SELECT 1 FROM mall_units WHERE site_id = 1 AND unit_code = 'T-001') THEN
-    INSERT INTO mall_units (unit_code, floor, zone, size_m2, status, position_x, position_y, width, height, site_id) VALUES
+INSERT INTO mall_units (unit_code, floor, zone, size_m2, status, position_x, position_y, width, height, site_id) VALUES
     ('T-001', '1', 'Zona A', 20, 'occupied',  0, 0, 2, 2, 1),
     ('T-002', '1', 'Zona A', 16, 'occupied',  2, 0, 2, 2, 1),
     ('T-003', '1', 'Zona A', 14, 'occupied',  4, 0, 2, 2, 1),
@@ -1019,12 +1016,7 @@ DO $$ BEGIN
     ('T-013', '1', 'Zona B', 24, 'available', 2, 6, 2, 2, 1),
     ('T-014', '1', 'Zona C', 30, 'available', 4, 6, 2, 2, 1),
     ('T-015', '1', 'Zona C', 20, 'available', 6, 6, 2, 2, 1),
-    ('T-016', '1', 'Zona C', 20, 'available', 8, 6, 2, 2, 1);
-  END IF;
-
-  -- Restore Sport Center units (site_id=3) jika belum ada
-  IF NOT EXISTS (SELECT 1 FROM mall_units WHERE site_id = 3 AND unit_code = 'SC-01') THEN
-    INSERT INTO mall_units (unit_code, floor, zone, size_m2, status, position_x, position_y, width, height, site_id) VALUES
+    ('T-016', '1', 'Zona C', 20, 'available', 8, 6, 2, 2, 1),
     ('SC-01', '1', 'Lapangan', 200, 'occupied',  0, 0, 4, 4, 3),
     ('SC-02', '1', 'Lapangan', 200, 'occupied',  4, 0, 4, 4, 3),
     ('SC-03', '1', 'Lapangan', 200, 'occupied',  8, 0, 4, 4, 3),
@@ -1032,9 +1024,8 @@ DO $$ BEGIN
     ('SC-05', '1', 'Fasilitas',  80, 'occupied', 4, 4, 2, 2, 3),
     ('SC-06', '1', 'Fasilitas',  80, 'occupied', 6, 4, 2, 2, 3),
     ('SC-07', '1', 'Tenant',     40, 'occupied', 8, 4, 2, 2, 3),
-    ('SC-08', '1', 'Tenant',     40, 'occupied', 8, 6, 2, 2, 3);
-  END IF;
-END $$;
+    ('SC-08', '1', 'Tenant',     40, 'occupied', 8, 6, 2, 2, 3)
+ON CONFLICT (unit_code) DO NOTHING;
     `.trim(),
   },
   {
