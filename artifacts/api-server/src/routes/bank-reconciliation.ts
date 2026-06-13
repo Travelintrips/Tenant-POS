@@ -4,13 +4,15 @@ import { db } from "@workspace/db";
 import {
   bankMutationsTable,
   bankReconciliationMatchesTable,
+  bankJournalEntriesTable,
+  bankAccountBalancesTable,
   tenantPaymentsTable,
   tenantInvoicesTable,
   tenantBookingsTable,
   tenantsTable,
   financePaymentEventsTable,
 } from "@workspace/db/schema";
-import { eq, and, desc, sql, inArray } from "drizzle-orm";
+import { eq, and, desc, sql, inArray, isNull, gt, ne } from "drizzle-orm";
 import { z } from "zod/v4";
 import { logAudit } from "../lib/audit";
 import {
@@ -22,6 +24,7 @@ import {
   computeMatchCandidates,
 } from "../services/bank-matcher";
 import { writePaymentEvent, normalizePaymentMethod } from "../lib/payment-events";
+import { postAccountingJournal } from "../lib/accounting-journal";
 
 const router: IRouter = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
@@ -507,6 +510,35 @@ router.post("/bank-reconciliation/:mutationId/approve", async (req, res) => {
     });
   }
 
+  const approvedByRole = (req.user as any)?.role ?? "admin";
+  const approvedByApp  = "tenant_management";
+
+  await db.update(bankMutationsTable)
+    .set({ approvedByApp, approvedByRole, updatedAt: now })
+    .where(eq(bankMutationsTable.id, mutationId));
+
+  const { journalId, alreadyPosted } = await postAccountingJournal({
+    mutationId,
+    transactionDate: mutation.transactionDate,
+    description: mutation.description,
+    amount: parseFloat(String(mutation.amount)),
+    direction: (mutation.direction?.toUpperCase() === "OUT" ? "OUT" : "IN") as "IN" | "OUT",
+    bankAccountId: mutation.bankAccountId ?? `site-${mutation.siteId ?? 0}`,
+    companyId: (mutation as any).companyId ?? null,
+    ownerApp: "tenant_management",
+    sourceApp: "tenant_management",
+    sourceModule: "bank_reconciliation",
+    createdBy: req.user?.name ?? req.user?.email ?? "Admin",
+    siteId: mutation.siteId ?? null,
+    metadata: {
+      matchId,
+      candidateType: match.candidateType,
+      candidateId: match.candidateId,
+      newPaymentId,
+      approvedBy: req.user?.name ?? req.user?.email ?? "Admin",
+    },
+  });
+
   logAudit(req, {
     action: "bank_mutation_approved",
     entityType: "bank_mutations",
@@ -516,10 +548,12 @@ router.post("/bank-reconciliation/:mutationId/approve", async (req, res) => {
       candidateType: match.candidateType,
       candidateId: match.candidateId,
       newPaymentId,
+      journalId,
+      alreadyPosted,
     },
   });
 
-  res.json({ success: true, newPaymentId });
+  res.json({ success: true, newPaymentId, journalId, alreadyPosted });
 });
 
 // ── POST /bank-reconciliation/:mutationId/reject ─────────────────────────────
@@ -656,6 +690,118 @@ router.post("/bank-reconciliation/:mutationId/manual-match", async (req, res) =>
   });
 
   res.json({ success: true });
+});
+
+// ── GET /bank-reconciliation/audit ───────────────────────────────────────────
+
+router.get("/bank-reconciliation/audit", async (req, res) => {
+  const siteId: number | undefined = (req as any).siteId > 0 ? (req as any).siteId : undefined;
+
+  const siteFilter = siteId
+    ? sql`AND bm.site_id = ${siteId}`
+    : sql``;
+
+  const [
+    approvedWithoutJournal,
+    duplicateJournals,
+    approvedWithoutBalance,
+    mutationsWithoutCompany,
+    journalsWithoutCompany,
+    overpaidInvoices,
+  ] = await Promise.all([
+    db.execute<{ id: number; mutation_key: string; amount: string; transaction_date: string }>(
+      sql`SELECT bm.id, bm.mutation_key, bm.amount, bm.transaction_date
+          FROM bank_mutations bm
+          WHERE bm.status = 'approved'
+            AND (bm.accounting_posted = false OR bm.accounting_posted IS NULL)
+            ${siteFilter}
+          ORDER BY bm.created_at DESC
+          LIMIT 100`
+    ),
+
+    db.execute<{ journal_id: string; cnt: number }>(
+      sql`SELECT journal_id, count(*)::int AS cnt
+          FROM bank_journal_entries
+          GROUP BY journal_id
+          HAVING count(*) > 1
+          LIMIT 50`
+    ),
+
+    db.execute<{ id: number; bank_account_id: string; site_id: number | null }>(
+      sql`SELECT bm.id, bm.bank_account_id, bm.site_id
+          FROM bank_mutations bm
+          WHERE bm.status = 'approved'
+            AND bm.accounting_posted = true
+            AND bm.bank_account_id IS NOT NULL
+            AND NOT EXISTS (
+              SELECT 1 FROM bank_account_balances bab
+              WHERE bab.bank_account_id = bm.bank_account_id
+                AND (bab.site_id = bm.site_id OR (bab.site_id IS NULL AND bm.site_id IS NULL))
+            )
+            ${siteFilter}
+          LIMIT 50`
+    ),
+
+    db.execute<{ id: number; mutation_key: string; status: string }>(
+      sql`SELECT bm.id, bm.mutation_key, bm.status
+          FROM bank_mutations bm
+          WHERE bm.company_id IS NULL
+            AND bm.status IN ('approved', 'matched')
+            ${siteFilter}
+          LIMIT 50`
+    ),
+
+    db.execute<{ id: number; journal_id: string }>(
+      sql`SELECT id, journal_id
+          FROM bank_journal_entries
+          WHERE company_id IS NULL
+          LIMIT 50`
+    ),
+
+    db.execute<{ id: number; invoice_number: string; paid_amount: string; total_amount: string }>(
+      sql`SELECT id, invoice_number, paid_amount::text, total_amount::text
+          FROM tenant_invoices
+          WHERE paid_amount::numeric > total_amount::numeric
+            AND total_amount::numeric > 0
+          LIMIT 50`
+    ),
+  ]);
+
+  const issues = {
+    approvedWithoutJournal: {
+      count: approvedWithoutJournal.rows.length,
+      items: approvedWithoutJournal.rows,
+    },
+    duplicateJournalIds: {
+      count: duplicateJournals.rows.length,
+      items: duplicateJournals.rows,
+    },
+    approvedWithoutBalanceUpdate: {
+      count: approvedWithoutBalance.rows.length,
+      items: approvedWithoutBalance.rows,
+    },
+    mutationsWithoutCompanyId: {
+      count: mutationsWithoutCompany.rows.length,
+      items: mutationsWithoutCompany.rows,
+    },
+    journalsWithoutCompanyId: {
+      count: journalsWithoutCompany.rows.length,
+      items: journalsWithoutCompany.rows,
+    },
+    overpaidInvoices: {
+      count: overpaidInvoices.rows.length,
+      items: overpaidInvoices.rows,
+    },
+  };
+
+  const totalIssues = Object.values(issues).reduce((sum, v) => sum + v.count, 0);
+
+  res.json({
+    ok: totalIssues === 0,
+    totalIssues,
+    checkedAt: new Date().toISOString(),
+    issues,
+  });
 });
 
 export default router;

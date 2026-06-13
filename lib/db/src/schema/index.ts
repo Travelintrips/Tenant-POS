@@ -15,3 +15,5 @@ export * from "./wa-logs";
 export * from "./bank-mutations";
 export * from "./bank-reconciliation-matches";
 export * from "./finance-payment-events";
+export * from "./bank-journal-entries";
+export * from "./bank-account-balances";

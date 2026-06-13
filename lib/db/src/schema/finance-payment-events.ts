@@ -30,6 +30,9 @@ export const financePaymentEventsTable = pgTable("finance_payment_events", {
   isReconciled: boolean("is_reconciled").notNull().default(false),
   reconciledAt: timestamp("reconciled_at", { withTimezone: true }),
 
+  createdByApp: text("created_by_app"),
+  approvalScope: text("approval_scope"),
+
   metadata: jsonb("metadata"),
 
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

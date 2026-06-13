@@ -1578,6 +1578,111 @@ DO $$ BEGIN
 END $$;
     `.trim(),
   },
+  {
+    name: "0031_bank_journal_entries",
+    sql: `
+CREATE TABLE IF NOT EXISTS "bank_journal_entries" (
+  "id" serial PRIMARY KEY NOT NULL,
+  "journal_id" text NOT NULL UNIQUE,
+  "mutation_id" integer REFERENCES "bank_mutations"("id") ON DELETE SET NULL,
+  "company_id" integer,
+  "owner_app" text,
+  "source_app" text,
+  "source_module" text,
+  "transaction_date" text NOT NULL,
+  "description" text NOT NULL DEFAULT '',
+  "debit_account_id" text,
+  "credit_account_id" text,
+  "debit_amount" numeric NOT NULL DEFAULT '0',
+  "credit_amount" numeric NOT NULL DEFAULT '0',
+  "currency" text NOT NULL DEFAULT 'IDR',
+  "status" text NOT NULL DEFAULT 'posted',
+  "created_by" text,
+  "site_id" integer REFERENCES "mall_sites"("id"),
+  "metadata" jsonb,
+  "created_at" timestamptz NOT NULL DEFAULT now(),
+  "updated_at" timestamptz NOT NULL DEFAULT now()
+);
+
+DO $$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_indexes WHERE tablename = 'bank_journal_entries' AND indexname = 'bje_mutation_id_idx'
+  ) THEN
+    CREATE INDEX bje_mutation_id_idx ON "bank_journal_entries" ("mutation_id");
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_indexes WHERE tablename = 'bank_journal_entries' AND indexname = 'bje_site_date_idx'
+  ) THEN
+    CREATE INDEX bje_site_date_idx ON "bank_journal_entries" ("site_id", "transaction_date");
+  END IF;
+END $$;
+    `.trim(),
+  },
+  {
+    name: "0032_bank_account_balances",
+    sql: `
+CREATE TABLE IF NOT EXISTS "bank_account_balances" (
+  "id" serial PRIMARY KEY NOT NULL,
+  "bank_account_id" text NOT NULL,
+  "company_id" integer,
+  "owner_app" text,
+  "owner_tenant_id" integer,
+  "site_id" integer REFERENCES "mall_sites"("id"),
+  "current_balance" numeric NOT NULL DEFAULT '0',
+  "last_reconciled_balance" numeric,
+  "last_reconciled_at" timestamptz,
+  "created_at" timestamptz NOT NULL DEFAULT now(),
+  "updated_at" timestamptz NOT NULL DEFAULT now()
+);
+
+DO $$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_indexes WHERE tablename = 'bank_account_balances' AND indexname = 'bab_account_site_idx'
+  ) THEN
+    CREATE UNIQUE INDEX bab_account_site_idx ON "bank_account_balances" ("bank_account_id", COALESCE("site_id"::text, 'null'));
+  END IF;
+END $$;
+    `.trim(),
+  },
+  {
+    name: "0033_bank_mutations_extend",
+    sql: `
+ALTER TABLE "bank_mutations"
+  ADD COLUMN IF NOT EXISTS "company_id" integer,
+  ADD COLUMN IF NOT EXISTS "owner_app" text,
+  ADD COLUMN IF NOT EXISTS "owner_company_id" integer,
+  ADD COLUMN IF NOT EXISTS "owner_tenant_id" integer,
+  ADD COLUMN IF NOT EXISTS "source_app" text,
+  ADD COLUMN IF NOT EXISTS "source_module" text,
+  ADD COLUMN IF NOT EXISTS "source_table" text,
+  ADD COLUMN IF NOT EXISTS "source_id" integer,
+  ADD COLUMN IF NOT EXISTS "approved_by_app" text,
+  ADD COLUMN IF NOT EXISTS "approved_by_role" text,
+  ADD COLUMN IF NOT EXISTS "accounting_posted" boolean NOT NULL DEFAULT false,
+  ADD COLUMN IF NOT EXISTS "journal_id" text;
+
+DO $$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_indexes WHERE tablename = 'bank_mutations' AND indexname = 'bm_accounting_posted_idx'
+  ) THEN
+    CREATE INDEX bm_accounting_posted_idx ON "bank_mutations" ("accounting_posted") WHERE accounting_posted = false;
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_indexes WHERE tablename = 'bank_mutations' AND indexname = 'bm_journal_id_idx'
+  ) THEN
+    CREATE INDEX bm_journal_id_idx ON "bank_mutations" ("journal_id") WHERE journal_id IS NOT NULL;
+  END IF;
+END $$;
+    `.trim(),
+  },
+  {
+    name: "0034_finance_payment_events_extend",
+    sql: `
+ALTER TABLE "finance_payment_events"
+  ADD COLUMN IF NOT EXISTS "created_by_app" text,
+  ADD COLUMN IF NOT EXISTS "approval_scope" text;
+    `.trim(),
+  },
 ];
 
 const MIGRATIONS_TABLE = "schema_migrations";
