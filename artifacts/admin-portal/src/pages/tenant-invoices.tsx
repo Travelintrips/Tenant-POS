@@ -432,16 +432,12 @@ async function fetchInvoiceConfig(): Promise<MallInvoiceConfig> {
   }
 }
 
-async function viewOrPrintInvoice(inv: Invoice, mode: "view" | "print" = "print") {
-  const cfg = await fetchInvoiceConfig();
-  const win = window.open("", "_blank", "width=800,height=900");
-  if (!win) return;
-
+function buildInvoiceHtml(inv: Invoice, cfg: MallInvoiceConfig): string {
   const accent = cfg.invoiceColor || "#1e3a5f";
   const accentLight = accent + "14";
 
   const logoHtml = cfg.logoUrl
-    ? `<img src="${cfg.logoUrl}" alt="Logo" style="height:52px;max-width:200px;object-fit:contain;display:block;margin-bottom:4px;" />`
+    ? `<img src="${cfg.logoUrl}" alt="Logo" style="height:52px;max-width:200px;object-fit:contain;display:block;margin-bottom:4px;" crossorigin="anonymous" />`
     : "";
 
   const brandBlock = cfg.logoUrl
@@ -478,7 +474,7 @@ async function viewOrPrintInvoice(inv: Invoice, mode: "view" | "print" = "print"
     ? `<div style="margin-bottom:6px;font-weight:500;color:#555">${cfg.invoiceFooterNote}</div>`
     : "";
 
-  const html = `<!DOCTYPE html>
+  return `<!DOCTYPE html>
 <html lang="id">
 <head>
   <meta charset="UTF-8" />
@@ -490,7 +486,6 @@ async function viewOrPrintInvoice(inv: Invoice, mode: "view" | "print" = "print"
     .inv-meta { text-align: right; }
     .inv-number { font-size: 15px; font-weight: 700; color: ${accent}; }
     .status-badge { display: inline-block; margin-top: 6px; padding: 3px 10px; border-radius: 20px; font-size: 11px; font-weight: 600; background: #fef3c7; color: #b45309; border: 1px solid #fcd34d; }
-    .divider { border: none; border-top: 2px solid #e5e7eb; margin: 20px 0; }
     .accent-divider { border: none; border-top: 3px solid ${accent}; margin: 20px 0; }
     .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 24px; }
     .label { font-size: 10px; color: #888; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 4px; font-weight: 600; }
@@ -517,9 +512,7 @@ async function viewOrPrintInvoice(inv: Invoice, mode: "view" | "print" = "print"
       <div class="status-badge">${STATUS_LABEL[inv.status]}</div>
     </div>
   </div>
-
   <hr class="accent-divider" />
-
   <div class="grid-2">
     <div>
       <div class="label">Tagihan Kepada</div>
@@ -537,18 +530,14 @@ async function viewOrPrintInvoice(inv: Invoice, mode: "view" | "print" = "print"
       </table>
     </div>
   </div>
-
   <table>
-    <thead>
-      <tr><th>Uraian</th><th style="text-align:right">Jumlah</th></tr>
-    </thead>
+    <thead><tr><th>Uraian</th><th style="text-align:right">Jumlah</th></tr></thead>
     <tbody>
       ${rows}
       ${Number(inv.discountAmount) > 0 ? `<tr><td style="padding:5px 10px;color:#059669">Diskon</td><td style="padding:5px 10px;text-align:right;color:#059669">- ${formatRupiah(inv.discountAmount)}</td></tr>` : ""}
       ${Number(inv.penaltyAmount) > 0 ? `<tr><td style="padding:5px 10px;color:#dc2626">Denda</td><td style="padding:5px 10px;text-align:right;color:#dc2626">+ ${formatRupiah(inv.penaltyAmount)}</td></tr>` : ""}
     </tbody>
   </table>
-
   <div class="totals">
     <div class="total-row"><span>Subtotal</span><span>${formatRupiah(inv.subtotal)}</span></div>
     ${Number(inv.taxAmount) > 0 ? `<div class="total-row"><span>Pajak</span><span>${formatRupiah(inv.taxAmount)}</span></div>` : ""}
@@ -556,23 +545,93 @@ async function viewOrPrintInvoice(inv: Invoice, mode: "view" | "print" = "print"
     <div class="total-row" style="color:#059669;padding-top:6px"><span>Terbayar</span><span>${formatRupiah(inv.paidAmount)}</span></div>
     ${Number(inv.outstandingAmount) > 0 ? `<div class="outstanding"><span>Sisa Tagihan</span><span>${formatRupiah(inv.outstandingAmount)}</span></div>` : ""}
   </div>
-
   ${inv.notes ? `<div style="margin-top:24px;padding:12px;background:#f8fafc;border-radius:8px;font-size:12px;color:#555"><strong>Catatan:</strong> ${inv.notes}</div>` : ""}
-
   ${signerHtml}
-
   <div class="footer">
     ${footerNote}
     <div>Dokumen ini dibuat secara otomatis oleh sistem ${cfg.mallName}. Harap simpan sebagai bukti pembayaran.</div>
   </div>
 </body>
 </html>`;
+}
 
+async function viewOrPrintInvoice(inv: Invoice, mode: "view" | "print" = "print") {
+  const cfg = await fetchInvoiceConfig();
+  const html = buildInvoiceHtml(inv, cfg);
+  const win = window.open("", "_blank", "width=800,height=900");
+  if (!win) return;
   win.document.write(html);
   win.document.close();
   win.focus();
   if (mode === "print") {
     setTimeout(() => win.print(), 300);
+  }
+}
+
+async function downloadInvoicePdf(
+  inv: Invoice,
+  onStart: () => void,
+  onEnd: () => void,
+): Promise<void> {
+  onStart();
+  try {
+    const [{ default: JsPDF }, { default: html2canvas }] = await Promise.all([
+      import("jspdf"),
+      import("html2canvas"),
+    ]);
+
+    const cfg = await fetchInvoiceConfig();
+    const html = buildInvoiceHtml(inv, cfg);
+
+    const iframe = document.createElement("iframe");
+    iframe.style.cssText =
+      "position:fixed;top:-99999px;left:-99999px;width:800px;height:1px;border:none;opacity:0;pointer-events:none;";
+    document.body.appendChild(iframe);
+
+    try {
+      const idoc = iframe.contentDocument!;
+      idoc.open();
+      idoc.write(html);
+      idoc.close();
+
+      await new Promise<void>((resolve) => setTimeout(resolve, 700));
+
+      const body = idoc.body;
+      body.style.overflow = "visible";
+      body.style.height = "auto";
+
+      const canvas = await html2canvas(body, {
+        scale: 2,
+        useCORS: true,
+        allowTaint: false,
+        backgroundColor: "#ffffff",
+        windowWidth: 800,
+        logging: false,
+        imageTimeout: 6000,
+      });
+
+      const imgData = canvas.toDataURL("image/jpeg", 0.92);
+      const pdf = new JsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+      const pdfW = pdf.internal.pageSize.getWidth();
+      const pdfH = pdf.internal.pageSize.getHeight();
+      const imgH = (canvas.height * pdfW) / canvas.width;
+
+      pdf.addImage(imgData, "JPEG", 0, 0, pdfW, imgH);
+      let heightLeft = imgH - pdfH;
+      let page = 1;
+      while (heightLeft > 0) {
+        pdf.addPage();
+        pdf.addImage(imgData, "JPEG", 0, -(pdfH * page), pdfW, imgH);
+        heightLeft -= pdfH;
+        page++;
+      }
+
+      pdf.save(`${inv.invoiceNumber}.pdf`);
+    } finally {
+      document.body.removeChild(iframe);
+    }
+  } finally {
+    onEnd();
   }
 }
 
@@ -660,6 +719,7 @@ export default function TenantInvoices() {
   const [cancelTarget, setCancelTarget] = useState<Invoice | null>(null);
   const [sendingLinkId, setSendingLinkId] = useState<number | null>(null);
   const [copyingLinkId, setCopyingLinkId] = useState<number | null>(null);
+  const [downloadingId, setDownloadingId] = useState<number | null>(null);
   const [paymentLinkDialog, setPaymentLinkDialog] = useState<{ link: string; error?: string; mode: "manual" | "wa-failed" } | null>(null);
   const [linkCopied, setLinkCopied] = useState(false);
 
@@ -1369,6 +1429,23 @@ export default function TenantInvoices() {
                             <Eye className="h-3 w-3" />
                             Lihat
                           </Button>
+                          <Button
+                            size="sm" variant="ghost" className="h-7 w-7 p-0 text-emerald-600 hover:text-emerald-700"
+                            title="Download PDF"
+                            disabled={downloadingId === inv.id}
+                            onClick={() => {
+                              void downloadInvoicePdf(
+                                inv,
+                                () => setDownloadingId(inv.id),
+                                () => setDownloadingId(null),
+                              );
+                            }}
+                          >
+                            {downloadingId === inv.id
+                              ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                              : <Download className="h-3.5 w-3.5" />
+                            }
+                          </Button>
                           <Button size="sm" variant="ghost" className="h-7 w-7 p-0" title="Print" onClick={() => { void viewOrPrintInvoice(inv, "print"); }}>
                             <Printer className="h-3.5 w-3.5" />
                           </Button>
@@ -1754,6 +1831,25 @@ export default function TenantInvoices() {
             <Button variant="outline" onClick={() => { if (detailData) void viewOrPrintInvoice(detailData, "view"); }} className="gap-2 text-indigo-700 border-indigo-200 hover:bg-indigo-50 hover:text-indigo-800">
               <Eye className="h-4 w-4" />
               Lihat Invoice
+            </Button>
+            <Button
+              variant="outline"
+              className="gap-2 text-emerald-700 border-emerald-200 hover:bg-emerald-50 hover:text-emerald-800"
+              disabled={detailData ? downloadingId === detailData.id : false}
+              onClick={() => {
+                if (!detailData) return;
+                void downloadInvoicePdf(
+                  detailData,
+                  () => setDownloadingId(detailData.id),
+                  () => setDownloadingId(null),
+                );
+              }}
+            >
+              {detailData && downloadingId === detailData.id
+                ? <Loader2 className="h-4 w-4 animate-spin" />
+                : <Download className="h-4 w-4" />
+              }
+              {detailData && downloadingId === detailData.id ? "Memproses..." : "Download PDF"}
             </Button>
             <Button variant="outline" onClick={() => { if (detailData) void viewOrPrintInvoice(detailData, "print"); }} className="gap-2">
               <Printer className="h-4 w-4" />
