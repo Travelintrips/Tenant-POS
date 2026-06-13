@@ -8,6 +8,7 @@ import {
   tenantInvoicesTable,
   tenantBookingsTable,
   tenantsTable,
+  financePaymentEventsTable,
 } from "@workspace/db/schema";
 import { eq, and, desc, sql, inArray } from "drizzle-orm";
 import { z } from "zod/v4";
@@ -20,6 +21,7 @@ import {
   runMatchingForMutation,
   computeMatchCandidates,
 } from "../services/bank-matcher";
+import { writePaymentEvent, normalizePaymentMethod } from "../lib/payment-events";
 
 const router: IRouter = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
@@ -97,7 +99,6 @@ router.post("/bank-reconciliation/import", upload.single("file"), async (req, re
   let bankAccountId: string | undefined;
 
   if (req.file) {
-    // CSV parse
     const text = req.file.buffer.toString("utf-8");
     rows = text
       .split(/\r?\n/)
@@ -132,7 +133,6 @@ router.post("/bank-reconciliation/import", upload.single("file"), async (req, re
     afterData: { count: ids.length, bankAccountId },
   });
 
-  // Run matching for all imported mutations
   const matchResults = await Promise.allSettled(ids.map((id) => runMatchingForMutation(id)));
   const autoMatched = matchResults.filter(
     (r) => r.status === "fulfilled" && (r.value as any).autoMatched
@@ -157,6 +157,74 @@ router.post("/bank-reconciliation/import", upload.single("file"), async (req, re
   }
 
   res.json({ success: true, imported: ids.length, autoMatched, duplicates });
+});
+
+// ── GET /bank-reconciliation/kpi ──────────────────────────────────────────────
+
+router.get("/bank-reconciliation/kpi", async (req, res) => {
+  const siteId: number | undefined = (req as any).siteId > 0 ? (req as any).siteId : undefined;
+
+  const [mutStats, eventStats, invoiceStats] = await Promise.all([
+    db
+      .select({
+        status: bankMutationsTable.status,
+        count: sql<number>`count(*)::int`,
+      })
+      .from(bankMutationsTable)
+      .where(siteId ? eq(bankMutationsTable.siteId, siteId) : undefined)
+      .groupBy(bankMutationsTable.status),
+
+    db
+      .select({
+        paymentStatus: financePaymentEventsTable.paymentStatus,
+        count: sql<number>`count(*)::int`,
+        totalAmount: sql<string>`coalesce(sum(amount::numeric), 0)::text`,
+      })
+      .from(financePaymentEventsTable)
+      .where(siteId ? eq(financePaymentEventsTable.siteId, siteId) : undefined)
+      .groupBy(financePaymentEventsTable.paymentStatus),
+
+    db
+      .select({
+        status: tenantInvoicesTable.status,
+        count: sql<number>`count(*)::int`,
+        totalPaid: sql<string>`coalesce(sum(paid_amount::numeric), 0)::text`,
+      })
+      .from(tenantInvoicesTable)
+      .where(siteId ? eq(tenantInvoicesTable.siteId, siteId) : undefined)
+      .groupBy(tenantInvoicesTable.status),
+  ]);
+
+  const mutMap = Object.fromEntries(mutStats.map((r) => [r.status, r.count]));
+  const evtMap = Object.fromEntries(eventStats.map((r) => [r.paymentStatus, { count: r.count, amount: parseFloat(r.totalAmount) }]));
+  const invMap = Object.fromEntries(invoiceStats.map((r) => [r.status, { count: r.count, totalPaid: parseFloat(r.totalPaid) }]));
+
+  res.json({
+    mutations: {
+      unmatched: mutMap["unmatched"] ?? 0,
+      matched: mutMap["matched"] ?? 0,
+      approved: mutMap["approved"] ?? 0,
+      rejected: mutMap["rejected"] ?? 0,
+      duplicateNeedReview: mutMap["duplicate_need_review"] ?? 0,
+      total: Object.values(mutMap).reduce((a, b) => a + b, 0),
+    },
+    paymentEvents: {
+      pending: evtMap["pending"]?.count ?? 0,
+      waitingConfirmation: evtMap["waiting_confirmation"]?.count ?? 0,
+      confirmed: evtMap["confirmed"]?.count ?? 0,
+      rejected: evtMap["rejected"]?.count ?? 0,
+      total: Object.values(evtMap).reduce((a, b) => a + b.count, 0),
+      totalConfirmedAmount: evtMap["confirmed"]?.amount ?? 0,
+    },
+    invoices: {
+      paid: invMap["paid"]?.count ?? 0,
+      partial: invMap["partial"]?.count ?? 0,
+      unpaid: invMap["unpaid"]?.count ?? 0,
+      overdue: invMap["overdue"]?.count ?? 0,
+      totalPaidAmount: invMap["paid"]?.totalPaid ?? 0,
+      totalPartialPaidAmount: invMap["partial"]?.totalPaid ?? 0,
+    },
+  });
 });
 
 // ── GET /bank-reconciliation/mutations ───────────────────────────────────────
@@ -205,7 +273,6 @@ router.get("/bank-reconciliation/matches/:mutationId", async (req, res) => {
     .where(eq(bankReconciliationMatchesTable.mutationId, mutationId))
     .orderBy(desc(bankReconciliationMatchesTable.matchScore));
 
-  // Enrich candidates with detail info
   const enriched = await Promise.all(
     matches.map(async (m) => {
       let detail: Record<string, unknown> = {};
@@ -243,6 +310,24 @@ router.get("/bank-reconciliation/matches/:mutationId", async (req, res) => {
           .where(eq(tenantInvoicesTable.id, m.candidateId))
           .limit(1);
         if (inv) detail = inv as Record<string, unknown>;
+      } else if (m.candidateType === "payment_event") {
+        const [fpe] = await db
+          .select({
+            id: financePaymentEventsTable.id,
+            amount: financePaymentEventsTable.amount,
+            paymentMethod: financePaymentEventsTable.paymentMethod,
+            paymentReference: financePaymentEventsTable.paymentReference,
+            paymentStatus: financePaymentEventsTable.paymentStatus,
+            sourceModule: financePaymentEventsTable.sourceModule,
+            createdAt: financePaymentEventsTable.createdAt,
+            tenantName: tenantsTable.businessName,
+            ownerName: tenantsTable.ownerName,
+          })
+          .from(financePaymentEventsTable)
+          .leftJoin(tenantsTable, eq(financePaymentEventsTable.tenantId, tenantsTable.id))
+          .where(eq(financePaymentEventsTable.id, m.candidateId))
+          .limit(1);
+        if (fpe) detail = fpe as Record<string, unknown>;
       }
       return { ...m, detail };
     })
@@ -266,16 +351,21 @@ router.post("/bank-reconciliation/:mutationId/approve", async (req, res) => {
 
   const { matchId } = parsed.data;
 
-  const [match] = await db
-    .select()
-    .from(bankReconciliationMatchesTable)
-    .where(and(
-      eq(bankReconciliationMatchesTable.id, matchId),
-      eq(bankReconciliationMatchesTable.mutationId, mutationId)
-    ))
-    .limit(1);
+  const [[match], [mutation]] = await Promise.all([
+    db.select().from(bankReconciliationMatchesTable)
+      .where(and(
+        eq(bankReconciliationMatchesTable.id, matchId),
+        eq(bankReconciliationMatchesTable.mutationId, mutationId),
+      )).limit(1),
+    db.select().from(bankMutationsTable)
+      .where(eq(bankMutationsTable.id, mutationId)).limit(1),
+  ]);
 
   if (!match) { res.status(404).json({ error: "Kandidat match tidak ditemukan" }); return; }
+  if (!mutation) { res.status(404).json({ error: "Mutasi tidak ditemukan" }); return; }
+
+  const now = new Date();
+  let newPaymentId: number | null = null;
 
   await db.transaction(async (tx) => {
     await tx.update(bankReconciliationMatchesTable)
@@ -286,29 +376,150 @@ router.post("/bank-reconciliation/:mutationId/approve", async (req, res) => {
       .set({ status: "rejected" })
       .where(and(
         eq(bankReconciliationMatchesTable.mutationId, mutationId),
-        sql`${bankReconciliationMatchesTable.id} != ${matchId}`
+        sql`${bankReconciliationMatchesTable.id} != ${matchId}`,
       ));
 
     const updateData: Partial<typeof bankMutationsTable.$inferInsert> = {
       status: "approved",
-      updatedAt: new Date(),
+      updatedAt: now,
     };
-    if (match.candidateType === "payment") updateData.matchedPaymentId = match.candidateId;
-    if (match.candidateType === "invoice" || match.candidateType === "order") updateData.matchedOrderId = match.candidateId;
+
+    if (match.candidateType === "payment") {
+      updateData.matchedPaymentId = match.candidateId;
+
+      await tx.update(financePaymentEventsTable)
+        .set({
+          paymentStatus: "confirmed",
+          bankMutationId: mutationId,
+          isReconciled: true,
+          reconciledAt: now,
+          updatedAt: now,
+        })
+        .where(and(
+          eq(financePaymentEventsTable.sourceTable, "tenant_payments"),
+          eq(financePaymentEventsTable.sourceId, match.candidateId),
+        ));
+
+    } else if (match.candidateType === "invoice") {
+      updateData.matchedOrderId = match.candidateId;
+
+      const [invoice] = await tx
+        .select()
+        .from(tenantInvoicesTable)
+        .where(eq(tenantInvoicesTable.id, match.candidateId))
+        .for("update");
+
+      if (invoice && invoice.status !== "cancelled" && invoice.status !== "paid") {
+        const mutAmount = parseFloat(String(mutation.amount));
+        const newPaidAmount = Number(invoice.paidAmount) + mutAmount;
+        const total = Number(invoice.totalAmount);
+        const outstanding = Math.max(total - newPaidAmount, 0);
+
+        let newStatus: string;
+        if (newPaidAmount >= total) newStatus = "paid";
+        else if (newPaidAmount > 0) newStatus = "partial";
+        else newStatus = invoice.dueDate && new Date(invoice.dueDate) < now ? "overdue" : "unpaid";
+
+        const datePart = now.toISOString().slice(0, 10).replace(/-/g, "");
+        const prefix = `REKON-PAY-${datePart}-`;
+        const [countRow] = await tx
+          .select({ count: sql<number>`count(*)::int` })
+          .from(tenantPaymentsTable)
+          .where(sql`receipt_number LIKE ${prefix + "%"}`);
+        const seq = ((countRow?.count ?? 0) + 1).toString().padStart(4, "0");
+        const receiptNumber = `${prefix}${seq}`;
+
+        const [newPayment] = await tx
+          .insert(tenantPaymentsTable)
+          .values({
+            siteId: mutation.siteId ?? undefined,
+            invoiceId: invoice.id,
+            tenantId: invoice.tenantId ?? undefined,
+            bookingId: invoice.bookingId ?? undefined,
+            tenantBookingId: invoice.bookingId ?? undefined,
+            amount: String(mutAmount),
+            paymentMethod: "transfer",
+            paymentStatus: "PAID",
+            approvalStatus: "approved",
+            receiptNumber,
+            paidAt: new Date(mutation.transactionDate),
+            referenceNumber: mutation.providerOrderId ?? mutation.description?.slice(0, 100),
+            notes: `Disetujui via rekonsiliasi bank. Mutasi ID: ${mutationId}`,
+          })
+          .returning({ id: tenantPaymentsTable.id });
+
+        newPaymentId = newPayment?.id ?? null;
+
+        await tx.update(tenantInvoicesTable)
+          .set({
+            paidAmount: String(newPaidAmount),
+            outstandingAmount: String(outstanding),
+            status: newStatus,
+            updatedAt: now,
+          })
+          .where(eq(tenantInvoicesTable.id, invoice.id));
+
+        updateData.matchedPaymentId = newPaymentId ?? undefined;
+      }
+    } else if (match.candidateType === "payment_event") {
+      updateData.matchedOrderId = match.candidateId;
+
+      await tx.update(financePaymentEventsTable)
+        .set({
+          paymentStatus: "confirmed",
+          bankMutationId: mutationId,
+          isReconciled: true,
+          reconciledAt: now,
+          updatedAt: now,
+        })
+        .where(eq(financePaymentEventsTable.id, match.candidateId));
+    }
 
     await tx.update(bankMutationsTable)
       .set(updateData)
       .where(eq(bankMutationsTable.id, mutationId));
   });
 
+  if (match.candidateType === "invoice" && newPaymentId) {
+    await writePaymentEvent({
+      sourceApp: "tenant_management",
+      ownerApp: "tenant_management",
+      sourceModule: "tenant_invoice",
+      sourceTable: "tenant_payments",
+      sourceId: newPaymentId,
+      tenantId: null,
+      siteId: mutation.siteId ?? null,
+      invoiceId: match.candidateId,
+      amount: parseFloat(String(mutation.amount)),
+      direction: "IN",
+      paymentMethod: "bank_transfer",
+      paymentReference: mutation.providerOrderId ?? undefined,
+      paymentStatus: "confirmed",
+      isReconciled: true,
+      reconciledAt: now,
+      bankMutationId: mutationId,
+      metadata: {
+        mutationId,
+        mutationDescription: mutation.description,
+        transactionDate: mutation.transactionDate,
+        approvedBy: req.user?.name ?? req.user?.email ?? "Admin",
+      },
+    });
+  }
+
   logAudit(req, {
     action: "bank_mutation_approved",
     entityType: "bank_mutations",
     entityId: mutationId,
-    afterData: { matchId, candidateType: match.candidateType, candidateId: match.candidateId },
+    afterData: {
+      matchId,
+      candidateType: match.candidateType,
+      candidateId: match.candidateId,
+      newPaymentId,
+    },
   });
 
-  res.json({ success: true });
+  res.json({ success: true, newPaymentId });
 });
 
 // ── POST /bank-reconciliation/:mutationId/reject ─────────────────────────────
@@ -377,7 +588,7 @@ router.post("/bank-reconciliation/run-matching", async (req, res) => {
 // ── POST /bank-reconciliation/:mutationId/manual-match ───────────────────────
 
 const manualMatchSchema = z.object({
-  candidateType: z.enum(["payment", "invoice"]),
+  candidateType: z.enum(["payment", "invoice", "payment_event"]),
   candidateId: z.number().int().positive(),
 });
 
@@ -396,7 +607,7 @@ router.post("/bank-reconciliation/:mutationId/manual-match", async (req, res) =>
     .where(and(
       eq(bankReconciliationMatchesTable.mutationId, mutationId),
       eq(bankReconciliationMatchesTable.candidateType, candidateType),
-      eq(bankReconciliationMatchesTable.candidateId, candidateId)
+      eq(bankReconciliationMatchesTable.candidateId, candidateId),
     ))
     .limit(1);
 

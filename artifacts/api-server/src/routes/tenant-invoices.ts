@@ -12,6 +12,7 @@ import { z } from "zod/v4";
 import { requireAnyRole } from "../middlewares/auth";
 import { logAudit } from "../lib/audit";
 import { getBaseUrl } from "../lib/app-url";
+import { writePaymentEvent, normalizePaymentMethod } from "../lib/payment-events";
 
 const router: IRouter = Router();
 router.use("/tenant-invoices", requireAnyRole("owner", "admin", "finance"));
@@ -862,6 +863,27 @@ router.post("/tenant-invoices/:id/payment", async (req, res) => {
       },
     });
     sseBroker.publish("payment_created", { paymentId: result.payment.id, invoiceId: id });
+
+    writePaymentEvent({
+      sourceApp: "tenant_management",
+      ownerApp: "tenant_management",
+      sourceModule: "tenant_invoice",
+      sourceTable: "tenant_payments",
+      sourceId: result.payment.id,
+      tenantId: result.payment.tenantId ?? null,
+      siteId: result.payment.siteId ?? null,
+      invoiceId: id,
+      amount: amountPaid,
+      direction: "IN",
+      paymentMethod: normalizePaymentMethod(paymentMethod),
+      paymentStatus: "confirmed",
+      metadata: {
+        receiptNumber: result.receiptNumber,
+        invoiceStatus: result.newStatus,
+        source: "direct_invoice_payment",
+      },
+    }).catch(() => {});
+
     res.status(201).json({
       success: true,
       payment: result.payment,

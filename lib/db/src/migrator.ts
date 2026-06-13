@@ -1533,6 +1533,60 @@ DO $$ BEGIN
 END $$;
     `.trim(),
   },
+  {
+    name: "0030_finance_payment_events",
+    sql: `
+CREATE TABLE IF NOT EXISTS "finance_payment_events" (
+  "id" serial PRIMARY KEY NOT NULL,
+  "source_app" text NOT NULL,
+  "owner_app" text NOT NULL,
+  "source_module" text NOT NULL,
+  "source_table" text NOT NULL,
+  "source_id" integer NOT NULL,
+  "owner_company_id" integer,
+  "owner_tenant_id" integer,
+  "tenant_id" integer REFERENCES "tenants"("id"),
+  "site_id" integer REFERENCES "mall_sites"("id"),
+  "invoice_id" integer,
+  "amount" numeric NOT NULL,
+  "direction" text NOT NULL DEFAULT 'IN',
+  "payment_method" text NOT NULL,
+  "payment_reference" text,
+  "external_order_id" text,
+  "payment_status" text NOT NULL DEFAULT 'pending',
+  "proof_url" text,
+  "bank_mutation_id" integer,
+  "is_reconciled" boolean NOT NULL DEFAULT false,
+  "reconciled_at" timestamptz,
+  "metadata" jsonb,
+  "created_at" timestamptz NOT NULL DEFAULT now(),
+  "updated_at" timestamptz NOT NULL DEFAULT now()
+);
+
+DO $$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_indexes WHERE tablename = 'finance_payment_events' AND indexname = 'fpe_tenant_site_idx'
+  ) THEN
+    CREATE INDEX fpe_tenant_site_idx ON "finance_payment_events" ("tenant_id", "site_id");
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_indexes WHERE tablename = 'finance_payment_events' AND indexname = 'fpe_status_idx'
+  ) THEN
+    CREATE INDEX fpe_status_idx ON "finance_payment_events" ("payment_status");
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_indexes WHERE tablename = 'finance_payment_events' AND indexname = 'fpe_invoice_idx'
+  ) THEN
+    CREATE INDEX fpe_invoice_idx ON "finance_payment_events" ("invoice_id");
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_indexes WHERE tablename = 'finance_payment_events' AND indexname = 'fpe_source_idx'
+  ) THEN
+    CREATE INDEX fpe_source_idx ON "finance_payment_events" ("source_app", "source_table", "source_id");
+  END IF;
+END $$;
+    `.trim(),
+  },
 ];
 
 const MIGRATIONS_TABLE = "schema_migrations";

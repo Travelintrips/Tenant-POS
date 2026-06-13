@@ -6,6 +6,7 @@ import {
   tenantInvoicesTable,
   tenantBookingsTable,
   tenantsTable,
+  financePaymentEventsTable,
 } from "@workspace/db/schema";
 import { eq, and, gte, lte, or, sql } from "drizzle-orm";
 
@@ -53,7 +54,7 @@ function nameInDescription(name: string | null, desc: string): boolean {
 }
 
 interface MatchCandidate {
-  candidateType: "payment" | "invoice";
+  candidateType: "payment" | "invoice" | "payment_event";
   candidateId: number;
   matchScore: number;
   matchReason: string;
@@ -79,6 +80,80 @@ export async function computeMatchCandidates(
   dateTo.setDate(dateTo.getDate() + 3);
   const fromStr = dateFrom.toISOString().slice(0, 10);
   const toStr = dateTo.toISOString().slice(0, 10);
+
+  // --- Match against finance_payment_events (primary for Tenant App) ---
+  const paymentEvents = await db
+    .select({
+      id: financePaymentEventsTable.id,
+      amount: financePaymentEventsTable.amount,
+      paymentMethod: financePaymentEventsTable.paymentMethod,
+      paymentReference: financePaymentEventsTable.paymentReference,
+      externalOrderId: financePaymentEventsTable.externalOrderId,
+      paymentStatus: financePaymentEventsTable.paymentStatus,
+      createdAt: financePaymentEventsTable.createdAt,
+      tenantName: tenantsTable.businessName,
+      ownerName: tenantsTable.ownerName,
+      isReconciled: financePaymentEventsTable.isReconciled,
+    })
+    .from(financePaymentEventsTable)
+    .leftJoin(tenantsTable, eq(financePaymentEventsTable.tenantId, tenantsTable.id))
+    .where(
+      and(
+        sql`ABS(${financePaymentEventsTable.amount}::numeric - ${mutAmount}) < 1`,
+        eq(financePaymentEventsTable.isReconciled, false),
+        sql`${financePaymentEventsTable.paymentStatus} IN ('pending', 'waiting_confirmation')`,
+        eq(financePaymentEventsTable.direction, "IN"),
+        or(
+          and(
+            sql`${financePaymentEventsTable.createdAt}::date >= ${fromStr}::date`,
+            sql`${financePaymentEventsTable.createdAt}::date <= ${toStr}::date`,
+          ),
+          sql`${financePaymentEventsTable.createdAt} IS NULL`,
+        ),
+      ),
+    )
+    .limit(20);
+
+  for (const fpe of paymentEvents) {
+    let score = 0;
+    const reasons: string[] = [];
+
+    const amountMatch = Math.abs(parseFloat(String(fpe.amount)) - mutAmount) < 1;
+    if (amountMatch) { score += 40; reasons.push("nominal sama"); }
+
+    const fpeDate = fpe.createdAt ? new Date(fpe.createdAt).toISOString().slice(0, 10) : null;
+    const diff = fpeDate ? dateDiffDays(mutDate, fpeDate) : 99;
+    const exactDate = diff === 0;
+    const closeDate = diff <= 3;
+    if (exactDate) { score += 30; reasons.push("tanggal sama"); }
+    else if (closeDate) { score += 15; reasons.push(`tanggal beda ${diff} hari`); }
+
+    const nm = nameInDescription(fpe.tenantName, mutNorm) || nameInDescription(fpe.ownerName, mutNorm);
+    if (nm) { score += 15; reasons.push("nama tenant cocok"); }
+
+    const ref = fpe.paymentReference ?? "";
+    const extId = fpe.externalOrderId ?? "";
+    let orderIdMatch = false;
+    if (mutOrderId && (ref.includes(mutOrderId) || extId.includes(mutOrderId))) {
+      orderIdMatch = true;
+      score += 15;
+      reasons.push("referensi pembayaran cocok");
+    }
+
+    if (score >= 30) {
+      candidates.push({
+        candidateType: "payment_event",
+        candidateId: fpe.id,
+        matchScore: Math.min(score, 100),
+        matchReason: reasons.join("; "),
+        amountMatch,
+        dateMatch: exactDate || closeDate,
+        nameMatch: nm,
+        orderIdMatch,
+        proofMatch: false,
+      });
+    }
+  }
 
   // --- Match against tenant_payments ---
   const payments = await db
@@ -123,8 +198,6 @@ export async function computeMatchCandidates(
     if (exactDate) { score += 30; reasons.push("tanggal sama"); }
     else if (closeDate) { score += 15; reasons.push(`tanggal beda ${diff} hari`); }
 
-    const tenantNorm = normalizeDescription(p.tenantName ?? "");
-    const ownerNorm = normalizeDescription(p.ownerName ?? "");
     const nm = nameInDescription(p.tenantName, mutNorm) || nameInDescription(p.ownerName, mutNorm);
     if (nm) { score += 15; reasons.push("nama tenant cocok"); }
 
@@ -225,7 +298,6 @@ export async function runMatchingForMutation(mutationId: number): Promise<{
 
   if (!mutation) throw new Error(`Mutasi ID ${mutationId} tidak ditemukan`);
 
-  // Check for duplicate mutation_key
   const dupes = await db
     .select({ id: bankMutationsTable.id })
     .from(bankMutationsTable)
@@ -241,12 +313,10 @@ export async function runMatchingForMutation(mutationId: number): Promise<{
 
   const candidates = await computeMatchCandidates(mutation);
 
-  // Delete old candidates for this mutation
   await db
     .delete(bankReconciliationMatchesTable)
     .where(eq(bankReconciliationMatchesTable.mutationId, mutationId));
 
-  // Insert new candidates
   if (candidates.length > 0) {
     await db.insert(bankReconciliationMatchesTable).values(
       candidates.map((c) => ({
@@ -278,7 +348,7 @@ export async function runMatchingForMutation(mutationId: number): Promise<{
   const newStatus = candidates.length > 0 ? "matched" : "unmatched";
   await db
     .update(bankMutationsTable)
-    .set({ status: candidates.length > 0 ? "matched" : "unmatched", updatedAt: new Date() })
+    .set({ status: newStatus, updatedAt: new Date() })
     .where(eq(bankMutationsTable.id, mutationId));
 
   return {

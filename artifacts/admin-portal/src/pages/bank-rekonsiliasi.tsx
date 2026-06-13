@@ -19,7 +19,7 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import {
   Upload, RefreshCw, CheckCircle2, XCircle, AlertTriangle, HelpCircle,
-  Zap, Search, ChevronRight, FileUp, BarChart2,
+  Zap, Search, ChevronRight, FileUp, BarChart2, Banknote, Receipt, FileCheck,
 } from "lucide-react";
 
 const formatRp = (n: string | number | null | undefined) =>
@@ -69,6 +69,12 @@ type MutationWithMatches = {
   matches: MatchCandidate[];
 };
 
+type KpiData = {
+  mutations: { unmatched: number; matched: number; approved: number; rejected: number; duplicateNeedReview: number; total: number };
+  paymentEvents: { pending: number; waitingConfirmation: number; confirmed: number; rejected: number; total: number; totalConfirmedAmount: number };
+  invoices: { paid: number; partial: number; unpaid: number; overdue: number; totalPaidAmount: number; totalPartialPaidAmount: number };
+};
+
 const STATUS_CONFIG: Record<MutationStatus, { label: string; color: string; icon: React.ReactNode }> = {
   unmatched:            { label: "Tidak Cocok",   color: "bg-gray-100 text-gray-700 border-gray-300",     icon: <HelpCircle className="h-3 w-3" /> },
   matched:              { label: "Ada Kandidat",  color: "bg-blue-100 text-blue-700 border-blue-300",     icon: <Search className="h-3 w-3" /> },
@@ -112,6 +118,16 @@ export default function BankRekonsiliasi() {
   if (filterProvider) params.set("provider", filterProvider);
   if (filterDateFrom) params.set("dateFrom", filterDateFrom);
   if (filterDateTo) params.set("dateTo", filterDateTo);
+
+  const { data: kpi, refetch: refetchKpi } = useQuery<KpiData>({
+    queryKey: ["/api/bank-reconciliation/kpi"],
+    queryFn: async () => {
+      const r = await fetch("/api/bank-reconciliation/kpi");
+      if (!r.ok) throw new Error("Gagal memuat KPI");
+      return r.json();
+    },
+    refetchInterval: 60_000,
+  });
 
   const { data: mutations = [], isLoading, refetch } = useQuery<BankMutation[]>({
     queryKey: ["/api/bank-reconciliation/mutations", params.toString()],
@@ -234,6 +250,92 @@ export default function BankRekonsiliasi() {
           Import mutasi rekening, cocokkan otomatis dengan transaksi/invoice, lalu setujui atau tolak.
         </p>
       </div>
+
+      {/* KPI Panel */}
+      {kpi && (
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <Card className="border-blue-200 bg-blue-50/40">
+            <CardHeader className="pb-2 pt-4 px-4">
+              <CardTitle className="text-sm font-semibold text-blue-800 flex items-center gap-1.5">
+                <Banknote className="h-4 w-4" /> Mutasi Bank
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="px-4 pb-4">
+              <div className="grid grid-cols-3 gap-2 text-center">
+                <div>
+                  <p className="text-xs text-muted-foreground">Total</p>
+                  <p className="text-lg font-bold text-blue-700">{kpi.mutations.total}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">Perlu Review</p>
+                  <p className="text-lg font-bold text-yellow-700">{kpi.mutations.matched + kpi.mutations.duplicateNeedReview}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">Selesai</p>
+                  <p className="text-lg font-bold text-green-700">{kpi.mutations.approved}</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="border-purple-200 bg-purple-50/40">
+            <CardHeader className="pb-2 pt-4 px-4">
+              <CardTitle className="text-sm font-semibold text-purple-800 flex items-center gap-1.5">
+                <Receipt className="h-4 w-4" /> Event Pembayaran
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="px-4 pb-4">
+              <div className="grid grid-cols-3 gap-2 text-center">
+                <div>
+                  <p className="text-xs text-muted-foreground">Total</p>
+                  <p className="text-lg font-bold text-purple-700">{kpi.paymentEvents.total}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">Menunggu</p>
+                  <p className="text-lg font-bold text-orange-600">{kpi.paymentEvents.pending + kpi.paymentEvents.waitingConfirmation}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">Dikonfirmasi</p>
+                  <p className="text-lg font-bold text-green-700">{kpi.paymentEvents.confirmed}</p>
+                </div>
+              </div>
+              {kpi.paymentEvents.totalConfirmedAmount > 0 && (
+                <p className="text-xs text-center text-muted-foreground mt-2 border-t pt-2">
+                  Total konfirmasi: <span className="font-semibold text-green-700">{formatRp(kpi.paymentEvents.totalConfirmedAmount)}</span>
+                </p>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card className="border-green-200 bg-green-50/40">
+            <CardHeader className="pb-2 pt-4 px-4">
+              <CardTitle className="text-sm font-semibold text-green-800 flex items-center gap-1.5">
+                <FileCheck className="h-4 w-4" /> Status Invoice
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="px-4 pb-4">
+              <div className="grid grid-cols-4 gap-1 text-center">
+                <div>
+                  <p className="text-xs text-muted-foreground">Lunas</p>
+                  <p className="text-lg font-bold text-green-700">{kpi.invoices.paid}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">Sebagian</p>
+                  <p className="text-lg font-bold text-blue-700">{kpi.invoices.partial}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">Belum</p>
+                  <p className="text-lg font-bold text-gray-600">{kpi.invoices.unpaid}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">Lewat</p>
+                  <p className="text-lg font-bold text-red-600">{kpi.invoices.overdue}</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
 
       {/* Stat cards */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3">

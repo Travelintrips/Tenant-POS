@@ -14,3 +14,4 @@ export * from "./system-settings";
 export * from "./wa-logs";
 export * from "./bank-mutations";
 export * from "./bank-reconciliation-matches";
+export * from "./finance-payment-events";
