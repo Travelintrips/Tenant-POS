@@ -96,7 +96,7 @@ export async function siteContext(req: Request, res: Response, next: NextFunctio
       const allAccess = await db
         .select({ siteId: userSiteAccessTable.siteId })
         .from(userSiteAccessTable)
-        .where(eq(userSiteAccessTable.userId, dbId));
+        .where(eq(userSiteAccessTable.userId, String(dbId)));
 
       if (allAccess.length > 0) {
         // User has explicit access rows — verify they can access the resolved site

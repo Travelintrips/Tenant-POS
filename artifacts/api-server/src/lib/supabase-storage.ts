@@ -1,15 +1,44 @@
-import { StorageClient } from "@supabase/storage-js";
+import path from "path";
+import fs from "fs";
 
 const supabaseUrl = process.env["SUPABASE_URL"] ?? "";
 const supabaseKey = process.env["SUPABASE_SERVICE_ROLE_KEY"] ?? "";
 
-let _client: StorageClient | null = null;
+const useSupabase = Boolean(supabaseUrl && supabaseKey);
 
-function getClient(): StorageClient {
+// ─── Local disk storage (fallback when Supabase is not configured) ────────────
+
+function uploadsRoot(): string {
+  return path.join(process.cwd(), "uploads");
+}
+
+async function saveLocal(
+  bucket: string,
+  filename: string,
+  buffer: Buffer,
+): Promise<string> {
+  const dir = path.join(uploadsRoot(), bucket);
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, filename), buffer);
+  return `/uploads/${bucket}/${filename}`;
+}
+
+// ─── Supabase storage (when credentials are present) ────────────────────────
+
+let _supabaseModule: typeof import("@supabase/storage-js") | null = null;
+
+async function getSupabaseModule() {
+  if (!_supabaseModule) {
+    _supabaseModule = await import("@supabase/storage-js");
+  }
+  return _supabaseModule;
+}
+
+let _client: InstanceType<typeof import("@supabase/storage-js").StorageClient> | null = null;
+
+async function getClient() {
   if (!_client) {
-    if (!supabaseUrl || !supabaseKey) {
-      throw new Error("SUPABASE_URL dan SUPABASE_SERVICE_ROLE_KEY harus diset untuk file upload");
-    }
+    const { StorageClient } = await getSupabaseModule();
     _client = new StorageClient(`${supabaseUrl}/storage/v1`, {
       apikey: supabaseKey,
       Authorization: `Bearer ${supabaseKey}`,
@@ -20,9 +49,8 @@ function getClient(): StorageClient {
 
 const ensuredBuckets = new Set<string>();
 
-async function ensureBucket(bucket: string, isPublic = true): Promise<void> {
+async function ensureBucket(client: Awaited<ReturnType<typeof getClient>>, bucket: string, isPublic = true): Promise<void> {
   if (ensuredBuckets.has(bucket)) return;
-  const client = getClient();
   const { data: existing } = await client.getBucket(bucket);
   if (!existing) {
     const { error: createErr } = await client.createBucket(bucket, {
@@ -36,6 +64,8 @@ async function ensureBucket(bucket: string, isPublic = true): Promise<void> {
   ensuredBuckets.add(bucket);
 }
 
+// ─── Public API ───────────────────────────────────────────────────────────────
+
 export async function uploadToStorage(
   bucket: string,
   filename: string,
@@ -43,8 +73,12 @@ export async function uploadToStorage(
   contentType: string,
   isPublic = true,
 ): Promise<string> {
-  const client = getClient();
-  await ensureBucket(bucket, isPublic);
+  if (!useSupabase) {
+    return saveLocal(bucket, filename, buffer);
+  }
+
+  const client = await getClient();
+  await ensureBucket(client, bucket, isPublic);
 
   const { data, error } = await client
     .from(bucket)
@@ -57,13 +91,21 @@ export async function uploadToStorage(
 }
 
 export async function deleteFromStorage(bucket: string, filePath: string): Promise<void> {
-  const client = getClient();
+  if (!useSupabase) {
+    const localPath = path.join(uploadsRoot(), bucket, path.basename(filePath));
+    try { fs.unlinkSync(localPath); } catch { /* ignore */ }
+    return;
+  }
+  const client = await getClient();
   await client.from(bucket).remove([filePath]);
 }
 
 export function getStoragePublicUrl(bucket: string, filePath: string): string {
-  const client = getClient();
-  const { data } = client.from(bucket).getPublicUrl(filePath);
+  if (!useSupabase) {
+    return `/uploads/${bucket}/${filePath}`;
+  }
+  if (!_client) return `/uploads/${bucket}/${filePath}`;
+  const { data } = _client.from(bucket).getPublicUrl(filePath);
   return data.publicUrl;
 }
 

@@ -41,7 +41,7 @@ router.get("/sites", requireAuth, async (req, res) => {
       const access = await db
         .select({ siteId: userSiteAccessTable.siteId })
         .from(userSiteAccessTable)
-        .where(eq(userSiteAccessTable.userId, numericDbId));
+        .where(eq(userSiteAccessTable.userId, String(numericDbId)));
 
       if (access.length > 0) {
         const siteIds = access.map((a) => a.siteId);
@@ -137,14 +137,14 @@ router.post("/sites/:id/users", requireAnyRole("owner", "admin"), async (req, re
     const [existing] = await db
       .select()
       .from(userSiteAccessTable)
-      .where(and(eq(userSiteAccessTable.userId, userId), eq(userSiteAccessTable.siteId, siteId)));
+      .where(and(eq(userSiteAccessTable.userId, String(userId)), eq(userSiteAccessTable.siteId, siteId)));
     if (existing) {
       res.status(409).json({ error: "Pengguna sudah memiliki akses ke site ini" });
       return;
     }
     const [access] = await db
       .insert(userSiteAccessTable)
-      .values({ userId, siteId, role: role ?? "admin" })
+      .values({ userId: String(userId), siteId, role: role ?? "admin" })
       .returning();
     logAudit(req, { action: "grant_site_access", entityType: "user_site_access", entityId: access.id, afterData: access });
     res.status(201).json(access);
@@ -162,7 +162,7 @@ router.delete("/sites/:id/users/:userId", requireAnyRole("owner", "admin"), asyn
   try {
     const [deleted] = await db
       .delete(userSiteAccessTable)
-      .where(and(eq(userSiteAccessTable.userId, userId), eq(userSiteAccessTable.siteId, siteId)))
+      .where(and(eq(userSiteAccessTable.userId, String(userId)), eq(userSiteAccessTable.siteId, siteId)))
       .returning();
     if (!deleted) { res.status(404).json({ error: "Akses tidak ditemukan" }); return; }
     logAudit(req, { action: "revoke_site_access", entityType: "user_site_access", entityId: deleted.id, beforeData: deleted });

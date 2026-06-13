@@ -505,7 +505,7 @@ function LogoUploader({ logoUrl, onUpload }: { logoUrl: string; onUpload: (url: 
     try {
       const formData = new FormData();
       formData.append("file", file);
-      const res = await apiFetch("/uploads/mall-logo", { method: "POST", body: formData });
+      const res = await apiFetch("/api/uploads/mall-logo", { method: "POST", body: formData });
       if (!res.ok) {
         const err = await res.json().catch(() => ({})) as { error?: string };
         throw new Error(err.error ?? "Upload gagal");
