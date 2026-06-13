@@ -24,7 +24,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import {
   Plus, FileText, Printer, CreditCard, X, Search, Zap, AlertCircle,
   CheckCircle2, Clock, Ban, CircleDashed, MessageCircle, Send, Link2, Loader2,
-  Copy, WifiOff, CheckCheck, Download, Layers, ChevronDown, ChevronRight,
+  Copy, WifiOff, CheckCheck, Download, Layers, ChevronDown, ChevronRight, Eye,
 } from "lucide-react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -432,7 +432,7 @@ async function fetchInvoiceConfig(): Promise<MallInvoiceConfig> {
   }
 }
 
-async function printInvoice(inv: Invoice) {
+async function viewOrPrintInvoice(inv: Invoice, mode: "view" | "print" = "print") {
   const cfg = await fetchInvoiceConfig();
   const win = window.open("", "_blank", "width=800,height=900");
   if (!win) return;
@@ -571,7 +571,9 @@ async function printInvoice(inv: Invoice) {
   win.document.write(html);
   win.document.close();
   win.focus();
-  setTimeout(() => win.print(), 300);
+  if (mode === "print") {
+    setTimeout(() => win.print(), 300);
+  }
 }
 
 // ─── Create Invoice Form ───────────────────────────────────────────────────────
@@ -1363,7 +1365,11 @@ export default function TenantInvoices() {
                               <MessageCircle className="h-3.5 w-3.5" />
                             </Button>
                           )}
-                          <Button size="sm" variant="ghost" className="h-7 w-7 p-0" title="Print" onClick={() => { void printInvoice(inv); }}>
+                          <Button size="sm" variant="outline" className="h-7 px-2 text-xs gap-1 text-indigo-700 border-indigo-200 hover:bg-indigo-50 hover:text-indigo-800" title="Lihat invoice" onClick={() => { void viewOrPrintInvoice(inv, "view"); }}>
+                            <Eye className="h-3 w-3" />
+                            Lihat
+                          </Button>
+                          <Button size="sm" variant="ghost" className="h-7 w-7 p-0" title="Print" onClick={() => { void viewOrPrintInvoice(inv, "print"); }}>
                             <Printer className="h-3.5 w-3.5" />
                           </Button>
                           {inv.status !== "paid" && inv.status !== "cancelled" && (
@@ -1745,7 +1751,11 @@ export default function TenantInvoices() {
             </ScrollArea>
           ) : null}
           <DialogFooter className="flex-wrap gap-2">
-            <Button variant="outline" onClick={() => { if (detailData) void printInvoice(detailData); }} className="gap-2">
+            <Button variant="outline" onClick={() => { if (detailData) void viewOrPrintInvoice(detailData, "view"); }} className="gap-2 text-indigo-700 border-indigo-200 hover:bg-indigo-50 hover:text-indigo-800">
+              <Eye className="h-4 w-4" />
+              Lihat Invoice
+            </Button>
+            <Button variant="outline" onClick={() => { if (detailData) void viewOrPrintInvoice(detailData, "print"); }} className="gap-2">
               <Printer className="h-4 w-4" />
               Print Invoice
             </Button>
