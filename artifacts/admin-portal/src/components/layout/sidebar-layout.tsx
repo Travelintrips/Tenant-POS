@@ -147,7 +147,7 @@ export function SidebarLayout({ children }: { children: React.ReactNode }) {
       <Sidebar>
         <SidebarHeader className="flex flex-col gap-2 px-4 py-3">
           <div className="flex flex-row items-center gap-2">
-            <Building2 className="h-6 w-6 text-primary shrink-0" />
+            <img src="/logo-cst.png" alt="Logo CST" className="h-8 w-8 object-contain shrink-0" />
             <span className="text-lg font-bold text-sidebar-foreground">
               Portal Admin
             </span>
