@@ -18,3 +18,5 @@ export * from "./finance-payment-events";
 export * from "./bank-journal-entries";
 export * from "./bank-account-balances";
 export * from "./bank-recon-audit-logs";
+export * from "./bank-closing-periods";
+export * from "./bank-coa-rules";

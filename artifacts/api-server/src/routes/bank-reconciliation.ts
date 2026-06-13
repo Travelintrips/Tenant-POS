@@ -7,6 +7,8 @@ import {
   bankJournalEntriesTable,
   bankAccountBalancesTable,
   bankReconAuditLogsTable,
+  bankClosingPeriodsTable,
+  bankCoaRulesTable,
   tenantPaymentsTable,
   tenantInvoicesTable,
   tenantBookingsTable,
@@ -1564,5 +1566,178 @@ router.get("/bank-reconciliation/audit-logs", async (req, res) => {
   });
 });
 
+
+// ── GET /bank-reconciliation/laporan ─────────────────────────────────────────
+router.get("/bank-reconciliation/laporan", async (req, res) => {
+  const { year } = req.query as Record<string, string>;
+  const targetYear = year ? parseInt(year, 10) : new Date().getFullYear();
+
+  const rows = await db.execute(sql`
+    SELECT
+      TO_CHAR(transaction_date::date, 'YYYY-MM') AS year_month,
+      COUNT(*)::int AS total,
+      COUNT(*) FILTER (WHERE status = 'approved')::int AS approved,
+      COUNT(*) FILTER (WHERE status = 'rejected')::int AS rejected,
+      COUNT(*) FILTER (WHERE status = 'unmatched')::int AS unmatched,
+      COUNT(*) FILTER (WHERE status = 'matched')::int AS matched,
+      COUNT(*) FILTER (WHERE status = 'duplicate_need_review')::int AS duplicate,
+      COALESCE(SUM(CASE WHEN direction = 'IN' THEN credit_amount::numeric ELSE 0 END), 0) AS total_in,
+      COALESCE(SUM(CASE WHEN direction = 'OUT' THEN debit_amount::numeric ELSE 0 END), 0) AS total_out,
+      COALESCE(SUM(CASE WHEN status = 'approved' AND direction = 'IN' THEN credit_amount::numeric ELSE 0 END), 0) AS approved_amount
+    FROM bank_mutations
+    WHERE EXTRACT(YEAR FROM transaction_date::date) = ${targetYear}
+    GROUP BY year_month
+    ORDER BY year_month DESC
+  `);
+
+  res.json({ year: targetYear, rows: rows.rows });
+});
+
+// ── GET /bank-reconciliation/closing ─────────────────────────────────────────
+router.get("/bank-reconciliation/closing", async (req, res) => {
+  const rows = await db.select().from(bankClosingPeriodsTable)
+    .orderBy(desc(bankClosingPeriodsTable.yearMonth));
+  res.json(rows);
+});
+
+// ── POST /bank-reconciliation/closing/:yearMonth/lock ────────────────────────
+router.post("/bank-reconciliation/closing/:yearMonth/lock", async (req, res) => {
+  const { yearMonth } = req.params;
+  const { notes } = req.body as { notes?: string };
+  const ctx = appCtx(req);
+
+  if (!/^\d{4}-\d{2}$/.test(yearMonth)) {
+    res.status(400).json({ error: "Format yearMonth tidak valid (YYYY-MM)" });
+    return;
+  }
+
+  const existing = await db.select().from(bankClosingPeriodsTable)
+    .where(eq(bankClosingPeriodsTable.yearMonth, yearMonth));
+
+  if (existing.length > 0) {
+    res.status(409).json({ error: `Periode ${yearMonth} sudah dikunci` });
+    return;
+  }
+
+  const [row] = await db.insert(bankClosingPeriodsTable).values({
+    yearMonth,
+    lockedBy: ctx.ownerTenantId?.toString() ?? "system",
+    lockedByRole: ctx.role,
+    notes: notes ?? null,
+  }).returning();
+
+  logBankReconAudit(req, ctx, "closing_lock" as any, {
+    metadata: { yearMonth, notes },
+    sourceModule: "bank_closing",
+  });
+
+  res.json({ success: true, period: row });
+});
+
+// ── DELETE /bank-reconciliation/closing/:yearMonth/lock ──────────────────────
+router.delete("/bank-reconciliation/closing/:yearMonth/lock", async (req, res) => {
+  const { yearMonth } = req.params;
+  const ctx = appCtx(req);
+
+  const deleted = await db.delete(bankClosingPeriodsTable)
+    .where(eq(bankClosingPeriodsTable.yearMonth, yearMonth))
+    .returning();
+
+  if (deleted.length === 0) {
+    res.status(404).json({ error: `Periode ${yearMonth} tidak ditemukan` });
+    return;
+  }
+
+  logBankReconAudit(req, ctx, "closing_unlock" as any, {
+    metadata: { yearMonth },
+    sourceModule: "bank_closing",
+  });
+
+  res.json({ success: true });
+});
+
+// ── GET /bank-reconciliation/coa-rules ───────────────────────────────────────
+router.get("/bank-reconciliation/coa-rules", async (_req, res) => {
+  const rows = await db.select().from(bankCoaRulesTable)
+    .orderBy(bankCoaRulesTable.coaCode);
+  res.json(rows);
+});
+
+// ── POST /bank-reconciliation/coa-rules ──────────────────────────────────────
+router.post("/bank-reconciliation/coa-rules", async (req, res) => {
+  const body = req.body as {
+    providerName?: string;
+    direction?: string;
+    descriptionPattern?: string;
+    coaCode: string;
+    coaName: string;
+    description?: string;
+    isActive?: boolean;
+  };
+
+  if (!body.coaCode?.trim() || !body.coaName?.trim()) {
+    res.status(400).json({ error: "coaCode dan coaName wajib diisi" });
+    return;
+  }
+
+  const [row] = await db.insert(bankCoaRulesTable).values({
+    providerName: body.providerName?.trim() || null,
+    direction: body.direction ?? "ALL",
+    descriptionPattern: body.descriptionPattern?.trim() || null,
+    coaCode: body.coaCode.trim(),
+    coaName: body.coaName.trim(),
+    description: body.description?.trim() || null,
+    isActive: body.isActive ?? true,
+  }).returning();
+
+  res.status(201).json(row);
+});
+
+// ── PUT /bank-reconciliation/coa-rules/:id ───────────────────────────────────
+router.put("/bank-reconciliation/coa-rules/:id", async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  const body = req.body as {
+    providerName?: string;
+    direction?: string;
+    descriptionPattern?: string;
+    coaCode?: string;
+    coaName?: string;
+    description?: string;
+    isActive?: boolean;
+  };
+
+  const [row] = await db.update(bankCoaRulesTable).set({
+    providerName: body.providerName?.trim() || null,
+    direction: body.direction ?? "ALL",
+    descriptionPattern: body.descriptionPattern?.trim() || null,
+    coaCode: body.coaCode?.trim(),
+    coaName: body.coaName?.trim(),
+    description: body.description?.trim() || null,
+    isActive: body.isActive ?? true,
+    updatedAt: new Date(),
+  }).where(eq(bankCoaRulesTable.id, id)).returning();
+
+  if (!row) {
+    res.status(404).json({ error: "Aturan COA tidak ditemukan" });
+    return;
+  }
+
+  res.json(row);
+});
+
+// ── DELETE /bank-reconciliation/coa-rules/:id ────────────────────────────────
+router.delete("/bank-reconciliation/coa-rules/:id", async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  const deleted = await db.delete(bankCoaRulesTable)
+    .where(eq(bankCoaRulesTable.id, id))
+    .returning();
+
+  if (deleted.length === 0) {
+    res.status(404).json({ error: "Aturan COA tidak ditemukan" });
+    return;
+  }
+
+  res.json({ success: true });
+});
 
 export default router;

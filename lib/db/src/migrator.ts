@@ -1721,6 +1721,38 @@ ALTER TABLE "audit_logs" ADD COLUMN IF NOT EXISTS "tenant_id" integer;
 CREATE INDEX IF NOT EXISTS "audit_logs_tenant_id_idx" ON "audit_logs" ("tenant_id");
     `.trim(),
   },
+  {
+    name: "0037_bank_closing_periods",
+    sql: `
+CREATE TABLE IF NOT EXISTS "bank_closing_periods" (
+  "id" serial PRIMARY KEY NOT NULL,
+  "year_month" text NOT NULL UNIQUE,
+  "locked_by" text,
+  "locked_by_role" text,
+  "notes" text,
+  "site_id" integer REFERENCES "mall_sites"("id"),
+  "created_at" timestamptz NOT NULL DEFAULT now(),
+  "updated_at" timestamptz NOT NULL DEFAULT now()
+);
+    `.trim(),
+  },
+  {
+    name: "0038_bank_coa_rules",
+    sql: `
+CREATE TABLE IF NOT EXISTS "bank_coa_rules" (
+  "id" serial PRIMARY KEY NOT NULL,
+  "provider_name" text,
+  "direction" text NOT NULL DEFAULT 'ALL',
+  "description_pattern" text,
+  "coa_code" text NOT NULL,
+  "coa_name" text NOT NULL,
+  "description" text,
+  "is_active" boolean NOT NULL DEFAULT true,
+  "created_at" timestamptz NOT NULL DEFAULT now(),
+  "updated_at" timestamptz NOT NULL DEFAULT now()
+);
+    `.trim(),
+  },
 ];
 
 const MIGRATIONS_TABLE = "schema_migrations";
