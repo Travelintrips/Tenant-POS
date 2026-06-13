@@ -16,6 +16,7 @@ const exportSchema = z.object({
   spreadsheetId: z.string().min(1),
   year: z.number().int().min(2020).max(2100),
   month: z.number().int().min(1).max(12),
+  sheetTitle: z.string().trim().min(1).optional(),
 });
 
 router.post("/reconciliation/export", async (req, res) => {
@@ -24,7 +25,7 @@ router.post("/reconciliation/export", async (req, res) => {
     res.status(400).json({ error: "Parameter tidak valid", detail: parsed.error.issues });
     return;
   }
-  const { spreadsheetId: rawId, year, month } = parsed.data;
+  const { spreadsheetId: rawId, year, month, sheetTitle: customSheetTitle } = parsed.data;
   const spreadsheetId = extractSheetId(rawId);
 
   const periodStart = `${year}-${String(month).padStart(2, "0")}-01`;
@@ -66,7 +67,7 @@ router.post("/reconciliation/export", async (req, res) => {
     .orderBy(tenantsTable.businessName);
 
   const MONTH_ID = ["", "Januari","Februari","Maret","April","Mei","Juni","Juli","Agustus","September","Oktober","November","Desember"];
-  const sheetTitle = `Rekonsiliasi ${MONTH_ID[month]} ${year}`;
+  const sheetTitle = customSheetTitle ?? `Rekonsiliasi ${MONTH_ID[month]} ${year}`;
 
   const statusLabel: Record<string, string> = {
     paid: "Lunas",

@@ -71,9 +71,13 @@ export default function Rekonsiliasi() {
   const [spreadsheetUrl, setSpreadsheetUrlRaw] = useState(() => localStorage.getItem(LS_URL_KEY) ?? "");
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth() + 1);
+  const [customSheetTitle, setCustomSheetTitle] = useState("");
   const [exportResult, setExportResult] = useState<ExportResult | null>(null);
   const [sheetData, setSheetData] = useState<string[][] | null>(null);
   const [readSheetTitle, setReadSheetTitleRaw] = useState(() => localStorage.getItem(LS_TITLE_KEY) ?? "");
+
+  const defaultSheetTitle = `Rekonsiliasi ${MONTH_NAMES[month - 1]} ${year}`;
+  const effectiveSheetTitle = customSheetTitle.trim() || defaultSheetTitle;
 
   function setSpreadsheetUrl(val: string) {
     setSpreadsheetUrlRaw(val);
@@ -99,7 +103,7 @@ export default function Rekonsiliasi() {
       const r = await fetch("/api/reconciliation/export", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ spreadsheetId: spreadsheetUrl.trim(), year, month }),
+        body: JSON.stringify({ spreadsheetId: spreadsheetUrl.trim(), year, month, sheetTitle: effectiveSheetTitle }),
       });
       const data = await r.json();
       if (!r.ok) throw new Error(data.error ?? "Gagal export");
@@ -273,7 +277,7 @@ export default function Rekonsiliasi() {
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
               <Label>Bulan</Label>
-              <Select value={String(month)} onValueChange={(v) => setMonth(Number(v))}>
+              <Select value={String(month)} onValueChange={(v) => { setMonth(Number(v)); setCustomSheetTitle(""); }}>
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
@@ -286,7 +290,7 @@ export default function Rekonsiliasi() {
             </div>
             <div className="space-y-1.5">
               <Label>Tahun</Label>
-              <Select value={String(year)} onValueChange={(v) => setYear(Number(v))}>
+              <Select value={String(year)} onValueChange={(v) => { setYear(Number(v)); setCustomSheetTitle(""); }}>
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
@@ -297,6 +301,17 @@ export default function Rekonsiliasi() {
                 </SelectContent>
               </Select>
             </div>
+          </div>
+          <div className="space-y-1.5">
+            <Label>Nama Sheet (tab)</Label>
+            <Input
+              placeholder={defaultSheetTitle}
+              value={customSheetTitle}
+              onChange={(e) => setCustomSheetTitle(e.target.value)}
+            />
+            <p className="text-xs text-muted-foreground">
+              Nama tab sheet di Google Sheets. Default: <span className="font-medium">{defaultSheetTitle}</span>
+            </p>
           </div>
           <Button
             onClick={() => exportMutation.mutate()}
