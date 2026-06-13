@@ -16,11 +16,12 @@ import {
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from "@/components/ui/dialog";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import {
   Upload, RefreshCw, CheckCircle2, XCircle, AlertTriangle, HelpCircle,
   Zap, Search, ChevronRight, FileUp, BarChart2, Banknote, Receipt, FileCheck,
-  FileSpreadsheet, MessageCircle, Send, ExternalLink, Archive,
+  FileSpreadsheet, MessageCircle, Send, ExternalLink, Archive, ClipboardList,
 } from "lucide-react";
 
 const formatRp = (n: string | number | null | undefined) =>
@@ -108,6 +109,47 @@ function ScoreBadge({ score }: { score: number }) {
   return <span className={`inline-flex rounded px-1.5 py-0.5 text-xs font-bold ${color}`}>{score}</span>;
 }
 
+type BankReconAuditLog = {
+  id: number;
+  mutationId: number | null;
+  matchId: number | null;
+  financePaymentEventId: number | null;
+  journalId: string | null;
+  action: string;
+  actionApp: string | null;
+  actionUserId: string | null;
+  actionRole: string | null;
+  ownerApp: string | null;
+  ownerCompanyId: number | null;
+  ownerTenantId: number | null;
+  sourceApp: string | null;
+  sourceModule: string | null;
+  beforeValue: unknown;
+  afterValue: unknown;
+  metadata: unknown;
+  ipAddress: string | null;
+  userAgent: string | null;
+  createdAt: string;
+};
+
+const AUDIT_ACTION_STYLES: Record<string, { label: string; color: string }> = {
+  import_mutasi:      { label: "Import",        color: "bg-blue-100 text-blue-800 border-blue-200" },
+  auto_match:         { label: "Auto Match",     color: "bg-emerald-100 text-emerald-800 border-emerald-200" },
+  need_review:        { label: "Need Review",    color: "bg-yellow-100 text-yellow-800 border-yellow-200" },
+  manual_match:       { label: "Manual Match",   color: "bg-purple-100 text-purple-800 border-purple-200" },
+  approved:           { label: "Disetujui",      color: "bg-green-100 text-green-800 border-green-200" },
+  rejected:           { label: "Ditolak",        color: "bg-red-100 text-red-800 border-red-200" },
+  run_matching:       { label: "Run Matching",   color: "bg-sky-100 text-sky-800 border-sky-200" },
+  export_sheet:       { label: "Export Sheet",   color: "bg-indigo-100 text-indigo-800 border-indigo-200" },
+  send_reminder_wa:   { label: "Kirim WA",       color: "bg-orange-100 text-orange-800 border-orange-200" },
+};
+
+function AuditActionBadge({ action }: { action: string }) {
+  const s = AUDIT_ACTION_STYLES[action];
+  if (!s) return <span className="inline-flex rounded border px-2 py-0.5 text-[10px] font-mono bg-gray-50 text-gray-600 border-gray-200">{action}</span>;
+  return <span className={`inline-flex rounded border px-2 py-0.5 text-[10px] font-semibold ${s.color}`}>{s.label}</span>;
+}
+
 export default function BankRekonsiliasi() {
   const { toast } = useToast();
   const qc = useQueryClient();
@@ -142,6 +184,27 @@ export default function BankRekonsiliasi() {
   // WA Reminder
   const [showWa, setShowWa] = useState(false);
   const [waTypes, setWaTypes] = useState<string[]>(["unpaid_invoice"]);
+
+  // Audit Log
+  const [auditAction, setAuditAction] = useState("all");
+  const [auditDateFrom, setAuditDateFrom] = useState("");
+  const [auditDateTo, setAuditDateTo] = useState("");
+
+  const auditParams = new URLSearchParams();
+  if (auditAction !== "all") auditParams.set("action", auditAction);
+  if (auditDateFrom) auditParams.set("date_from", auditDateFrom);
+  if (auditDateTo) auditParams.set("date_to", auditDateTo);
+  auditParams.set("limit", "100");
+
+  const { data: auditLogsData, isLoading: loadingAuditLogs, refetch: refetchAuditLogs } = useQuery<{ data: BankReconAuditLog[]; total: number; page: number; limit: number }>({
+    queryKey: ["/api/bank-reconciliation/audit-logs", auditParams.toString()],
+    queryFn: async () => {
+      const r = await fetch(`/api/bank-reconciliation/audit-logs?${auditParams}`);
+      if (!r.ok) throw new Error("Gagal memuat audit log");
+      return r.json();
+    },
+  });
+  const auditLogs = auditLogsData?.data ?? [];
 
   // Build query params
   const params = new URLSearchParams();
@@ -499,6 +562,18 @@ export default function BankRekonsiliasi() {
         </a>
       </div>
 
+      <Tabs defaultValue="mutasi" className="w-full">
+        <TabsList className="mb-0">
+          <TabsTrigger value="mutasi" className="text-xs flex items-center gap-1.5">
+            <Banknote className="h-3 w-3" />Daftar Mutasi
+          </TabsTrigger>
+          <TabsTrigger value="audit-log" className="text-xs flex items-center gap-1.5">
+            <ClipboardList className="h-3 w-3" />Audit Log
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="mutasi" className="space-y-4 mt-4">
+
       {/* CSV format hint */}
       <Alert className="border-blue-200 bg-blue-50 py-3">
         <BarChart2 className="h-4 w-4 text-blue-600" />
@@ -642,6 +717,117 @@ export default function BankRekonsiliasi() {
           </TableBody>
         </Table>
       </div>
+
+        </TabsContent>
+
+        <TabsContent value="audit-log" className="space-y-4 mt-4">
+          {/* ── Audit Log Filters ── */}
+          <div className="flex flex-wrap gap-2 items-end">
+            <div className="space-y-1">
+              <Label className="text-xs">Aksi</Label>
+              <Select value={auditAction} onValueChange={setAuditAction}>
+                <SelectTrigger className="h-8 w-44 text-xs"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Semua Aksi</SelectItem>
+                  <SelectItem value="import_mutasi">Import Mutasi</SelectItem>
+                  <SelectItem value="auto_match">Auto Match</SelectItem>
+                  <SelectItem value="need_review">Need Review</SelectItem>
+                  <SelectItem value="manual_match">Manual Match</SelectItem>
+                  <SelectItem value="approved">Disetujui</SelectItem>
+                  <SelectItem value="rejected">Ditolak</SelectItem>
+                  <SelectItem value="run_matching">Run Matching</SelectItem>
+                  <SelectItem value="export_sheet">Export Sheet</SelectItem>
+                  <SelectItem value="send_reminder_wa">Kirim WA</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Dari Tanggal</Label>
+              <Input type="date" className="h-8 text-xs" value={auditDateFrom} onChange={(e) => setAuditDateFrom(e.target.value)} />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Sampai</Label>
+              <Input type="date" className="h-8 text-xs" value={auditDateTo} onChange={(e) => setAuditDateTo(e.target.value)} />
+            </div>
+            <Button variant="ghost" size="icon" onClick={() => refetchAuditLogs()} disabled={loadingAuditLogs}>
+              <RefreshCw className={`h-4 w-4 ${loadingAuditLogs ? "animate-spin" : ""}`} />
+            </Button>
+            {(auditAction !== "all" || auditDateFrom || auditDateTo) && (
+              <Button variant="ghost" size="sm" className="h-8 text-xs" onClick={() => {
+                setAuditAction("all"); setAuditDateFrom(""); setAuditDateTo("");
+              }}>Reset Filter</Button>
+            )}
+          </div>
+
+          {/* ── Audit Log Table ── */}
+          <div className="rounded-md border overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow className="bg-muted/40">
+                  <TableHead className="text-xs whitespace-nowrap">Waktu</TableHead>
+                  <TableHead className="text-xs">Aksi</TableHead>
+                  <TableHead className="text-xs">Mutation ID</TableHead>
+                  <TableHead className="text-xs">Match / Journal</TableHead>
+                  <TableHead className="text-xs">User / Role</TableHead>
+                  <TableHead className="text-xs">App</TableHead>
+                  <TableHead className="text-xs">Module</TableHead>
+                  <TableHead className="text-xs">Keterangan</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {loadingAuditLogs && (
+                  <TableRow><TableCell colSpan={8} className="text-center py-8 text-muted-foreground text-sm">Memuat data...</TableCell></TableRow>
+                )}
+                {!loadingAuditLogs && auditLogs.length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={8} className="text-center py-12 text-muted-foreground text-sm">
+                      <ClipboardList className="mx-auto mb-2 h-8 w-8 opacity-25" />
+                      <p>Belum ada data audit log.</p>
+                      <p className="text-xs mt-1">Lakukan aksi rekonsiliasi (import, approve, dll.) untuk mengisi log ini.</p>
+                    </TableCell>
+                  </TableRow>
+                )}
+                {auditLogs.map((log) => (
+                  <TableRow key={log.id} className="text-xs">
+                    <TableCell className="text-[10px] text-muted-foreground whitespace-nowrap font-mono">
+                      {new Date(log.createdAt).toLocaleString("id-ID", { dateStyle: "short", timeStyle: "short" })}
+                    </TableCell>
+                    <TableCell>
+                      <AuditActionBadge action={log.action} />
+                    </TableCell>
+                    <TableCell className="text-[10px] font-mono text-muted-foreground">
+                      {log.mutationId ?? "—"}
+                    </TableCell>
+                    <TableCell className="text-[10px] font-mono text-muted-foreground">
+                      {log.matchId ? `M:${log.matchId}` : ""}{log.matchId && log.journalId ? " / " : ""}{log.journalId ? `J:${log.journalId}` : ""}{!log.matchId && !log.journalId ? "—" : ""}
+                    </TableCell>
+                    <TableCell className="text-xs">
+                      <span className="font-medium">{log.actionUserId ?? "—"}</span>
+                      {log.actionRole && (
+                        <span className="ml-1 text-[10px] text-muted-foreground">({log.actionRole})</span>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-[10px] text-muted-foreground">{log.ownerApp ?? "—"}</TableCell>
+                    <TableCell className="text-[10px] text-muted-foreground">{log.sourceModule ?? "—"}</TableCell>
+                    <TableCell className="text-[10px] font-mono text-muted-foreground max-w-xs">
+                      {log.metadata ? (
+                        <span className="truncate block">{JSON.stringify(log.metadata)}</span>
+                      ) : log.afterValue ? (
+                        <span className="truncate block">{JSON.stringify(log.afterValue)}</span>
+                      ) : "—"}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+          {auditLogsData && auditLogsData.total > 100 && (
+            <p className="text-xs text-muted-foreground text-center">
+              Menampilkan 100 dari {auditLogsData.total} entri. Gunakan filter untuk mempersempit pencarian.
+            </p>
+          )}
+        </TabsContent>
+      </Tabs>
 
 
       {/* ─── Dialog: Export Google Sheets ─── */}

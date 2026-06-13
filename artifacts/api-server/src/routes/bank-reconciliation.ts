@@ -6,6 +6,7 @@ import {
   bankReconciliationMatchesTable,
   bankJournalEntriesTable,
   bankAccountBalancesTable,
+  bankReconAuditLogsTable,
   tenantPaymentsTable,
   tenantInvoicesTable,
   tenantBookingsTable,
@@ -15,6 +16,7 @@ import {
 import { eq, and, desc, sql, inArray, isNull, gt, ne, or } from "drizzle-orm";
 import { z } from "zod";
 import { logAudit } from "../lib/audit";
+import { logBankReconAudit } from "../lib/bank-recon-audit";
 import { writeToSheet, extractSheetId, getServiceAccountEmail } from "../services/google-sheets";
 import { sendReconciliationReminder } from "../lib/whatsapp";
 import {
@@ -313,6 +315,10 @@ router.post("/bank-reconciliation/import", upload.single("file"), async (req, re
     entityType: "bank_mutations",
     afterData: { count: ids.length, bankAccountId, ownerTenantId: ctx.ownerTenantId, sourceApp: ctx.sourceApp },
   });
+  logBankReconAudit(req, ctx, "import_mutasi", {
+    metadata: { count: ids.length, bankAccountId },
+    sourceModule: "bank_reconciliation",
+  });
 
   const mc = matchCtx(ctx);
   const matchResults = await Promise.allSettled(ids.map((id) => runMatchingForMutation(id, mc)));
@@ -322,6 +328,26 @@ router.post("/bank-reconciliation/import", upload.single("file"), async (req, re
   const duplicates = matchResults.filter(
     (r) => r.status === "fulfilled" && (r.value as any).status === "duplicate_need_review"
   ).length;
+
+  matchResults.forEach((r, idx) => {
+    if (r.status === "fulfilled") {
+      const v = r.value as any;
+      if (v.status === "duplicate_need_review") {
+        logBankReconAudit(req, ctx, "need_review", {
+          mutationId: ids[idx],
+          metadata: { trigger: "import", candidatesCount: v.candidatesCount },
+          sourceModule: "bank_reconciliation",
+        });
+      } else if (v.autoMatched) {
+        logBankReconAudit(req, ctx, "auto_match", {
+          mutationId: ids[idx],
+          matchId: v.matchId ?? null,
+          metadata: { candidateType: v.candidateType, candidateId: v.candidateId },
+          sourceModule: "bank_reconciliation",
+        });
+      }
+    }
+  });
 
   if (duplicates > 0) {
     logAudit(req, {
@@ -814,6 +840,19 @@ router.post("/bank-reconciliation/:mutationId/approve", async (req, res) => {
       ownerTenantId: ctx.ownerTenantId,
     },
   });
+  logBankReconAudit(req, ctx, "approved", {
+    mutationId,
+    matchId,
+    journalId: journalId ?? null,
+    afterValue: {
+      candidateType: match.candidateType,
+      candidateId: match.candidateId,
+      newPaymentId,
+      journalId,
+      alreadyPosted,
+    },
+    sourceModule: "bank_reconciliation",
+  });
 
   res.json({ success: true, newPaymentId, journalId, alreadyPosted });
 });
@@ -852,6 +891,10 @@ router.post("/bank-reconciliation/:mutationId/reject", async (req, res) => {
     entityType: "bank_mutations",
     entityId: mutationId,
     afterData: { ownerTenantId: ctx.ownerTenantId },
+  });
+  logBankReconAudit(req, ctx, "rejected", {
+    mutationId,
+    sourceModule: "bank_reconciliation",
   });
 
   res.json({ success: true });
@@ -895,6 +938,10 @@ router.post("/bank-reconciliation/run-matching", async (req, res) => {
     action: "bank_reconciliation_run_matching",
     entityType: "bank_mutations",
     afterData: { ...summary, ownerTenantId: ctx.ownerTenantId, sourceApp: ctx.sourceApp },
+  });
+  logBankReconAudit(req, ctx, "run_matching", {
+    metadata: summary,
+    sourceModule: "bank_reconciliation",
   });
 
   res.json({ success: true, ...summary });
@@ -1023,6 +1070,11 @@ router.post("/bank-reconciliation/:mutationId/manual-match", async (req, res) =>
     entityType: "bank_mutations",
     entityId: mutationId,
     afterData: { candidateType, candidateId, ownerTenantId: ctx.ownerTenantId },
+  });
+  logBankReconAudit(req, ctx, "manual_match", {
+    mutationId,
+    afterValue: { candidateType, candidateId },
+    sourceModule: "bank_reconciliation",
   });
 
   res.json({ success: true });
@@ -1301,6 +1353,10 @@ router.post("/bank-reconciliation/export-google-sheet", async (req, res) => {
     entityType: "bank_mutations",
     afterData: { sheetTitle, rowCount: rows.length, ownerTenantId: ctx.ownerTenantId },
   });
+  logBankReconAudit(req, ctx, "export_sheet", {
+    metadata: { sheetTitle, rowCount: rows.length },
+    sourceModule: "bank_reconciliation",
+  });
 
   res.json({
     success: true,
@@ -1424,8 +1480,87 @@ router.post("/bank-reconciliation/send-reminder-wa", async (req, res) => {
       ownerTenantId: ctx.ownerTenantId,
     },
   });
+  logBankReconAudit(req, ctx, "send_reminder_wa", {
+    metadata: { types, sent: sent.length, failed: failed.length, skipped: skipped.length },
+    sourceModule: "bank_reconciliation",
+  });
 
   res.json({ sent, failed, skipped, summary, monthLabel });
+});
+
+
+// ── GET /bank-reconciliation/audit-logs ──────────────────────────────────────
+
+router.get("/bank-reconciliation/audit-logs", async (req, res) => {
+  const ctx = appCtx(req);
+  const {
+    mutation_id,
+    action,
+    owner_app,
+    source_app,
+    owner_tenant_id,
+    date_from,
+    date_to,
+    user_id,
+    page: pageStr = "1",
+    limit: limitStr = "50",
+  } = req.query as Record<string, string>;
+
+  const page = Math.max(1, parseInt(pageStr, 10) || 1);
+  const limit = Math.min(200, Math.max(1, parseInt(limitStr, 10) || 50));
+  const offset = (page - 1) * limit;
+
+  const conditions: ReturnType<typeof eq>[] = [];
+
+  if (!ctx.isFullAccess) {
+    if (ctx.ownerTenantId != null) {
+      conditions.push(
+        or(
+          isNull(bankReconAuditLogsTable.ownerTenantId),
+          eq(bankReconAuditLogsTable.ownerTenantId, ctx.ownerTenantId),
+        ) as any
+      );
+    }
+    if (ctx.role === "cashier") {
+      conditions.push(eq(bankReconAuditLogsTable.sourceApp, "tenant_pos") as any);
+    } else if (!ctx.sourceAppFilterBypass && ctx.role === "finance") {
+      conditions.push(
+        or(
+          isNull(bankReconAuditLogsTable.sourceApp),
+          eq(bankReconAuditLogsTable.sourceApp, "tenant_management"),
+        ) as any
+      );
+    }
+  }
+
+  if (mutation_id) conditions.push(eq(bankReconAuditLogsTable.mutationId, parseInt(mutation_id, 10)) as any);
+  if (action) conditions.push(eq(bankReconAuditLogsTable.action, action) as any);
+  if (owner_app) conditions.push(eq(bankReconAuditLogsTable.ownerApp, owner_app) as any);
+  if (source_app) conditions.push(eq(bankReconAuditLogsTable.sourceApp, source_app) as any);
+  if (owner_tenant_id) conditions.push(eq(bankReconAuditLogsTable.ownerTenantId, parseInt(owner_tenant_id, 10)) as any);
+  if (date_from) conditions.push(sql`${bankReconAuditLogsTable.createdAt} >= ${date_from}::timestamptz` as any);
+  if (date_to) conditions.push(sql`${bankReconAuditLogsTable.createdAt} < (${date_to}::date + interval '1 day')` as any);
+  if (user_id) conditions.push(eq(bankReconAuditLogsTable.actionUserId, user_id) as any);
+
+  const whereClause = conditions.length ? and(...conditions) : undefined;
+
+  const [rows, countResult] = await Promise.all([
+    db.select().from(bankReconAuditLogsTable)
+      .where(whereClause)
+      .orderBy(desc(bankReconAuditLogsTable.createdAt))
+      .limit(limit)
+      .offset(offset),
+    db.select({ count: sql<number>`count(*)::int` })
+      .from(bankReconAuditLogsTable)
+      .where(whereClause),
+  ]);
+
+  res.json({
+    data: rows,
+    total: countResult[0]?.count ?? 0,
+    page,
+    limit,
+  });
 });
 
 

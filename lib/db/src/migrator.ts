@@ -1683,6 +1683,37 @@ ALTER TABLE "finance_payment_events"
   ADD COLUMN IF NOT EXISTS "approval_scope" text;
     `.trim(),
   },
+  {
+    name: "0035_bank_recon_audit_logs",
+    sql: `
+CREATE TABLE IF NOT EXISTS "bank_recon_audit_logs" (
+  "id" serial PRIMARY KEY NOT NULL,
+  "mutation_id" integer,
+  "match_id" integer,
+  "finance_payment_event_id" integer,
+  "journal_id" text,
+  "action" text NOT NULL,
+  "action_app" text,
+  "action_user_id" text,
+  "action_role" text,
+  "owner_app" text,
+  "owner_company_id" integer,
+  "owner_tenant_id" integer,
+  "source_app" text,
+  "source_module" text,
+  "before_value" jsonb,
+  "after_value" jsonb,
+  "metadata" jsonb,
+  "ip_address" text,
+  "user_agent" text,
+  "created_at" timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS "bral_mutation_id_idx" ON "bank_recon_audit_logs" ("mutation_id");
+CREATE INDEX IF NOT EXISTS "bral_action_idx" ON "bank_recon_audit_logs" ("action");
+CREATE INDEX IF NOT EXISTS "bral_owner_tenant_idx" ON "bank_recon_audit_logs" ("owner_tenant_id");
+CREATE INDEX IF NOT EXISTS "bral_created_at_idx" ON "bank_recon_audit_logs" ("created_at");
+    `.trim(),
+  },
 ];
 
 const MIGRATIONS_TABLE = "schema_migrations";

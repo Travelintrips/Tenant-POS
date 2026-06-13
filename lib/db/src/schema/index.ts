@@ -17,3 +17,4 @@ export * from "./bank-reconciliation-matches";
 export * from "./finance-payment-events";
 export * from "./bank-journal-entries";
 export * from "./bank-account-balances";
+export * from "./bank-recon-audit-logs";
