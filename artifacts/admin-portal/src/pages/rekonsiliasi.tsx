@@ -337,7 +337,7 @@ export default function Rekonsiliasi() {
       <Card className="border-blue-100 bg-blue-50/30">
         <CardContent className="py-3">
           <div className="flex items-start gap-3">
-            <FilePdf className="w-4 h-4 text-blue-500 shrink-0 mt-0.5" />
+            <FileText className="w-4 h-4 text-blue-500 shrink-0 mt-0.5" />
             <div>
               <p className="text-xs font-semibold text-blue-700 mb-0.5">Catatan Audit</p>
               <p className="text-xs text-blue-600">
