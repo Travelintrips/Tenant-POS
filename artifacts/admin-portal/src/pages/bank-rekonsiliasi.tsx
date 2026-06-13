@@ -160,6 +160,7 @@ export default function BankRekonsiliasi() {
     onSuccess: (data) => {
       toast({ title: "Import berhasil", description: `${data.imported} mutasi diimport, ${data.autoMatched} auto-match, ${data.duplicates} duplikat` });
       qc.invalidateQueries({ queryKey: ["/api/bank-reconciliation/mutations"] });
+      qc.invalidateQueries({ queryKey: ["/api/bank-reconciliation/kpi"] });
     },
     onError: (e: Error) => toast({ title: "Import gagal", description: e.message, variant: "destructive" }),
   });
@@ -174,6 +175,7 @@ export default function BankRekonsiliasi() {
     onSuccess: (data) => {
       toast({ title: "Matching selesai", description: `${data.total} diproses — ${data.autoMatched} auto-match, ${data.withCandidates} ada kandidat, ${data.unmatched} tidak cocok` });
       qc.invalidateQueries({ queryKey: ["/api/bank-reconciliation/mutations"] });
+      qc.invalidateQueries({ queryKey: ["/api/bank-reconciliation/kpi"] });
     },
     onError: (e: Error) => toast({ title: "Matching gagal", description: e.message, variant: "destructive" }),
   });
@@ -193,6 +195,7 @@ export default function BankRekonsiliasi() {
       toast({ title: "Disetujui" });
       qc.invalidateQueries({ queryKey: ["/api/bank-reconciliation/mutations"] });
       qc.invalidateQueries({ queryKey: ["/api/bank-reconciliation/matches", selectedMutation?.id] });
+      qc.invalidateQueries({ queryKey: ["/api/bank-reconciliation/kpi"] });
       setSelectedMutation(null);
     },
     onError: (e: Error) => toast({ title: "Gagal", description: e.message, variant: "destructive" }),
@@ -208,6 +211,7 @@ export default function BankRekonsiliasi() {
     onSuccess: () => {
       toast({ title: "Ditolak" });
       qc.invalidateQueries({ queryKey: ["/api/bank-reconciliation/mutations"] });
+      qc.invalidateQueries({ queryKey: ["/api/bank-reconciliation/kpi"] });
       setSelectedMutation(null);
     },
     onError: (e: Error) => toast({ title: "Gagal", description: e.message, variant: "destructive" }),
@@ -227,6 +231,7 @@ export default function BankRekonsiliasi() {
     onSuccess: () => {
       toast({ title: "Manual match berhasil" });
       qc.invalidateQueries({ queryKey: ["/api/bank-reconciliation/mutations"] });
+      qc.invalidateQueries({ queryKey: ["/api/bank-reconciliation/kpi"] });
       setSelectedMutation(null);
     },
     onError: (e: Error) => toast({ title: "Gagal", description: e.message, variant: "destructive" }),
