@@ -13,7 +13,7 @@ import {
   financePaymentEventsTable,
 } from "@workspace/db/schema";
 import { eq, and, desc, sql, inArray, isNull, gt, ne, or } from "drizzle-orm";
-import { z } from "zod/v4";
+import { z } from "zod";
 import { logAudit } from "../lib/audit";
 import { writeToSheet, extractSheetId, getServiceAccountEmail } from "../services/google-sheets";
 import { sendReconciliationReminder } from "../lib/whatsapp";
@@ -52,7 +52,8 @@ function appCtx(req: Request): AppContext {
 function matchCtx(ctx: AppContext): MatchContext {
   return {
     ownerTenantId: ctx.isFullAccess ? null : ctx.ownerTenantId,
-    sourceApp: ctx.isFullAccess ? null : ctx.sourceApp,
+    // BizPortal (owner & Finance/Admin BizPortal) boleh match ke semua sourceApp
+    sourceApp: ctx.sourceAppFilterBypass ? null : ctx.sourceApp,
   };
 }
 
@@ -68,15 +69,21 @@ function mutationTenantConds(ctx: AppContext) {
       ) as any
     );
   }
-  if (ctx.role === "cashier") {
-    conds.push(eq(bankMutationsTable.sourceApp, "tenant_pos") as any);
-  } else if (ctx.role === "finance") {
-    conds.push(
-      or(
-        isNull(bankMutationsTable.sourceApp),
-        eq(bankMutationsTable.sourceApp, "tenant_management"),
-      ) as any
-    );
+  // sourceApp filter hanya untuk non-BizPortal:
+  // - BizPortal (Finance/Admin/Owner) boleh lihat semua sourceApp
+  // - Finance Tenant App: hanya tenant_management
+  // - Cashier: hanya tenant_pos
+  if (!ctx.sourceAppFilterBypass) {
+    if (ctx.role === "cashier") {
+      conds.push(eq(bankMutationsTable.sourceApp, "tenant_pos") as any);
+    } else if (ctx.role === "finance") {
+      conds.push(
+        or(
+          isNull(bankMutationsTable.sourceApp),
+          eq(bankMutationsTable.sourceApp, "tenant_management"),
+        ) as any
+      );
+    }
   }
   return conds;
 }
@@ -93,8 +100,19 @@ function fpeTenantConds(ctx: AppContext) {
       ) as any
     );
   }
-  if (ctx.role === "cashier") {
-    conds.push(eq(financePaymentEventsTable.sourceApp, "tenant_pos") as any);
+  // sourceApp filter hanya untuk non-BizPortal
+  if (!ctx.sourceAppFilterBypass) {
+    if (ctx.role === "cashier") {
+      conds.push(eq(financePaymentEventsTable.sourceApp, "tenant_pos") as any);
+    } else if (ctx.role === "finance") {
+      // Finance Tenant App hanya boleh lihat event dari tenant_management
+      conds.push(
+        or(
+          isNull(financePaymentEventsTable.sourceApp),
+          eq(financePaymentEventsTable.sourceApp, "tenant_management"),
+        ) as any
+      );
+    }
   }
   return conds;
 }
@@ -106,10 +124,13 @@ function mutationRawTenantSql(ctx: AppContext) {
   if (ctx.ownerTenantId != null) {
     parts.push(sql`AND (bm.owner_tenant_id IS NULL OR bm.owner_tenant_id = ${ctx.ownerTenantId})`);
   }
-  if (ctx.role === "cashier") {
-    parts.push(sql`AND bm.source_app = 'tenant_pos'`);
-  } else if (ctx.role === "finance") {
-    parts.push(sql`AND (bm.source_app IS NULL OR bm.source_app = 'tenant_management')`);
+  // sourceApp filter hanya untuk non-BizPortal
+  if (!ctx.sourceAppFilterBypass) {
+    if (ctx.role === "cashier") {
+      parts.push(sql`AND bm.source_app = 'tenant_pos'`);
+    } else if (ctx.role === "finance") {
+      parts.push(sql`AND (bm.source_app IS NULL OR bm.source_app = 'tenant_management')`);
+    }
   }
   if (parts.length === 0) return sql``;
   return parts.reduce((acc, p) => sql`${acc} ${p}`, sql``);
@@ -131,8 +152,13 @@ function fpeRawTenantSql(ctx: AppContext) {
   if (ctx.ownerTenantId != null) {
     parts.push(sql`AND (fpe.owner_tenant_id IS NULL OR fpe.owner_tenant_id = ${ctx.ownerTenantId})`);
   }
-  if (ctx.role === "cashier") {
-    parts.push(sql`AND fpe.source_app = 'tenant_pos'`);
+  // sourceApp filter hanya untuk non-BizPortal
+  if (!ctx.sourceAppFilterBypass) {
+    if (ctx.role === "cashier") {
+      parts.push(sql`AND fpe.source_app = 'tenant_pos'`);
+    } else if (ctx.role === "finance") {
+      parts.push(sql`AND (fpe.source_app IS NULL OR fpe.source_app = 'tenant_management')`);
+    }
   }
   if (parts.length === 0) return sql``;
   return parts.reduce((acc, p) => sql`${acc} ${p}`, sql``);
@@ -225,6 +251,7 @@ router.get("/bank-reconciliation/context", (req, res) => {
     role: ctx.role,
     isBizPortal: ctx.isBizPortal,
     isFullAccess: ctx.isFullAccess,
+    sourceAppFilterBypass: ctx.sourceAppFilterBypass,
   });
 });
 
@@ -548,6 +575,13 @@ router.post("/bank-reconciliation/:mutationId/approve", async (req, res) => {
 
   if (!checkMutationOwnership(mutation, ctx)) {
     res.status(403).json({ error: "Akses ditolak. Mutasi ini milik tenant lain." });
+    return;
+  }
+
+  // Cashier POS tidak boleh approve invoice tenant atau payment tenant
+  // (hanya boleh approve payment_event dari POS)
+  if (ctx.role === "cashier" && (match.candidateType === "invoice" || match.candidateType === "payment")) {
+    res.status(403).json({ error: "Cashier POS tidak bisa menyetujui invoice atau pembayaran tenant. Hanya payment event POS yang diizinkan." });
     return;
   }
 
@@ -893,6 +927,12 @@ router.post("/bank-reconciliation/:mutationId/manual-match", async (req, res) =>
 
   if (!checkMutationOwnership(mutation, ctx)) {
     res.status(403).json({ error: "Akses ditolak. Mutasi ini milik tenant lain." });
+    return;
+  }
+
+  // Cashier POS tidak boleh manual-match ke invoice atau payment tenant
+  if (ctx.role === "cashier" && (candidateType === "invoice" || candidateType === "payment")) {
+    res.status(403).json({ error: "Cashier POS tidak bisa mem-match invoice atau pembayaran tenant." });
     return;
   }
 
