@@ -1,3 +1,11 @@
+/**
+ * @deprecated LEGACY_MODULE
+ * Halaman ini adalah modul rekonsiliasi lama berbasis Google Sheets.
+ * Tidak lagi dirender sebagai route aktif — semua route /rekonsiliasi
+ * dan /reconciliation sekarang redirect ke /bank-rekonsiliasi.
+ * JANGAN dihapus dulu — disimpan untuk rollback sementara.
+ * Migrasi ke: artifacts/admin-portal/src/pages/bank-rekonsiliasi.tsx
+ */
 import { useState } from "react";
 import { Link } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
