@@ -1,4 +1,4 @@
-import { Router, type IRouter } from "express";
+import { Router, type IRouter, type Request } from "express";
 import multer from "multer";
 import { db } from "@workspace/db";
 import {
@@ -12,7 +12,7 @@ import {
   tenantsTable,
   financePaymentEventsTable,
 } from "@workspace/db/schema";
-import { eq, and, desc, sql, inArray, isNull, gt, ne } from "drizzle-orm";
+import { eq, and, desc, sql, inArray, isNull, gt, ne, or } from "drizzle-orm";
 import { z } from "zod/v4";
 import { logAudit } from "../lib/audit";
 import { writeToSheet, extractSheetId, getServiceAccountEmail } from "../services/google-sheets";
@@ -24,12 +24,133 @@ import {
   buildMutationKey,
   runMatchingForMutation,
   computeMatchCandidates,
+  type MatchContext,
 } from "../services/bank-matcher";
 import { writePaymentEvent, normalizePaymentMethod } from "../lib/payment-events";
 import { postAccountingJournal } from "../lib/accounting-journal";
+import { appContextMiddleware, type AppContext } from "../middlewares/app-context";
 
 const router: IRouter = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
+
+router.use(appContextMiddleware);
+
+// ── Context helpers ───────────────────────────────────────────────────────────
+
+function appCtx(req: Request): AppContext {
+  return req.appContext ?? {
+    ownerApp: "tenant_management",
+    sourceApp: "tenant_management",
+    ownerCompanyId: null,
+    ownerTenantId: null,
+    role: "admin",
+    isBizPortal: false,
+    isFullAccess: false,
+  };
+}
+
+function matchCtx(ctx: AppContext): MatchContext {
+  return {
+    ownerTenantId: ctx.isFullAccess ? null : ctx.ownerTenantId,
+    sourceApp: ctx.isFullAccess ? null : ctx.sourceApp,
+  };
+}
+
+/** Returns Drizzle conditions scoping bank_mutations by tenant context */
+function mutationTenantConds(ctx: AppContext) {
+  const conds: ReturnType<typeof eq>[] = [];
+  if (ctx.isFullAccess) return conds;
+  if (ctx.ownerTenantId != null) {
+    conds.push(
+      or(
+        isNull(bankMutationsTable.ownerTenantId),
+        eq(bankMutationsTable.ownerTenantId, ctx.ownerTenantId),
+      ) as any
+    );
+  }
+  if (ctx.role === "cashier") {
+    conds.push(eq(bankMutationsTable.sourceApp, "tenant_pos") as any);
+  } else if (ctx.role === "finance") {
+    conds.push(
+      or(
+        isNull(bankMutationsTable.sourceApp),
+        eq(bankMutationsTable.sourceApp, "tenant_management"),
+      ) as any
+    );
+  }
+  return conds;
+}
+
+/** Returns Drizzle conditions scoping finance_payment_events by tenant context */
+function fpeTenantConds(ctx: AppContext) {
+  const conds: ReturnType<typeof eq>[] = [];
+  if (ctx.isFullAccess) return conds;
+  if (ctx.ownerTenantId != null) {
+    conds.push(
+      or(
+        isNull(financePaymentEventsTable.ownerTenantId),
+        eq(financePaymentEventsTable.ownerTenantId, ctx.ownerTenantId),
+      ) as any
+    );
+  }
+  if (ctx.role === "cashier") {
+    conds.push(eq(financePaymentEventsTable.sourceApp, "tenant_pos") as any);
+  }
+  return conds;
+}
+
+/** Returns raw SQL fragment for bank_mutations (for raw sql queries using alias "bm") */
+function mutationRawTenantSql(ctx: AppContext) {
+  if (ctx.isFullAccess) return sql``;
+  const parts: ReturnType<typeof sql>[] = [];
+  if (ctx.ownerTenantId != null) {
+    parts.push(sql`AND (bm.owner_tenant_id IS NULL OR bm.owner_tenant_id = ${ctx.ownerTenantId})`);
+  }
+  if (ctx.role === "cashier") {
+    parts.push(sql`AND bm.source_app = 'tenant_pos'`);
+  } else if (ctx.role === "finance") {
+    parts.push(sql`AND (bm.source_app IS NULL OR bm.source_app = 'tenant_management')`);
+  }
+  if (parts.length === 0) return sql``;
+  return parts.reduce((acc, p) => sql`${acc} ${p}`, sql``);
+}
+
+/** Returns raw SQL fragment for tenant_invoices (using alias "ti") */
+function invoiceRawTenantSql(ctx: AppContext) {
+  if (ctx.isFullAccess) return sql``;
+  if (ctx.ownerTenantId != null) {
+    return sql`AND (ti.tenant_id IS NULL OR ti.tenant_id = ${ctx.ownerTenantId})`;
+  }
+  return sql``;
+}
+
+/** Returns raw SQL fragment for finance_payment_events (using alias "fpe") */
+function fpeRawTenantSql(ctx: AppContext) {
+  if (ctx.isFullAccess) return sql``;
+  const parts: ReturnType<typeof sql>[] = [];
+  if (ctx.ownerTenantId != null) {
+    parts.push(sql`AND (fpe.owner_tenant_id IS NULL OR fpe.owner_tenant_id = ${ctx.ownerTenantId})`);
+  }
+  if (ctx.role === "cashier") {
+    parts.push(sql`AND fpe.source_app = 'tenant_pos'`);
+  }
+  if (parts.length === 0) return sql``;
+  return parts.reduce((acc, p) => sql`${acc} ${p}`, sql``);
+}
+
+/**
+ * Ownership check: returns true if the mutation is accessible by this context.
+ * Strict: if mutation has ownerTenantId set and context has ownerTenantId set, they must match.
+ */
+function checkMutationOwnership(
+  mutation: { ownerTenantId: number | null },
+  ctx: AppContext
+): boolean {
+  if (ctx.isFullAccess) return true;
+  if (ctx.ownerTenantId == null) return true;
+  if (mutation.ownerTenantId == null) return true;
+  return mutation.ownerTenantId === ctx.ownerTenantId;
+}
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -92,15 +213,30 @@ function parseRows(rows: string[][]): Array<typeof bankMutationsTable.$inferInse
   });
 }
 
+// ── GET /bank-reconciliation/context ─────────────────────────────────────────
+
+router.get("/bank-reconciliation/context", (req, res) => {
+  const ctx = appCtx(req);
+  res.json({
+    ownerApp: ctx.ownerApp,
+    sourceApp: ctx.sourceApp,
+    ownerTenantId: ctx.ownerTenantId,
+    ownerCompanyId: ctx.ownerCompanyId,
+    role: ctx.role,
+    isBizPortal: ctx.isBizPortal,
+    isFullAccess: ctx.isFullAccess,
+  });
+});
+
+router.get("/bank-reconciliation/info", (_req, res) => {
+  res.json({ serviceAccountEmail: getServiceAccountEmail() });
+});
+
 // ── POST /bank-reconciliation/import ─────────────────────────────────────────
 
 const importJsonSchema = z.object({
   rows: z.array(z.array(z.string())).min(2),
   bankAccountId: z.string().optional(),
-});
-
-router.get("/bank-reconciliation/info", (_req, res) => {
-  res.json({ serviceAccountEmail: getServiceAccountEmail() });
 });
 
 router.post("/bank-reconciliation/import", upload.single("file"), async (req, res) => {
@@ -130,8 +266,17 @@ router.post("/bank-reconciliation/import", upload.single("file"), async (req, re
     return;
   }
 
+  const ctx = appCtx(req);
   const siteId: number | undefined = (req as any).siteId > 0 ? (req as any).siteId : undefined;
-  const toInsert = mutations.map((m) => ({ ...m, bankAccountId: bankAccountId ?? null, siteId: siteId ?? null }));
+  const toInsert = mutations.map((m) => ({
+    ...m,
+    bankAccountId: bankAccountId ?? null,
+    siteId: siteId ?? null,
+    ownerApp: ctx.ownerApp,
+    sourceApp: ctx.sourceApp,
+    ownerTenantId: ctx.ownerTenantId ?? null,
+    ownerCompanyId: ctx.ownerCompanyId ?? null,
+  }));
 
   const inserted = await db.insert(bankMutationsTable).values(toInsert).returning({ id: bankMutationsTable.id });
   const ids = inserted.map((r) => r.id);
@@ -139,10 +284,11 @@ router.post("/bank-reconciliation/import", upload.single("file"), async (req, re
   logAudit(req, {
     action: "bank_mutation_import",
     entityType: "bank_mutations",
-    afterData: { count: ids.length, bankAccountId },
+    afterData: { count: ids.length, bankAccountId, ownerTenantId: ctx.ownerTenantId, sourceApp: ctx.sourceApp },
   });
 
-  const matchResults = await Promise.allSettled(ids.map((id) => runMatchingForMutation(id)));
+  const mc = matchCtx(ctx);
+  const matchResults = await Promise.allSettled(ids.map((id) => runMatchingForMutation(id, mc)));
   const autoMatched = matchResults.filter(
     (r) => r.status === "fulfilled" && (r.value as any).autoMatched
   ).length;
@@ -171,7 +317,24 @@ router.post("/bank-reconciliation/import", upload.single("file"), async (req, re
 // ── GET /bank-reconciliation/kpi ──────────────────────────────────────────────
 
 router.get("/bank-reconciliation/kpi", async (req, res) => {
+  const ctx = appCtx(req);
   const siteId: number | undefined = (req as any).siteId > 0 ? (req as any).siteId : undefined;
+
+  const mutConds = [];
+  if (siteId) mutConds.push(eq(bankMutationsTable.siteId, siteId));
+  mutConds.push(...mutationTenantConds(ctx));
+
+  const fpeConds = [];
+  if (siteId) fpeConds.push(eq(financePaymentEventsTable.siteId, siteId));
+  fpeConds.push(...fpeTenantConds(ctx));
+
+  const invConds = [];
+  if (siteId) invConds.push(eq(tenantInvoicesTable.siteId, siteId));
+  if (!ctx.isFullAccess && ctx.ownerTenantId != null) {
+    invConds.push(
+      or(isNull(tenantInvoicesTable.tenantId), eq(tenantInvoicesTable.tenantId, ctx.ownerTenantId)) as any
+    );
+  }
 
   const [mutStats, eventStats, invoiceStats] = await Promise.all([
     db
@@ -180,7 +343,7 @@ router.get("/bank-reconciliation/kpi", async (req, res) => {
         count: sql<number>`count(*)::int`,
       })
       .from(bankMutationsTable)
-      .where(siteId ? eq(bankMutationsTable.siteId, siteId) : undefined)
+      .where(mutConds.length ? and(...mutConds) : undefined)
       .groupBy(bankMutationsTable.status),
 
     db
@@ -190,7 +353,7 @@ router.get("/bank-reconciliation/kpi", async (req, res) => {
         totalAmount: sql<string>`coalesce(sum(amount::numeric), 0)::text`,
       })
       .from(financePaymentEventsTable)
-      .where(siteId ? eq(financePaymentEventsTable.siteId, siteId) : undefined)
+      .where(fpeConds.length ? and(...fpeConds) : undefined)
       .groupBy(financePaymentEventsTable.paymentStatus),
 
     db
@@ -200,7 +363,7 @@ router.get("/bank-reconciliation/kpi", async (req, res) => {
         totalPaid: sql<string>`coalesce(sum(paid_amount::numeric), 0)::text`,
       })
       .from(tenantInvoicesTable)
-      .where(siteId ? eq(tenantInvoicesTable.siteId, siteId) : undefined)
+      .where(invConds.length ? and(...invConds) : undefined)
       .groupBy(tenantInvoicesTable.status),
   ]);
 
@@ -239,11 +402,13 @@ router.get("/bank-reconciliation/kpi", async (req, res) => {
 // ── GET /bank-reconciliation/mutations ───────────────────────────────────────
 
 router.get("/bank-reconciliation/mutations", async (req, res) => {
+  const ctx = appCtx(req);
   const siteId: number | undefined = (req as any).siteId > 0 ? (req as any).siteId : undefined;
   const { status, direction, provider, dateFrom, dateTo, amountMin, amountMax } = req.query as Record<string, string>;
 
   const conditions = [];
   if (siteId) conditions.push(eq(bankMutationsTable.siteId, siteId));
+  conditions.push(...mutationTenantConds(ctx));
   if (status && status !== "all") conditions.push(eq(bankMutationsTable.status, status));
   if (direction && direction !== "all") conditions.push(eq(bankMutationsTable.direction, direction));
   if (provider) conditions.push(sql`lower(${bankMutationsTable.providerName}) like ${"%" + provider.toLowerCase() + "%"}`);
@@ -268,6 +433,8 @@ router.get("/bank-reconciliation/matches/:mutationId", async (req, res) => {
   const mutationId = parseInt(req.params.mutationId, 10);
   if (isNaN(mutationId)) { res.status(400).json({ error: "ID tidak valid" }); return; }
 
+  const ctx = appCtx(req);
+
   const [mutation] = await db
     .select()
     .from(bankMutationsTable)
@@ -275,6 +442,11 @@ router.get("/bank-reconciliation/matches/:mutationId", async (req, res) => {
     .limit(1);
 
   if (!mutation) { res.status(404).json({ error: "Mutasi tidak ditemukan" }); return; }
+
+  if (!checkMutationOwnership(mutation, ctx)) {
+    res.status(403).json({ error: "Akses ditolak. Mutasi ini milik tenant lain." });
+    return;
+  }
 
   const matches = await db
     .select()
@@ -359,6 +531,7 @@ router.post("/bank-reconciliation/:mutationId/approve", async (req, res) => {
   if (!parsed.success) { res.status(400).json({ error: "Parameter tidak valid", detail: parsed.error.issues }); return; }
 
   const { matchId } = parsed.data;
+  const ctx = appCtx(req);
 
   const [[match], [mutation]] = await Promise.all([
     db.select().from(bankReconciliationMatchesTable)
@@ -372,6 +545,52 @@ router.post("/bank-reconciliation/:mutationId/approve", async (req, res) => {
 
   if (!match) { res.status(404).json({ error: "Kandidat match tidak ditemukan" }); return; }
   if (!mutation) { res.status(404).json({ error: "Mutasi tidak ditemukan" }); return; }
+
+  if (!checkMutationOwnership(mutation, ctx)) {
+    res.status(403).json({ error: "Akses ditolak. Mutasi ini milik tenant lain." });
+    return;
+  }
+
+  // Check candidate ownership for payment_event
+  if (!ctx.isFullAccess && ctx.ownerTenantId != null && match.candidateType === "payment_event") {
+    const [fpe] = await db
+      .select({ ownerTenantId: financePaymentEventsTable.ownerTenantId })
+      .from(financePaymentEventsTable)
+      .where(eq(financePaymentEventsTable.id, match.candidateId))
+      .limit(1);
+
+    if (fpe?.ownerTenantId != null && fpe.ownerTenantId !== ctx.ownerTenantId) {
+      res.status(403).json({ error: "Akses ditolak. Kandidat ini milik tenant lain." });
+      return;
+    }
+  }
+
+  // Check candidate ownership for invoice/payment
+  if (!ctx.isFullAccess && ctx.ownerTenantId != null && match.candidateType === "invoice") {
+    const [inv] = await db
+      .select({ tenantId: tenantInvoicesTable.tenantId })
+      .from(tenantInvoicesTable)
+      .where(eq(tenantInvoicesTable.id, match.candidateId))
+      .limit(1);
+
+    if (inv?.tenantId != null && inv.tenantId !== ctx.ownerTenantId) {
+      res.status(403).json({ error: "Akses ditolak. Invoice ini milik tenant lain." });
+      return;
+    }
+  }
+
+  if (!ctx.isFullAccess && ctx.ownerTenantId != null && match.candidateType === "payment") {
+    const [pmt] = await db
+      .select({ tenantId: tenantPaymentsTable.tenantId })
+      .from(tenantPaymentsTable)
+      .where(eq(tenantPaymentsTable.id, match.candidateId))
+      .limit(1);
+
+    if (pmt?.tenantId != null && pmt.tenantId !== ctx.ownerTenantId) {
+      res.status(403).json({ error: "Akses ditolak. Pembayaran ini milik tenant lain." });
+      return;
+    }
+  }
 
   const now = new Date();
   let newPaymentId: number | null = null;
@@ -491,12 +710,12 @@ router.post("/bank-reconciliation/:mutationId/approve", async (req, res) => {
 
   if (match.candidateType === "invoice" && newPaymentId) {
     await writePaymentEvent({
-      sourceApp: "tenant_management",
-      ownerApp: "tenant_management",
+      sourceApp: ctx.sourceApp,
+      ownerApp: ctx.ownerApp,
       sourceModule: "tenant_invoice",
       sourceTable: "tenant_payments",
       sourceId: newPaymentId,
-      tenantId: null,
+      tenantId: ctx.ownerTenantId ?? null,
       siteId: mutation.siteId ?? null,
       invoiceId: match.candidateId,
       amount: parseFloat(String(mutation.amount)),
@@ -512,12 +731,13 @@ router.post("/bank-reconciliation/:mutationId/approve", async (req, res) => {
         mutationDescription: mutation.description,
         transactionDate: mutation.transactionDate,
         approvedBy: req.user?.name ?? req.user?.email ?? "Admin",
+        ownerTenantId: ctx.ownerTenantId,
       },
     });
   }
 
-  const approvedByRole = (req.user as any)?.role ?? "admin";
-  const approvedByApp  = "tenant_management";
+  const approvedByRole = ctx.role;
+  const approvedByApp  = ctx.ownerApp;
 
   await db.update(bankMutationsTable)
     .set({ approvedByApp, approvedByRole, updatedAt: now })
@@ -531,8 +751,8 @@ router.post("/bank-reconciliation/:mutationId/approve", async (req, res) => {
     direction: (mutation.direction?.toUpperCase() === "OUT" ? "OUT" : "IN") as "IN" | "OUT",
     bankAccountId: mutation.bankAccountId ?? `site-${mutation.siteId ?? 0}`,
     companyId: (mutation as any).companyId ?? null,
-    ownerApp: "tenant_management",
-    sourceApp: "tenant_management",
+    ownerApp: ctx.ownerApp,
+    sourceApp: ctx.sourceApp,
     sourceModule: "bank_reconciliation",
     createdBy: req.user?.name ?? req.user?.email ?? "Admin",
     siteId: mutation.siteId ?? null,
@@ -542,6 +762,7 @@ router.post("/bank-reconciliation/:mutationId/approve", async (req, res) => {
       candidateId: match.candidateId,
       newPaymentId,
       approvedBy: req.user?.name ?? req.user?.email ?? "Admin",
+      ownerTenantId: ctx.ownerTenantId,
     },
   });
 
@@ -556,6 +777,7 @@ router.post("/bank-reconciliation/:mutationId/approve", async (req, res) => {
       newPaymentId,
       journalId,
       alreadyPosted,
+      ownerTenantId: ctx.ownerTenantId,
     },
   });
 
@@ -567,6 +789,21 @@ router.post("/bank-reconciliation/:mutationId/approve", async (req, res) => {
 router.post("/bank-reconciliation/:mutationId/reject", async (req, res) => {
   const mutationId = parseInt(req.params.mutationId, 10);
   if (isNaN(mutationId)) { res.status(400).json({ error: "ID tidak valid" }); return; }
+
+  const ctx = appCtx(req);
+
+  const [mutation] = await db
+    .select({ id: bankMutationsTable.id, ownerTenantId: bankMutationsTable.ownerTenantId })
+    .from(bankMutationsTable)
+    .where(eq(bankMutationsTable.id, mutationId))
+    .limit(1);
+
+  if (!mutation) { res.status(404).json({ error: "Mutasi tidak ditemukan" }); return; }
+
+  if (!checkMutationOwnership(mutation, ctx)) {
+    res.status(403).json({ error: "Akses ditolak. Mutasi ini milik tenant lain." });
+    return;
+  }
 
   await db.update(bankMutationsTable)
     .set({ status: "rejected", updatedAt: new Date() })
@@ -580,6 +817,7 @@ router.post("/bank-reconciliation/:mutationId/reject", async (req, res) => {
     action: "bank_mutation_rejected",
     entityType: "bank_mutations",
     entityId: mutationId,
+    afterData: { ownerTenantId: ctx.ownerTenantId },
   });
 
   res.json({ success: true });
@@ -588,12 +826,14 @@ router.post("/bank-reconciliation/:mutationId/reject", async (req, res) => {
 // ── POST /bank-reconciliation/run-matching ────────────────────────────────────
 
 router.post("/bank-reconciliation/run-matching", async (req, res) => {
+  const ctx = appCtx(req);
   const siteId: number | undefined = (req as any).siteId > 0 ? (req as any).siteId : undefined;
 
-  const conditions = [
+  const conditions: any[] = [
     sql`${bankMutationsTable.status} IN ('unmatched', 'matched')`,
   ];
   if (siteId) conditions.push(eq(bankMutationsTable.siteId, siteId));
+  conditions.push(...mutationTenantConds(ctx));
 
   const pending = await db
     .select({ id: bankMutationsTable.id })
@@ -601,8 +841,9 @@ router.post("/bank-reconciliation/run-matching", async (req, res) => {
     .where(and(...conditions))
     .limit(200);
 
+  const mc = matchCtx(ctx);
   const results = await Promise.allSettled(
-    pending.map((m) => runMatchingForMutation(m.id))
+    pending.map((m) => runMatchingForMutation(m.id, mc))
   );
 
   const summary = { total: pending.length, autoMatched: 0, withCandidates: 0, unmatched: 0, duplicates: 0 };
@@ -619,7 +860,7 @@ router.post("/bank-reconciliation/run-matching", async (req, res) => {
   logAudit(req, {
     action: "bank_reconciliation_run_matching",
     entityType: "bank_mutations",
-    afterData: summary,
+    afterData: { ...summary, ownerTenantId: ctx.ownerTenantId, sourceApp: ctx.sourceApp },
   });
 
   res.json({ success: true, ...summary });
@@ -640,6 +881,55 @@ router.post("/bank-reconciliation/:mutationId/manual-match", async (req, res) =>
   if (!parsed.success) { res.status(400).json({ error: "Parameter tidak valid" }); return; }
 
   const { candidateType, candidateId } = parsed.data;
+  const ctx = appCtx(req);
+
+  const [mutation] = await db
+    .select({ id: bankMutationsTable.id, ownerTenantId: bankMutationsTable.ownerTenantId })
+    .from(bankMutationsTable)
+    .where(eq(bankMutationsTable.id, mutationId))
+    .limit(1);
+
+  if (!mutation) { res.status(404).json({ error: "Mutasi tidak ditemukan" }); return; }
+
+  if (!checkMutationOwnership(mutation, ctx)) {
+    res.status(403).json({ error: "Akses ditolak. Mutasi ini milik tenant lain." });
+    return;
+  }
+
+  // Validate candidate belongs to same tenant
+  if (!ctx.isFullAccess && ctx.ownerTenantId != null) {
+    if (candidateType === "payment_event") {
+      const [fpe] = await db
+        .select({ ownerTenantId: financePaymentEventsTable.ownerTenantId })
+        .from(financePaymentEventsTable)
+        .where(eq(financePaymentEventsTable.id, candidateId))
+        .limit(1);
+      if (fpe?.ownerTenantId != null && fpe.ownerTenantId !== ctx.ownerTenantId) {
+        res.status(403).json({ error: "Akses ditolak. Kandidat ini milik tenant lain." });
+        return;
+      }
+    } else if (candidateType === "invoice") {
+      const [inv] = await db
+        .select({ tenantId: tenantInvoicesTable.tenantId })
+        .from(tenantInvoicesTable)
+        .where(eq(tenantInvoicesTable.id, candidateId))
+        .limit(1);
+      if (inv?.tenantId != null && inv.tenantId !== ctx.ownerTenantId) {
+        res.status(403).json({ error: "Akses ditolak. Invoice ini milik tenant lain." });
+        return;
+      }
+    } else if (candidateType === "payment") {
+      const [pmt] = await db
+        .select({ tenantId: tenantPaymentsTable.tenantId })
+        .from(tenantPaymentsTable)
+        .where(eq(tenantPaymentsTable.id, candidateId))
+        .limit(1);
+      if (pmt?.tenantId != null && pmt.tenantId !== ctx.ownerTenantId) {
+        res.status(403).json({ error: "Akses ditolak. Pembayaran ini milik tenant lain." });
+        return;
+      }
+    }
+  }
 
   const [existing] = await db
     .select({ id: bankReconciliationMatchesTable.id })
@@ -692,7 +982,7 @@ router.post("/bank-reconciliation/:mutationId/manual-match", async (req, res) =>
     action: "bank_mutation_manual_match",
     entityType: "bank_mutations",
     entityId: mutationId,
-    afterData: { candidateType, candidateId },
+    afterData: { candidateType, candidateId, ownerTenantId: ctx.ownerTenantId },
   });
 
   res.json({ success: true });
@@ -701,11 +991,13 @@ router.post("/bank-reconciliation/:mutationId/manual-match", async (req, res) =>
 // ── GET /bank-reconciliation/audit ───────────────────────────────────────────
 
 router.get("/bank-reconciliation/audit", async (req, res) => {
+  const ctx = appCtx(req);
   const siteId: number | undefined = (req as any).siteId > 0 ? (req as any).siteId : undefined;
 
-  const siteFilter = siteId
-    ? sql`AND bm.site_id = ${siteId}`
-    : sql``;
+  const siteFilter = siteId ? sql`AND bm.site_id = ${siteId}` : sql``;
+  const tenantFilter = mutationRawTenantSql(ctx);
+  const invTenantFilter = invoiceRawTenantSql(ctx);
+  const fpeTenantFilter = fpeRawTenantSql(ctx);
 
   const [
     approvedWithoutJournal,
@@ -724,7 +1016,7 @@ router.get("/bank-reconciliation/audit", async (req, res) => {
           FROM bank_mutations bm
           WHERE bm.status = 'approved'
             AND (bm.accounting_posted = false OR bm.accounting_posted IS NULL)
-            ${siteFilter}
+            ${siteFilter} ${tenantFilter}
           ORDER BY bm.created_at DESC
           LIMIT 100`
     ),
@@ -748,7 +1040,7 @@ router.get("/bank-reconciliation/audit", async (req, res) => {
               WHERE bab.bank_account_id = bm.bank_account_id
                 AND (bab.site_id = bm.site_id OR (bab.site_id IS NULL AND bm.site_id IS NULL))
             )
-            ${siteFilter}
+            ${siteFilter} ${tenantFilter}
           LIMIT 50`
     ),
 
@@ -757,7 +1049,7 @@ router.get("/bank-reconciliation/audit", async (req, res) => {
           FROM bank_mutations bm
           WHERE bm.company_id IS NULL
             AND bm.status IN ('approved', 'matched')
-            ${siteFilter}
+            ${siteFilter} ${tenantFilter}
           LIMIT 50`
     ),
 
@@ -769,33 +1061,36 @@ router.get("/bank-reconciliation/audit", async (req, res) => {
     ),
 
     db.execute<{ id: number; invoice_number: string; paid_amount: string; total_amount: string }>(
-      sql`SELECT id, invoice_number, paid_amount::text, total_amount::text
-          FROM tenant_invoices
-          WHERE paid_amount::numeric > total_amount::numeric
-            AND total_amount::numeric > 0
+      sql`SELECT ti.id, ti.invoice_number, ti.paid_amount::text, ti.total_amount::text
+          FROM tenant_invoices ti
+          WHERE ti.paid_amount::numeric > ti.total_amount::numeric
+            AND ti.total_amount::numeric > 0
+            ${invTenantFilter}
           LIMIT 50`
     ),
 
     db.execute<{ cnt: string }>(
       sql`SELECT COUNT(*)::text AS cnt FROM bank_mutations bm
-          WHERE bm.status = 'duplicate_need_review' ${siteFilter}`
+          WHERE bm.status = 'duplicate_need_review' ${siteFilter} ${tenantFilter}`
     ),
 
     db.execute<{ cnt: string }>(
       sql`SELECT COUNT(*)::text AS cnt FROM bank_mutations bm
-          WHERE bm.status = 'unmatched' ${siteFilter}`
+          WHERE bm.status = 'unmatched' ${siteFilter} ${tenantFilter}`
     ),
 
     db.execute<{ cnt: string }>(
       sql`SELECT COUNT(*)::text AS cnt FROM tenant_invoices ti
           WHERE ti.status IN ('unpaid','partial','overdue')
-          ${siteId ? sql`AND ti.site_id = ${siteId}` : sql``}`
+          ${siteId ? sql`AND ti.site_id = ${siteId}` : sql``}
+          ${invTenantFilter}`
     ),
 
     db.execute<{ cnt: string }>(
       sql`SELECT COUNT(*)::text AS cnt FROM finance_payment_events fpe
           WHERE fpe.payment_status IN ('pending','waiting_confirmation')
-          ${siteId ? sql`AND fpe.site_id = ${siteId}` : sql``}`
+          ${siteId ? sql`AND fpe.site_id = ${siteId}` : sql``}
+          ${fpeTenantFilter}`
     ),
   ]);
 
@@ -837,6 +1132,12 @@ router.get("/bank-reconciliation/audit", async (req, res) => {
     ok: totalIssues === 0,
     totalIssues,
     checkedAt: new Date().toISOString(),
+    scopedBy: {
+      ownerTenantId: ctx.ownerTenantId,
+      sourceApp: ctx.sourceApp,
+      role: ctx.role,
+      isFullAccess: ctx.isFullAccess,
+    },
     issues,
   });
 });
@@ -857,11 +1158,15 @@ router.post("/bank-reconciliation/export-google-sheet", async (req, res) => {
   }
   const { spreadsheetId: rawId, sheetTitle: customTitle, dateFrom, dateTo } = parsed.data;
   const spreadsheetId = extractSheetId(rawId);
+  const ctx = appCtx(req);
   const siteId: number | undefined = (req as any).siteId > 0 ? (req as any).siteId : undefined;
 
   const MONTH_ID = ["","Januari","Februari","Maret","April","Mei","Juni","Juli","Agustus","September","Oktober","November","Desember"];
   const now = new Date();
-  const sheetTitle = customTitle ?? `Rekonsiliasi Bank ${MONTH_ID[now.getMonth() + 1]} ${now.getFullYear()}`;
+  const tenantSuffix = ctx.ownerTenantId != null ? ` (Tenant ${ctx.ownerTenantId})` : "";
+  const sheetTitle = customTitle ?? `Rekonsiliasi Bank ${MONTH_ID[now.getMonth() + 1]} ${now.getFullYear()}${tenantSuffix}`;
+
+  const tenantFilter = mutationRawTenantSql(ctx);
 
   const mutations = await db.execute<{
     id: number; transaction_date: string; description: string; direction: string; amount: string;
@@ -892,6 +1197,7 @@ router.post("/bank-reconciliation/export-google-sheet", async (req, res) => {
       ON t.id = ti.tenant_id
     WHERE 1=1
       ${siteId ? sql`AND bm.site_id = ${siteId}` : sql``}
+      ${tenantFilter}
       ${dateFrom ? sql`AND bm.transaction_date >= ${dateFrom}` : sql``}
       ${dateTo ? sql`AND bm.transaction_date <= ${dateTo}` : sql``}
     ORDER BY bm.transaction_date DESC, bm.id DESC
@@ -953,7 +1259,7 @@ router.post("/bank-reconciliation/export-google-sheet", async (req, res) => {
   logAudit(req, {
     action: "bank_reconciliation_export_sheet",
     entityType: "bank_mutations",
-    afterData: { sheetTitle, rowCount: rows.length },
+    afterData: { sheetTitle, rowCount: rows.length, ownerTenantId: ctx.ownerTenantId },
   });
 
   res.json({
@@ -978,11 +1284,15 @@ router.post("/bank-reconciliation/send-reminder-wa", async (req, res) => {
     return;
   }
   const { types, monthLabel: customMonthLabel } = parsed.data;
+  const ctx = appCtx(req);
   const siteId: number | undefined = (req as any).siteId > 0 ? (req as any).siteId : undefined;
 
   const MONTH_ID = ["","Januari","Februari","Maret","April","Mei","Juni","Juli","Agustus","September","Oktober","November","Desember"];
   const now = new Date();
   const monthLabel = customMonthLabel ?? `${MONTH_ID[now.getMonth() + 1]} ${now.getFullYear()}`;
+
+  const tenantFilter = mutationRawTenantSql(ctx);
+  const invTenantFilter = invoiceRawTenantSql(ctx);
 
   const sent: string[] = [];
   const failed: Array<{ ref: string; error: string }> = [];
@@ -1000,6 +1310,7 @@ router.post("/bank-reconciliation/send-reminder-wa", async (req, res) => {
       LEFT JOIN tenants t ON t.id = ti.tenant_id
       WHERE ti.status IN ('unpaid', 'partial', 'overdue')
         ${siteId ? sql`AND ti.site_id = ${siteId}` : sql``}
+        ${invTenantFilter}
       ORDER BY ti.due_date ASC
       LIMIT 100
     `);
@@ -1032,28 +1343,31 @@ router.post("/bank-reconciliation/send-reminder-wa", async (req, res) => {
 
   if (types.includes("need_review")) {
     const r = await db.execute<{ cnt: string }>(sql`
-      SELECT COUNT(*)::text AS cnt FROM bank_mutations
-      WHERE status = 'duplicate_need_review'
-        ${siteId ? sql`AND site_id = ${siteId}` : sql``}
+      SELECT COUNT(*)::text AS cnt FROM bank_mutations bm
+      WHERE bm.status = 'duplicate_need_review'
+        ${siteId ? sql`AND bm.site_id = ${siteId}` : sql``}
+        ${tenantFilter}
     `);
     summary.needReview = parseInt(r.rows[0]?.cnt ?? "0");
   }
 
   if (types.includes("unmatched")) {
     const r = await db.execute<{ cnt: string }>(sql`
-      SELECT COUNT(*)::text AS cnt FROM bank_mutations
-      WHERE status = 'unmatched'
-        ${siteId ? sql`AND site_id = ${siteId}` : sql``}
+      SELECT COUNT(*)::text AS cnt FROM bank_mutations bm
+      WHERE bm.status = 'unmatched'
+        ${siteId ? sql`AND bm.site_id = ${siteId}` : sql``}
+        ${tenantFilter}
     `);
     summary.unmatched = parseInt(r.rows[0]?.cnt ?? "0");
   }
 
   if (types.includes("approved_no_journal")) {
     const r = await db.execute<{ cnt: string }>(sql`
-      SELECT COUNT(*)::text AS cnt FROM bank_mutations
-      WHERE status = 'approved'
-        AND (accounting_posted = false OR accounting_posted IS NULL)
-        ${siteId ? sql`AND site_id = ${siteId}` : sql``}
+      SELECT COUNT(*)::text AS cnt FROM bank_mutations bm
+      WHERE bm.status = 'approved'
+        AND (bm.accounting_posted = false OR bm.accounting_posted IS NULL)
+        ${siteId ? sql`AND bm.site_id = ${siteId}` : sql``}
+        ${tenantFilter}
     `);
     summary.approvedNoJournal = parseInt(r.rows[0]?.cnt ?? "0");
   }
@@ -1061,7 +1375,14 @@ router.post("/bank-reconciliation/send-reminder-wa", async (req, res) => {
   logAudit(req, {
     action: "bank_reconciliation_send_reminder_wa",
     entityType: "bank_mutations",
-    afterData: { types, sent: sent.length, failed: failed.length, skipped: skipped.length, summary },
+    afterData: {
+      types,
+      sent: sent.length,
+      failed: failed.length,
+      skipped: skipped.length,
+      summary,
+      ownerTenantId: ctx.ownerTenantId,
+    },
   });
 
   res.json({ sent, failed, skipped, summary, monthLabel });

@@ -28,6 +28,16 @@ const formatRp = (n: string | number | null | undefined) =>
     parseFloat(String(n ?? 0)) || 0
   );
 
+type AppContext = {
+  ownerApp: string;
+  sourceApp: string;
+  ownerTenantId: number | null;
+  ownerCompanyId: number | null;
+  role: string;
+  isBizPortal: boolean;
+  isFullAccess: boolean;
+};
+
 type MutationStatus = "unmatched" | "matched" | "duplicate_need_review" | "approved" | "rejected";
 
 type BankMutation = {
@@ -102,6 +112,16 @@ export default function BankRekonsiliasi() {
   const { toast } = useToast();
   const qc = useQueryClient();
   const fileRef = useRef<HTMLInputElement>(null);
+
+  const { data: appCtx } = useQuery<AppContext>({
+    queryKey: ["/api/bank-reconciliation/context"],
+    queryFn: async () => {
+      const r = await fetch("/api/bank-reconciliation/context");
+      if (!r.ok) return { ownerApp: "tenant_management", sourceApp: "tenant_management", ownerTenantId: null, ownerCompanyId: null, role: "admin", isBizPortal: false, isFullAccess: false };
+      return r.json();
+    },
+    staleTime: 60_000,
+  });
 
   const [filterStatus, setFilterStatus] = useState("all");
   const [filterDirection, setFilterDirection] = useState("all");
@@ -305,6 +325,15 @@ export default function BankRekonsiliasi() {
             <span className="inline-flex items-center rounded-full border border-emerald-300 bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">Engine Baru</span>
             <span className="inline-flex items-center rounded-full border border-blue-300 bg-blue-50 px-2 py-0.5 text-[11px] font-semibold text-blue-700">Jurnal Aktif</span>
             <span className="inline-flex items-center rounded-full border border-purple-300 bg-purple-50 px-2 py-0.5 text-[11px] font-semibold text-purple-700">Closing Aktif</span>
+            <span className="inline-flex items-center rounded-full border border-orange-300 bg-orange-50 px-2 py-0.5 text-[11px] font-semibold text-orange-700">Tenant Scoped</span>
+            {appCtx?.ownerTenantId != null && (
+              <span className="inline-flex items-center rounded-full border border-slate-300 bg-slate-50 px-2 py-0.5 text-[11px] font-semibold text-slate-700">
+                Tenant ID: {appCtx.ownerTenantId}
+              </span>
+            )}
+            {appCtx?.isBizPortal && (
+              <span className="inline-flex items-center rounded-full border border-indigo-300 bg-indigo-50 px-2 py-0.5 text-[11px] font-semibold text-indigo-700">BizPortal</span>
+            )}
           </div>
           <p className="text-muted-foreground mt-1 text-sm">
             Import mutasi rekening, cocokkan otomatis dengan transaksi/invoice, lalu setujui atau tolak.
