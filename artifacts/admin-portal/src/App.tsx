@@ -28,6 +28,7 @@ import Dashboard from "@/pages/dashboard";
 import TenantProfile from "@/pages/tenant-profile";
 import WhatsAppSend from "@/pages/whatsapp-send";
 import WhatsAppTemplates from "@/pages/whatsapp-templates";
+import Rekonsiliasi from "@/pages/rekonsiliasi";
 
 const queryClient = new QueryClient();
 
@@ -203,6 +204,13 @@ function Router() {
         <AuthGuard roles={["owner", "admin", "finance"]}>
           <SidebarLayout>
             <WhatsAppTemplates />
+          </SidebarLayout>
+        </AuthGuard>
+      </Route>
+      <Route path="/rekonsiliasi">
+        <AuthGuard roles={["owner", "admin", "finance"]}>
+          <SidebarLayout>
+            <Rekonsiliasi />
           </SidebarLayout>
         </AuthGuard>
       </Route>
