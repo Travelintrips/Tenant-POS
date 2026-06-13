@@ -484,7 +484,8 @@ export default function TenantInvoices() {
 
   const [cancelTarget, setCancelTarget] = useState<Invoice | null>(null);
   const [sendingLinkId, setSendingLinkId] = useState<number | null>(null);
-  const [paymentLinkDialog, setPaymentLinkDialog] = useState<{ link: string; error: string } | null>(null);
+  const [copyingLinkId, setCopyingLinkId] = useState<number | null>(null);
+  const [paymentLinkDialog, setPaymentLinkDialog] = useState<{ link: string; error?: string; mode: "manual" | "wa-failed" } | null>(null);
   const [linkCopied, setLinkCopied] = useState(false);
 
   // ─── Bulk invoice state ──────────────────────────────────────────────────────
@@ -635,14 +636,14 @@ export default function TenantInvoices() {
       if (res.skipped) {
         if (res.paymentLink) {
           setLinkCopied(false);
-          setPaymentLinkDialog({ link: res.paymentLink, error: "WhatsApp belum dikonfigurasi (FONNTE_TOKEN kosong)." });
+          setPaymentLinkDialog({ link: res.paymentLink, error: "WhatsApp belum dikonfigurasi (FONNTE_TOKEN kosong).", mode: "wa-failed" });
         } else {
           toast({ title: "WA Tidak Terkirim", description: "FONNTE_TOKEN belum dikonfigurasi.", variant: "destructive" });
         }
       } else if (res.waFailed) {
         if (res.paymentLink) {
           setLinkCopied(false);
-          setPaymentLinkDialog({ link: res.paymentLink, error: res.error ?? "Gagal kirim WA" });
+          setPaymentLinkDialog({ link: res.paymentLink, error: res.error ?? "Gagal kirim WA", mode: "wa-failed" });
         } else {
           toast({ title: "Gagal Kirim WA", description: res.error, variant: "destructive" });
         }
@@ -651,6 +652,20 @@ export default function TenantInvoices() {
       }
     },
     onError: (e: Error) => toast({ title: "Gagal Kirim Link", description: e.message, variant: "destructive" }),
+  });
+
+  const copyLinkMutation = useMutation({
+    mutationFn: async (id: number) => {
+      const res = await apiFetch<{ link: string; invoiceNumber: string; error?: string }>(`${BASE}/api/tenant-invoices/${id}/payment-link`);
+      return res;
+    },
+    onMutate: (id) => setCopyingLinkId(id),
+    onSettled: () => setCopyingLinkId(null),
+    onSuccess: (res) => {
+      setLinkCopied(false);
+      setPaymentLinkDialog({ link: res.link, mode: "manual" });
+    },
+    onError: (e: Error) => toast({ title: "Gagal Ambil Link", description: e.message, variant: "destructive" }),
   });
 
   const waBlastMutation = useMutation({
@@ -1126,6 +1141,22 @@ export default function TenantInvoices() {
                               Kirim Link
                             </Button>
                           )}
+                          {inv.status !== "paid" && inv.status !== "cancelled" && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-7 px-2 text-xs gap-1 text-blue-700 border-blue-200 hover:bg-blue-50 hover:text-blue-800"
+                              title="Pratinjau & salin link bayar untuk dikirim manual"
+                              disabled={copyingLinkId === inv.id}
+                              onClick={() => copyLinkMutation.mutate(inv.id)}
+                            >
+                              {copyingLinkId === inv.id
+                                ? <Loader2 className="h-3 w-3 animate-spin" />
+                                : <Copy className="h-3 w-3" />
+                              }
+                              Salin Link
+                            </Button>
+                          )}
                           {inv.status === "overdue" && inv.phone && (
                             <Button
                               size="sm" variant="ghost"
@@ -1569,30 +1600,53 @@ export default function TenantInvoices() {
         </DialogContent>
       </Dialog>
 
-      {/* ─── Dialog: Fallback Link Bayar (WA gagal) ───────────────────────────── */}
+      {/* ─── Dialog: Pratinjau & Salin Link Bayar ──────────────────────────────── */}
       <Dialog open={!!paymentLinkDialog} onOpenChange={(o) => { if (!o) { setPaymentLinkDialog(null); setLinkCopied(false); } }}>
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <WifiOff className="h-5 w-5 text-orange-500" />
-              WhatsApp Tidak Terhubung
+              {paymentLinkDialog?.mode === "wa-failed"
+                ? <><WifiOff className="h-5 w-5 text-orange-500" />WhatsApp Tidak Terhubung</>
+                : <><Link2 className="h-5 w-5 text-blue-500" />Link Pembayaran Tenant</>
+              }
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
-            <div className="rounded-md border border-orange-200 bg-orange-50 px-4 py-3 text-sm text-orange-800">
-              <p className="font-medium mb-1">Pengiriman WA gagal</p>
-              <p className="text-orange-700">{paymentLinkDialog?.error}</p>
-            </div>
+            {paymentLinkDialog?.mode === "wa-failed" && paymentLinkDialog.error && (
+              <div className="rounded-md border border-orange-200 bg-orange-50 px-4 py-3 text-sm text-orange-800">
+                <p className="font-medium mb-1">Pengiriman WA gagal</p>
+                <p className="text-orange-700">{paymentLinkDialog.error}</p>
+              </div>
+            )}
             <div>
               <p className="text-sm text-muted-foreground mb-2">
-                Anda bisa kirim link bayar ini secara manual ke tenant (copy lalu kirim via WA, SMS, atau email):
+                {paymentLinkDialog?.mode === "wa-failed"
+                  ? "Kirim link ini secara manual ke tenant (copy lalu kirim via WA, SMS, atau email):"
+                  : "Salin link berikut dan kirimkan ke tenant melalui WA, SMS, atau media lain:"
+                }
               </p>
-              <div className="flex items-center gap-2 rounded-md border bg-muted/40 px-3 py-2">
+              <div
+                className="flex items-center gap-2 rounded-md border bg-muted/40 px-3 py-2 cursor-pointer hover:bg-muted/60 transition-colors group"
+                title="Klik untuk menyalin"
+                onClick={() => {
+                  if (paymentLinkDialog?.link) {
+                    void navigator.clipboard.writeText(paymentLinkDialog.link);
+                    setLinkCopied(true);
+                    setTimeout(() => setLinkCopied(false), 3000);
+                  }
+                }}
+              >
                 <Link2 className="h-4 w-4 text-muted-foreground shrink-0" />
                 <span className="flex-1 text-xs font-mono break-all select-all">
                   {paymentLinkDialog?.link}
                 </span>
+                <Copy className="h-3.5 w-3.5 text-muted-foreground shrink-0 opacity-0 group-hover:opacity-100 transition-opacity" />
               </div>
+              {linkCopied && (
+                <p className="text-xs text-green-600 mt-1.5 flex items-center gap-1">
+                  <CheckCheck className="h-3.5 w-3.5" />Link berhasil disalin ke clipboard!
+                </p>
+              )}
             </div>
           </div>
           <DialogFooter className="gap-2">

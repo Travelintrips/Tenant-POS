@@ -11,6 +11,7 @@ import { eq, and, sql, desc, ilike, or, lte, gte, notInArray } from "drizzle-orm
 import { z } from "zod/v4";
 import { requireAnyRole } from "../middlewares/auth";
 import { logAudit } from "../lib/audit";
+import { getBaseUrl } from "../lib/app-url";
 
 const router: IRouter = Router();
 router.use("/tenant-invoices", requireAnyRole("owner", "admin", "finance"));
@@ -277,6 +278,46 @@ router.get("/tenant-invoices/:id", async (req, res) => {
   } catch (err) {
     req.log.error(err, "Failed to get invoice");
     res.status(500).json({ error: "Gagal mengambil invoice" });
+  }
+});
+
+// ─── GET /api/tenant-invoices/:id/payment-link ────────────────────────────────
+router.get("/tenant-invoices/:id/payment-link", async (req, res) => {
+  const id = Number(req.params.id);
+  if (isNaN(id)) { res.status(400).json({ error: "ID tidak valid" }); return; }
+
+  try {
+    const [row] = await db
+      .select({
+        id: tenantInvoicesTable.id,
+        paymentToken: tenantInvoicesTable.paymentToken,
+        status: tenantInvoicesTable.status,
+        invoiceNumber: tenantInvoicesTable.invoiceNumber,
+      })
+      .from(tenantInvoicesTable)
+      .where(eq(tenantInvoicesTable.id, id));
+
+    if (!row) { res.status(404).json({ error: "Invoice tidak ditemukan" }); return; }
+
+    if (!row.paymentToken) {
+      res.status(422).json({ error: "Invoice ini belum memiliki token pembayaran. Coba kirim link WA terlebih dahulu untuk membuat token." });
+      return;
+    }
+
+    const base = await getBaseUrl();
+    if (!base) {
+      res.status(422).json({ error: "Domain pembayaran belum dikonfigurasi. Isi di Pengaturan → Domain Link Pembayaran." });
+      return;
+    }
+
+    res.json({
+      invoiceNumber: row.invoiceNumber,
+      status: row.status,
+      link: `${base}/bayar/${row.paymentToken}`,
+    });
+  } catch (err) {
+    req.log.error(err, "Failed to get payment link");
+    res.status(500).json({ error: "Gagal mengambil link pembayaran" });
   }
 });
 
