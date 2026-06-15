@@ -3,6 +3,7 @@ import { db } from "@workspace/db";
 import {
   tenantBookingsTable,
   tenantsTable,
+  tenantInvoicesTable,
   insertTenantBookingSchema,
 } from "@workspace/db/schema";
 import { eq, and, ne, lt, lte, gte, or } from "drizzle-orm";
@@ -375,6 +376,54 @@ router.post("/bookings/:id/terminate", requireAnyRole("owner", "admin"), async (
   } catch (err) {
     req.log.error(err, "Failed to terminate booking");
     res.status(500).json({ error: "Gagal mengakhiri kontrak" });
+  }
+});
+
+// ─── DELETE /api/bookings/:id ─────────────────────────────────────────────────
+router.delete("/bookings/:id", requireAnyRole("owner", "admin"), async (req, res) => {
+  const id = Number(req.params.id);
+  if (isNaN(id)) { res.status(400).json({ error: "ID tidak valid" }); return; }
+
+  try {
+    const [existing] = await db
+      .select(bookingSelect)
+      .from(tenantBookingsTable)
+      .leftJoin(tenantsTable, eq(tenantBookingsTable.tenantId, tenantsTable.id))
+      .where(eq(tenantBookingsTable.id, id));
+
+    if (!existing) { res.status(404).json({ error: "Kontrak tidak ditemukan" }); return; }
+
+    if (existing.bookingStatus === "aktif" || existing.bookingStatus === "active") {
+      res.status(409).json({ error: "Kontrak yang masih aktif tidak dapat dihapus. Gunakan fitur Terminasi terlebih dahulu." });
+      return;
+    }
+
+    const relatedInvoices = await db
+      .select({ id: tenantInvoicesTable.id, status: tenantInvoicesTable.status })
+      .from(tenantInvoicesTable)
+      .where(and(
+        eq(tenantInvoicesTable.bookingId, id),
+        eq(tenantInvoicesTable.status, "paid"),
+      ));
+
+    if (relatedInvoices.length > 0) {
+      res.status(409).json({ error: "Kontrak yang sudah memiliki invoice lunas tidak dapat dihapus" });
+      return;
+    }
+
+    await db.delete(tenantBookingsTable).where(eq(tenantBookingsTable.id, id));
+
+    logAudit(req, {
+      action: "delete_booking",
+      entityType: "booking",
+      entityId: id,
+      beforeData: existing,
+    });
+
+    res.json({ success: true, message: "Kontrak berhasil dihapus" });
+  } catch (err) {
+    req.log.error(err, "Failed to delete booking");
+    res.status(500).json({ error: "Gagal menghapus kontrak" });
   }
 });
 
