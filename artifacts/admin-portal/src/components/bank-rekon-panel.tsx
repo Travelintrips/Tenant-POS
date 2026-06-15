@@ -25,7 +25,7 @@ import { useToast } from "@/hooks/use-toast";
 import {
   Upload, RefreshCw, CheckCircle2, XCircle, AlertTriangle, HelpCircle,
   Zap, Search, ChevronRight, FileUp, BarChart2, Banknote, Receipt, FileCheck,
-  FileSpreadsheet, MessageCircle, Send, Archive, ClipboardList, LayoutDashboard,
+  FileSpreadsheet, MessageCircle, Send, ClipboardList, LayoutDashboard,
   TrendingUp, Lock, BookOpen, Plus, Pencil, Trash2, AlertCircle, LockOpen,
 } from "lucide-react";
 
@@ -452,9 +452,6 @@ export default function BankRekonPanel() {
         <Button variant="outline" className="border-blue-300 text-blue-700 hover:bg-blue-50" onClick={() => setShowWa(true)}>
           <MessageCircle className="mr-2 h-4 w-4" />Kirim Reminder WA
         </Button>
-        <a href="/rekonsiliasi" className="inline-flex items-center gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-700 hover:bg-amber-100">
-          <Archive className="h-3.5 w-3.5" />Laporan Legacy
-        </a>
       </div>
 
       {/* ── Main Tabs ── */}
