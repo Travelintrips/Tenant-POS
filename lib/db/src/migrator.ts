@@ -1524,7 +1524,7 @@ const MIGRATIONS_TABLE = "schema_migrations";
 
 export async function runMigrations(): Promise<void> {
   const client = new pg.Client({
-    connectionString: dbConfig.url,
+    ...dbConfig.parsed,
     ssl: dbConfig.ssl,
   });
 
