@@ -1599,6 +1599,47 @@ CREATE TABLE IF NOT EXISTS bank_account_balances (
 );
     `.trim(),
   },
+  {
+    name: "0034_draft_agreements",
+    sql: `
+CREATE TABLE IF NOT EXISTS "tenant_draft_agreements" (
+  "id" serial PRIMARY KEY NOT NULL,
+  "token" text UNIQUE NOT NULL,
+  "site_id" integer NOT NULL,
+  "doc_type" text NOT NULL DEFAULT 'surat_minat',
+  "tenant_name" text NOT NULL,
+  "brand_name" text NOT NULL,
+  "business_type" text NOT NULL,
+  "email" text,
+  "phone" text NOT NULL,
+  "address" text,
+  "unit_code" text,
+  "area_name" text,
+  "start_date" date,
+  "end_date" date,
+  "duration_months" integer,
+  "period_label" text,
+  "rent_amount" numeric NOT NULL DEFAULT '0',
+  "deposit_amount" numeric NOT NULL DEFAULT '0',
+  "payment_terms" text,
+  "notes" text,
+  "status" text NOT NULL DEFAULT 'pending',
+  "responded_at" timestamptz,
+  "responded_name" text,
+  "responded_email" text,
+  "responded_phone" text,
+  "rejection_reason" text,
+  "ip_address" text,
+  "created_by" text,
+  "expires_at" timestamptz,
+  "created_at" timestamptz NOT NULL DEFAULT now(),
+  "updated_at" timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS "draft_agreements_site_id_idx" ON "tenant_draft_agreements" ("site_id");
+CREATE INDEX IF NOT EXISTS "draft_agreements_status_idx" ON "tenant_draft_agreements" ("status");
+CREATE INDEX IF NOT EXISTS "draft_agreements_created_at_idx" ON "tenant_draft_agreements" ("created_at" DESC);
+    `.trim(),
+  },
 ];
 
 const MIGRATIONS_TABLE = "schema_migrations";

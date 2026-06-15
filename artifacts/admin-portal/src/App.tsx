@@ -30,6 +30,8 @@ import WhatsAppSend from "@/pages/whatsapp-send";
 import WhatsAppTemplates from "@/pages/whatsapp-templates";
 import BankRekonsiliasi from "@/pages/bank-rekonsiliasi";
 import DbMonitoring from "@/pages/db-monitoring";
+import DrafPerjanjian from "@/pages/draf-perjanjian";
+import DokumenSewa from "@/pages/dokumen-sewa";
 // Legacy module kept for rollback — DO NOT import Rekonsiliasi as a rendered route
 // import Rekonsiliasi from "@/pages/rekonsiliasi";
 
@@ -85,6 +87,9 @@ function Router() {
       </Route>
       <Route path="/bayar/:token">
         <PaymentProofUpload />
+      </Route>
+      <Route path="/dokumen/:token">
+        <DokumenSewa />
       </Route>
       <Route path="/">
         {() => {
@@ -233,6 +238,13 @@ function Router() {
         <AuthGuard roles={["owner"]}>
           <SidebarLayout>
             <DbMonitoring />
+          </SidebarLayout>
+        </AuthGuard>
+      </Route>
+      <Route path="/draf-perjanjian">
+        <AuthGuard roles={["owner", "admin"]}>
+          <SidebarLayout>
+            <DrafPerjanjian />
           </SidebarLayout>
         </AuthGuard>
       </Route>
