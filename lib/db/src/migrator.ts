@@ -1000,7 +1000,10 @@ END $$;
   {
     name: "0022_restore_mall_units",
     sql: `
-INSERT INTO mall_units (unit_code, floor, zone, size_m2, status, position_x, position_y, width, height, site_id) VALUES
+DO $$ BEGIN
+  -- Restore TOD M1 units (site_id=1) jika belum ada
+  IF NOT EXISTS (SELECT 1 FROM mall_units WHERE site_id = 1 AND unit_code = 'T-001') THEN
+    INSERT INTO mall_units (unit_code, floor, zone, size_m2, status, position_x, position_y, width, height, site_id) VALUES
     ('T-001', '1', 'Zona A', 20, 'occupied',  0, 0, 2, 2, 1),
     ('T-002', '1', 'Zona A', 16, 'occupied',  2, 0, 2, 2, 1),
     ('T-003', '1', 'Zona A', 14, 'occupied',  4, 0, 2, 2, 1),
@@ -1016,7 +1019,12 @@ INSERT INTO mall_units (unit_code, floor, zone, size_m2, status, position_x, pos
     ('T-013', '1', 'Zona B', 24, 'available', 2, 6, 2, 2, 1),
     ('T-014', '1', 'Zona C', 30, 'available', 4, 6, 2, 2, 1),
     ('T-015', '1', 'Zona C', 20, 'available', 6, 6, 2, 2, 1),
-    ('T-016', '1', 'Zona C', 20, 'available', 8, 6, 2, 2, 1),
+    ('T-016', '1', 'Zona C', 20, 'available', 8, 6, 2, 2, 1);
+  END IF;
+
+  -- Restore Sport Center units (site_id=3) jika belum ada
+  IF NOT EXISTS (SELECT 1 FROM mall_units WHERE site_id = 3 AND unit_code = 'SC-01') THEN
+    INSERT INTO mall_units (unit_code, floor, zone, size_m2, status, position_x, position_y, width, height, site_id) VALUES
     ('SC-01', '1', 'Lapangan', 200, 'occupied',  0, 0, 4, 4, 3),
     ('SC-02', '1', 'Lapangan', 200, 'occupied',  4, 0, 4, 4, 3),
     ('SC-03', '1', 'Lapangan', 200, 'occupied',  8, 0, 4, 4, 3),
@@ -1024,8 +1032,9 @@ INSERT INTO mall_units (unit_code, floor, zone, size_m2, status, position_x, pos
     ('SC-05', '1', 'Fasilitas',  80, 'occupied', 4, 4, 2, 2, 3),
     ('SC-06', '1', 'Fasilitas',  80, 'occupied', 6, 4, 2, 2, 3),
     ('SC-07', '1', 'Tenant',     40, 'occupied', 8, 4, 2, 2, 3),
-    ('SC-08', '1', 'Tenant',     40, 'occupied', 8, 6, 2, 2, 3)
-ON CONFLICT (unit_code) DO NOTHING;
+    ('SC-08', '1', 'Tenant',     40, 'occupied', 8, 6, 2, 2, 3);
+  END IF;
+END $$;
     `.trim(),
   },
   {
@@ -1524,242 +1533,13 @@ DO $$ BEGIN
 END $$;
     `.trim(),
   },
-  {
-    name: "0030_finance_payment_events",
-    sql: `
-CREATE TABLE IF NOT EXISTS "finance_payment_events" (
-  "id" serial PRIMARY KEY NOT NULL,
-  "source_app" text NOT NULL,
-  "owner_app" text NOT NULL,
-  "source_module" text NOT NULL,
-  "source_table" text NOT NULL,
-  "source_id" integer NOT NULL,
-  "owner_company_id" integer,
-  "owner_tenant_id" integer,
-  "tenant_id" integer REFERENCES "tenants"("id"),
-  "site_id" integer REFERENCES "mall_sites"("id"),
-  "invoice_id" integer,
-  "amount" numeric NOT NULL,
-  "direction" text NOT NULL DEFAULT 'IN',
-  "payment_method" text NOT NULL,
-  "payment_reference" text,
-  "external_order_id" text,
-  "payment_status" text NOT NULL DEFAULT 'pending',
-  "proof_url" text,
-  "bank_mutation_id" integer,
-  "is_reconciled" boolean NOT NULL DEFAULT false,
-  "reconciled_at" timestamptz,
-  "metadata" jsonb,
-  "created_at" timestamptz NOT NULL DEFAULT now(),
-  "updated_at" timestamptz NOT NULL DEFAULT now()
-);
-
-DO $$ BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_indexes WHERE tablename = 'finance_payment_events' AND indexname = 'fpe_tenant_site_idx'
-  ) THEN
-    CREATE INDEX fpe_tenant_site_idx ON "finance_payment_events" ("tenant_id", "site_id");
-  END IF;
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_indexes WHERE tablename = 'finance_payment_events' AND indexname = 'fpe_status_idx'
-  ) THEN
-    CREATE INDEX fpe_status_idx ON "finance_payment_events" ("payment_status");
-  END IF;
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_indexes WHERE tablename = 'finance_payment_events' AND indexname = 'fpe_invoice_idx'
-  ) THEN
-    CREATE INDEX fpe_invoice_idx ON "finance_payment_events" ("invoice_id");
-  END IF;
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_indexes WHERE tablename = 'finance_payment_events' AND indexname = 'fpe_source_idx'
-  ) THEN
-    CREATE INDEX fpe_source_idx ON "finance_payment_events" ("source_app", "source_table", "source_id");
-  END IF;
-END $$;
-    `.trim(),
-  },
-  {
-    name: "0031_bank_journal_entries",
-    sql: `
-CREATE TABLE IF NOT EXISTS "bank_journal_entries" (
-  "id" serial PRIMARY KEY NOT NULL,
-  "journal_id" text NOT NULL UNIQUE,
-  "mutation_id" integer REFERENCES "bank_mutations"("id") ON DELETE SET NULL,
-  "company_id" integer,
-  "owner_app" text,
-  "source_app" text,
-  "source_module" text,
-  "transaction_date" text NOT NULL,
-  "description" text NOT NULL DEFAULT '',
-  "debit_account_id" text,
-  "credit_account_id" text,
-  "debit_amount" numeric NOT NULL DEFAULT '0',
-  "credit_amount" numeric NOT NULL DEFAULT '0',
-  "currency" text NOT NULL DEFAULT 'IDR',
-  "status" text NOT NULL DEFAULT 'posted',
-  "created_by" text,
-  "site_id" integer REFERENCES "mall_sites"("id"),
-  "metadata" jsonb,
-  "created_at" timestamptz NOT NULL DEFAULT now(),
-  "updated_at" timestamptz NOT NULL DEFAULT now()
-);
-
-DO $$ BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_indexes WHERE tablename = 'bank_journal_entries' AND indexname = 'bje_mutation_id_idx'
-  ) THEN
-    CREATE INDEX bje_mutation_id_idx ON "bank_journal_entries" ("mutation_id");
-  END IF;
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_indexes WHERE tablename = 'bank_journal_entries' AND indexname = 'bje_site_date_idx'
-  ) THEN
-    CREATE INDEX bje_site_date_idx ON "bank_journal_entries" ("site_id", "transaction_date");
-  END IF;
-END $$;
-    `.trim(),
-  },
-  {
-    name: "0032_bank_account_balances",
-    sql: `
-CREATE TABLE IF NOT EXISTS "bank_account_balances" (
-  "id" serial PRIMARY KEY NOT NULL,
-  "bank_account_id" text NOT NULL,
-  "company_id" integer,
-  "owner_app" text,
-  "owner_tenant_id" integer,
-  "site_id" integer REFERENCES "mall_sites"("id"),
-  "current_balance" numeric NOT NULL DEFAULT '0',
-  "last_reconciled_balance" numeric,
-  "last_reconciled_at" timestamptz,
-  "created_at" timestamptz NOT NULL DEFAULT now(),
-  "updated_at" timestamptz NOT NULL DEFAULT now()
-);
-
-DO $$ BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_indexes WHERE tablename = 'bank_account_balances' AND indexname = 'bab_account_site_idx'
-  ) THEN
-    CREATE UNIQUE INDEX bab_account_site_idx ON "bank_account_balances" ("bank_account_id", COALESCE("site_id"::text, 'null'));
-  END IF;
-END $$;
-    `.trim(),
-  },
-  {
-    name: "0033_bank_mutations_extend",
-    sql: `
-ALTER TABLE "bank_mutations"
-  ADD COLUMN IF NOT EXISTS "company_id" integer,
-  ADD COLUMN IF NOT EXISTS "owner_app" text,
-  ADD COLUMN IF NOT EXISTS "owner_company_id" integer,
-  ADD COLUMN IF NOT EXISTS "owner_tenant_id" integer,
-  ADD COLUMN IF NOT EXISTS "source_app" text,
-  ADD COLUMN IF NOT EXISTS "source_module" text,
-  ADD COLUMN IF NOT EXISTS "source_table" text,
-  ADD COLUMN IF NOT EXISTS "source_id" integer,
-  ADD COLUMN IF NOT EXISTS "approved_by_app" text,
-  ADD COLUMN IF NOT EXISTS "approved_by_role" text,
-  ADD COLUMN IF NOT EXISTS "accounting_posted" boolean NOT NULL DEFAULT false,
-  ADD COLUMN IF NOT EXISTS "journal_id" text;
-
-DO $$ BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_indexes WHERE tablename = 'bank_mutations' AND indexname = 'bm_accounting_posted_idx'
-  ) THEN
-    CREATE INDEX bm_accounting_posted_idx ON "bank_mutations" ("accounting_posted") WHERE accounting_posted = false;
-  END IF;
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_indexes WHERE tablename = 'bank_mutations' AND indexname = 'bm_journal_id_idx'
-  ) THEN
-    CREATE INDEX bm_journal_id_idx ON "bank_mutations" ("journal_id") WHERE journal_id IS NOT NULL;
-  END IF;
-END $$;
-    `.trim(),
-  },
-  {
-    name: "0034_finance_payment_events_extend",
-    sql: `
-ALTER TABLE "finance_payment_events"
-  ADD COLUMN IF NOT EXISTS "created_by_app" text,
-  ADD COLUMN IF NOT EXISTS "approval_scope" text;
-    `.trim(),
-  },
-  {
-    name: "0035_bank_recon_audit_logs",
-    sql: `
-CREATE TABLE IF NOT EXISTS "bank_recon_audit_logs" (
-  "id" serial PRIMARY KEY NOT NULL,
-  "mutation_id" integer,
-  "match_id" integer,
-  "finance_payment_event_id" integer,
-  "journal_id" text,
-  "action" text NOT NULL,
-  "action_app" text,
-  "action_user_id" text,
-  "action_role" text,
-  "owner_app" text,
-  "owner_company_id" integer,
-  "owner_tenant_id" integer,
-  "source_app" text,
-  "source_module" text,
-  "before_value" jsonb,
-  "after_value" jsonb,
-  "metadata" jsonb,
-  "ip_address" text,
-  "user_agent" text,
-  "created_at" timestamptz NOT NULL DEFAULT now()
-);
-CREATE INDEX IF NOT EXISTS "bral_mutation_id_idx" ON "bank_recon_audit_logs" ("mutation_id");
-CREATE INDEX IF NOT EXISTS "bral_action_idx" ON "bank_recon_audit_logs" ("action");
-CREATE INDEX IF NOT EXISTS "bral_owner_tenant_idx" ON "bank_recon_audit_logs" ("owner_tenant_id");
-CREATE INDEX IF NOT EXISTS "bral_created_at_idx" ON "bank_recon_audit_logs" ("created_at");
-    `.trim(),
-  },
-  {
-    name: "0036_audit_logs_tenant_id",
-    sql: `
-ALTER TABLE "audit_logs" ADD COLUMN IF NOT EXISTS "tenant_id" integer;
-CREATE INDEX IF NOT EXISTS "audit_logs_tenant_id_idx" ON "audit_logs" ("tenant_id");
-    `.trim(),
-  },
-  {
-    name: "0037_bank_closing_periods",
-    sql: `
-CREATE TABLE IF NOT EXISTS "bank_closing_periods" (
-  "id" serial PRIMARY KEY NOT NULL,
-  "year_month" text NOT NULL UNIQUE,
-  "locked_by" text,
-  "locked_by_role" text,
-  "notes" text,
-  "site_id" integer REFERENCES "mall_sites"("id"),
-  "created_at" timestamptz NOT NULL DEFAULT now(),
-  "updated_at" timestamptz NOT NULL DEFAULT now()
-);
-    `.trim(),
-  },
-  {
-    name: "0038_bank_coa_rules",
-    sql: `
-CREATE TABLE IF NOT EXISTS "bank_coa_rules" (
-  "id" serial PRIMARY KEY NOT NULL,
-  "provider_name" text,
-  "direction" text NOT NULL DEFAULT 'ALL',
-  "description_pattern" text,
-  "coa_code" text NOT NULL,
-  "coa_name" text NOT NULL,
-  "description" text,
-  "is_active" boolean NOT NULL DEFAULT true,
-  "created_at" timestamptz NOT NULL DEFAULT now(),
-  "updated_at" timestamptz NOT NULL DEFAULT now()
-);
-    `.trim(),
-  },
 ];
 
 const MIGRATIONS_TABLE = "schema_migrations";
 
 export async function runMigrations(): Promise<void> {
   const client = new pg.Client({
-    connectionString: dbConfig.url,
+    ...dbConfig.parsed,
     ssl: dbConfig.ssl,
   });
 
@@ -1802,7 +1582,7 @@ export async function runMigrations(): Promise<void> {
 // Migration tambahan: konversi users.id dari integer ke text (untuk Supabase lama)
 export async function runUsersIdTextMigration(): Promise<void> {
   const client = new pg.Client({
-    connectionString: dbConfig.url,
+    ...dbConfig.parsed,
     ssl: dbConfig.ssl,
   });
 
