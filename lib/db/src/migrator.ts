@@ -1548,6 +1548,57 @@ END $$;
 ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS tenant_id integer;
     `.trim(),
   },
+  {
+    name: "0031_system_settings_table",
+    sql: `
+CREATE TABLE IF NOT EXISTS system_settings (
+  id serial PRIMARY KEY NOT NULL,
+  key text NOT NULL UNIQUE,
+  value jsonb,
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+INSERT INTO system_settings (key, value)
+VALUES ('mall_config', '{"mallName":"Mall Admin","tagline":"Manajemen Tenant Mall","address":"","phone":"","email":"","invoicePrefix":"INV-TENANT","taxRate":0,"currency":"IDR","logoUrl":"","adminPhone":"","waSenderPhone":"","waSenderLabel":"","paymentDomain":"","invoiceColor":"#1e3a5f","invoiceFooterNote":"","invoiceSignerName":""}')
+ON CONFLICT (key) DO NOTHING;
+    `.trim(),
+  },
+  {
+    name: "0032_bank_mutations_extended_columns",
+    sql: `
+ALTER TABLE bank_mutations
+  ADD COLUMN IF NOT EXISTS company_id integer,
+  ADD COLUMN IF NOT EXISTS owner_app text,
+  ADD COLUMN IF NOT EXISTS owner_company_id integer,
+  ADD COLUMN IF NOT EXISTS owner_tenant_id integer,
+  ADD COLUMN IF NOT EXISTS source_app text,
+  ADD COLUMN IF NOT EXISTS source_module text,
+  ADD COLUMN IF NOT EXISTS source_table text,
+  ADD COLUMN IF NOT EXISTS source_id integer,
+  ADD COLUMN IF NOT EXISTS approved_by_app text,
+  ADD COLUMN IF NOT EXISTS approved_by_role text,
+  ADD COLUMN IF NOT EXISTS accounting_posted boolean NOT NULL DEFAULT false,
+  ADD COLUMN IF NOT EXISTS journal_id text;
+    `.trim(),
+  },
+  {
+    name: "0033_bank_account_balances_table",
+    sql: `
+CREATE TABLE IF NOT EXISTS bank_account_balances (
+  id serial PRIMARY KEY NOT NULL,
+  bank_account_id text NOT NULL,
+  company_id integer,
+  owner_app text,
+  owner_tenant_id integer,
+  site_id integer,
+  current_balance numeric NOT NULL DEFAULT '0',
+  last_reconciled_balance numeric,
+  last_reconciled_at timestamptz,
+  opening_balance numeric DEFAULT '0',
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+    `.trim(),
+  },
 ];
 
 const MIGRATIONS_TABLE = "schema_migrations";
