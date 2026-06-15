@@ -1,58 +1,51 @@
-interface PgParams {
-  user?: string;
-  password?: string;
-  host?: string;
-  port?: number;
-  database?: string;
-  connectionString?: string;
-}
-
-function parseDbUrl(url: string): PgParams {
-  try {
-    const protoEnd = url.indexOf("://") + 3;
-    const lastAt = url.lastIndexOf("@");
-    if (lastAt < protoEnd) return { connectionString: url };
-    const userinfo = url.substring(protoEnd, lastAt);
-    const rest = url.substring(lastAt + 1);
-    const colonIdx = userinfo.indexOf(":");
-    if (colonIdx < 0) return { connectionString: url };
-    const user = userinfo.substring(0, colonIdx);
-    const password = decodeURIComponent(userinfo.substring(colonIdx + 1));
-    const qIdx = rest.indexOf("?");
-    const restNoQuery = qIdx >= 0 ? rest.substring(0, qIdx) : rest;
-    const slashIdx = restNoQuery.indexOf("/");
-    const hostport = slashIdx >= 0 ? restNoQuery.substring(0, slashIdx) : restNoQuery;
-    const database = slashIdx >= 0 ? restNoQuery.substring(slashIdx + 1) : "postgres";
-    const portColon = hostport.lastIndexOf(":");
-    const host = portColon >= 0 ? hostport.substring(0, portColon) : hostport;
-    const port = portColon >= 0 ? Number(hostport.substring(portColon + 1)) : 5432;
-    return { user, password, host, port, database };
-  } catch {
-    return { connectionString: url };
-  }
-}
-
 const isProduction = (process.env["NODE_ENV"] ?? "development") === "production";
 
 // Production → SUPABASE_PG_URL_PROD, Development → SUPABASE_PG_URL / SUPABASE_DATABASE_URL
 const rawUrl = (isProduction
+const rawUrl = isProduction
   ? (process.env["SUPABASE_PG_URL_PROD"] ??
      process.env["SUPABASE_PG_URL"] ??
      process.env["SUPABASE_DATABASE_URL"] ??
      process.env["DATABASE_URL"] ??
-     (() => { throw new Error("SUPABASE_PG_URL_PROD harus diset di production"); })())
+     (() => { throw new Error("SUPABASE_PG_URL_PROD atau DATABASE_URL harus diset di production"); })())
   : (process.env["SUPABASE_PG_URL"] ??
      process.env["SUPABASE_DATABASE_URL"] ??
      process.env["DATABASE_URL"] ??
      (() => { throw new Error("SUPABASE_PG_URL harus diset di development"); })())).trim();
+     (() => { throw new Error("SUPABASE_PG_URL atau DATABASE_URL harus diset"); })());
 
 const isSupabase =
   rawUrl.includes("supabase") ||
   rawUrl.includes("pooler");
 
+function parseDbUrl(url: string) {
+  try {
+    const parsed = new URL(url);
+    return {
+      host: parsed.hostname,
+      port: parseInt(parsed.port || "5432", 10),
+      user: decodeURIComponent(parsed.username),
+      password: decodeURIComponent(parsed.password),
+      database: parsed.pathname.replace(/^\//, ""),
+    };
+  } catch {
+    return null;
+  }
+}
+
+const parsed = isSupabase ? parseDbUrl(rawUrl) : null;
+
 export const dbConfig = {
   url: rawUrl,
-  parsed: parseDbUrl(rawUrl),
+  parsed: parsed
+    ? {
+        host: parsed.host,
+        port: parsed.port,
+        user: parsed.user,
+        password: parsed.password,
+        database: parsed.database,
+      }
+    : { connectionString: rawUrl },
   ssl: isSupabase ? ({ rejectUnauthorized: false } as const) : (false as const),
   env: isProduction ? "production" : "development",
 } as const;
