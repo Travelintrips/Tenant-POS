@@ -13,7 +13,7 @@ export const config = {
     | "development"
     | "production"
     | "test",
-  port: Number(required("PORT")),
+  port: Number(process.env["PORT"] ?? "8080"),
   logLevel: optional("LOG_LEVEL", "info") as string,
 
   db: {
