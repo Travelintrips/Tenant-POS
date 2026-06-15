@@ -7,6 +7,7 @@ export const bankCoaRulesTable = pgTable("bank_coa_rules", {
   descriptionPattern: text("description_pattern"),
   coaCode: text("coa_code").notNull(),
   coaName: text("coa_name").notNull(),
+  accountType: text("account_type").notNull().default("other"),
   description: text("description"),
   isActive: boolean("is_active").notNull().default(true),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

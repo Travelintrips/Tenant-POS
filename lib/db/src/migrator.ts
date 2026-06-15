@@ -1599,6 +1599,103 @@ CREATE TABLE IF NOT EXISTS bank_account_balances (
 );
     `.trim(),
   },
+  {
+    name: "0039_coa_and_journal_tables",
+    sql: `
+-- 1. Buat tabel bank_journal_entries (jurnal akuntansi double-entry)
+CREATE TABLE IF NOT EXISTS bank_journal_entries (
+  id serial PRIMARY KEY NOT NULL,
+  journal_id text NOT NULL UNIQUE,
+  mutation_id integer,
+  company_id integer,
+  owner_app text,
+  source_app text,
+  source_module text,
+  transaction_date text NOT NULL DEFAULT '',
+  description text NOT NULL DEFAULT '',
+  debit_account_id text,
+  debit_account_name text,
+  credit_account_id text,
+  credit_account_name text,
+  debit_amount numeric NOT NULL DEFAULT '0',
+  credit_amount numeric NOT NULL DEFAULT '0',
+  tax_amount numeric NOT NULL DEFAULT '0',
+  tax_account_id text,
+  tax_account_name text,
+  currency text NOT NULL DEFAULT 'IDR',
+  status text NOT NULL DEFAULT 'posted',
+  created_by text,
+  site_id integer,
+  metadata jsonb,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+-- Tambah kolom baru jika tabel sudah ada dengan skema lama
+ALTER TABLE bank_journal_entries
+  ADD COLUMN IF NOT EXISTS debit_account_name text,
+  ADD COLUMN IF NOT EXISTS credit_account_name text,
+  ADD COLUMN IF NOT EXISTS tax_amount numeric DEFAULT '0',
+  ADD COLUMN IF NOT EXISTS tax_account_id text,
+  ADD COLUMN IF NOT EXISTS tax_account_name text,
+  ADD COLUMN IF NOT EXISTS owner_app text,
+  ADD COLUMN IF NOT EXISTS source_app text,
+  ADD COLUMN IF NOT EXISTS source_module text,
+  ADD COLUMN IF NOT EXISTS transaction_date text,
+  ADD COLUMN IF NOT EXISTS currency text DEFAULT 'IDR',
+  ADD COLUMN IF NOT EXISTS status text DEFAULT 'posted',
+  ADD COLUMN IF NOT EXISTS site_id integer,
+  ADD COLUMN IF NOT EXISTS metadata jsonb,
+  ADD COLUMN IF NOT EXISTS updated_at timestamptz DEFAULT now();
+
+-- 2. Buat tabel bank_coa_rules dengan unique constraint pada coa_code
+CREATE TABLE IF NOT EXISTS bank_coa_rules (
+  id serial PRIMARY KEY NOT NULL,
+  provider_name text,
+  direction text NOT NULL DEFAULT 'ALL',
+  description_pattern text,
+  coa_code text NOT NULL UNIQUE,
+  coa_name text NOT NULL,
+  account_type text NOT NULL DEFAULT 'other',
+  description text,
+  is_active boolean NOT NULL DEFAULT true,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+-- Tambah kolom account_type jika tabel sudah ada tanpa kolom itu
+ALTER TABLE bank_coa_rules
+  ADD COLUMN IF NOT EXISTS account_type text DEFAULT 'other';
+
+-- Tambah unique constraint jika belum ada (untuk tabel yang sudah exist sebelumnya)
+DO $$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'bank_coa_rules_coa_code_key'
+  ) THEN
+    ALTER TABLE bank_coa_rules ADD CONSTRAINT bank_coa_rules_coa_code_key UNIQUE (coa_code);
+  END IF;
+END $$;
+
+-- 3. Seed CoA standar mall Indonesia (bisa dijalankan ulang tanpa error)
+INSERT INTO bank_coa_rules (coa_code, coa_name, account_type, direction, description, is_active) VALUES
+  ('1-1001', 'Kas dan Bank',              'kas',        'ALL', 'Akun utama kas masuk dan keluar',                   true),
+  ('1-1002', 'Piutang Sewa',              'piutang',    'IN',  'Piutang atas tagihan sewa tenant',                  true),
+  ('4-1001', 'Pendapatan Sewa',           'pendapatan', 'IN',  'Pendapatan dari sewa unit tenant',                  true),
+  ('4-1002', 'Pendapatan Service Charge', 'pendapatan', 'IN',  'Pendapatan service charge / biaya layanan',         true),
+  ('4-1003', 'Pendapatan Denda',          'pendapatan', 'IN',  'Pendapatan dari denda dan penalti keterlambatan',   true),
+  ('4-1004', 'Pendapatan Lainnya',        'pendapatan', 'IN',  'Pendapatan lain-lain di luar kategori utama',       true),
+  ('2-1001', 'Hutang PPN Keluaran',       'ppn',        'IN',  'PPN 11% atas pendapatan sewa (PPN Keluaran)',       true),
+  ('2-1002', 'Hutang PPh Pasal 4 ayat 2', 'pph',       'IN',  'PPh Final 10% atas sewa tanah/bangunan komersial',  true),
+  ('5-1001', 'Biaya Operasional',         'biaya',      'OUT', 'Biaya operasional umum (administrasi, dll)',        true),
+  ('5-1002', 'Biaya Utilitas',            'biaya',      'OUT', 'Biaya listrik, air, dan gas',                      true),
+  ('5-1003', 'Biaya Perawatan Gedung',    'biaya',      'OUT', 'Biaya perawatan dan perbaikan fasilitas gedung',    true),
+  ('5-1004', 'Biaya Bank & Administrasi', 'biaya',      'OUT', 'Biaya transfer bank, admin, dan biaya keuangan',   true)
+ON CONFLICT (coa_code) DO UPDATE SET
+  coa_name     = EXCLUDED.coa_name,
+  account_type = EXCLUDED.account_type,
+  description  = EXCLUDED.description;
+    `.trim(),
+  },
 ];
 
 const MIGRATIONS_TABLE = "schema_migrations";
