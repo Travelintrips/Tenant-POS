@@ -1974,6 +1974,7 @@ router.post("/bank-reconciliation/coa-rules", async (req, res) => {
     descriptionPattern?: string;
     coaCode: string;
     coaName: string;
+    accountType?: string;
     description?: string;
     isActive?: boolean;
   };
@@ -1989,6 +1990,7 @@ router.post("/bank-reconciliation/coa-rules", async (req, res) => {
     descriptionPattern: body.descriptionPattern?.trim() || null,
     coaCode: body.coaCode.trim(),
     coaName: body.coaName.trim(),
+    accountType: body.accountType?.trim() || null,
     description: body.description?.trim() || null,
     isActive: body.isActive ?? true,
   }).returning();
@@ -2005,6 +2007,7 @@ router.put("/bank-reconciliation/coa-rules/:id", async (req, res) => {
     descriptionPattern?: string;
     coaCode?: string;
     coaName?: string;
+    accountType?: string;
     description?: string;
     isActive?: boolean;
   };
@@ -2015,6 +2018,7 @@ router.put("/bank-reconciliation/coa-rules/:id", async (req, res) => {
     descriptionPattern: body.descriptionPattern?.trim() || null,
     coaCode: body.coaCode?.trim(),
     coaName: body.coaName?.trim(),
+    accountType: body.accountType?.trim() || null,
     description: body.description?.trim() || null,
     isActive: body.isActive ?? true,
     updatedAt: new Date(),
