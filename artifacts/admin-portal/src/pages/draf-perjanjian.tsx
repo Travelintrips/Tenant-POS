@@ -63,6 +63,7 @@ import {
   FileSignature,
   ExternalLink,
   RefreshCw,
+  Link2,
 } from "lucide-react";
 
 // ── Tipe data ──────────────────────────────────────────────────────────────────
@@ -71,6 +72,8 @@ interface DraftAgreement {
   token: string;
   siteId: number;
   docType: "surat_minat" | "perjanjian_sewa";
+  picName: string | null;
+  source: "admin" | "self_register";
   tenantName: string;
   brandName: string;
   businessType: string;
@@ -78,6 +81,7 @@ interface DraftAgreement {
   phone: string;
   address: string | null;
   unitCode: string | null;
+  interestedUnit: string | null;
   areaName: string | null;
   startDate: string | null;
   endDate: string | null;
@@ -126,6 +130,7 @@ function DocTypeBadge({ type }: { type: DraftAgreement["docType"] }) {
 // ── Form buat draf baru ────────────────────────────────────────────────────────
 interface CreateForm {
   docType: "surat_minat" | "perjanjian_sewa";
+  picName: string;
   tenantName: string;
   brandName: string;
   businessType: string;
@@ -134,6 +139,7 @@ interface CreateForm {
   address: string;
   unitCode: string;
   areaName: string;
+  interestedUnit: string;
   startDate: string;
   endDate: string;
   durationMonths: string;
@@ -147,6 +153,7 @@ interface CreateForm {
 
 const BLANK_FORM: CreateForm = {
   docType: "surat_minat",
+  picName: "",
   tenantName: "",
   brandName: "",
   businessType: "",
@@ -155,6 +162,7 @@ const BLANK_FORM: CreateForm = {
   address: "",
   unitCode: "",
   areaName: "",
+  interestedUnit: "",
   startDate: "",
   endDate: "",
   durationMonths: "",
@@ -172,11 +180,13 @@ function DetailPanel({
   onClose,
   onDelete,
   onRemind,
+  onEdit,
 }: {
   draft: DraftAgreement;
   onClose: () => void;
   onDelete: (id: number) => void;
   onRemind: (id: number) => void;
+  onEdit: (draft: DraftAgreement) => void;
 }) {
   const { toast } = useToast();
 
@@ -196,7 +206,14 @@ function DetailPanel({
           </div>
           <StatusBadge status={draft.status} />
         </div>
-        <div className="mt-1"><DocTypeBadge type={draft.docType} /></div>
+        <div className="mt-1 flex items-center gap-2 flex-wrap">
+          <DocTypeBadge type={draft.docType} />
+          {draft.source === "self_register" && (
+            <span className="inline-flex items-center gap-1 text-xs text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
+              🌐 Pendaftaran Mandiri
+            </span>
+          )}
+        </div>
       </CardHeader>
 
       <CardContent className="space-y-4 text-sm">
@@ -204,7 +221,7 @@ function DetailPanel({
         <div className="rounded-lg bg-muted p-3 space-y-2">
           <p className="font-medium text-xs text-muted-foreground uppercase tracking-wide">Link Dokumen Calon Tenant</p>
           <p className="break-all text-primary font-mono text-xs">{draft.publicUrl}</p>
-          <div className="flex gap-2">
+          <div className="flex gap-2 flex-wrap">
             <Button size="sm" variant="outline" className="h-7 text-xs gap-1" onClick={copyLink}>
               <Copy className="h-3 w-3" />Salin Link
             </Button>
@@ -222,6 +239,12 @@ function DetailPanel({
         </div>
 
         {/* Data calon tenant */}
+        {draft.picName && (
+          <div><p className="text-xs text-muted-foreground">Nama PIC / Penanggung Jawab</p><p className="font-medium">{draft.picName}</p></div>
+        )}
+        {draft.interestedUnit && (
+          <div><p className="text-xs text-muted-foreground">Unit yang Diminati</p><p className="font-medium">{draft.interestedUnit}</p></div>
+        )}
         <div className="grid grid-cols-2 gap-x-4 gap-y-2">
           <div><p className="text-xs text-muted-foreground">Email</p><p className="font-medium">{draft.email || "—"}</p></div>
           <div><p className="text-xs text-muted-foreground">Jenis Usaha</p><p className="font-medium">{draft.businessType}</p></div>
@@ -266,16 +289,33 @@ function DetailPanel({
         )}
 
         {/* Aksi */}
-        <div className="flex justify-between pt-2">
-          <Button size="sm" variant="ghost" onClick={onClose}>Tutup</Button>
-          <Button
-            size="sm"
-            variant="destructive"
-            className="gap-1"
-            onClick={() => onDelete(draft.id)}
-          >
-            <Trash2 className="h-3.5 w-3.5" />Hapus
-          </Button>
+        <div className="flex flex-wrap justify-between gap-2 pt-2 border-t">
+          <div className="flex gap-1.5">
+            <Button size="sm" variant="ghost" onClick={onClose}>Tutup</Button>
+            <Button
+              size="sm"
+              variant="outline"
+              className="gap-1"
+              onClick={() => onEdit(draft)}
+            >
+              ✏️ Edit
+            </Button>
+          </div>
+          <div className="flex gap-1.5">
+            <Button size="sm" variant="outline" className="gap-1" asChild>
+              <a href={draft.publicUrl} target="_blank" rel="noopener noreferrer">
+                🖨️ PDF
+              </a>
+            </Button>
+            <Button
+              size="sm"
+              variant="destructive"
+              className="gap-1"
+              onClick={() => onDelete(draft.id)}
+            >
+              <Trash2 className="h-3.5 w-3.5" />Hapus
+            </Button>
+          </div>
         </div>
       </CardContent>
     </Card>
@@ -316,29 +356,36 @@ export default function DrafPerjanjian() {
     );
   });
 
+  // ── Helper: konversi form ke body API ─────────────────────────────────────
+  function formToBody(f: CreateForm) {
+    return {
+      docType: f.docType,
+      picName: f.picName.trim() || undefined,
+      tenantName: f.tenantName.trim(),
+      brandName: f.brandName.trim(),
+      businessType: f.businessType.trim(),
+      email: f.email.trim() || undefined,
+      phone: f.phone.trim(),
+      address: f.address.trim() || undefined,
+      unitCode: f.unitCode.trim() || undefined,
+      areaName: f.areaName.trim() || undefined,
+      interestedUnit: f.interestedUnit.trim() || undefined,
+      startDate: f.startDate || undefined,
+      endDate: f.endDate || undefined,
+      durationMonths: f.durationMonths ? parseInt(f.durationMonths) : undefined,
+      periodLabel: f.periodLabel.trim() || undefined,
+      rentAmount: f.rentAmount ? parseFloat(f.rentAmount.replace(/\./g, "").replace(",", ".")) : 0,
+      depositAmount: f.depositAmount ? parseFloat(f.depositAmount.replace(/\./g, "").replace(",", ".")) : 0,
+      paymentTerms: f.paymentTerms.trim() || undefined,
+      notes: f.notes.trim() || undefined,
+      expiresInDays: f.expiresInDays ? parseInt(f.expiresInDays) : 30,
+    };
+  }
+
   // ── Mutasi create ──────────────────────────────────────────────────────────
   const createMutation = useMutation({
     mutationFn: async (f: CreateForm) => {
-      const body = {
-        docType: f.docType,
-        tenantName: f.tenantName.trim(),
-        brandName: f.brandName.trim(),
-        businessType: f.businessType.trim(),
-        email: f.email.trim() || undefined,
-        phone: f.phone.trim(),
-        address: f.address.trim() || undefined,
-        unitCode: f.unitCode.trim() || undefined,
-        areaName: f.areaName.trim() || undefined,
-        startDate: f.startDate || undefined,
-        endDate: f.endDate || undefined,
-        durationMonths: f.durationMonths ? parseInt(f.durationMonths) : undefined,
-        periodLabel: f.periodLabel.trim() || undefined,
-        rentAmount: f.rentAmount ? parseFloat(f.rentAmount.replace(/\./g, "").replace(",", ".")) : 0,
-        depositAmount: f.depositAmount ? parseFloat(f.depositAmount.replace(/\./g, "").replace(",", ".")) : 0,
-        paymentTerms: f.paymentTerms.trim() || undefined,
-        notes: f.notes.trim() || undefined,
-        expiresInDays: f.expiresInDays ? parseInt(f.expiresInDays) : 30,
-      };
+      const body = formToBody(f);
       const res = await apiFetch("/api/draft-agreements", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -377,6 +424,66 @@ export default function DrafPerjanjian() {
       toast({ title: "Gagal menghapus", description: err.message, variant: "destructive" });
     },
   });
+
+  // ── State edit ────────────────────────────────────────────────────────────
+  const [editDraft, setEditDraft] = useState<DraftAgreement | null>(null);
+  const [editForm, setEditForm] = useState<CreateForm>(BLANK_FORM);
+
+  function handleOpenEdit(d: DraftAgreement) {
+    setEditDraft(d);
+    setEditForm({
+      docType: d.docType,
+      picName: d.picName ?? "",
+      tenantName: d.tenantName,
+      brandName: d.brandName,
+      businessType: d.businessType,
+      email: d.email ?? "",
+      phone: d.phone,
+      address: d.address ?? "",
+      unitCode: d.unitCode ?? "",
+      areaName: d.areaName ?? "",
+      interestedUnit: d.interestedUnit ?? "",
+      startDate: d.startDate ?? "",
+      endDate: d.endDate ?? "",
+      durationMonths: d.durationMonths?.toString() ?? "",
+      periodLabel: d.periodLabel ?? "",
+      rentAmount: d.rentAmount?.toString() ?? "",
+      depositAmount: d.depositAmount?.toString() ?? "",
+      paymentTerms: d.paymentTerms ?? "",
+      notes: d.notes ?? "",
+      expiresInDays: "30",
+    });
+  }
+
+  // ── Mutasi edit (PATCH) ────────────────────────────────────────────────────
+  const editMutation = useMutation({
+    mutationFn: async ({ id, f }: { id: number; f: CreateForm }) => {
+      const body = formToBody(f);
+      const res = await apiFetch(`/api/draft-agreements/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        throw new Error(text || `Error ${res.status}`);
+      }
+      return res.json() as Promise<DraftAgreement>;
+    },
+    onSuccess: (updated) => {
+      qc.invalidateQueries({ queryKey: ["draft-agreements"] });
+      setEditDraft(null);
+      setSelectedId(updated.id);
+      toast({ title: "Draf berhasil diperbarui!" });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Gagal memperbarui", description: err.message, variant: "destructive" });
+    },
+  });
+
+  function setEditField(key: keyof CreateForm, value: string) {
+    setEditForm((f) => ({ ...f, [key]: value }));
+  }
 
   // ── Mutasi remind ──────────────────────────────────────────────────────────
   const remindMutation = useMutation({
@@ -434,6 +541,41 @@ export default function DrafPerjanjian() {
           </div>
         ))}
       </div>
+
+      {/* Link Pendaftaran Mandiri */}
+      {(() => {
+        const registerUrl = `${window.location.origin}/tenant/register`;
+        return (
+          <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 flex flex-col sm:flex-row items-start sm:items-center gap-3">
+            <div className="flex items-center gap-2 text-blue-700 shrink-0">
+              <Link2 className="h-4 w-4" />
+              <span className="text-sm font-medium">Link Pendaftaran Mandiri</span>
+            </div>
+            <div className="flex-1 flex items-center gap-2 min-w-0">
+              <code className="text-xs bg-white border border-blue-200 rounded px-2 py-1 text-blue-800 truncate flex-1 block">
+                {registerUrl}
+              </code>
+              <Button
+                variant="outline"
+                size="sm"
+                className="shrink-0 h-7 px-2 border-blue-300 text-blue-700 hover:bg-blue-100"
+                onClick={() => {
+                  navigator.clipboard.writeText(registerUrl);
+                  toast({ title: "Link disalin!", description: "Bagikan link ini kepada calon tenant untuk mendaftar sendiri." });
+                }}
+              >
+                <Copy className="h-3.5 w-3.5" />
+              </Button>
+              <a href={registerUrl} target="_blank" rel="noopener noreferrer">
+                <Button variant="outline" size="sm" className="shrink-0 h-7 px-2 border-blue-300 text-blue-700 hover:bg-blue-100">
+                  <ExternalLink className="h-3.5 w-3.5" />
+                </Button>
+              </a>
+            </div>
+            <p className="text-xs text-blue-600 sm:max-w-[200px]">Bagikan kepada calon tenant agar dapat mengisi formulir sendiri.</p>
+          </div>
+        );
+      })()}
 
       {/* Filter & search */}
       <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center">
@@ -551,6 +693,7 @@ export default function DrafPerjanjian() {
               onClose={() => setSelectedId(null)}
               onDelete={(id) => setDeleteId(id)}
               onRemind={(id) => remindMutation.mutate(id)}
+              onEdit={handleOpenEdit}
             />
           </div>
         )}
@@ -587,8 +730,12 @@ export default function DrafPerjanjian() {
             <div className="space-y-3">
               <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide border-b pb-1">Data Calon Tenant</h3>
               <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5 col-span-2">
+                  <Label>Nama PIC / Penanggung Jawab</Label>
+                  <Input placeholder="Nama pejabat/penanggung jawab (jika berbeda dari pemilik)" value={form.picName} onChange={(e) => setField("picName", e.target.value)} />
+                </div>
                 <div className="space-y-1.5">
-                  <Label>Nama Lengkap <span className="text-destructive">*</span></Label>
+                  <Label>Nama Lengkap Pemilik <span className="text-destructive">*</span></Label>
                   <Input placeholder="Nama pemilik/penanggung jawab" value={form.tenantName} onChange={(e) => setField("tenantName", e.target.value)} />
                 </div>
                 <div className="space-y-1.5">
@@ -705,6 +852,141 @@ export default function DrafPerjanjian() {
             <Button variant="outline" onClick={() => setDeleteId(null)}>Batal</Button>
             <Button variant="destructive" onClick={() => deleteId && deleteMutation.mutate(deleteId)} disabled={deleteMutation.isPending}>
               Ya, Hapus
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Dialog: Edit Draf */}
+      <Dialog open={!!editDraft} onOpenChange={(open) => { if (!open) setEditDraft(null); }}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              ✏️ Edit Draf — {editDraft?.brandName}
+            </DialogTitle>
+            <DialogDescription>
+              Perbarui data draf perjanjian. Perubahan tidak mengubah link dokumen yang sudah ada.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-5 py-2">
+            {/* Jenis dokumen */}
+            <div className="space-y-1.5">
+              <Label>Jenis Dokumen</Label>
+              <Select value={editForm.docType} onValueChange={(v) => setEditField("docType", v as CreateForm["docType"])}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="surat_minat">📄 Surat Minat Menyewa Tenant</SelectItem>
+                  <SelectItem value="perjanjian_sewa">📋 Draf Perjanjian Sewa Tenant</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Data calon tenant */}
+            <div className="space-y-3">
+              <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide border-b pb-1">Data Calon Tenant</h3>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5 col-span-2">
+                  <Label>Nama PIC / Penanggung Jawab</Label>
+                  <Input placeholder="Nama PIC (jika berbeda dari pemilik)" value={editForm.picName} onChange={(e) => setEditField("picName", e.target.value)} />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Nama Lengkap Pemilik <span className="text-destructive">*</span></Label>
+                  <Input value={editForm.tenantName} onChange={(e) => setEditField("tenantName", e.target.value)} />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Nama Brand/Usaha <span className="text-destructive">*</span></Label>
+                  <Input value={editForm.brandName} onChange={(e) => setEditField("brandName", e.target.value)} />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Jenis Usaha <span className="text-destructive">*</span></Label>
+                  <Input value={editForm.businessType} onChange={(e) => setEditField("businessType", e.target.value)} />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>No. WhatsApp/Telepon <span className="text-destructive">*</span></Label>
+                  <Input value={editForm.phone} onChange={(e) => setEditField("phone", e.target.value)} />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Email</Label>
+                  <Input type="email" value={editForm.email} onChange={(e) => setEditField("email", e.target.value)} />
+                </div>
+                <div className="space-y-1.5 col-span-2">
+                  <Label>Alamat</Label>
+                  <Input value={editForm.address} onChange={(e) => setEditField("address", e.target.value)} />
+                </div>
+              </div>
+            </div>
+
+            {/* Unit & periode */}
+            <div className="space-y-3">
+              <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide border-b pb-1">Unit & Periode Sewa</h3>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5 col-span-2">
+                  <Label>Unit / Lokasi yang Diminati</Label>
+                  <Input placeholder="dari pendaftaran mandiri" value={editForm.interestedUnit} onChange={(e) => setEditField("interestedUnit", e.target.value)} />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Kode Unit</Label>
+                  <Input placeholder="misal: SC-01" value={editForm.unitCode} onChange={(e) => setEditField("unitCode", e.target.value)} />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Nama Area/Lokasi</Label>
+                  <Input placeholder="misal: Sport Center Lantai 1" value={editForm.areaName} onChange={(e) => setEditField("areaName", e.target.value)} />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Tanggal Mulai</Label>
+                  <Input type="date" value={editForm.startDate} onChange={(e) => setEditField("startDate", e.target.value)} />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Tanggal Selesai</Label>
+                  <Input type="date" value={editForm.endDate} onChange={(e) => setEditField("endDate", e.target.value)} />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Durasi (Bulan)</Label>
+                  <Input type="number" placeholder="12" value={editForm.durationMonths} onChange={(e) => setEditField("durationMonths", e.target.value)} />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Label Periode</Label>
+                  <Input placeholder="misal: 1 Tahun (Jan–Des 2025)" value={editForm.periodLabel} onChange={(e) => setEditField("periodLabel", e.target.value)} />
+                </div>
+              </div>
+            </div>
+
+            {/* Finansial */}
+            <div className="space-y-3">
+              <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide border-b pb-1">Keuangan</h3>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label>Harga Sewa/Bulan (Rp)</Label>
+                  <Input placeholder="0" value={editForm.rentAmount} onChange={(e) => setEditField("rentAmount", e.target.value)} />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Deposit/Jaminan (Rp)</Label>
+                  <Input placeholder="0" value={editForm.depositAmount} onChange={(e) => setEditField("depositAmount", e.target.value)} />
+                </div>
+                <div className="col-span-2 space-y-1.5">
+                  <Label>Ketentuan Pembayaran</Label>
+                  <Textarea rows={2} value={editForm.paymentTerms} onChange={(e) => setEditField("paymentTerms", e.target.value)} />
+                </div>
+              </div>
+            </div>
+
+            {/* Catatan */}
+            <div className="space-y-1.5">
+              <Label>Catatan Tambahan</Label>
+              <Textarea rows={2} value={editForm.notes} onChange={(e) => setEditField("notes", e.target.value)} />
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditDraft(null)}>Batal</Button>
+            <Button
+              onClick={() => editDraft && editMutation.mutate({ id: editDraft.id, f: editForm })}
+              disabled={editMutation.isPending || !editForm.tenantName || !editForm.brandName || !editForm.businessType || !editForm.phone}
+              className="gap-2"
+            >
+              {editMutation.isPending ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : null}
+              Simpan Perubahan
             </Button>
           </DialogFooter>
         </DialogContent>

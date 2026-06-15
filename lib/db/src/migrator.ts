@@ -1638,6 +1638,9 @@ CREATE TABLE IF NOT EXISTS "tenant_draft_agreements" (
 CREATE INDEX IF NOT EXISTS "draft_agreements_site_id_idx" ON "tenant_draft_agreements" ("site_id");
 CREATE INDEX IF NOT EXISTS "draft_agreements_status_idx" ON "tenant_draft_agreements" ("status");
 CREATE INDEX IF NOT EXISTS "draft_agreements_created_at_idx" ON "tenant_draft_agreements" ("created_at" DESC);
+    `.trim(),
+  },
+  {
     name: "0039_coa_and_journal_tables",
     sql: `
 -- 1. Buat tabel bank_journal_entries (jurnal akuntansi double-entry)
@@ -1732,6 +1735,14 @@ ON CONFLICT (coa_code) DO UPDATE SET
   coa_name     = EXCLUDED.coa_name,
   account_type = EXCLUDED.account_type,
   description  = EXCLUDED.description;
+    `.trim(),
+  },
+  {
+    name: "0040_draft_agreements_ext",
+    sql: `
+ALTER TABLE tenant_draft_agreements ADD COLUMN IF NOT EXISTS pic_name text;
+ALTER TABLE tenant_draft_agreements ADD COLUMN IF NOT EXISTS source text DEFAULT 'admin';
+ALTER TABLE tenant_draft_agreements ADD COLUMN IF NOT EXISTS interested_unit text;
     `.trim(),
   },
 ];

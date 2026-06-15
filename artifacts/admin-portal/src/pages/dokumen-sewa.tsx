@@ -55,6 +55,7 @@ interface DraftData {
   id: number;
   token: string;
   docType: "surat_minat" | "perjanjian_sewa";
+  picName: string | null;
   tenantName: string;
   brandName: string;
   businessType: string;
@@ -109,10 +110,10 @@ function SuratMinatDoc({ d }: { d: DraftData }) {
         <table className="w-full text-sm">
           <tbody>
             {[
-              ["Nama Lengkap", d.tenantName],
-              ["Nama Brand/Usaha", d.brandName],
+              ["Nama Calon Tenant / PIC", d.picName || d.tenantName],
+              ["Nama Brand / Usaha", d.brandName],
               ["Jenis Usaha", d.businessType],
-              ["Nomor Telepon / WA", d.phone],
+              ["Nomor WhatsApp / Telepon", d.phone],
               ["Email", d.email || "—"],
               ["Alamat", d.address || "—"],
             ].map(([label, val]) => (
@@ -180,6 +181,27 @@ function SuratMinatDoc({ d }: { d: DraftData }) {
           <p className="text-sm whitespace-pre-wrap bg-amber-50 border border-amber-100 rounded-lg p-3">{d.notes}</p>
         </>
       )}
+
+      {/* Footer persetujuan */}
+      <div className="border-t pt-4 mt-2 space-y-2">
+        <p className="text-sm font-semibold">Informasi Persetujuan:</p>
+        <div className="border border-slate-200 rounded-lg overflow-hidden">
+          <table className="w-full text-sm">
+            <tbody>
+              {[
+                ["Tanggal Persetujuan", d.status !== "pending" && d.respondedAt ? formatTgl(d.respondedAt, true) : "— (menunggu persetujuan)"],
+                ["Nama Calon Tenant", d.respondedName || d.tenantName],
+                ["Status Dokumen", d.status === "approved" ? "✅ Disetujui" : d.status === "rejected" ? "❌ Tidak Disetujui" : "⏳ Menunggu Persetujuan"],
+              ].map(([label, val]) => (
+                <tr key={label} className="border-b border-slate-100 last:border-0">
+                  <td className="py-2 px-4 font-medium text-slate-600 w-44 bg-slate-50">{label}</td>
+                  <td className="py-2 px-4">: {val}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
 
       <p className="text-sm text-slate-500">Dokumen ini dibuat pada {today()}.</p>
     </div>
@@ -336,10 +358,29 @@ function PerjanjianSewaDoc({ d }: { d: DraftData }) {
         </div>
       )}
 
-      <p className="text-sm text-slate-500 border-t pt-4">
-        Dokumen ini dibuat pada {today()} dan merupakan draf yang perlu disetujui oleh Tenant sebelum
-        diterbitkan sebagai perjanjian resmi.
-      </p>
+      {/* Footer persetujuan */}
+      <div className="border-t pt-4 mt-2 space-y-2">
+        <p className="text-sm font-semibold">Informasi Persetujuan:</p>
+        <div className="border border-slate-200 rounded-lg overflow-hidden">
+          <table className="w-full text-sm">
+            <tbody>
+              {[
+                ["Tanggal Persetujuan", d.status !== "pending" && d.respondedAt ? formatTgl(d.respondedAt, true) : "— (menunggu persetujuan)"],
+                ["Nama Penyewa", d.respondedName || d.tenantName],
+                ["Email / WA", [d.email, d.phone].filter(Boolean).join(" / ") || "—"],
+                ["Status Dokumen", d.status === "approved" ? "✅ Disetujui" : d.status === "rejected" ? "❌ Tidak Disetujui" : "⏳ Menunggu Persetujuan"],
+              ].map(([label, val]) => (
+                <tr key={label} className="border-b border-slate-100 last:border-0">
+                  <td className="py-2 px-4 font-medium text-slate-600 w-44 bg-slate-50">{label}</td>
+                  <td className="py-2 px-4">: {val}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <p className="text-sm text-slate-500">Dokumen ini dibuat pada {today()} dan merupakan draf yang perlu disetujui oleh Tenant sebelum diterbitkan sebagai perjanjian resmi.</p>
     </div>
   );
 }
@@ -579,6 +620,16 @@ export default function DokumenSewa() {
             ? <PerjanjianSewaDoc d={draft} />
             : <SuratMinatDoc d={draft} />
           }
+        </div>
+
+        {/* Tombol cetak */}
+        <div className="flex justify-end">
+          <button
+            onClick={() => window.print()}
+            className="text-xs text-muted-foreground border rounded-lg px-3 py-1.5 hover:bg-muted flex items-center gap-1.5"
+          >
+            🖨️ Cetak / Unduh PDF
+          </button>
         </div>
 
         {/* Tombol aksi */}

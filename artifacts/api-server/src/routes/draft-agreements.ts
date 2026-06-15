@@ -19,6 +19,7 @@ function toCamel(row: Record<string, unknown>): Record<string, unknown> {
 // ── Schema validasi ────────────────────────────────────────────────────────────
 const createDraftSchema = z.object({
   docType: z.enum(["surat_minat", "perjanjian_sewa"]).default("surat_minat"),
+  picName: z.string().max(300).optional(),
   tenantName: z.string().min(2, "Nama calon tenant minimal 2 karakter").max(300),
   brandName: z.string().min(1, "Nama brand wajib diisi").max(300),
   businessType: z.string().min(1, "Jenis usaha wajib diisi").max(200),
@@ -27,6 +28,7 @@ const createDraftSchema = z.object({
   address: z.string().max(500).optional(),
   unitCode: z.string().max(50).optional(),
   areaName: z.string().max(200).optional(),
+  interestedUnit: z.string().max(300).optional(),
   startDate: z.string().optional(),
   endDate: z.string().optional(),
   durationMonths: z.number().int().min(1).max(240).optional(),
@@ -141,20 +143,20 @@ router.post("/draft-agreements", async (req: Request, res: Response) => {
     const result = await db.execute(sql`
       INSERT INTO tenant_draft_agreements (
         token, site_id, doc_type,
-        tenant_name, brand_name, business_type, email, phone, address,
-        unit_code, area_name,
+        pic_name, tenant_name, brand_name, business_type, email, phone, address,
+        unit_code, area_name, interested_unit,
         start_date, end_date, duration_months, period_label,
         rent_amount, deposit_amount, payment_terms,
-        notes, expires_at, created_by
+        notes, expires_at, created_by, source
       ) VALUES (
         ${token}, ${siteId}, ${d.docType},
-        ${d.tenantName}, ${d.brandName}, ${d.businessType},
+        ${d.picName ?? null}, ${d.tenantName}, ${d.brandName}, ${d.businessType},
         ${d.email ?? null}, ${d.phone}, ${d.address ?? null},
-        ${d.unitCode ?? null}, ${d.areaName ?? null},
+        ${d.unitCode ?? null}, ${d.areaName ?? null}, ${d.interestedUnit ?? null},
         ${d.startDate ?? null}, ${d.endDate ?? null},
         ${d.durationMonths ?? null}, ${d.periodLabel ?? null},
         ${d.rentAmount}, ${d.depositAmount}, ${d.paymentTerms ?? null},
-        ${d.notes ?? null}, ${expiresAt}, ${createdBy}
+        ${d.notes ?? null}, ${expiresAt}, ${createdBy}, 'admin'
       )
       RETURNING *
     `);
@@ -237,6 +239,73 @@ router.post("/draft-agreements/:id/remind", async (req: Request, res: Response) 
   } catch (err) {
     console.error("[draft-agreements] POST remind error:", err);
     res.status(500).json({ error: "Gagal mengirim pengingat" });
+  }
+});
+
+// ── PATCH /api/draft-agreements/:id ──────────────────────────────────────────
+// Admin — edit/perkaya data draf
+router.patch("/draft-agreements/:id", async (req: Request, res: Response) => {
+  const id = parseInt(req.params.id);
+  if (isNaN(id)) { res.status(400).json({ error: "ID tidak valid" }); return; }
+
+  const patchSchema = createDraftSchema.partial();
+  const parsed = patchSchema.safeParse(req.body);
+  if (!parsed.success) {
+    const msg = parsed.error.issues.map((i) => i.message).join("; ");
+    res.status(400).json({ error: msg });
+    return;
+  }
+
+  const d = parsed.data;
+
+  try {
+    const existingResult = await db.execute(
+      sql`SELECT * FROM tenant_draft_agreements WHERE id = ${id} LIMIT 1`
+    );
+    const old = (existingResult as { rows: Record<string, unknown>[] }).rows[0];
+    if (!old) { res.status(404).json({ error: "Draf tidak ditemukan" }); return; }
+
+    const expiresAt = d.expiresInDays
+      ? new Date(Date.now() + d.expiresInDays * 86_400_000).toISOString()
+      : (old.expires_at as string | null);
+
+    const result = await db.execute(sql`
+      UPDATE tenant_draft_agreements SET
+        doc_type         = ${d.docType         !== undefined ? d.docType         : old.doc_type},
+        pic_name         = ${d.picName         !== undefined ? (d.picName || null)         : old.pic_name},
+        tenant_name      = ${d.tenantName      !== undefined ? d.tenantName      : old.tenant_name},
+        brand_name       = ${d.brandName       !== undefined ? d.brandName       : old.brand_name},
+        business_type    = ${d.businessType    !== undefined ? d.businessType    : old.business_type},
+        email            = ${d.email           !== undefined ? (d.email || null)           : old.email},
+        phone            = ${d.phone           !== undefined ? d.phone           : old.phone},
+        address          = ${d.address         !== undefined ? (d.address || null)         : old.address},
+        unit_code        = ${d.unitCode        !== undefined ? (d.unitCode || null)        : old.unit_code},
+        area_name        = ${d.areaName        !== undefined ? (d.areaName || null)        : old.area_name},
+        interested_unit  = ${d.interestedUnit  !== undefined ? (d.interestedUnit || null)  : old.interested_unit},
+        start_date       = ${d.startDate       !== undefined ? (d.startDate || null)       : old.start_date},
+        end_date         = ${d.endDate         !== undefined ? (d.endDate || null)         : old.end_date},
+        duration_months  = ${d.durationMonths  !== undefined ? d.durationMonths  : old.duration_months},
+        period_label     = ${d.periodLabel     !== undefined ? (d.periodLabel || null)     : old.period_label},
+        rent_amount      = ${d.rentAmount      !== undefined ? d.rentAmount      : old.rent_amount},
+        deposit_amount   = ${d.depositAmount   !== undefined ? d.depositAmount   : old.deposit_amount},
+        payment_terms    = ${d.paymentTerms    !== undefined ? (d.paymentTerms || null)    : old.payment_terms},
+        notes            = ${d.notes           !== undefined ? (d.notes || null)           : old.notes},
+        expires_at       = ${expiresAt},
+        updated_at       = NOW()
+      WHERE id = ${id}
+      RETURNING *
+    `);
+
+    const rawRow = (result as { rows: Record<string, unknown>[] }).rows[0];
+    const row = toCamel(rawRow);
+    const baseUrl = await getBaseUrl().catch(() => undefined);
+    res.json({
+      ...row,
+      publicUrl: baseUrl ? `${baseUrl}/dokumen/${row.token}` : `/dokumen/${row.token}`,
+    });
+  } catch (err) {
+    console.error("[draft-agreements] PATCH error:", err);
+    res.status(500).json({ error: "Gagal mengupdate draf perjanjian" });
   }
 });
 

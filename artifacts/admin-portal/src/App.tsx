@@ -32,6 +32,7 @@ import BankRekonsiliasi from "@/pages/bank-rekonsiliasi";
 import DbMonitoring from "@/pages/db-monitoring";
 import DrafPerjanjian from "@/pages/draf-perjanjian";
 import DokumenSewa from "@/pages/dokumen-sewa";
+import TenantRegister from "@/pages/tenant-register";
 import BukuJurnal from "@/pages/buku-jurnal";
 import KelolaCoa from "@/pages/kelola-coa";
 // Legacy module kept for rollback — DO NOT import Rekonsiliasi as a rendered route
@@ -89,6 +90,12 @@ function Router() {
       </Route>
       <Route path="/bayar/:token">
         <PaymentProofUpload />
+      </Route>
+      <Route path="/tenant/register">
+        <TenantRegister />
+      </Route>
+      <Route path="/mitra/register">
+        <TenantRegister />
       </Route>
       <Route path="/dokumen/:token">
         <DokumenSewa />
