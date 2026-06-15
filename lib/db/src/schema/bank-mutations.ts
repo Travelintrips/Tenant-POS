@@ -1,4 +1,4 @@
-import { pgTable, serial, integer, text, numeric, timestamp, jsonb } from "drizzle-orm/pg-core";
+import { pgTable, serial, integer, text, numeric, timestamp, jsonb, boolean } from "drizzle-orm/pg-core";
 import { mallSitesTable } from "./mall-sites";
 
 export const bankMutationsTable = pgTable("bank_mutations", {
@@ -20,6 +20,20 @@ export const bankMutationsTable = pgTable("bank_mutations", {
   matchedOrderId: integer("matched_order_id"),
   uploadedProofUrl: text("uploaded_proof_url"),
   siteId: integer("site_id").references(() => mallSitesTable.id),
+
+  companyId: integer("company_id"),
+  ownerApp: text("owner_app"),
+  ownerCompanyId: integer("owner_company_id"),
+  ownerTenantId: integer("owner_tenant_id"),
+  sourceApp: text("source_app"),
+  sourceModule: text("source_module"),
+  sourceTable: text("source_table"),
+  sourceId: integer("source_id"),
+  approvedByApp: text("approved_by_app"),
+  approvedByRole: text("approved_by_role"),
+  accountingPosted: boolean("accounting_posted").notNull().default(false),
+  journalId: text("journal_id"),
+
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });

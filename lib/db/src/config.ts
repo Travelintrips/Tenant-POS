@@ -1,3 +1,4 @@
+
 function decodeDbUrl(url: string): string {
   try {
     const protoEnd = url.indexOf("://") + 3;
@@ -17,8 +18,9 @@ function decodeDbUrl(url: string): string {
 
 const rawUrl = decodeDbUrl(
   process.env["SUPABASE_PG_URL"] ??
+const rawUrl =
   process.env["SUPABASE_DATABASE_URL"] ??
-  process.env["SUPABASE_DATABASE_URL_DEV"] ??
+  process.env["SUPABASE_PG_URL"] ??
   process.env["DATABASE_URL"] ??
   (() => { throw new Error("DATABASE_URL atau SUPABASE_PG_URL harus diset"); })()
 );
@@ -28,5 +30,4 @@ const isSupabase = rawUrl.includes("supabase") || rawUrl.includes("pooler");
 export const dbConfig = {
   url: rawUrl,
   ssl: isSupabase ? { rejectUnauthorized: false } : false,
-  env: (process.env["NODE_ENV"] ?? "development") === "development" ? "development" : "production",
 } as const;

@@ -3,8 +3,8 @@ import multer from "multer";
 import path from "path";
 import crypto from "crypto";
 import { db } from "@workspace/db";
-import { tenantInvoicesTable, tenantPaymentsTable, tenantsTable, systemSettingsTable } from "@workspace/db/schema";
-import { eq, sql } from "drizzle-orm";
+import { tenantInvoicesTable, tenantPaymentsTable, tenantsTable, systemSettingsTable, waLogsTable } from "@workspace/db/schema";
+import { eq, sql, and, desc } from "drizzle-orm";
 import { z } from "zod/v4";
 import { sseBroker } from "../lib/sse-broker";
 import { sendPaymentReceived, sendAdminPaymentAlert } from "../lib/whatsapp";
@@ -230,16 +230,30 @@ router.post("/pay/:token/proof", uploadRateLimiter, async (req, res) => {
     });
 
     if (invoice.phone) {
-      await sendPaymentReceived({
-        ownerName: invoice.ownerName ?? "Tenant",
-        businessName: invoice.businessName ?? "",
-        invoiceNumber: invoice.invoiceNumber,
-        amount,
-        phone: invoice.phone,
-      }).catch(() => {});
+      // Cooldown 1 jam per invoice — cegah spam saat tenant re-upload berkali-kali
+      const [recentWa] = await db
+        .select({ id: waLogsTable.id })
+        .from(waLogsTable)
+        .where(and(
+          eq(waLogsTable.invoiceId, invoice.id),
+          eq(waLogsTable.messageType, "payment_received"),
+          eq(waLogsTable.status, "sent"),
+          sql`${waLogsTable.createdAt} > NOW() - INTERVAL '1 hour'`,
+        ))
+        .limit(1);
+
+      if (!recentWa) {
+        await sendPaymentReceived({
+          ownerName: invoice.ownerName ?? "Tenant",
+          businessName: invoice.businessName ?? "",
+          invoiceNumber: invoice.invoiceNumber,
+          amount,
+          phone: invoice.phone,
+        }).catch(() => {});
+      }
     }
 
-    // Notifikasi admin via WA — fire-and-forget
+    // Notifikasi admin via WA — fire-and-forget (selalu kirim agar admin tahu ada upload baru)
     getAdminPhone().then(async (adminPhone) => {
       if (!adminPhone) return;
       sendAdminPaymentAlert({

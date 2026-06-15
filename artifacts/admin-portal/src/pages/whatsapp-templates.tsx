@@ -37,7 +37,8 @@ Kami informasikan bahwa invoice sewa untuk *${v.businessName ?? "Toko ABC"}* tel
 
 ${v.paymentLink ? `💳 *Link Pembayaran:*\n${v.paymentLink}\n\n` : ""}Mohon segera melakukan pembayaran sebelum tanggal jatuh tempo.
 
-Terima kasih atas kepercayaan Anda. 🙏`,
+Terima kasih atas kepercayaan Anda. 🙏
+_Manajemen CST_`,
   },
   {
     key: "overdue",
@@ -57,7 +58,8 @@ Invoice Anda *${v.invoiceNumber ?? "INV-TENANT-0001"}* telah melewati jatuh temp
 
 Mohon segera melakukan pembayaran untuk menghindari denda keterlambatan.
 
-Hubungi kami jika ada pertanyaan. Terima kasih. 🙏`,
+Hubungi kami jika ada pertanyaan. Terima kasih. 🙏
+_Manajemen CST_`,
   },
   {
     key: "payment_confirmation",
@@ -80,7 +82,8 @@ Pembayaran Anda telah kami terima dan dikonfirmasi.
 
 ${v.remainingAmount === "Rp 0" || !v.remainingAmount ? "Invoice Anda telah *LUNAS*. ✅" : `Masih ada sisa tagihan sebesar *${v.remainingAmount}*.`}
 
-Terima kasih atas pembayaran Anda. 🙏`,
+Terima kasih atas pembayaran Anda. 🙏
+_Manajemen CST_`,
   },
   {
     key: "custom",

@@ -6,6 +6,7 @@ import {
   tenantInvoicesTable,
   tenantBookingsTable,
   tenantsTable,
+  financePaymentEventsTable,
 } from "@workspace/db/schema";
 import { eq, and, gte, lte, or, sql } from "drizzle-orm";
 
@@ -53,7 +54,7 @@ function nameInDescription(name: string | null, desc: string): boolean {
 }
 
 interface MatchCandidate {
-  candidateType: "payment" | "invoice";
+  candidateType: "payment" | "invoice" | "payment_event";
   candidateId: number;
   matchScore: number;
   matchReason: string;
@@ -64,8 +65,14 @@ interface MatchCandidate {
   proofMatch: boolean;
 }
 
+export interface MatchContext {
+  ownerTenantId?: number | null;
+  sourceApp?: string | null;
+}
+
 export async function computeMatchCandidates(
-  mutation: typeof bankMutationsTable.$inferSelect
+  mutation: typeof bankMutationsTable.$inferSelect,
+  ctx?: MatchContext
 ): Promise<MatchCandidate[]> {
   const candidates: MatchCandidate[] = [];
   const mutAmount = parseFloat(String(mutation.amount));
@@ -80,139 +87,261 @@ export async function computeMatchCandidates(
   const fromStr = dateFrom.toISOString().slice(0, 10);
   const toStr = dateTo.toISOString().slice(0, 10);
 
-  // --- Match against tenant_payments ---
-  const payments = await db
+  const ownerTenantId = ctx?.ownerTenantId ?? null;
+  const sourceApp = ctx?.sourceApp ?? null;
+
+  // --- Match against finance_payment_events (primary for Tenant App) ---
+  const fpeConditions: Parameters<typeof and>[0][] = [
+    sql`ABS(${financePaymentEventsTable.amount}::numeric - ${mutAmount}) < 1`,
+    eq(financePaymentEventsTable.isReconciled, false),
+    sql`${financePaymentEventsTable.paymentStatus} IN ('pending', 'waiting_confirmation')`,
+    eq(financePaymentEventsTable.direction, "IN"),
+    or(
+      and(
+        sql`${financePaymentEventsTable.createdAt}::date >= ${fromStr}::date`,
+        sql`${financePaymentEventsTable.createdAt}::date <= ${toStr}::date`,
+      ),
+      sql`${financePaymentEventsTable.createdAt} IS NULL`,
+    ),
+  ];
+
+  if (ownerTenantId != null) {
+    fpeConditions.push(
+      or(
+        sql`${financePaymentEventsTable.ownerTenantId} IS NULL`,
+        eq(financePaymentEventsTable.ownerTenantId, ownerTenantId),
+      )!
+    );
+  }
+
+  if (sourceApp === "tenant_pos") {
+    fpeConditions.push(eq(financePaymentEventsTable.sourceApp, "tenant_pos"));
+  } else if (sourceApp === "tenant_management") {
+    fpeConditions.push(
+      or(
+        eq(financePaymentEventsTable.sourceApp, "tenant_management"),
+        sql`${financePaymentEventsTable.sourceApp} IS NULL`,
+      )!
+    );
+  }
+
+  const paymentEvents = await db
     .select({
-      id: tenantPaymentsTable.id,
-      amount: tenantPaymentsTable.amount,
-      paidAt: tenantPaymentsTable.paidAt,
-      notes: tenantPaymentsTable.notes,
-      proofImageUrl: tenantPaymentsTable.proofImageUrl,
-      proofUrl: tenantPaymentsTable.proofUrl,
-      referenceNumber: tenantPaymentsTable.referenceNumber,
+      id: financePaymentEventsTable.id,
+      amount: financePaymentEventsTable.amount,
+      paymentMethod: financePaymentEventsTable.paymentMethod,
+      paymentReference: financePaymentEventsTable.paymentReference,
+      externalOrderId: financePaymentEventsTable.externalOrderId,
+      paymentStatus: financePaymentEventsTable.paymentStatus,
+      createdAt: financePaymentEventsTable.createdAt,
       tenantName: tenantsTable.businessName,
       ownerName: tenantsTable.ownerName,
+      isReconciled: financePaymentEventsTable.isReconciled,
     })
-    .from(tenantPaymentsTable)
-    .leftJoin(tenantsTable, eq(tenantPaymentsTable.tenantId, tenantsTable.id))
-    .where(
-      and(
-        sql`ABS(${tenantPaymentsTable.amount}::numeric - ${mutAmount}) < 1`,
-        or(
-          and(
-            sql`${tenantPaymentsTable.paidAt}::date >= ${fromStr}::date`,
-            sql`${tenantPaymentsTable.paidAt}::date <= ${toStr}::date`
-          ),
-          sql`${tenantPaymentsTable.paidAt} IS NULL`
-        )
-      )
-    )
+    .from(financePaymentEventsTable)
+    .leftJoin(tenantsTable, eq(financePaymentEventsTable.tenantId, tenantsTable.id))
+    .where(and(...fpeConditions))
     .limit(20);
 
-  for (const p of payments) {
+  for (const fpe of paymentEvents) {
     let score = 0;
     const reasons: string[] = [];
 
-    const amountMatch = Math.abs(parseFloat(String(p.amount)) - mutAmount) < 1;
+    const amountMatch = Math.abs(parseFloat(String(fpe.amount)) - mutAmount) < 1;
     if (amountMatch) { score += 40; reasons.push("nominal sama"); }
 
-    const payDate = p.paidAt ? new Date(p.paidAt).toISOString().slice(0, 10) : null;
-    const diff = payDate ? dateDiffDays(mutDate, payDate) : 99;
+    const fpeDate = fpe.createdAt ? new Date(fpe.createdAt).toISOString().slice(0, 10) : null;
+    const diff = fpeDate ? dateDiffDays(mutDate, fpeDate) : 99;
     const exactDate = diff === 0;
     const closeDate = diff <= 3;
     if (exactDate) { score += 30; reasons.push("tanggal sama"); }
     else if (closeDate) { score += 15; reasons.push(`tanggal beda ${diff} hari`); }
 
-    const tenantNorm = normalizeDescription(p.tenantName ?? "");
-    const ownerNorm = normalizeDescription(p.ownerName ?? "");
-    const nm = nameInDescription(p.tenantName, mutNorm) || nameInDescription(p.ownerName, mutNorm);
+    const nm = nameInDescription(fpe.tenantName, mutNorm) || nameInDescription(fpe.ownerName, mutNorm);
     if (nm) { score += 15; reasons.push("nama tenant cocok"); }
 
-    const ref = p.referenceNumber ?? "";
-    const proofText = [p.proofImageUrl ?? "", p.proofUrl ?? ""].join(" ").toLowerCase();
+    const ref = fpe.paymentReference ?? "";
+    const extId = fpe.externalOrderId ?? "";
     let orderIdMatch = false;
-    if (mutOrderId && (ref.includes(mutOrderId) || proofText.includes(mutOrderId.toLowerCase()))) {
+    if (mutOrderId && (ref.includes(mutOrderId) || extId.includes(mutOrderId))) {
       orderIdMatch = true;
       score += 15;
-      reasons.push("order ID cocok");
+      reasons.push("referensi pembayaran cocok");
     }
-
-    const proofMatch = !!mutOrderId && proofText.includes(mutOrderId.toLowerCase());
-    if (proofMatch && !orderIdMatch) { score += 5; reasons.push("order ID di bukti transfer"); }
 
     if (score >= 30) {
       candidates.push({
-        candidateType: "payment",
-        candidateId: p.id,
+        candidateType: "payment_event",
+        candidateId: fpe.id,
         matchScore: Math.min(score, 100),
         matchReason: reasons.join("; "),
         amountMatch,
         dateMatch: exactDate || closeDate,
         nameMatch: nm,
         orderIdMatch,
-        proofMatch,
+        proofMatch: false,
       });
     }
   }
 
+  // --- Match against tenant_payments ---
+  // Skip if sourceApp forces POS-only mode
+  if (sourceApp !== "tenant_pos") {
+    const paymentConditions: Parameters<typeof and>[0][] = [
+      sql`ABS(${tenantPaymentsTable.amount}::numeric - ${mutAmount}) < 1`,
+      or(
+        and(
+          sql`${tenantPaymentsTable.paidAt}::date >= ${fromStr}::date`,
+          sql`${tenantPaymentsTable.paidAt}::date <= ${toStr}::date`
+        ),
+        sql`${tenantPaymentsTable.paidAt} IS NULL`
+      ),
+    ];
+
+    if (ownerTenantId != null) {
+      paymentConditions.push(
+        or(
+          sql`${tenantPaymentsTable.tenantId} IS NULL`,
+          eq(tenantPaymentsTable.tenantId, ownerTenantId),
+        )!
+      );
+    }
+
+    const payments = await db
+      .select({
+        id: tenantPaymentsTable.id,
+        amount: tenantPaymentsTable.amount,
+        paidAt: tenantPaymentsTable.paidAt,
+        notes: tenantPaymentsTable.notes,
+        proofImageUrl: tenantPaymentsTable.proofImageUrl,
+        proofUrl: tenantPaymentsTable.proofUrl,
+        referenceNumber: tenantPaymentsTable.referenceNumber,
+        tenantName: tenantsTable.businessName,
+        ownerName: tenantsTable.ownerName,
+      })
+      .from(tenantPaymentsTable)
+      .leftJoin(tenantsTable, eq(tenantPaymentsTable.tenantId, tenantsTable.id))
+      .where(and(...paymentConditions))
+      .limit(20);
+
+    for (const p of payments) {
+      let score = 0;
+      const reasons: string[] = [];
+
+      const amountMatch = Math.abs(parseFloat(String(p.amount)) - mutAmount) < 1;
+      if (amountMatch) { score += 40; reasons.push("nominal sama"); }
+
+      const payDate = p.paidAt ? new Date(p.paidAt).toISOString().slice(0, 10) : null;
+      const diff = payDate ? dateDiffDays(mutDate, payDate) : 99;
+      const exactDate = diff === 0;
+      const closeDate = diff <= 3;
+      if (exactDate) { score += 30; reasons.push("tanggal sama"); }
+      else if (closeDate) { score += 15; reasons.push(`tanggal beda ${diff} hari`); }
+
+      const nm = nameInDescription(p.tenantName, mutNorm) || nameInDescription(p.ownerName, mutNorm);
+      if (nm) { score += 15; reasons.push("nama tenant cocok"); }
+
+      const ref = p.referenceNumber ?? "";
+      const proofText = [p.proofImageUrl ?? "", p.proofUrl ?? ""].join(" ").toLowerCase();
+      let orderIdMatch = false;
+      if (mutOrderId && (ref.includes(mutOrderId) || proofText.includes(mutOrderId.toLowerCase()))) {
+        orderIdMatch = true;
+        score += 15;
+        reasons.push("order ID cocok");
+      }
+
+      const proofMatch = !!mutOrderId && proofText.includes(mutOrderId.toLowerCase());
+      if (proofMatch && !orderIdMatch) { score += 5; reasons.push("order ID di bukti transfer"); }
+
+      if (score >= 30) {
+        candidates.push({
+          candidateType: "payment",
+          candidateId: p.id,
+          matchScore: Math.min(score, 100),
+          matchReason: reasons.join("; "),
+          amountMatch,
+          dateMatch: exactDate || closeDate,
+          nameMatch: nm,
+          orderIdMatch,
+          proofMatch,
+        });
+      }
+    }
+  }
+
   // --- Match against tenant_invoices ---
-  const invoices = await db
-    .select({
-      id: tenantInvoicesTable.id,
-      totalAmount: tenantInvoicesTable.totalAmount,
-      outstandingAmount: tenantInvoicesTable.outstandingAmount,
-      dueDate: tenantInvoicesTable.dueDate,
-      tenantName: tenantsTable.businessName,
-      ownerName: tenantsTable.ownerName,
-    })
-    .from(tenantInvoicesTable)
-    .leftJoin(tenantsTable, eq(tenantInvoicesTable.tenantId, tenantsTable.id))
-    .where(
-      and(
-        sql`(ABS(${tenantInvoicesTable.totalAmount}::numeric - ${mutAmount}) < 1 OR ABS(${tenantInvoicesTable.outstandingAmount}::numeric - ${mutAmount}) < 1)`,
-        gte(tenantInvoicesTable.dueDate, fromStr),
-        lte(tenantInvoicesTable.dueDate, toStr)
-      )
-    )
-    .limit(20);
+  // Skip if sourceApp forces POS-only mode
+  if (sourceApp !== "tenant_pos") {
+    const invoiceConditions: Parameters<typeof and>[0][] = [
+      sql`(ABS(${tenantInvoicesTable.totalAmount}::numeric - ${mutAmount}) < 1 OR ABS(${tenantInvoicesTable.outstandingAmount}::numeric - ${mutAmount}) < 1)`,
+      gte(tenantInvoicesTable.dueDate, fromStr),
+      lte(tenantInvoicesTable.dueDate, toStr),
+    ];
 
-  for (const inv of invoices) {
-    let score = 0;
-    const reasons: string[] = [];
+    if (ownerTenantId != null) {
+      invoiceConditions.push(
+        or(
+          sql`${tenantInvoicesTable.tenantId} IS NULL`,
+          eq(tenantInvoicesTable.tenantId, ownerTenantId),
+        )!
+      );
+    }
 
-    const amountMatch =
-      Math.abs(parseFloat(String(inv.totalAmount)) - mutAmount) < 1 ||
-      Math.abs(parseFloat(String(inv.outstandingAmount)) - mutAmount) < 1;
-    if (amountMatch) { score += 40; reasons.push("nominal sama"); }
+    const invoices = await db
+      .select({
+        id: tenantInvoicesTable.id,
+        totalAmount: tenantInvoicesTable.totalAmount,
+        outstandingAmount: tenantInvoicesTable.outstandingAmount,
+        dueDate: tenantInvoicesTable.dueDate,
+        tenantName: tenantsTable.businessName,
+        ownerName: tenantsTable.ownerName,
+      })
+      .from(tenantInvoicesTable)
+      .leftJoin(tenantsTable, eq(tenantInvoicesTable.tenantId, tenantsTable.id))
+      .where(and(...invoiceConditions))
+      .limit(20);
 
-    const diff = inv.dueDate ? dateDiffDays(mutDate, inv.dueDate) : 99;
-    const exactDate = diff === 0;
-    const closeDate = diff <= 3;
-    if (exactDate) { score += 25; reasons.push("tanggal jatuh tempo sama"); }
-    else if (closeDate) { score += 12; reasons.push(`tanggal beda ${diff} hari dari jatuh tempo`); }
+    for (const inv of invoices) {
+      let score = 0;
+      const reasons: string[] = [];
 
-    const nm = nameInDescription(inv.tenantName, mutNorm) || nameInDescription(inv.ownerName, mutNorm);
-    if (nm) { score += 20; reasons.push("nama tenant cocok"); }
+      const amountMatch =
+        Math.abs(parseFloat(String(inv.totalAmount)) - mutAmount) < 1 ||
+        Math.abs(parseFloat(String(inv.outstandingAmount)) - mutAmount) < 1;
+      if (amountMatch) { score += 40; reasons.push("nominal sama"); }
 
-    if (score >= 30) {
-      candidates.push({
-        candidateType: "invoice",
-        candidateId: inv.id,
-        matchScore: Math.min(score, 100),
-        matchReason: reasons.join("; "),
-        amountMatch,
-        dateMatch: exactDate || closeDate,
-        nameMatch: nm,
-        orderIdMatch: false,
-        proofMatch: false,
-      });
+      const diff = inv.dueDate ? dateDiffDays(mutDate, inv.dueDate) : 99;
+      const exactDate = diff === 0;
+      const closeDate = diff <= 3;
+      if (exactDate) { score += 25; reasons.push("tanggal jatuh tempo sama"); }
+      else if (closeDate) { score += 12; reasons.push(`tanggal beda ${diff} hari dari jatuh tempo`); }
+
+      const nm = nameInDescription(inv.tenantName, mutNorm) || nameInDescription(inv.ownerName, mutNorm);
+      if (nm) { score += 20; reasons.push("nama tenant cocok"); }
+
+      if (score >= 30) {
+        candidates.push({
+          candidateType: "invoice",
+          candidateId: inv.id,
+          matchScore: Math.min(score, 100),
+          matchReason: reasons.join("; "),
+          amountMatch,
+          dateMatch: exactDate || closeDate,
+          nameMatch: nm,
+          orderIdMatch: false,
+          proofMatch: false,
+        });
+      }
     }
   }
 
   return candidates.sort((a, b) => b.matchScore - a.matchScore);
 }
 
-export async function runMatchingForMutation(mutationId: number): Promise<{
+export async function runMatchingForMutation(
+  mutationId: number,
+  ctx?: MatchContext
+): Promise<{
   status: "unmatched" | "matched" | "duplicate_need_review";
   candidatesCount: number;
   autoMatched: boolean;
@@ -225,7 +354,6 @@ export async function runMatchingForMutation(mutationId: number): Promise<{
 
   if (!mutation) throw new Error(`Mutasi ID ${mutationId} tidak ditemukan`);
 
-  // Check for duplicate mutation_key
   const dupes = await db
     .select({ id: bankMutationsTable.id })
     .from(bankMutationsTable)
@@ -239,14 +367,12 @@ export async function runMatchingForMutation(mutationId: number): Promise<{
     return { status: "duplicate_need_review", candidatesCount: 0, autoMatched: false };
   }
 
-  const candidates = await computeMatchCandidates(mutation);
+  const candidates = await computeMatchCandidates(mutation, ctx);
 
-  // Delete old candidates for this mutation
   await db
     .delete(bankReconciliationMatchesTable)
     .where(eq(bankReconciliationMatchesTable.mutationId, mutationId));
 
-  // Insert new candidates
   if (candidates.length > 0) {
     await db.insert(bankReconciliationMatchesTable).values(
       candidates.map((c) => ({
@@ -278,7 +404,7 @@ export async function runMatchingForMutation(mutationId: number): Promise<{
   const newStatus = candidates.length > 0 ? "matched" : "unmatched";
   await db
     .update(bankMutationsTable)
-    .set({ status: candidates.length > 0 ? "matched" : "unmatched", updatedAt: new Date() })
+    .set({ status: newStatus, updatedAt: new Date() })
     .where(eq(bankMutationsTable.id, mutationId));
 
   return {

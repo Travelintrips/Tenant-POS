@@ -1,0 +1,89 @@
+Lanjutkan implementasi peningkatan sistem invoice berdasarkan kondisi aplikasi saat ini.
+
+Kondisi saat ini:
+
+* Invoice dicetak menggunakan HTML → PDF melalui browser (window.print()).
+* Header invoice masih menggunakan branding hardcoded "Portal Admin Mall".
+* Logo belum tampil pada invoice maupun struk kasir.
+* Pengaturan sudah memiliki data: nama mall, tagline, alamat, telepon, email, prefix invoice, mata uang, dan logoUrl.
+* Struk kasir thermal 80mm dikelola terpisah pada file cetak-struk.ts.
+
+Tugas yang harus dikerjakan:
+
+1. Upload Logo Langsung
+
+* Ganti field logoUrl menjadi upload gambar JPG/PNG.
+* Simpan file di server.
+* Setelah upload berhasil, URL file otomatis tersimpan ke pengaturan.
+* Logo harus otomatis tampil pada:
+
+  * Header invoice cetak.
+  * Struk kasir thermal.
+
+2. Kustomisasi Invoice
+   Tambahkan field pengaturan:
+
+* invoiceFooterNote (catatan kaki invoice).
+* invoiceSignerName (nama penandatangan).
+
+Render kedua field tersebut pada hasil cetak invoice.
+
+3. Tema Warna Invoice
+   Tambahkan field:
+
+* invoiceColor
+
+Gunakan color picker pada halaman pengaturan.
+
+Warna ini harus diterapkan pada:
+
+* Header invoice.
+* Header tabel.
+* Garis pemisah utama.
+* Elemen aksen lainnya yang relevan.
+
+4. Branding Dinamis
+   Hilangkan seluruh branding hardcoded.
+
+Semua informasi berikut harus diambil dari pengaturan:
+
+* Nama mall.
+* Tagline.
+* Alamat.
+* Telepon.
+* Email.
+* Logo.
+* Prefix invoice.
+
+5. Preview Invoice
+   Tambahkan preview invoice mini pada halaman pengaturan.
+
+Preview harus berubah secara real-time saat:
+
+* Nama mall diubah.
+* Logo diganti.
+* Warna diubah.
+* Catatan kaki diubah.
+* Nama penandatangan diubah.
+
+6. Database dan API
+   Tambahkan field konfigurasi yang diperlukan:
+
+* invoiceColor
+* invoiceFooterNote
+* invoiceSignerName
+
+Pastikan:
+
+* Migration dibuat jika diperlukan.
+* API settings mendukung baca dan simpan field baru.
+* Tetap kompatibel dengan data lama.
+
+7. Kualitas Implementasi
+
+* Jangan mengubah format invoice yang sudah berjalan kecuali untuk branding dinamis.
+* Pertahankan kompatibilitas cetak PDF browser.
+* Pastikan invoice tetap rapi meskipun logo tidak diisi.
+* Pastikan struk thermal tetap sesuai lebar kertas 80mm.
+
+Kerjakan implementasi secara menyeluruh sampai fitur siap digunakan tanpa menyisakan placeholder atau TODO.

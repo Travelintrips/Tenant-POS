@@ -31,6 +31,10 @@ const DEFAULT_SETTINGS = {
   // Domain publik untuk link pembayaran tenant (mis. https://tenant.travelintrips.co.id)
   // Jika diisi, menimpa env var APP_URL. Link bayar: {paymentDomain}/bayar/{token}
   paymentDomain: "",
+  // Desain invoice
+  invoiceColor: "#1e3a5f",
+  invoiceFooterNote: "",
+  invoiceSignerName: "",
 };
 
 router.get("/settings", requireAuth, requireAnyRole("owner", "admin", "finance"), async (_req, res) => {

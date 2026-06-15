@@ -4,6 +4,7 @@ export const auditLogsTable = pgTable("audit_logs", {
   id: serial("id").primaryKey(),
   siteId: integer("site_id"),
   siteCode: text("site_code"),
+  tenantId: integer("tenant_id"),
   userId: integer("user_id"),
   userEmail: text("user_email"),
   userName: text("user_name"),

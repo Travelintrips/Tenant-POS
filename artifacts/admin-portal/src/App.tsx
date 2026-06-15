@@ -28,8 +28,9 @@ import Dashboard from "@/pages/dashboard";
 import TenantProfile from "@/pages/tenant-profile";
 import WhatsAppSend from "@/pages/whatsapp-send";
 import WhatsAppTemplates from "@/pages/whatsapp-templates";
-import Rekonsiliasi from "@/pages/rekonsiliasi";
 import BankRekonsiliasi from "@/pages/bank-rekonsiliasi";
+// Legacy module kept for rollback — DO NOT import Rekonsiliasi as a rendered route
+// import Rekonsiliasi from "@/pages/rekonsiliasi";
 
 const queryClient = new QueryClient();
 
@@ -173,12 +174,17 @@ function Router() {
           </SidebarLayout>
         </AuthGuard>
       </Route>
+      {/* Legacy redirect — /rekonsiliasi → /bank-rekonsiliasi */}
       <Route path="/rekonsiliasi">
-        <AuthGuard roles={["owner", "admin", "finance"]}>
-          <SidebarLayout>
-            <Rekonsiliasi />
-          </SidebarLayout>
-        </AuthGuard>
+        <Redirect to="/bank-rekonsiliasi" />
+      </Route>
+      {/* Legacy redirect — /reconciliation → /bank-rekonsiliasi */}
+      <Route path="/reconciliation">
+        <Redirect to="/bank-rekonsiliasi" />
+      </Route>
+      {/* Legacy redirect — /laporan-rekonsiliasi → /bank-rekonsiliasi */}
+      <Route path="/laporan-rekonsiliasi">
+        <Redirect to="/bank-rekonsiliasi" />
       </Route>
       <Route path="/bank-rekonsiliasi">
         <AuthGuard roles={["owner", "admin", "finance"]}>

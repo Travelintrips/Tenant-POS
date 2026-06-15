@@ -24,7 +24,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import {
   Plus, FileText, Printer, CreditCard, X, Search, Zap, AlertCircle,
   CheckCircle2, Clock, Ban, CircleDashed, MessageCircle, Send, Link2, Loader2,
-  Copy, WifiOff, CheckCheck, Download, Layers, ChevronDown, ChevronRight,
+  Copy, WifiOff, CheckCheck, Download, Layers, ChevronDown, ChevronRight, Eye,
 } from "lucide-react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -248,6 +248,114 @@ function exportInvoicesToCSV(rows: ExportableInvoice[], filename: string) {
   URL.revokeObjectURL(url);
 }
 
+// ─── PDF Export ───────────────────────────────────────────────────────────────
+
+const STATUS_ID_PDF: Record<string, string> = {
+  draft: "Draft", unpaid: "Belum Bayar", partial: "Sebagian",
+  paid: "Lunas", overdue: "Jatuh Tempo", cancelled: "Dibatalkan",
+  sent: "Terkirim",
+};
+
+function fmtRp(v: string | number | null | undefined): string {
+  const n = Number(v ?? 0);
+  if (isNaN(n)) return "0";
+  return n.toLocaleString("id-ID");
+}
+
+async function exportInvoicesToPDF(rows: ExportableInvoice[], filename: string, filterLabel?: string) {
+  const { default: jsPDF } = await import("jspdf");
+  const { default: autoTable } = await import("jspdf-autotable");
+
+  const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
+
+  const now = new Date();
+  const tgl = now.toLocaleDateString("id-ID", { day: "2-digit", month: "long", year: "numeric" });
+  const jam = now.toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" });
+
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(14);
+  doc.text("LAPORAN INVOICE TENANT", 148, 14, { align: "center" });
+
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(9);
+  doc.text("Manajemen CST", 148, 20, { align: "center" });
+  if (filterLabel) doc.text(`Filter: ${filterLabel}`, 148, 25, { align: "center" });
+  doc.text(`Dicetak: ${tgl}, ${jam}  |  Total: ${rows.length} invoice`, 148, filterLabel ? 30 : 25, { align: "center" });
+
+  const tableTop = filterLabel ? 34 : 30;
+
+  const tableRows = rows.map((r, i) => [
+    i + 1,
+    r.invoiceNumber,
+    r.tenantName ?? "-",
+    r.periodStart ? new Date(r.periodStart).toLocaleDateString("id-ID", { month: "short", year: "numeric" }) : "-",
+    r.dueDate ? new Date(r.dueDate).toLocaleDateString("id-ID") : "-",
+    fmtRp(r.totalAmount),
+    fmtRp(r.paidAmount),
+    fmtRp(r.outstandingAmount),
+    STATUS_ID_PDF[r.status] ?? r.status,
+  ]);
+
+  autoTable(doc, {
+    startY: tableTop,
+    head: [[
+      "#", "No. Invoice", "Tenant", "Periode", "Jatuh Tempo",
+      "Total (Rp)", "Terbayar (Rp)", "Sisa (Rp)", "Status",
+    ]],
+    body: tableRows,
+    styles: { fontSize: 7.5, cellPadding: 2 },
+    headStyles: { fillColor: [30, 64, 175], textColor: 255, fontStyle: "bold", fontSize: 8 },
+    columnStyles: {
+      0: { halign: "center", cellWidth: 8 },
+      1: { cellWidth: 38 },
+      2: { cellWidth: 40 },
+      3: { cellWidth: 22, halign: "center" },
+      4: { cellWidth: 22, halign: "center" },
+      5: { cellWidth: 28, halign: "right" },
+      6: { cellWidth: 28, halign: "right" },
+      7: { cellWidth: 28, halign: "right" },
+      8: { cellWidth: 20, halign: "center" },
+    },
+    alternateRowStyles: { fillColor: [245, 247, 255] },
+    didDrawCell: (data) => {
+      if (data.column.index === 8 && data.cell.section === "body") {
+        const val = String(data.cell.raw ?? "");
+        const colors: Record<string, [number, number, number]> = {
+          "Lunas":        [22, 163, 74],
+          "Sebagian":     [234, 179, 8],
+          "Jatuh Tempo":  [220, 38, 38],
+          "Belum Bayar":  [249, 115, 22],
+          "Dibatalkan":   [107, 114, 128],
+          "Draft":        [100, 116, 139],
+          "Terkirim":     [59, 130, 246],
+        };
+        const c = colors[val];
+        if (c) {
+          doc.setFontSize(6.5);
+          doc.setTextColor(255, 255, 255);
+          const x = data.cell.x + 1;
+          const y = data.cell.y + 1;
+          const w = data.cell.width - 2;
+          const h = data.cell.height - 2;
+          doc.setFillColor(...c);
+          doc.roundedRect(x, y, w, h, 1, 1, "F");
+          doc.text(val, x + w / 2, y + h / 2 + 0.5, { align: "center", baseline: "middle" });
+        }
+      }
+    },
+    didDrawPage: (data) => {
+      const pgCount: number = (doc as unknown as { internal: { getNumberOfPages: () => number } }).internal.getNumberOfPages();
+      const pgN: number = data.pageNumber;
+      doc.setFontSize(7);
+      doc.setTextColor(150);
+      doc.text(`Halaman ${pgN} dari ${pgCount}`, doc.internal.pageSize.getWidth() - 10, doc.internal.pageSize.getHeight() - 5, { align: "right" });
+      doc.text("Manajemen CST — Laporan Invoice Tenant", 10, doc.internal.pageSize.getHeight() - 5);
+    },
+  });
+
+  doc.save(filename);
+}
+
 function todayStr(): string {
   return new Date().toISOString().slice(0, 10);
 }
@@ -289,9 +397,61 @@ async function apiPatch<T>(url: string, body: object): Promise<T> {
 
 // ─── Print Invoice ────────────────────────────────────────────────────────────
 
-function printInvoice(inv: Invoice) {
-  const win = window.open("", "_blank", "width=800,height=900");
-  if (!win) return;
+interface MallInvoiceConfig {
+  mallName: string;
+  tagline: string;
+  address: string;
+  phone: string;
+  email: string;
+  logoUrl: string;
+  invoiceColor: string;
+  invoiceFooterNote: string;
+  invoiceSignerName: string;
+}
+
+const DEFAULT_INVOICE_CONFIG: MallInvoiceConfig = {
+  mallName: "Mall Admin",
+  tagline: "Manajemen Tenant Mall",
+  address: "",
+  phone: "",
+  email: "",
+  logoUrl: "",
+  invoiceColor: "#1e3a5f",
+  invoiceFooterNote: "",
+  invoiceSignerName: "",
+};
+
+async function fetchInvoiceConfig(): Promise<MallInvoiceConfig> {
+  try {
+    const res = await apiFetchBase("/api/settings", { credentials: "include" });
+    if (!res.ok) throw new Error();
+    const data = await res.json();
+    return { ...DEFAULT_INVOICE_CONFIG, ...data };
+  } catch {
+    return DEFAULT_INVOICE_CONFIG;
+  }
+}
+
+function buildInvoiceHtml(inv: Invoice, cfg: MallInvoiceConfig): string {
+  const accent = cfg.invoiceColor || "#1e3a5f";
+  const accentLight = accent + "14";
+
+  const brandBlock = cfg.logoUrl
+    ? `<div style="display:flex;align-items:center;gap:14px">
+         <img src="${cfg.logoUrl}" alt="Logo" style="height:56px;width:56px;object-fit:contain;flex-shrink:0" crossorigin="anonymous" />
+         <div>
+           <div style="font-size:20px;font-weight:700;color:${accent};line-height:1.2">${cfg.mallName}</div>
+           <div style="font-size:11px;color:#777;margin-top:3px;letter-spacing:0.02em">${cfg.tagline}</div>
+         </div>
+       </div>`
+    : `<div style="font-size:22px;font-weight:700;color:${accent}">${cfg.mallName}</div>
+       <div style="font-size:12px;color:#666;margin-top:2px">${cfg.tagline}</div>`;
+
+  const addressLine = cfg.address ? `<div style="margin-bottom:2px">${cfg.address}</div>` : "";
+  const contactLine = [cfg.phone, cfg.email].filter(Boolean).join("  ·  ");
+  const contactHtml = (cfg.address || contactLine)
+    ? `<div style="font-size:10px;color:#888;margin-top:8px;line-height:1.7">${addressLine}${contactLine ? `<div>${contactLine}</div>` : ""}</div>`
+    : "";
 
   const rows = [
     ["Sewa Ruang / Booth", inv.rentAmount],
@@ -302,57 +462,62 @@ function printInvoice(inv: Invoice) {
   ]
     .filter(([, v]) => Number(v) > 0)
     .map(([label, v]) =>
-      `<tr><td style="padding:4px 8px">${label}</td><td style="padding:4px 8px;text-align:right">${formatRupiah(v)}</td></tr>`
+      `<tr><td style="padding:5px 10px">${label}</td><td style="padding:5px 10px;text-align:right">${formatRupiah(v)}</td></tr>`
     ).join("");
 
-  const html = `<!DOCTYPE html>
+  const signerHtml = cfg.invoiceSignerName
+    ? `<div style="margin-top:40px;text-align:right;font-size:12px;color:#444">
+        <div>Hormat kami,</div>
+        <div style="margin-top:36px;border-top:1px solid #ccc;padding-top:4px;display:inline-block;min-width:140px;font-weight:600">${cfg.invoiceSignerName}</div>
+       </div>`
+    : "";
+
+  const footerNote = cfg.invoiceFooterNote
+    ? `<div style="margin-bottom:6px;font-weight:500;color:#555">${cfg.invoiceFooterNote}</div>`
+    : "";
+
+  return `<!DOCTYPE html>
 <html lang="id">
 <head>
   <meta charset="UTF-8" />
   <title>Invoice ${inv.invoiceNumber}</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: 'Segoe UI', Arial, sans-serif; color: #1a1a1a; background: #fff; padding: 40px; max-width: 700px; margin: auto; }
-    .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 32px; }
-    .brand { font-size: 22px; font-weight: 700; color: #1e3a5f; }
-    .brand-sub { font-size: 12px; color: #666; margin-top: 2px; }
+    body { font-family: 'Segoe UI', Arial, sans-serif; color: #1a1a1a; background: #fff; padding: 40px; max-width: 720px; margin: auto; }
+    .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 28px; }
     .inv-meta { text-align: right; }
-    .inv-number { font-size: 15px; font-weight: 700; color: #1e3a5f; }
+    .inv-number { font-size: 15px; font-weight: 700; color: ${accent}; }
     .status-badge { display: inline-block; margin-top: 6px; padding: 3px 10px; border-radius: 20px; font-size: 11px; font-weight: 600; background: #fef3c7; color: #b45309; border: 1px solid #fcd34d; }
-    .divider { border: none; border-top: 2px solid #e5e7eb; margin: 20px 0; }
+    .accent-divider { border: none; border-top: 3px solid ${accent}; margin: 20px 0; }
     .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 24px; }
-    .label { font-size: 11px; color: #888; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 4px; }
+    .label { font-size: 10px; color: #888; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 4px; font-weight: 600; }
     .value { font-size: 13px; color: #1a1a1a; font-weight: 500; }
     table { width: 100%; border-collapse: collapse; margin-bottom: 16px; }
-    thead tr { background: #f1f5f9; }
-    th { text-align: left; padding: 8px 10px; font-size: 11px; text-transform: uppercase; color: #64748b; letter-spacing: 0.05em; }
+    thead tr { background: ${accent}; }
+    th { text-align: left; padding: 9px 10px; font-size: 11px; text-transform: uppercase; color: #fff; letter-spacing: 0.05em; font-weight: 600; }
     td { padding: 6px 10px; font-size: 13px; border-bottom: 1px solid #f1f5f9; }
-    .totals { margin-left: auto; width: 280px; }
+    tr:nth-child(even) td { background: ${accentLight}; }
+    .totals { margin-left: auto; width: 300px; }
     .total-row { display: flex; justify-content: space-between; padding: 4px 0; font-size: 13px; }
-    .total-grand { display: flex; justify-content: space-between; padding: 8px 0; font-size: 16px; font-weight: 700; border-top: 2px solid #1e3a5f; margin-top: 4px; color: #1e3a5f; }
+    .total-grand { display: flex; justify-content: space-between; padding: 9px 0; font-size: 16px; font-weight: 700; border-top: 2px solid ${accent}; margin-top: 4px; color: ${accent}; }
     .outstanding { display: flex; justify-content: space-between; padding: 6px 10px; background: #fff7ed; border: 1px solid #fed7aa; border-radius: 8px; margin-top: 8px; font-weight: 600; color: #c2410c; }
-    .footer { margin-top: 40px; font-size: 11px; color: #999; text-align: center; border-top: 1px solid #e5e7eb; padding-top: 16px; }
-    @media print { body { padding: 20px; } }
+    .footer { margin-top: 36px; font-size: 11px; color: #aaa; text-align: center; border-top: 1px solid #e5e7eb; padding-top: 14px; }
+    @media print { body { padding: 20px; } @page { margin: 10mm 15mm; } }
   </style>
 </head>
 <body>
   <div class="header">
-    <div>
-      <div class="brand">Portal Admin Mall</div>
-      <div class="brand-sub">Manajemen Tenant Mall</div>
-    </div>
+    <div>${brandBlock}${contactHtml}</div>
     <div class="inv-meta">
       <div class="inv-number">${inv.invoiceNumber}</div>
       <div style="font-size:12px;color:#666;margin-top:4px">Tanggal: ${formatDate(inv.createdAt)}</div>
       <div class="status-badge">${STATUS_LABEL[inv.status]}</div>
     </div>
   </div>
-
-  <hr class="divider" />
-
+  <hr class="accent-divider" />
   <div class="grid-2">
     <div>
-      <div class="label">Tenant</div>
+      <div class="label">Tagihan Kepada</div>
       <div class="value">${inv.tenantName ?? "-"}</div>
       <div style="font-size:12px;color:#666;margin-top:2px">${inv.ownerName ?? ""}</div>
       ${inv.email ? `<div style="font-size:12px;color:#666">${inv.email}</div>` : ""}
@@ -367,18 +532,14 @@ function printInvoice(inv: Invoice) {
       </table>
     </div>
   </div>
-
   <table>
-    <thead>
-      <tr><th>Uraian</th><th style="text-align:right">Jumlah</th></tr>
-    </thead>
+    <thead><tr><th>Uraian</th><th style="text-align:right">Jumlah</th></tr></thead>
     <tbody>
       ${rows}
-      ${Number(inv.discountAmount) > 0 ? `<tr><td style="padding:4px 8px;color:#059669">Diskon</td><td style="padding:4px 8px;text-align:right;color:#059669">- ${formatRupiah(inv.discountAmount)}</td></tr>` : ""}
-      ${Number(inv.penaltyAmount) > 0 ? `<tr><td style="padding:4px 8px;color:#dc2626">Denda</td><td style="padding:4px 8px;text-align:right;color:#dc2626">+ ${formatRupiah(inv.penaltyAmount)}</td></tr>` : ""}
+      ${Number(inv.discountAmount) > 0 ? `<tr><td style="padding:5px 10px;color:#059669">Diskon</td><td style="padding:5px 10px;text-align:right;color:#059669">- ${formatRupiah(inv.discountAmount)}</td></tr>` : ""}
+      ${Number(inv.penaltyAmount) > 0 ? `<tr><td style="padding:5px 10px;color:#dc2626">Denda</td><td style="padding:5px 10px;text-align:right;color:#dc2626">+ ${formatRupiah(inv.penaltyAmount)}</td></tr>` : ""}
     </tbody>
   </table>
-
   <div class="totals">
     <div class="total-row"><span>Subtotal</span><span>${formatRupiah(inv.subtotal)}</span></div>
     ${Number(inv.taxAmount) > 0 ? `<div class="total-row"><span>Pajak</span><span>${formatRupiah(inv.taxAmount)}</span></div>` : ""}
@@ -386,19 +547,94 @@ function printInvoice(inv: Invoice) {
     <div class="total-row" style="color:#059669;padding-top:6px"><span>Terbayar</span><span>${formatRupiah(inv.paidAmount)}</span></div>
     ${Number(inv.outstandingAmount) > 0 ? `<div class="outstanding"><span>Sisa Tagihan</span><span>${formatRupiah(inv.outstandingAmount)}</span></div>` : ""}
   </div>
-
   ${inv.notes ? `<div style="margin-top:24px;padding:12px;background:#f8fafc;border-radius:8px;font-size:12px;color:#555"><strong>Catatan:</strong> ${inv.notes}</div>` : ""}
-
+  ${signerHtml}
   <div class="footer">
-    Dokumen ini dibuat secara otomatis oleh sistem Portal Admin Mall. Harap simpan sebagai bukti pembayaran.
+    ${footerNote}
+    <div>Dokumen ini dibuat secara otomatis oleh sistem ${cfg.mallName}. Harap simpan sebagai bukti pembayaran.</div>
   </div>
 </body>
 </html>`;
+}
 
+async function viewOrPrintInvoice(inv: Invoice, mode: "view" | "print" = "print") {
+  const cfg = await fetchInvoiceConfig();
+  const html = buildInvoiceHtml(inv, cfg);
+  const win = window.open("", "_blank", "width=800,height=900");
+  if (!win) return;
   win.document.write(html);
   win.document.close();
   win.focus();
-  setTimeout(() => win.print(), 300);
+  if (mode === "print") {
+    setTimeout(() => win.print(), 300);
+  }
+}
+
+async function downloadInvoicePdf(
+  inv: Invoice,
+  onStart: () => void,
+  onEnd: () => void,
+): Promise<void> {
+  onStart();
+  try {
+    const [{ default: JsPDF }, { default: html2canvas }] = await Promise.all([
+      import("jspdf"),
+      import("html2canvas"),
+    ]);
+
+    const cfg = await fetchInvoiceConfig();
+    const html = buildInvoiceHtml(inv, cfg);
+
+    const iframe = document.createElement("iframe");
+    iframe.style.cssText =
+      "position:fixed;top:-99999px;left:-99999px;width:800px;height:1px;border:none;opacity:0;pointer-events:none;";
+    document.body.appendChild(iframe);
+
+    try {
+      const idoc = iframe.contentDocument!;
+      idoc.open();
+      idoc.write(html);
+      idoc.close();
+
+      await new Promise<void>((resolve) => setTimeout(resolve, 700));
+
+      const body = idoc.body;
+      body.style.overflow = "visible";
+      body.style.height = "auto";
+
+      const canvas = await html2canvas(body, {
+        scale: 2,
+        useCORS: true,
+        allowTaint: false,
+        backgroundColor: "#ffffff",
+        windowWidth: 800,
+        logging: false,
+        imageTimeout: 6000,
+      });
+
+      const imgData = canvas.toDataURL("image/jpeg", 0.92);
+      const pdf = new JsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+      const pdfW = pdf.internal.pageSize.getWidth();
+      const pdfH = pdf.internal.pageSize.getHeight();
+      const imgH = (canvas.height * pdfW) / canvas.width;
+
+      pdf.addImage(imgData, "JPEG", 0, 0, pdfW, imgH);
+      let heightLeft = imgH - pdfH;
+      let page = 1;
+      while (heightLeft > 0) {
+        pdf.addPage();
+        pdf.addImage(imgData, "JPEG", 0, -(pdfH * page), pdfW, imgH);
+        heightLeft -= pdfH;
+        page++;
+      }
+
+      pdf.save(`${inv.invoiceNumber}.pdf`);
+    } finally {
+      document.body.removeChild(iframe);
+    }
+  } finally {
+    onEnd();
+  }
 }
 
 // ─── Create Invoice Form ───────────────────────────────────────────────────────
@@ -484,7 +720,9 @@ export default function TenantInvoices() {
 
   const [cancelTarget, setCancelTarget] = useState<Invoice | null>(null);
   const [sendingLinkId, setSendingLinkId] = useState<number | null>(null);
-  const [paymentLinkDialog, setPaymentLinkDialog] = useState<{ link: string; error: string } | null>(null);
+  const [copyingLinkId, setCopyingLinkId] = useState<number | null>(null);
+  const [downloadingId, setDownloadingId] = useState<number | null>(null);
+  const [paymentLinkDialog, setPaymentLinkDialog] = useState<{ link: string; error?: string; mode: "manual" | "wa-failed" } | null>(null);
   const [linkCopied, setLinkCopied] = useState(false);
 
   // ─── Bulk invoice state ──────────────────────────────────────────────────────
@@ -635,14 +873,14 @@ export default function TenantInvoices() {
       if (res.skipped) {
         if (res.paymentLink) {
           setLinkCopied(false);
-          setPaymentLinkDialog({ link: res.paymentLink, error: "WhatsApp belum dikonfigurasi (FONNTE_TOKEN kosong)." });
+          setPaymentLinkDialog({ link: res.paymentLink, error: "WhatsApp belum dikonfigurasi (FONNTE_TOKEN kosong).", mode: "wa-failed" });
         } else {
           toast({ title: "WA Tidak Terkirim", description: "FONNTE_TOKEN belum dikonfigurasi.", variant: "destructive" });
         }
       } else if (res.waFailed) {
         if (res.paymentLink) {
           setLinkCopied(false);
-          setPaymentLinkDialog({ link: res.paymentLink, error: res.error ?? "Gagal kirim WA" });
+          setPaymentLinkDialog({ link: res.paymentLink, error: res.error ?? "Gagal kirim WA", mode: "wa-failed" });
         } else {
           toast({ title: "Gagal Kirim WA", description: res.error, variant: "destructive" });
         }
@@ -651,6 +889,20 @@ export default function TenantInvoices() {
       }
     },
     onError: (e: Error) => toast({ title: "Gagal Kirim Link", description: e.message, variant: "destructive" }),
+  });
+
+  const copyLinkMutation = useMutation({
+    mutationFn: async (id: number) => {
+      const res = await apiFetch<{ link: string; invoiceNumber: string; error?: string }>(`${BASE}/api/tenant-invoices/${id}/payment-link`);
+      return res;
+    },
+    onMutate: (id) => setCopyingLinkId(id),
+    onSettled: () => setCopyingLinkId(null),
+    onSuccess: (res) => {
+      setLinkCopied(false);
+      setPaymentLinkDialog({ link: res.link, mode: "manual" });
+    },
+    onError: (e: Error) => toast({ title: "Gagal Ambil Link", description: e.message, variant: "destructive" }),
   });
 
   const waBlastMutation = useMutation({
@@ -942,6 +1194,28 @@ export default function TenantInvoices() {
             <Download className="h-4 w-4" />
             Ekspor CSV ({filteredInvoices.length})
           </Button>
+          <Button
+            variant="outline"
+            className="gap-2 border-red-300 text-red-700 hover:bg-red-50"
+            disabled={filteredInvoices.length === 0}
+            onClick={() => {
+              const now = new Date();
+              const stamp = `${now.getFullYear()}${String(now.getMonth()+1).padStart(2,"0")}${String(now.getDate()).padStart(2,"0")}`;
+              const STATUS_LABEL: Record<string, string> = {
+                all: "", draft: "Draft", unpaid: "Belum Bayar", partial: "Sebagian",
+                paid: "Lunas", overdue: "Jatuh Tempo", cancelled: "Dibatalkan", sent: "Terkirim",
+              };
+              const parts: string[] = [];
+              if (filterStatus !== "all") parts.push(`Status: ${STATUS_LABEL[filterStatus] ?? filterStatus}`);
+              if (search) parts.push(`Cari: "${search}"`);
+              const filterLabel = parts.length ? parts.join("  •  ") : undefined;
+              void exportInvoicesToPDF(filteredInvoices, `laporan-invoice-${stamp}.pdf`, filterLabel);
+            }}
+            title={filteredInvoices.length === 0 ? "Tidak ada data untuk diekspor" : `Ekspor ${filteredInvoices.length} invoice ke PDF`}
+          >
+            <FileText className="h-4 w-4" />
+            Ekspor PDF ({filteredInvoices.length})
+          </Button>
           <Button variant="outline" onClick={() => { setGenerateForm({ bookingId: "", notes: "" }); setGenerateOpen(true); }} className="gap-2">
             <Zap className="h-4 w-4" />
             Generate dari Booking
@@ -1126,6 +1400,22 @@ export default function TenantInvoices() {
                               Kirim Link
                             </Button>
                           )}
+                          {inv.status !== "paid" && inv.status !== "cancelled" && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-7 px-2 text-xs gap-1 text-blue-700 border-blue-200 hover:bg-blue-50 hover:text-blue-800"
+                              title="Pratinjau & salin link bayar untuk dikirim manual"
+                              disabled={copyingLinkId === inv.id}
+                              onClick={() => copyLinkMutation.mutate(inv.id)}
+                            >
+                              {copyingLinkId === inv.id
+                                ? <Loader2 className="h-3 w-3 animate-spin" />
+                                : <Copy className="h-3 w-3" />
+                              }
+                              Salin Link
+                            </Button>
+                          )}
                           {inv.status === "overdue" && inv.phone && (
                             <Button
                               size="sm" variant="ghost"
@@ -1137,7 +1427,28 @@ export default function TenantInvoices() {
                               <MessageCircle className="h-3.5 w-3.5" />
                             </Button>
                           )}
-                          <Button size="sm" variant="ghost" className="h-7 w-7 p-0" title="Print" onClick={() => printInvoice(inv)}>
+                          <Button size="sm" variant="outline" className="h-7 px-2 text-xs gap-1 text-indigo-700 border-indigo-200 hover:bg-indigo-50 hover:text-indigo-800" title="Lihat invoice" onClick={() => { void viewOrPrintInvoice(inv, "view"); }}>
+                            <Eye className="h-3 w-3" />
+                            Lihat
+                          </Button>
+                          <Button
+                            size="sm" variant="ghost" className="h-7 w-7 p-0 text-emerald-600 hover:text-emerald-700"
+                            title="Download PDF"
+                            disabled={downloadingId === inv.id}
+                            onClick={() => {
+                              void downloadInvoicePdf(
+                                inv,
+                                () => setDownloadingId(inv.id),
+                                () => setDownloadingId(null),
+                              );
+                            }}
+                          >
+                            {downloadingId === inv.id
+                              ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                              : <Download className="h-3.5 w-3.5" />
+                            }
+                          </Button>
+                          <Button size="sm" variant="ghost" className="h-7 w-7 p-0" title="Print" onClick={() => { void viewOrPrintInvoice(inv, "print"); }}>
                             <Printer className="h-3.5 w-3.5" />
                           </Button>
                           {inv.status !== "paid" && inv.status !== "cancelled" && (
@@ -1519,7 +1830,30 @@ export default function TenantInvoices() {
             </ScrollArea>
           ) : null}
           <DialogFooter className="flex-wrap gap-2">
-            <Button variant="outline" onClick={() => { if (detailData) printInvoice(detailData); }} className="gap-2">
+            <Button variant="outline" onClick={() => { if (detailData) void viewOrPrintInvoice(detailData, "view"); }} className="gap-2 text-indigo-700 border-indigo-200 hover:bg-indigo-50 hover:text-indigo-800">
+              <Eye className="h-4 w-4" />
+              Lihat Invoice
+            </Button>
+            <Button
+              variant="outline"
+              className="gap-2 text-emerald-700 border-emerald-200 hover:bg-emerald-50 hover:text-emerald-800"
+              disabled={detailData ? downloadingId === detailData.id : false}
+              onClick={() => {
+                if (!detailData) return;
+                void downloadInvoicePdf(
+                  detailData,
+                  () => setDownloadingId(detailData.id),
+                  () => setDownloadingId(null),
+                );
+              }}
+            >
+              {detailData && downloadingId === detailData.id
+                ? <Loader2 className="h-4 w-4 animate-spin" />
+                : <Download className="h-4 w-4" />
+              }
+              {detailData && downloadingId === detailData.id ? "Memproses..." : "Download PDF"}
+            </Button>
+            <Button variant="outline" onClick={() => { if (detailData) void viewOrPrintInvoice(detailData, "print"); }} className="gap-2">
               <Printer className="h-4 w-4" />
               Print Invoice
             </Button>
@@ -1569,30 +1903,53 @@ export default function TenantInvoices() {
         </DialogContent>
       </Dialog>
 
-      {/* ─── Dialog: Fallback Link Bayar (WA gagal) ───────────────────────────── */}
+      {/* ─── Dialog: Pratinjau & Salin Link Bayar ──────────────────────────────── */}
       <Dialog open={!!paymentLinkDialog} onOpenChange={(o) => { if (!o) { setPaymentLinkDialog(null); setLinkCopied(false); } }}>
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <WifiOff className="h-5 w-5 text-orange-500" />
-              WhatsApp Tidak Terhubung
+              {paymentLinkDialog?.mode === "wa-failed"
+                ? <><WifiOff className="h-5 w-5 text-orange-500" />WhatsApp Tidak Terhubung</>
+                : <><Link2 className="h-5 w-5 text-blue-500" />Link Pembayaran Tenant</>
+              }
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
-            <div className="rounded-md border border-orange-200 bg-orange-50 px-4 py-3 text-sm text-orange-800">
-              <p className="font-medium mb-1">Pengiriman WA gagal</p>
-              <p className="text-orange-700">{paymentLinkDialog?.error}</p>
-            </div>
+            {paymentLinkDialog?.mode === "wa-failed" && paymentLinkDialog.error && (
+              <div className="rounded-md border border-orange-200 bg-orange-50 px-4 py-3 text-sm text-orange-800">
+                <p className="font-medium mb-1">Pengiriman WA gagal</p>
+                <p className="text-orange-700">{paymentLinkDialog.error}</p>
+              </div>
+            )}
             <div>
               <p className="text-sm text-muted-foreground mb-2">
-                Anda bisa kirim link bayar ini secara manual ke tenant (copy lalu kirim via WA, SMS, atau email):
+                {paymentLinkDialog?.mode === "wa-failed"
+                  ? "Kirim link ini secara manual ke tenant (copy lalu kirim via WA, SMS, atau email):"
+                  : "Salin link berikut dan kirimkan ke tenant melalui WA, SMS, atau media lain:"
+                }
               </p>
-              <div className="flex items-center gap-2 rounded-md border bg-muted/40 px-3 py-2">
+              <div
+                className="flex items-center gap-2 rounded-md border bg-muted/40 px-3 py-2 cursor-pointer hover:bg-muted/60 transition-colors group"
+                title="Klik untuk menyalin"
+                onClick={() => {
+                  if (paymentLinkDialog?.link) {
+                    void navigator.clipboard.writeText(paymentLinkDialog.link);
+                    setLinkCopied(true);
+                    setTimeout(() => setLinkCopied(false), 3000);
+                  }
+                }}
+              >
                 <Link2 className="h-4 w-4 text-muted-foreground shrink-0" />
                 <span className="flex-1 text-xs font-mono break-all select-all">
                   {paymentLinkDialog?.link}
                 </span>
+                <Copy className="h-3.5 w-3.5 text-muted-foreground shrink-0 opacity-0 group-hover:opacity-100 transition-opacity" />
               </div>
+              {linkCopied && (
+                <p className="text-xs text-green-600 mt-1.5 flex items-center gap-1">
+                  <CheckCheck className="h-3.5 w-3.5" />Link berhasil disalin ke clipboard!
+                </p>
+              )}
             </div>
           </div>
           <DialogFooter className="gap-2">

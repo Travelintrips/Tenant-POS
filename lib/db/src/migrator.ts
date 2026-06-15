@@ -1567,7 +1567,7 @@ export async function runMigrations(): Promise<void> {
 // Migration tambahan: konversi users.id dari integer ke text (untuk Supabase lama)
 export async function runUsersIdTextMigration(): Promise<void> {
   const client = new pg.Client({
-    connectionString: dbConfig.url,
+    ...dbConfig.parsed,
     ssl: dbConfig.ssl,
   });
 
