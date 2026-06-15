@@ -1,4 +1,3 @@
-
 interface PgParams {
   user?: string;
   password?: string;
@@ -23,6 +22,15 @@ function parseDbUrl(rawUrl: string): PgParams {
     const rest = rawUrl.substring(lastAt + 1);
     const colonIdx = userinfo.indexOf(":");
     if (colonIdx < 0) throw new Error("No colon in userinfo");
+function parseDbUrl(url: string): PgParams {
+  try {
+    const protoEnd = url.indexOf("://") + 3;
+    const lastAt = url.lastIndexOf("@");
+    if (lastAt < protoEnd) return { connectionString: url };
+    const userinfo = url.substring(protoEnd, lastAt);
+    const rest = url.substring(lastAt + 1);
+    const colonIdx = userinfo.indexOf(":");
+    if (colonIdx < 0) return { connectionString: url };
     const user = userinfo.substring(0, colonIdx);
     const password = decodeURIComponent(userinfo.substring(colonIdx + 1));
     const qIdx = rest.indexOf("?");
@@ -36,6 +44,7 @@ function parseDbUrl(rawUrl: string): PgParams {
     return { user, password, host, port, database };
   } catch {
     return { connectionString: rawUrl };
+    return { connectionString: url };
   }
 }
 
@@ -50,6 +59,15 @@ const isSupabase =
   rawUrl.includes("pooler") ||
   rawUrl.includes("nzdweipz") ||
   rawUrl.includes("xssrfshdrtdfupgqwfdw");
+  process.env["DATABASE_URL"] ??
+  process.env["SUPABASE_DATABASE_URL"] ??
+  (() => {
+    throw new Error("SUPABASE_PG_URL atau DATABASE_URL harus diset");
+  })();
+
+const isSupabase =
+  rawUrl.includes("supabase") ||
+  rawUrl.includes("pooler");
 
 export const dbConfig = {
   url: rawUrl,
