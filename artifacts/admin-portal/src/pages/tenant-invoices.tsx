@@ -24,7 +24,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import {
   Plus, FileText, Printer, CreditCard, X, Search, Zap, AlertCircle,
   CheckCircle2, Clock, Ban, CircleDashed, MessageCircle, Send, Link2, Loader2,
-  Copy, WifiOff, CheckCheck, Download, Layers, ChevronDown, ChevronRight, Eye,
+  Copy, WifiOff, CheckCheck, Download, Layers, ChevronDown, ChevronRight, Eye, Trash2,
 } from "lucide-react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -719,6 +719,7 @@ export default function TenantInvoices() {
   const [detailTarget, setDetailTarget] = useState<Invoice | null>(null);
 
   const [cancelTarget, setCancelTarget] = useState<Invoice | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<Invoice | null>(null);
   const [sendingLinkId, setSendingLinkId] = useState<number | null>(null);
   const [copyingLinkId, setCopyingLinkId] = useState<number | null>(null);
   const [downloadingId, setDownloadingId] = useState<number | null>(null);
@@ -849,6 +850,26 @@ export default function TenantInvoices() {
       setCancelTarget(null);
     },
     onError: (e: Error) => toast({ title: "Gagal", description: e.message, variant: "destructive" }),
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: async (id: number) => {
+      const res = await apiFetchBase(`${BASE}/api/tenant-invoices/${id}`, { method: "DELETE", credentials: "include" });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({})) as { error?: string };
+        throw new Error(err.error ?? "Gagal menghapus invoice");
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["/api/tenant-invoices"] });
+      toast({ title: "Invoice Dihapus", description: "Invoice berhasil dihapus permanen." });
+      setDeleteTarget(null);
+    },
+    onError: (e: Error) => {
+      toast({ title: "Gagal Menghapus", description: e.message, variant: "destructive" });
+      setDeleteTarget(null);
+    },
   });
 
   const waSendMutation = useMutation({
@@ -1456,6 +1477,17 @@ export default function TenantInvoices() {
                               <X className="h-3.5 w-3.5" />
                             </Button>
                           )}
+                          {inv.status !== "paid" && (
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="h-7 w-7 p-0 text-destructive hover:text-destructive hover:bg-destructive/10"
+                              title="Hapus invoice permanen"
+                              onClick={() => setDeleteTarget(inv)}
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </Button>
+                          )}
                         </div>
                       </TableCell>
                     </TableRow>
@@ -1874,6 +1906,33 @@ export default function TenantInvoices() {
                 Input Pembayaran
               </Button>
             )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ─── Dialog: Konfirmasi Hapus Invoice ─────────────────────────────────── */}
+      <Dialog open={!!deleteTarget} onOpenChange={(o) => { if (!o) setDeleteTarget(null); }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-destructive">
+              <Trash2 className="h-4 w-4" />
+              Hapus Invoice?
+            </DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            Apakah Anda yakin ingin menghapus invoice{" "}
+            <strong className="text-foreground font-mono">{deleteTarget?.invoiceNumber}</strong> secara permanen?
+            Tindakan ini <strong>tidak dapat dibatalkan</strong>.
+          </p>
+          <DialogFooter>
+            <Button variant="outline" disabled={deleteMutation.isPending} onClick={() => setDeleteTarget(null)}>Batal</Button>
+            <Button
+              variant="destructive"
+              disabled={deleteMutation.isPending}
+              onClick={() => deleteTarget && deleteMutation.mutate(deleteTarget.id)}
+            >
+              {deleteMutation.isPending ? "Menghapus..." : "Ya, Hapus"}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

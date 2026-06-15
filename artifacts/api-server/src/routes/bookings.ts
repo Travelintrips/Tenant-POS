@@ -393,7 +393,8 @@ router.delete("/bookings/:id", requireAnyRole("owner", "admin"), async (req, res
 
     if (!existing) { res.status(404).json({ error: "Kontrak tidak ditemukan" }); return; }
 
-    if (existing.bookingStatus === "aktif" || existing.bookingStatus === "active") {
+    const isActive = existing.contractStatus === "active" || existing.contractStatus === "expiring_soon";
+    if (isActive) {
       res.status(409).json({ error: "Kontrak yang masih aktif tidak dapat dihapus. Gunakan fitur Terminasi terlebih dahulu." });
       return;
     }
