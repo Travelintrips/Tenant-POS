@@ -29,6 +29,7 @@ import TenantProfile from "@/pages/tenant-profile";
 import WhatsAppSend from "@/pages/whatsapp-send";
 import WhatsAppTemplates from "@/pages/whatsapp-templates";
 import BankRekonsiliasi from "@/pages/bank-rekonsiliasi";
+import DbMonitoring from "@/pages/db-monitoring";
 // Legacy module kept for rollback — DO NOT import Rekonsiliasi as a rendered route
 // import Rekonsiliasi from "@/pages/rekonsiliasi";
 
@@ -225,6 +226,13 @@ function Router() {
         <AuthGuard roles={["owner", "admin", "finance"]}>
           <SidebarLayout>
             <WhatsAppTemplates />
+          </SidebarLayout>
+        </AuthGuard>
+      </Route>
+      <Route path="/db-monitoring">
+        <AuthGuard roles={["owner"]}>
+          <SidebarLayout>
+            <DbMonitoring />
           </SidebarLayout>
         </AuthGuard>
       </Route>

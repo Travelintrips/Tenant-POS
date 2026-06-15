@@ -1,26 +1,26 @@
 const isProduction = (process.env["NODE_ENV"] ?? "development") === "production";
 
-const rawUrl = (isProduction
-  ? (process.env["SUPABASE_PG_URL_PROD"] ??
-     process.env["SUPABASE_PG_URL"] ??
-     process.env["SUPABASE_DATABASE_URL"] ??
-     process.env["DATABASE_URL"] ??
-     (() => { throw new Error("SUPABASE_PG_URL_PROD atau DATABASE_URL harus diset di production"); })())
-  : (process.env["SUPABASE_PG_URL"] ??
-     process.env["SUPABASE_DATABASE_URL"] ??
-     process.env["DATABASE_URL"] ??
-     (() => { throw new Error("SUPABASE_PG_URL atau DATABASE_URL harus diset"); })())).trim();
-     (() => { throw new Error("SUPABASE_PG_URL atau DATABASE_URL harus diset"); })())
-const rawUrl = (
-  process.env["SUPABASE_PG_URL"] ??
-  process.env["SUPABASE_DATABASE_URL"] ??
-  process.env["DATABASE_URL"] ??
-  (() => { throw new Error("DATABASE_URL harus diset"); })()
-).trim();
+function resolveDbUrl(): string {
+  if (isProduction) {
+    const url =
+      process.env["SUPABASE_PG_URL_PROD"] ??
+      process.env["SUPABASE_PG_URL"] ??
+      process.env["SUPABASE_DATABASE_URL"] ??
+      process.env["DATABASE_URL"];
+    if (!url) throw new Error("SUPABASE_PG_URL_PROD atau DATABASE_URL harus diset di production");
+    return url.trim();
+  }
+  const url =
+    process.env["SUPABASE_PG_URL"] ??
+    process.env["SUPABASE_DATABASE_URL"] ??
+    process.env["DATABASE_URL"];
+  if (!url) throw new Error("SUPABASE_PG_URL atau DATABASE_URL harus diset");
+  return url.trim();
+}
 
-const isSupabase =
-  rawUrl.includes("supabase") ||
-  rawUrl.includes("pooler");
+const rawUrl = resolveDbUrl();
+
+const isSupabase = rawUrl.includes("supabase") || rawUrl.includes("pooler");
 
 function parseDbUrl(url: string) {
   try {

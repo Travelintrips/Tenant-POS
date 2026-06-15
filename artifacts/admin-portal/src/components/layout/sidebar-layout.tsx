@@ -14,7 +14,7 @@ import {
   SidebarInset,
   SidebarTrigger
 } from "@/components/ui/sidebar";
-import { Building2, Store, CalendarRange, Calculator, BarChart3, LogOut, FileText, Shield, ChevronDown, GitCompare, Dumbbell, MapPin, Check, Layers, ClipboardCheck, LayoutGrid, Users, Bell, AlertTriangle, Clock, LayoutDashboard, Settings, MessageCircle, BookTemplate, ClipboardList, FileSpreadsheet, Landmark } from "lucide-react";
+import { Building2, Store, CalendarRange, Calculator, BarChart3, LogOut, FileText, Shield, ChevronDown, GitCompare, Dumbbell, MapPin, Check, Layers, ClipboardCheck, LayoutGrid, Users, Bell, AlertTriangle, Clock, LayoutDashboard, Settings, MessageCircle, BookTemplate, ClipboardList, FileSpreadsheet, Landmark, Database } from "lucide-react";
 import { Separator } from "@/components/ui/separator";
 import { useAuth, useLogout, ROLE_LABELS, type UserRole } from "@/hooks/use-auth";
 import { Button } from "@/components/ui/button";
@@ -414,6 +414,20 @@ export function SidebarLayout({ children }: { children: React.ReactNode }) {
                       <Link href="/users">
                         <Users className="mr-2 h-4 w-4" />
                         <span>Manajemen User</span>
+                      </Link>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                )}
+                {can("owner") && (
+                  <SidebarMenuItem>
+                    <SidebarMenuButton
+                      asChild
+                      isActive={location === "/db-monitoring"}
+                      data-testid="nav-db-monitoring"
+                    >
+                      <Link href="/db-monitoring">
+                        <Database className="mr-2 h-4 w-4" />
+                        <span>Monitoring DB</span>
                       </Link>
                     </SidebarMenuButton>
                   </SidebarMenuItem>

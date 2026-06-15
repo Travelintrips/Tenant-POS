@@ -20,6 +20,7 @@ import paymentProofRouter from "./payment-proof";
 import whatsappWebhookRouter from "./whatsapp-webhook";
 import pendingPaymentsRouter from "./pending-payments";
 import dashboardRouter from "./dashboard";
+import systemStatusRouter from "./system-status";
 import settingsRouter from "./settings";
 import reconciliationRouter from "./reconciliation";
 import bankReconciliationRouter from "./bank-reconciliation";
@@ -63,6 +64,7 @@ router.use(auditLogsRouter);
 router.use(whatsappRouter);
 router.use(pendingPaymentsRouter);
 router.use(dashboardRouter);
+router.use(systemStatusRouter);
 router.use(settingsRouter);
 router.use(reconciliationRouter);
 
