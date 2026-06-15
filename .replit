@@ -1,4 +1,4 @@
-modules = ["nodejs-20", "web", "bash", "python-3.11"]
+modules = ["nodejs-20", "web", "bash", "postgresql-16"]
 
 [deployment]
 router = "application"
@@ -9,6 +9,28 @@ args = ["pnpm", "store", "prune"]
 env = { "CI" = "true" }
 
 [workflows]
+runButton = "Project"
+
+[[workflows.workflow]]
+name = "Project"
+mode = "parallel"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "Start application"
+
+[[workflows.workflow]]
+name = "Start application"
+author = "agent"
+
+[workflows.workflow.metadata]
+outputType = "webview"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "bash scripts/start-dev.sh"
+waitForPort = 5000
 
 [agent]
 stack = "BEST_EFFORT_FALLBACK"
@@ -49,6 +71,7 @@ GOOGLE_CLIENT_SECRET = "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"
 ENABLE_DEV_LOGIN = "true"
 FONNTE_ADMIN_WA = "085121073537"
 SESSION_SECRET = "MXF8tVM+GYDQyrAOg0o79vPvEg7V7xTWd3C6pPOS/ee7T0gNLD2LO/PRk+97KR2x01VdMHK1Oc3VuoZoOR/naw=="
+DB_URL_OVERRIDE = "postgresql://postgres.nzdweipzckfszczzqtuw:%24%23Admin12345%40%24@aws-1-ap-southeast-2.pooler.supabase.com:6543/postgres"
 CI = "true"
 NODE_ENV = "development"
 LOG_LEVEL = "info"
@@ -65,6 +88,17 @@ SUPABASE_SERVICE_ROLE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdX
 SUPABASE_STORAGE_BUCKET = "https://xssrfshdrtdfupgqwfdw.storage.supabase.co/storage/v1/s3"
 VITE_SUPABASE_ANON_KEY = "https://nzdweipzckfszczzqtuw.supabase.co"
 VITE_SUPABASE_URL = "https://xssrfshdrtdfupgqwfdw.supabase.co"
+
+[userenv.development]
+SUPABASE_URL = "https://xssrfshdrtdfupgqwfdw.supabase.co"
+SUPABASE_DATABASE_URL = "postgresql://postgres.xssrfshdrtdfupgqwfdw:%24%23Admin12345%40%24@aws-1-ap-southeast-2.pooler.supabase.com:6543/postgres"
+SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhzc3Jmc2hkcnRkZnVwZ3F3ZmR3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg4OTY3MjgsImV4cCI6MjA5NDQ3MjcyOH0.czKzR9GjEL6UK8AhPAX6OYyF74fz1YtImYQSXiiG69U"
+SUPABASE_SERVICE_ROLE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhzc3Jmc2hkcnRkZnVwZ3F3ZmR3Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3ODg5NjcyOCwiZXhwIjoyMDk0NDcyNzI4fQ.VFPcBxsVJkYwNo3ojy3uOHglqUA9zILhjw4_0JAhZYI"
+SUPABASE_STORAGE_BUCKET = "https://xssrfshdrtdfupgqwfdw.storage.supabase.co/storage/v1/s3"
+VITE_SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhzc3Jmc2hkcnRkZnVwZ3F3ZmR3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg4OTY3MjgsImV4cCI6MjA5NDQ3MjcyOH0.czKzR9GjEL6UK8AhPAX6OYyF74fz1YtImYQSXiiG69U"
+VITE_SUPABASE_URL = "https://xssrfshdrtdfupgqwfdw.supabase.co"
+SUPABASE_PG_URL = "postgresql://postgres.xssrfshdrtdfupgqwfdw:%24%23Admin12345%40%24@aws-1-ap-southeast-2.pooler.supabase.com:6543/postgres"
+>>>>>>> c60344fac11569fefc692f85edc881f4e0bcbe8c
 
 [userenv.production]
 SUPABASE_URL = "https://nzdweipzckfszczzqtuw.supabase.co"
