@@ -201,6 +201,19 @@ export default function BankRekonPanel() {
   const [showWa, setShowWa] = useState(false);
   const [waTypes, setWaTypes] = useState<string[]>(["unpaid_invoice"]);
 
+  // ── Import dari Google Sheets dialog ─────────────────────────────────────────
+  const [showImportSheet, setShowImportSheet] = useState(false);
+  const [importSheetUrl, setImportSheetUrl] = useState(() => localStorage.getItem("bank_rekon_import_sheet_url") ?? "");
+  const [importSheetName, setImportSheetName] = useState("");
+  const [importSheetBankAccount, setImportSheetBankAccount] = useState("");
+  type SheetPreview = {
+    spreadsheetId: string; sheetName: string | null; totalRows: number; validRows: number;
+    headers: string[];
+    preview: { transactionDate: string; description: string; amount: string; direction: string; providerName: string | null; providerOrderId: string | null }[];
+  };
+  const [sheetPreview, setSheetPreview] = useState<SheetPreview | null>(null);
+  const [previewError, setPreviewError] = useState("");
+
   // ── KPI ───────────────────────────────────────────────────────────────────────
   const { data: kpi, refetch: refetchKpi } = useQuery<KpiData>({
     queryKey: ["/api/bank-reconciliation/kpi"],
@@ -345,6 +358,33 @@ export default function BankRekonPanel() {
     onError: (e: Error) => toast({ title: "Export gagal", description: e.message, variant: "destructive" }),
   });
 
+  const previewSheetMut = useMutation({
+    mutationFn: async (payload: { spreadsheetId: string; sheetName?: string; bankAccountId?: string }) => {
+      const r = await fetch("/api/bank-reconciliation/preview-from-sheet", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+      const data = await r.json(); if (!r.ok) throw new Error(data.error ?? "Gagal membaca sheet");
+      return data as SheetPreview & { success: boolean };
+    },
+    onSuccess: (data) => { setSheetPreview(data); setPreviewError(""); },
+    onError: (e: Error) => { setPreviewError(e.message); setSheetPreview(null); },
+  });
+
+  const importSheetMut = useMutation({
+    mutationFn: async (payload: { spreadsheetId: string; sheetName?: string; bankAccountId?: string }) => {
+      const r = await fetch("/api/bank-reconciliation/import-from-sheet", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+      const data = await r.json(); if (!r.ok) throw new Error(data.error ?? "Import gagal");
+      return data as { success: boolean; imported: number; autoMatched: number; duplicates: number };
+    },
+    onSuccess: (data) => {
+      toast({ title: "Import dari Sheets berhasil", description: `${data.imported} mutasi diimport, ${data.autoMatched} auto-match, ${data.duplicates} duplikat` });
+      qc.invalidateQueries({ queryKey: ["/api/bank-reconciliation/mutations"] });
+      qc.invalidateQueries({ queryKey: ["/api/bank-reconciliation/kpi"] });
+      setShowImportSheet(false);
+      setSheetPreview(null);
+      setPreviewError("");
+    },
+    onError: (e: Error) => toast({ title: "Import gagal", description: e.message, variant: "destructive" }),
+  });
+
   const sendWaMut = useMutation({
     mutationFn: async (payload: { types: string[] }) => {
       const r = await fetch("/api/bank-reconciliation/send-reminder-wa", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
@@ -439,6 +479,9 @@ export default function BankRekonPanel() {
           {importMutation.isPending ? <><RefreshCw className="mr-2 h-4 w-4 animate-spin" />Mengimport...</> : <><FileUp className="mr-2 h-4 w-4" />Import CSV</>}
         </Button>
         <input ref={fileRef} type="file" accept=".csv" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) { importMutation.mutate(f); e.target.value = ""; } }} />
+        <Button variant="outline" className="border-emerald-300 text-emerald-700 hover:bg-emerald-50" onClick={() => { setShowImportSheet(true); setSheetPreview(null); setPreviewError(""); }} disabled={importSheetMut.isPending}>
+          <FileSpreadsheet className="mr-2 h-4 w-4" />Import dari Sheets
+        </Button>
         <Button variant="outline" onClick={() => runMatchMutation.mutate()} disabled={runMatchMutation.isPending}>
           {runMatchMutation.isPending ? <><RefreshCw className="mr-2 h-4 w-4 animate-spin" />Memproses...</> : <><Zap className="mr-2 h-4 w-4" />Jalankan Auto-Match</>}
         </Button>
@@ -922,6 +965,148 @@ export default function BankRekonPanel() {
           </div>
         </TabsContent>
       </Tabs>
+
+      {/* ─── Dialog: Import dari Google Sheets ─── */}
+      <Dialog open={showImportSheet} onOpenChange={(o) => { if (!o) { setShowImportSheet(false); setSheetPreview(null); setPreviewError(""); } }}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <FileSpreadsheet className="h-5 w-5 text-emerald-600" />Import Mutasi dari Google Sheets
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 text-sm">
+            {/* Info service account */}
+            <Alert className="border-blue-200 bg-blue-50">
+              <AlertDescription className="text-xs text-blue-800">
+                Pastikan spreadsheet sudah di-share (Editor/Viewer) ke Service Account:
+                <code className="block mt-1 font-mono text-[10px] break-all select-all bg-blue-100 px-2 py-1 rounded">
+                  dheet-286@sheet-498707.iam.gserviceaccount.com
+                </code>
+              </AlertDescription>
+            </Alert>
+
+            {/* Form input */}
+            <div className="space-y-3">
+              <div className="space-y-1">
+                <Label className="text-xs">URL / ID Google Spreadsheet <span className="text-red-500">*</span></Label>
+                <Input
+                  className="text-xs"
+                  placeholder="https://docs.google.com/spreadsheets/d/... atau ID spreadsheet"
+                  value={importSheetUrl}
+                  onChange={(e) => { setImportSheetUrl(e.target.value); localStorage.setItem("bank_rekon_import_sheet_url", e.target.value); setSheetPreview(null); setPreviewError(""); }}
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <Label className="text-xs">Nama Sheet/Tab (opsional)</Label>
+                  <Input className="text-xs" placeholder="Sheet1 (kosong = sheet pertama)" value={importSheetName} onChange={(e) => { setImportSheetName(e.target.value); setSheetPreview(null); }} />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">ID Rekening Bank (opsional)</Label>
+                  <Input className="text-xs" placeholder="BCA-001" value={importSheetBankAccount} onChange={(e) => setImportSheetBankAccount(e.target.value)} />
+                </div>
+              </div>
+            </div>
+
+            {/* Format panduan */}
+            <div className="rounded-md border border-amber-200 bg-amber-50 p-3 space-y-1">
+              <p className="text-xs font-semibold text-amber-800">Format kolom yang didukung:</p>
+              <div className="grid grid-cols-2 gap-x-4 text-[11px] text-amber-700">
+                <div>• <span className="font-mono">Tanggal</span> / <span className="font-mono">Date</span> / <span className="font-mono">Tgl</span></div>
+                <div>• <span className="font-mono">Keterangan</span> / <span className="font-mono">Description</span></div>
+                <div>• <span className="font-mono">Kredit</span> / <span className="font-mono">Credit</span> / <span className="font-mono">Masuk</span></div>
+                <div>• <span className="font-mono">Debet</span> / <span className="font-mono">Debit</span> / <span className="font-mono">Keluar</span></div>
+                <div>• <span className="font-mono">Nominal</span> / <span className="font-mono">Amount</span> (opsional)</div>
+              </div>
+            </div>
+
+            {/* Error */}
+            {previewError && (
+              <Alert variant="destructive">
+                <AlertCircle className="h-4 w-4" />
+                <AlertDescription className="text-xs">{previewError}</AlertDescription>
+              </Alert>
+            )}
+
+            {/* Preview hasil */}
+            {sheetPreview && (
+              <div className="space-y-3">
+                <div className="flex items-center gap-3 rounded-md border border-emerald-200 bg-emerald-50 p-3">
+                  <CheckCircle2 className="h-5 w-5 text-emerald-600 shrink-0" />
+                  <div className="text-xs text-emerald-800">
+                    <p className="font-semibold">Berhasil membaca spreadsheet</p>
+                    <p>{sheetPreview.totalRows} baris data, <strong>{sheetPreview.validRows} baris valid</strong> siap diimport</p>
+                    {sheetPreview.sheetName && <p className="text-[11px] text-emerald-600">Sheet: {sheetPreview.sheetName}</p>}
+                  </div>
+                </div>
+                <div>
+                  <p className="text-xs font-medium mb-1.5">Preview 5 baris pertama:</p>
+                  <div className="rounded-md border overflow-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow className="bg-muted/50">
+                          <TableHead className="text-[10px] py-2">Tanggal</TableHead>
+                          <TableHead className="text-[10px] py-2">Keterangan</TableHead>
+                          <TableHead className="text-[10px] py-2 text-right">Nominal</TableHead>
+                          <TableHead className="text-[10px] py-2">Arah</TableHead>
+                          <TableHead className="text-[10px] py-2">Provider</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {sheetPreview.preview.map((row, i) => (
+                          <TableRow key={i}>
+                            <TableCell className="text-[10px] py-1.5 font-mono">{row.transactionDate}</TableCell>
+                            <TableCell className="text-[10px] py-1.5 max-w-[200px] truncate">{row.description}</TableCell>
+                            <TableCell className="text-[10px] py-1.5 text-right font-medium">{formatRp(row.amount)}</TableCell>
+                            <TableCell className="text-[10px] py-1.5">
+                              <span className={`inline-flex rounded px-1.5 py-0.5 font-semibold ${row.direction === "IN" ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"}`}>{row.direction}</span>
+                            </TableCell>
+                            <TableCell className="text-[10px] py-1.5 text-muted-foreground">{row.providerName ?? "—"}</TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                  {sheetPreview.validRows > 5 && (
+                    <p className="text-[11px] text-muted-foreground mt-1">... dan {sheetPreview.validRows - 5} baris lainnya</p>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+
+          <DialogFooter className="gap-2 flex-wrap">
+            <Button variant="outline" size="sm" onClick={() => { setShowImportSheet(false); setSheetPreview(null); setPreviewError(""); }}>Batal</Button>
+            {!sheetPreview ? (
+              <Button
+                size="sm"
+                variant="outline"
+                className="border-emerald-300 text-emerald-700 hover:bg-emerald-50"
+                disabled={!importSheetUrl.trim() || previewSheetMut.isPending}
+                onClick={() => previewSheetMut.mutate({ spreadsheetId: importSheetUrl.trim(), sheetName: importSheetName.trim() || undefined, bankAccountId: importSheetBankAccount.trim() || undefined })}
+              >
+                {previewSheetMut.isPending ? <><RefreshCw className="mr-2 h-3.5 w-3.5 animate-spin" />Membaca...</> : <><Search className="mr-2 h-3.5 w-3.5" />Baca & Preview</>}
+              </Button>
+            ) : (
+              <>
+                <Button variant="outline" size="sm" onClick={() => { setSheetPreview(null); setPreviewError(""); }}>
+                  Ubah Sheet
+                </Button>
+                <Button
+                  size="sm"
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white"
+                  disabled={importSheetMut.isPending || sheetPreview.validRows === 0}
+                  onClick={() => importSheetMut.mutate({ spreadsheetId: importSheetUrl.trim(), sheetName: importSheetName.trim() || undefined, bankAccountId: importSheetBankAccount.trim() || undefined })}
+                >
+                  {importSheetMut.isPending
+                    ? <><RefreshCw className="mr-2 h-3.5 w-3.5 animate-spin" />Mengimport...</>
+                    : <><FileUp className="mr-2 h-3.5 w-3.5" />Import {sheetPreview.validRows} Mutasi</>}
+                </Button>
+              </>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* ─── Dialog: Export Google Sheets ─── */}
       <Dialog open={showExport} onOpenChange={setShowExport}>

@@ -19,7 +19,7 @@ import { eq, and, desc, sql, inArray, isNull, gt, ne, or } from "drizzle-orm";
 import { z } from "zod";
 import { logAudit } from "../lib/audit";
 import { logBankReconAudit } from "../lib/bank-recon-audit";
-import { writeToSheet, extractSheetId, getServiceAccountEmail } from "../services/google-sheets";
+import { writeToSheet, readFromSheet, extractSheetId, getServiceAccountEmail } from "../services/google-sheets";
 import { sendReconciliationReminder } from "../lib/whatsapp";
 import {
   normalizeDescription,
@@ -262,6 +262,161 @@ router.get("/bank-reconciliation/context", (req, res) => {
 
 router.get("/bank-reconciliation/info", (_req, res) => {
   res.json({ serviceAccountEmail: getServiceAccountEmail() });
+});
+
+// ── POST /bank-reconciliation/preview-from-sheet ─────────────────────────────
+// Baca data dari Google Sheets dan kembalikan preview tanpa menyimpan ke DB.
+
+const previewSheetSchema = z.object({
+  spreadsheetId: z.string().min(1),
+  sheetName: z.string().optional(),
+  bankAccountId: z.string().optional(),
+});
+
+router.post("/bank-reconciliation/preview-from-sheet", async (req, res) => {
+  const parsed = previewSheetSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Format tidak valid", detail: parsed.error.issues });
+    return;
+  }
+  const { spreadsheetId: rawId, sheetName, bankAccountId } = parsed.data;
+  const spreadsheetId = extractSheetId(rawId);
+  if (!spreadsheetId) {
+    res.status(400).json({ error: "URL atau ID spreadsheet tidak valid" });
+    return;
+  }
+
+  try {
+    const range = sheetName ? `'${sheetName}'!A:Z` : "A:Z";
+    const rows = await readFromSheet({ spreadsheetId, range });
+    if (!rows || rows.length < 2) {
+      res.status(400).json({ error: "Sheet kosong atau tidak memiliki data (minimal 1 baris header + 1 baris data)" });
+      return;
+    }
+    const mutations = parseRows(rows);
+    res.json({
+      success: true,
+      spreadsheetId,
+      sheetName: sheetName ?? null,
+      bankAccountId: bankAccountId ?? null,
+      totalRows: rows.length - 1,
+      validRows: mutations.length,
+      headers: rows[0] ?? [],
+      preview: mutations.slice(0, 5).map((m) => ({
+        transactionDate: m.transactionDate,
+        description: m.description,
+        amount: m.amount,
+        direction: m.direction,
+        providerName: m.providerName ?? null,
+        providerOrderId: m.providerOrderId ?? null,
+      })),
+    });
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.error("[preview-from-sheet]", msg);
+    res.status(500).json({ error: "Gagal membaca spreadsheet. Pastikan sheet sudah di-share ke service account dan ID/URL benar.", detail: msg });
+  }
+});
+
+// ── POST /bank-reconciliation/import-from-sheet ───────────────────────────────
+// Baca dari Google Sheets, insert ke DB, jalankan auto-matching.
+
+const importSheetSchema = z.object({
+  spreadsheetId: z.string().min(1),
+  sheetName: z.string().optional(),
+  bankAccountId: z.string().optional(),
+});
+
+router.post("/bank-reconciliation/import-from-sheet", async (req, res) => {
+  const parsed = importSheetSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Format tidak valid", detail: parsed.error.issues });
+    return;
+  }
+  const { spreadsheetId: rawId, sheetName, bankAccountId } = parsed.data;
+  const spreadsheetId = extractSheetId(rawId);
+  if (!spreadsheetId) {
+    res.status(400).json({ error: "URL atau ID spreadsheet tidak valid" });
+    return;
+  }
+
+  let rows: string[][];
+  try {
+    const range = sheetName ? `'${sheetName}'!A:Z` : "A:Z";
+    rows = await readFromSheet({ spreadsheetId, range });
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.error("[import-from-sheet] readFromSheet error:", msg);
+    res.status(500).json({ error: "Gagal membaca spreadsheet. Pastikan sheet sudah di-share ke service account dan ID/URL benar.", detail: msg });
+    return;
+  }
+
+  if (!rows || rows.length < 2) {
+    res.status(400).json({ error: "Sheet kosong atau tidak memiliki data (minimal 1 baris header + 1 baris data)" });
+    return;
+  }
+
+  const mutations = parseRows(rows);
+  if (mutations.length === 0) {
+    res.status(400).json({ error: "Tidak ada baris mutasi valid yang bisa diproses. Pastikan kolom Tanggal dan nominal (Kredit/Debet) ada di sheet." });
+    return;
+  }
+
+  const ctx = appCtx(req);
+  const siteId: number | undefined = (req as any).siteId > 0 ? (req as any).siteId : undefined;
+  const toInsert = mutations.map((m) => ({
+    ...m,
+    bankAccountId: bankAccountId ?? null,
+    siteId: siteId ?? null,
+    ownerApp: ctx.ownerApp,
+    sourceApp: ctx.sourceApp,
+    ownerTenantId: ctx.ownerTenantId ?? null,
+    ownerCompanyId: ctx.ownerCompanyId ?? null,
+  }));
+
+  const inserted = await db.insert(bankMutationsTable).values(toInsert).returning({ id: bankMutationsTable.id });
+  const ids = inserted.map((r) => r.id);
+
+  logAudit(req, {
+    action: "bank_mutation_import",
+    entityType: "bank_mutations",
+    afterData: { count: ids.length, bankAccountId, source: "google_sheets", spreadsheetId, ownerTenantId: ctx.ownerTenantId },
+  });
+  logBankReconAudit(req, ctx, "import_mutasi", {
+    metadata: { count: ids.length, bankAccountId, source: "google_sheets", spreadsheetId },
+    sourceModule: "bank_reconciliation",
+  });
+
+  const mc = matchCtx(ctx);
+  const matchResults = await Promise.allSettled(ids.map((id) => runMatchingForMutation(id, mc)));
+  const autoMatched = matchResults.filter(
+    (r) => r.status === "fulfilled" && (r.value as any).autoMatched
+  ).length;
+  const duplicates = matchResults.filter(
+    (r) => r.status === "fulfilled" && (r.value as any).status === "duplicate_need_review"
+  ).length;
+
+  matchResults.forEach((r, idx) => {
+    if (r.status === "fulfilled") {
+      const v = r.value as any;
+      if (v.status === "duplicate_need_review") {
+        logBankReconAudit(req, ctx, "need_review", {
+          mutationId: ids[idx],
+          metadata: { trigger: "import_sheet", candidatesCount: v.candidatesCount },
+          sourceModule: "bank_reconciliation",
+        });
+      } else if (v.autoMatched) {
+        logBankReconAudit(req, ctx, "auto_match", {
+          mutationId: ids[idx],
+          matchId: v.matchId ?? null,
+          metadata: { candidateType: v.candidateType, candidateId: v.candidateId, source: "google_sheets" },
+          sourceModule: "bank_reconciliation",
+        });
+      }
+    }
+  });
+
+  res.json({ success: true, imported: ids.length, autoMatched, duplicates });
 });
 
 // ── POST /bank-reconciliation/import ─────────────────────────────────────────
