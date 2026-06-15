@@ -322,6 +322,13 @@ DO $$ BEGIN
   END IF;
 END $$;
 
+-- Pastikan kolom booking_id ada sebelum FK (defensive: mungkin CREATE TABLE dilewati karena tabel sudah ada)
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='tenant_invoices' AND column_name='booking_id') THEN
+    ALTER TABLE "tenant_invoices" ADD COLUMN "booking_id" integer;
+  END IF;
+END $$;
+
 -- FK tenant_invoices -> tenant_bookings
 DO $$ BEGIN
   IF NOT EXISTS (
