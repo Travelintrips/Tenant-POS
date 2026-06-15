@@ -1,7 +1,7 @@
 - [api-zod duplicate exports](api-zod-exports.md) — only export from `./generated/api`, not `./generated/types` (same names clash)
 - [scripts workspace resolution](scripts-workspace-resolution.md) — scripts pkg needs `paths` in tsconfig to resolve `@workspace/*` libs; symlinks not created by pnpm for scripts
 - [invalid hook call fix](invalid-hook-call.md) — avoid generated lib hooks (useListTenants etc); use `useQuery` directly in admin-portal pages
-- [DB active connection](db-connection-priority.md) — app now runs on Replit PostgreSQL (heliumdb via DATABASE_URL); config.ts priority: DATABASE_URL → SUPABASE_PG_URL → SUPABASE_DATABASE_URL; NOT connected to Supabase
+- [DB active connection](db-connection-priority.md) — app connects to Supabase via SUPABASE_PG_URL secret; config.ts priority: SUPABASE_PG_URL → SUPABASE_DATABASE_URL → DATABASE_URL; DATABASE_URL is Replit heliumdb (fallback only)
 - [config-ts-syntax-error](config-ts-merge-conflict.md) — lib/db/src/config.ts terus kena git merge conflict/syntax error (duplicate const rawUrl); ALWAYS overwrite penuh dengan write tool, jangan edit parsial
 - [schema-column-fix](schema-column-fix.md) — 3 tables needed ALTER TABLE to add missing columns; sync old data booking_id from tenant_booking_id after adding new column
 - [drizzle-kit-tty](drizzle-kit-tty.md) — drizzle-kit push requires interactive TTY for new tables; add SQL migration to lib/db/src/migrator.ts instead
