@@ -30,6 +30,8 @@ import WhatsAppSend from "@/pages/whatsapp-send";
 import WhatsAppTemplates from "@/pages/whatsapp-templates";
 import BankRekonsiliasi from "@/pages/bank-rekonsiliasi";
 import DbMonitoring from "@/pages/db-monitoring";
+import BukuJurnal from "@/pages/buku-jurnal";
+import KelolaCoa from "@/pages/kelola-coa";
 // Legacy module kept for rollback — DO NOT import Rekonsiliasi as a rendered route
 // import Rekonsiliasi from "@/pages/rekonsiliasi";
 
@@ -191,6 +193,20 @@ function Router() {
         <AuthGuard roles={["owner", "admin", "finance"]}>
           <SidebarLayout>
             <BankRekonsiliasi />
+          </SidebarLayout>
+        </AuthGuard>
+      </Route>
+      <Route path="/buku-jurnal">
+        <AuthGuard roles={["owner", "admin", "finance"]}>
+          <SidebarLayout>
+            <BukuJurnal />
+          </SidebarLayout>
+        </AuthGuard>
+      </Route>
+      <Route path="/kelola-coa">
+        <AuthGuard roles={["owner", "admin", "finance"]}>
+          <SidebarLayout>
+            <KelolaCoa />
           </SidebarLayout>
         </AuthGuard>
       </Route>
