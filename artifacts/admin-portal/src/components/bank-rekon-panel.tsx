@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -27,7 +27,7 @@ import {
   Zap, Search, ChevronRight, FileUp, BarChart2, Banknote, Receipt, FileCheck,
   FileSpreadsheet, MessageCircle, Send, ClipboardList, LayoutDashboard,
   TrendingUp, Lock, BookOpen, Plus, Pencil, Trash2, AlertCircle, LockOpen,
-  GitCompareArrows, ShieldCheck, ShieldAlert,
+  GitCompareArrows, ShieldCheck, ShieldAlert, Link2, Timer, WifiOff, Wifi,
 } from "lucide-react";
 
 const formatRp = (n: string | number | null | undefined) =>
@@ -213,6 +213,70 @@ export default function BankRekonPanel() {
 
   // ── Exception Dashboard filter ────────────────────────────────────────────────
   const [exceptionFilter, setExceptionFilter] = useState<"need_review" | "unmatched" | "duplicate" | "belum_jurnal" | "closed">("need_review");
+
+  // ── Sinkronisasi Otomatis ─────────────────────────────────────────────────────
+  type SyncConfig = {
+    enabled: boolean; spreadsheetId: string; sheetName: string; bankAccountId: string;
+    intervalMinutes: number; lastSyncAt: string | null;
+    lastSyncResult: { success: boolean; newRows: number; totalRows: number; error: string | null; at: string } | null;
+  };
+  const [showSyncDialog, setShowSyncDialog] = useState(false);
+  const [syncForm, setSyncForm] = useState<Omit<SyncConfig, "lastSyncAt" | "lastSyncResult">>({
+    enabled: false, spreadsheetId: "", sheetName: "", bankAccountId: "", intervalMinutes: 5,
+  });
+
+  const { data: syncConfig, refetch: refetchSyncConfig } = useQuery<SyncConfig>({
+    queryKey: ["/api/bank-reconciliation/sync-config"],
+    queryFn: async () => { const r = await fetch("/api/bank-reconciliation/sync-config"); if (!r.ok) throw new Error(); return r.json(); },
+    refetchInterval: 30_000,
+  });
+
+  useEffect(() => {
+    if (syncConfig) {
+      setSyncForm({
+        enabled: syncConfig.enabled,
+        spreadsheetId: syncConfig.spreadsheetId,
+        sheetName: syncConfig.sheetName ?? "",
+        bankAccountId: syncConfig.bankAccountId ?? "",
+        intervalMinutes: syncConfig.intervalMinutes ?? 5,
+      });
+    }
+  }, [syncConfig]);
+
+  // Auto-refresh data saat sinkronisasi aktif
+  useEffect(() => {
+    if (!syncConfig?.enabled) return;
+    const ms = (syncConfig.intervalMinutes ?? 5) * 60_000;
+    const id = setInterval(() => {
+      refetch();
+      refetchKpi();
+      refetchSyncConfig();
+    }, ms);
+    return () => clearInterval(id);
+  }, [syncConfig?.enabled, syncConfig?.intervalMinutes]);
+
+  const saveSyncConfigMut = useMutation({
+    mutationFn: async (cfg: typeof syncForm) => {
+      const r = await fetch("/api/bank-reconciliation/sync-config", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(cfg) });
+      const d = await r.json(); if (!r.ok) throw new Error(d.error ?? "Gagal menyimpan"); return d;
+    },
+    onSuccess: () => { toast({ title: "Konfigurasi disimpan" }); refetchSyncConfig(); },
+    onError: (e: Error) => toast({ title: "Gagal menyimpan", description: e.message, variant: "destructive" }),
+  });
+
+  const syncNowMut = useMutation({
+    mutationFn: async () => {
+      const r = await fetch("/api/bank-reconciliation/sync-now", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({}) });
+      const d = await r.json(); if (!r.ok) throw new Error(d.error ?? "Gagal sinkronisasi"); return d as { newRows: number; totalRows: number; skipped: number; autoMatched: number };
+    },
+    onSuccess: (d) => {
+      toast({ title: "Sinkronisasi selesai", description: `${d.newRows} baris baru, ${d.skipped} dilewati, ${d.autoMatched} auto-match` });
+      qc.invalidateQueries({ queryKey: ["/api/bank-reconciliation/mutations"] });
+      qc.invalidateQueries({ queryKey: ["/api/bank-reconciliation/kpi"] });
+      refetchSyncConfig();
+    },
+    onError: (e: Error) => toast({ title: "Sinkronisasi gagal", description: e.message, variant: "destructive" }),
+  });
 
   // ── Export & WA dialogs ───────────────────────────────────────────────────────
   const [showExport, setShowExport] = useState(false);
@@ -667,6 +731,19 @@ export default function BankRekonPanel() {
             <input ref={fileRef} type="file" accept=".csv" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) { importMutation.mutate(f); e.target.value = ""; } }} />
             <Button variant="outline" size="sm" className="border-emerald-300 text-emerald-700 hover:bg-emerald-50" onClick={() => { setShowImportSheet(true); setSheetPreview(null); setPreviewError(""); }} disabled={importSheetMut.isPending}>
               <FileSpreadsheet className="mr-2 h-3.5 w-3.5" />Import dari Sheets
+            </Button>
+            {/* Sinkronisasi Otomatis button */}
+            <Button
+              variant="outline"
+              size="sm"
+              className={syncConfig?.enabled
+                ? "border-teal-400 text-teal-700 bg-teal-50 hover:bg-teal-100"
+                : "border-slate-300 text-slate-600 hover:bg-slate-50"}
+              onClick={() => setShowSyncDialog(true)}
+            >
+              {syncConfig?.enabled
+                ? <><Wifi className="mr-1.5 h-3.5 w-3.5 text-teal-600" />Sinkron Aktif</>
+                : <><WifiOff className="mr-1.5 h-3.5 w-3.5" />Sinkronisasi</>}
             </Button>
             <Button variant="outline" size="sm" onClick={() => runMatchMutation.mutate()} disabled={runMatchMutation.isPending}>
               {runMatchMutation.isPending ? <><RefreshCw className="mr-2 h-3.5 w-3.5 animate-spin" />Memproses...</> : <><Zap className="mr-2 h-3.5 w-3.5" />Jalankan Auto-Match</>}
@@ -1210,6 +1287,126 @@ export default function BankRekonPanel() {
             <Button variant="outline" size="sm" onClick={() => setShowExport(false)}>Batal</Button>
             <Button size="sm" className="bg-green-600 hover:bg-green-700 text-white" disabled={!exportSheetUrl.trim() || exportSheetMut.isPending} onClick={() => exportSheetMut.mutate({ spreadsheetId: exportSheetUrl.trim(), sheetTitle: exportSheetTitle.trim() || undefined, dateFrom: exportDateFrom || undefined, dateTo: exportDateTo || undefined })}>
               {exportSheetMut.isPending ? <><RefreshCw className="mr-2 h-3.5 w-3.5 animate-spin" />Mengexport...</> : <><FileSpreadsheet className="mr-2 h-3.5 w-3.5" />Export Sekarang</>}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ─── Dialog: Sinkronisasi Otomatis ─── */}
+      <Dialog open={showSyncDialog} onOpenChange={setShowSyncDialog}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Link2 className="h-5 w-5 text-teal-600" />Sinkronisasi Otomatis Google Sheets
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 text-sm">
+            {/* Status terakhir */}
+            {syncConfig?.lastSyncAt && (
+              <div className={`rounded-md border p-3 flex items-start gap-3 ${syncConfig.lastSyncResult?.success ? "border-emerald-200 bg-emerald-50" : "border-red-200 bg-red-50"}`}>
+                {syncConfig.lastSyncResult?.success
+                  ? <CheckCircle2 className="h-4 w-4 text-emerald-600 mt-0.5 shrink-0" />
+                  : <XCircle className="h-4 w-4 text-red-600 mt-0.5 shrink-0" />}
+                <div className="text-xs">
+                  <p className="font-semibold">
+                    {syncConfig.lastSyncResult?.success ? "Sinkronisasi terakhir berhasil" : "Sinkronisasi terakhir gagal"}
+                  </p>
+                  <p className="text-muted-foreground">
+                    {new Date(syncConfig.lastSyncAt).toLocaleString("id-ID")}
+                    {syncConfig.lastSyncResult?.success && ` — ${syncConfig.lastSyncResult.newRows} baris baru, ${syncConfig.lastSyncResult.totalRows} total dibaca`}
+                  </p>
+                  {syncConfig.lastSyncResult?.error && <p className="text-red-600 mt-0.5">{syncConfig.lastSyncResult.error}</p>}
+                </div>
+              </div>
+            )}
+
+            {/* Toggle aktif */}
+            <div className="flex items-center justify-between rounded-md border p-3">
+              <div>
+                <p className="font-medium text-sm">Aktifkan Sinkronisasi Otomatis</p>
+                <p className="text-xs text-muted-foreground">Data baru dari spreadsheet akan diimport secara otomatis</p>
+              </div>
+              <Switch
+                checked={syncForm.enabled}
+                onCheckedChange={(v) => setSyncForm((f) => ({ ...f, enabled: v }))}
+              />
+            </div>
+
+            {/* Info service account */}
+            <Alert className="border-blue-200 bg-blue-50">
+              <AlertDescription className="text-xs text-blue-800">
+                Pastikan spreadsheet sudah di-share ke Service Account:
+                <code className="block mt-1 font-mono text-[10px] break-all select-all bg-blue-100 px-2 py-1 rounded">
+                  dheet-286@sheet-498707.iam.gserviceaccount.com
+                </code>
+              </AlertDescription>
+            </Alert>
+
+            {/* URL Spreadsheet */}
+            <div className="space-y-1">
+              <Label className="text-xs">URL / ID Google Spreadsheet <span className="text-red-500">*</span></Label>
+              <Input
+                className="text-xs"
+                placeholder="https://docs.google.com/spreadsheets/d/..."
+                value={syncForm.spreadsheetId}
+                onChange={(e) => setSyncForm((f) => ({ ...f, spreadsheetId: e.target.value }))}
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <Label className="text-xs">Nama Sheet/Tab (opsional)</Label>
+                <Input className="text-xs" placeholder="Sheet1 (kosong = sheet pertama)" value={syncForm.sheetName} onChange={(e) => setSyncForm((f) => ({ ...f, sheetName: e.target.value }))} />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">ID Rekening Bank (opsional)</Label>
+                <Input className="text-xs" placeholder="BCA-001" value={syncForm.bankAccountId} onChange={(e) => setSyncForm((f) => ({ ...f, bankAccountId: e.target.value }))} />
+              </div>
+            </div>
+
+            {/* Interval */}
+            <div className="space-y-1">
+              <Label className="text-xs flex items-center gap-1"><Timer className="h-3.5 w-3.5" />Interval Sinkronisasi</Label>
+              <Select
+                value={String(syncForm.intervalMinutes)}
+                onValueChange={(v) => setSyncForm((f) => ({ ...f, intervalMinutes: parseInt(v) }))}
+              >
+                <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="1">Setiap 1 menit</SelectItem>
+                  <SelectItem value="5">Setiap 5 menit</SelectItem>
+                  <SelectItem value="15">Setiap 15 menit</SelectItem>
+                  <SelectItem value="30">Setiap 30 menit</SelectItem>
+                  <SelectItem value="60">Setiap 1 jam</SelectItem>
+                  <SelectItem value="360">Setiap 6 jam</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-[11px] text-muted-foreground">Hanya baris baru yang belum ada di sistem yang akan diimport (tidak ada duplikat)</p>
+            </div>
+          </div>
+
+          <DialogFooter className="gap-2 flex-wrap">
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={!syncConfig?.spreadsheetId || syncNowMut.isPending}
+              onClick={() => syncNowMut.mutate()}
+            >
+              {syncNowMut.isPending
+                ? <><RefreshCw className="mr-2 h-3.5 w-3.5 animate-spin" />Menyinkronkan...</>
+                : <><RefreshCw className="mr-2 h-3.5 w-3.5" />Sinkronkan Sekarang</>}
+            </Button>
+            <div className="flex-1" />
+            <Button variant="outline" size="sm" onClick={() => setShowSyncDialog(false)}>Batal</Button>
+            <Button
+              size="sm"
+              className="bg-teal-600 hover:bg-teal-700 text-white"
+              disabled={saveSyncConfigMut.isPending}
+              onClick={() => saveSyncConfigMut.mutate(syncForm)}
+            >
+              {saveSyncConfigMut.isPending
+                ? <><RefreshCw className="mr-2 h-3.5 w-3.5 animate-spin" />Menyimpan...</>
+                : "Simpan Konfigurasi"}
             </Button>
           </DialogFooter>
         </DialogContent>

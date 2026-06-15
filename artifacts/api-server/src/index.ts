@@ -2,6 +2,7 @@ import app from "./app";
 import { config } from "./lib/config";
 import { logger } from "./lib/logger";
 import { startOverdueScheduler } from "./lib/overdue-scheduler";
+import { startSheetSyncScheduler } from "./lib/sheet-sync-scheduler";
 
 async function runMigrationsAndScheduler() {
   try {
@@ -13,6 +14,7 @@ async function runMigrationsAndScheduler() {
   }
 
   startOverdueScheduler();
+  startSheetSyncScheduler();
 }
 
 async function start() {
