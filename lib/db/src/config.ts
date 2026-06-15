@@ -34,15 +34,17 @@ function parseDbUrl(url: string): PgParams {
 
 const isProduction = (process.env["NODE_ENV"] ?? "development") === "production";
 
-// Production → SUPABASE_PG_URL_PROD, Development → SUPABASE_PG_URL
-const rawUrl = isProduction
+// Production → SUPABASE_PG_URL_PROD, Development → SUPABASE_PG_URL / SUPABASE_DATABASE_URL
+const rawUrl = (isProduction
   ? (process.env["SUPABASE_PG_URL_PROD"] ??
      process.env["SUPABASE_PG_URL"] ??
+     process.env["SUPABASE_DATABASE_URL"] ??
      process.env["DATABASE_URL"] ??
      (() => { throw new Error("SUPABASE_PG_URL_PROD harus diset di production"); })())
   : (process.env["SUPABASE_PG_URL"] ??
+     process.env["SUPABASE_DATABASE_URL"] ??
      process.env["DATABASE_URL"] ??
-     (() => { throw new Error("SUPABASE_PG_URL harus diset di development"); })());
+     (() => { throw new Error("SUPABASE_PG_URL harus diset di development"); })())).trim();
 
 const isSupabase =
   rawUrl.includes("supabase") ||
