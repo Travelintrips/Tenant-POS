@@ -2132,6 +2132,42 @@ router.get("/bank-reconciliation/journal-entries", async (req, res) => {
 });
 
 
+// ── GET /bank-reconciliation/sheet-preview ─────────────────────────────────────
+// Ambil 5 baris pertama dari spreadsheet untuk preview sebelum sinkronisasi
+
+router.get("/bank-reconciliation/sheet-preview", async (req, res) => {
+  const rawId   = String(req.query.spreadsheetId ?? "").trim();
+  const sheetName = String(req.query.sheetName ?? "").trim() || undefined;
+
+  if (!rawId) {
+    res.status(400).json({ error: "spreadsheetId wajib diisi" });
+    return;
+  }
+
+  const spreadsheetId = extractSheetId(rawId);
+  if (!spreadsheetId) {
+    res.status(400).json({ error: "URL / ID spreadsheet tidak valid" });
+    return;
+  }
+
+  try {
+    const range = sheetName ? `'${sheetName}'!A1:Z6` : "A1:Z6";
+    const rows  = await readFromSheet({ spreadsheetId, range });
+
+    if (!rows || rows.length === 0) {
+      res.json({ headers: [], rows: [], total: 0 });
+      return;
+    }
+
+    const headers  = rows[0] ?? [];
+    const dataRows = rows.slice(1, 6);
+    res.json({ headers, rows: dataRows, total: rows.length - 1 });
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e);
+    res.status(500).json({ error: msg });
+  }
+});
+
 // ── SYNC CONFIG: GET & POST ───────────────────────────────────────────────────
 
 const SYNC_CONFIG_KEY = "bank_rekon_sync_config";
