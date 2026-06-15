@@ -289,6 +289,66 @@ export async function sendAdminPaymentAlert(params: AdminPaymentAlertParams): Pr
   return sendMessage(params.adminPhone, message);
 }
 
+export interface BankUnmatchedAlertParams {
+  adminName: string;
+  adminPhone: string;
+  totalImported: number;
+  unmatchedCount: number;
+  autoMatchedCount: number;
+  duplicateCount: number;
+  bankAccountId?: string;
+  source: "import_csv" | "import_sheet" | "scheduler";
+}
+
+/**
+ * Kirim notifikasi ke admin/owner/finance saat ada mutasi bank yang unmatched
+ * setelah proses import atau dari scheduler periodik.
+ */
+export async function sendBankUnmatchedAlert(params: BankUnmatchedAlertParams): Promise<WaResult> {
+  const sourceLabel: Record<string, string> = {
+    import_csv: "Upload CSV",
+    import_sheet: "Google Sheets",
+    scheduler: "Pengecekan Periodik",
+  };
+
+  const bankLine = params.bankAccountId
+    ? `• Rekening       : *${params.bankAccountId}*\n`
+    : "";
+
+  let message: string;
+
+  if (params.source === "scheduler") {
+    message =
+      `🔔 *Mutasi Bank Perlu Review*\n` +
+      `━━━━━━━━━━━━━━━━━━━━━\n\n` +
+      `Yth. *${params.adminName}*,\n\n` +
+      `Terdapat *${params.unmatchedCount} mutasi bank* yang belum berhasil dicocokkan secara otomatis dan perlu ditinjau secara manual.\n\n` +
+      bankLine +
+      `• Belum Cocok   : *${params.unmatchedCount} mutasi*\n\n` +
+      `Mohon segera buka menu *Rekonsiliasi Bank → Mutasi* untuk mencocokkan transaksi tersebut.\n\n` +
+      `Terima kasih 🙏\n` +
+      `_Sistem Manajemen Mall_`;
+  } else {
+    message =
+      `🏦 *Hasil Import Mutasi Bank*\n` +
+      `━━━━━━━━━━━━━━━━━━━━━\n\n` +
+      `Yth. *${params.adminName}*,\n\n` +
+      `Import mutasi bank via *${sourceLabel[params.source] ?? params.source}* telah selesai:\n\n` +
+      bankLine +
+      `• Total Diimport : *${params.totalImported} mutasi*\n` +
+      `• Auto-cocok     : ✅ ${params.autoMatchedCount} mutasi\n` +
+      `• Duplikat       : ⚠️ ${params.duplicateCount} mutasi\n` +
+      `• Belum Cocok    : ❌ *${params.unmatchedCount} mutasi*\n\n` +
+      (params.unmatchedCount > 0
+        ? `*${params.unmatchedCount} mutasi perlu dicocokkan manual.* Buka menu *Rekonsiliasi Bank → Mutasi* untuk meninjau.\n\n`
+        : `Semua mutasi berhasil dicocokkan otomatis. 🎉\n\n`) +
+      `Terima kasih 🙏\n` +
+      `_Sistem Manajemen Mall_`;
+  }
+
+  return sendMessage(params.adminPhone, message);
+}
+
 export interface ReconciliationReminderParams {
   ownerName: string;
   businessName: string;

@@ -1,7 +1,7 @@
 import { db } from "@workspace/db";
-import { tenantInvoicesTable, tenantsTable } from "@workspace/db/schema";
-import { and, inArray, isNull, eq, sql } from "drizzle-orm";
-import { sendOverdueReminder, sendInvoiceNotification } from "./whatsapp";
+import { tenantInvoicesTable, tenantsTable, usersTable, bankMutationsTable } from "@workspace/db/schema";
+import { and, inArray, isNull, eq, sql, gt } from "drizzle-orm";
+import { sendOverdueReminder, sendInvoiceNotification, sendBankUnmatchedAlert } from "./whatsapp";
 import { logger } from "./logger";
 import { getBaseUrl } from "./app-url";
 
@@ -19,6 +19,9 @@ export function startOverdueScheduler(): void {
     runOverdueCheck().catch((err) =>
       logger.warn({ err }, "[scheduler] Cek overdue awal gagal"),
     );
+    runUnmatchedMutationCheck().catch((err) =>
+      logger.warn({ err }, "[scheduler] Cek mutasi unmatched awal gagal"),
+    );
   }, 30_000);
 
   // Ulangi setiap 12 jam
@@ -30,11 +33,83 @@ export function startOverdueScheduler(): void {
       runOverdueCheck().catch((err) =>
         logger.warn({ err }, "[scheduler] Cek overdue berkala gagal"),
       );
+      runUnmatchedMutationCheck().catch((err) =>
+        logger.warn({ err }, "[scheduler] Cek mutasi unmatched berkala gagal"),
+      );
     },
     12 * 60 * 60 * 1000,
   );
 
-  logger.info("[scheduler] Scheduler aktif (H-3, H-1, overdue) — cek setiap 12 jam");
+  logger.info("[scheduler] Scheduler aktif (H-3, H-1, overdue, unmatched) — cek setiap 12 jam");
+}
+
+// ─── Helper: ambil admin yang punya nomor HP ───────────────────────────────────
+
+async function getAdminPhones(): Promise<Array<{ name: string; phone: string }>> {
+  const adminWa = process.env.FONNTE_ADMIN_WA;
+  const admins = await db
+    .select({ name: usersTable.name, phoneNumber: usersTable.phoneNumber })
+    .from(usersTable)
+    .where(
+      and(
+        inArray(usersTable.role, ["owner", "admin", "finance"]),
+        eq(usersTable.status, "active"),
+        sql`phone_number IS NOT NULL AND phone_number != ''`,
+      ),
+    );
+
+  const result = admins
+    .filter((u) => u.phoneNumber)
+    .map((u) => ({ name: u.name, phone: u.phoneNumber! }));
+
+  // Fallback ke FONNTE_ADMIN_WA jika tidak ada admin dengan HP terdaftar
+  if (result.length === 0 && adminWa) {
+    result.push({ name: "Admin", phone: adminWa });
+  }
+
+  return result;
+}
+
+/**
+ * Kirim notifikasi ringkasan hasil import mutasi ke semua admin/owner/finance.
+ * Dipanggil langsung dari endpoint import bank reconciliation.
+ */
+export async function notifyAdminsUnmatchedImport(params: {
+  totalImported: number;
+  unmatchedCount: number;
+  autoMatchedCount: number;
+  duplicateCount: number;
+  bankAccountId?: string;
+  source: "import_csv" | "import_sheet";
+}): Promise<void> {
+  if (params.unmatchedCount === 0 && params.duplicateCount === 0) return;
+
+  try {
+    const admins = await getAdminPhones();
+    if (admins.length === 0) return;
+
+    logger.info(
+      { admins: admins.length, unmatched: params.unmatchedCount },
+      "[wa] Mengirim notifikasi import mutasi unmatched",
+    );
+
+    await Promise.allSettled(
+      admins.map((admin) =>
+        sendBankUnmatchedAlert({
+          adminName: admin.name,
+          adminPhone: admin.phone,
+          totalImported: params.totalImported,
+          unmatchedCount: params.unmatchedCount,
+          autoMatchedCount: params.autoMatchedCount,
+          duplicateCount: params.duplicateCount,
+          bankAccountId: params.bankAccountId,
+          source: params.source,
+        }),
+      ),
+    );
+  } catch (err) {
+    logger.warn({ err }, "[wa] Gagal kirim notifikasi mutasi unmatched");
+  }
 }
 
 // ─── Helper: bangun payment link ─────────────────────────────────────────────
@@ -258,5 +333,76 @@ async function runOverdueCheck(): Promise<void> {
   logger.info(
     { sent, total: overdueInvoices.length },
     "[scheduler] Pengingat WA overdue selesai",
+  );
+}
+
+// ─── Unmatched Mutation Check (periodik setiap 12 jam) ────────────────────────
+
+// Rate-limit: simpan waktu terakhir notifikasi agar tidak spam
+let _lastUnmatchedNotifAt: Date | null = null;
+
+async function runUnmatchedMutationCheck(): Promise<void> {
+  logger.info("[scheduler] Menjalankan cek mutasi bank unmatched...");
+
+  const [{ count }] = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(bankMutationsTable)
+    .where(
+      and(
+        inArray(bankMutationsTable.status, ["unmatched", "duplicate_need_review"]),
+        // Hanya mutasi yang sudah lebih dari 1 jam (beri waktu proses auto-match)
+        sql`created_at < NOW() - INTERVAL '1 hour'`,
+      ),
+    );
+
+  if (count === 0) {
+    logger.info("[scheduler] Tidak ada mutasi unmatched yang perlu direview");
+    return;
+  }
+
+  // Rate-limit: jangan kirim jika sudah kirim dalam 12 jam terakhir
+  const now = new Date();
+  if (_lastUnmatchedNotifAt) {
+    const hoursSinceLast = (now.getTime() - _lastUnmatchedNotifAt.getTime()) / (60 * 60 * 1000);
+    if (hoursSinceLast < 12) {
+      logger.info(
+        { count, hoursSinceLast: hoursSinceLast.toFixed(1) },
+        "[scheduler] Notifikasi mutasi unmatched dilewati (rate-limit)",
+      );
+      return;
+    }
+  }
+
+  logger.info({ count }, "[scheduler] Ditemukan mutasi bank yang belum cocok, kirim notifikasi WA");
+
+  const admins = await getAdminPhones();
+  if (admins.length === 0) {
+    logger.info("[scheduler] Tidak ada admin dengan nomor HP untuk dikirim notifikasi");
+    return;
+  }
+
+  _lastUnmatchedNotifAt = now;
+
+  const results = await Promise.allSettled(
+    admins.map((admin) =>
+      sendBankUnmatchedAlert({
+        adminName: admin.name,
+        adminPhone: admin.phone,
+        totalImported: count,
+        unmatchedCount: count,
+        autoMatchedCount: 0,
+        duplicateCount: 0,
+        source: "scheduler",
+      }),
+    ),
+  );
+
+  const sent = results.filter(
+    (r) => r.status === "fulfilled" && (r.value as any).ok && !(r.value as any).skipped,
+  ).length;
+
+  logger.info(
+    { count, sent, total: admins.length },
+    "[scheduler] Notifikasi WA mutasi unmatched selesai",
   );
 }
