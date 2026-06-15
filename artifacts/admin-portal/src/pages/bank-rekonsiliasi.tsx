@@ -1,12 +1,15 @@
 import BankRekonPanel from "@/components/bank-rekon-panel";
+import { Banknote } from "lucide-react";
 
 export default function BankRekonsiliasi() {
   return (
-    <div className="space-y-5 p-6">
+    <div className="space-y-4 p-6">
       <div>
-        <h1 className="text-2xl font-bold tracking-tight">Rekonsiliasi Mutasi Bank</h1>
-        <p className="text-muted-foreground mt-1 text-sm">
-          Import mutasi rekening, cocokkan otomatis dengan transaksi/invoice, lalu setujui atau tolak.
+        <h1 className="text-xl font-bold tracking-tight flex items-center gap-2">
+          <Banknote className="h-5 w-5 text-orange-500" />Rekonsiliasi Bank
+        </h1>
+        <p className="text-muted-foreground text-sm mt-0.5">
+          Cocokkan mutasi rekening dengan transaksi di sistem
         </p>
       </div>
       <BankRekonPanel />

@@ -211,6 +211,9 @@ export default function BankRekonPanel() {
   const [editingCoa, setEditingCoa] = useState<CoaRule | null>(null);
   const [coaForm, setCoaForm] = useState({ providerName: "", direction: "ALL", descriptionPattern: "", coaCode: "", coaName: "", description: "", isActive: true });
 
+  // ── Exception Dashboard filter ────────────────────────────────────────────────
+  const [exceptionFilter, setExceptionFilter] = useState<"need_review" | "unmatched" | "duplicate" | "belum_jurnal" | "closed">("need_review");
+
   // ── Export & WA dialogs ───────────────────────────────────────────────────────
   const [showExport, setShowExport] = useState(false);
   const [exportSheetUrl, setExportSheetUrl] = useState(() => localStorage.getItem("bank_rekon_sheet_url") ?? "");
@@ -277,6 +280,13 @@ export default function BankRekonPanel() {
     queryKey: ["/api/bank-reconciliation/audit"],
     queryFn: async () => { const r = await fetch("/api/bank-reconciliation/audit"); if (!r.ok) throw new Error(); return r.json(); },
     staleTime: 120_000,
+  });
+
+  // ── Dashboard mutations (unfiltered, for exception table) ─────────────────────
+  const { data: dashboardMuts = [], refetch: refetchDashboardMuts } = useQuery<BankMutation[]>({
+    queryKey: ["/api/bank-reconciliation/mutations", "dashboard-all"],
+    queryFn: async () => { const r = await fetch("/api/bank-reconciliation/mutations"); if (!r.ok) return []; return r.json(); },
+    staleTime: 60_000,
   });
 
   // ── Laporan ───────────────────────────────────────────────────────────────────
@@ -484,159 +494,195 @@ export default function BankRekonPanel() {
     setShowCoaDialog(true);
   };
 
+  // ── Dashboard computed values ─────────────────────────────────────────────────
+  const outstandingIn = dashboardMuts
+    .filter((m) => m.status === "unmatched" && m.direction === "IN")
+    .reduce((s, m) => s + (parseFloat(m.creditAmount) || 0), 0);
+  const belumJurnal = (auditException?.issues?.approved_no_journal?.count ?? 0) as number;
+  const dashboardMutItems = dashboardMuts.filter((m) => {
+    if (exceptionFilter === "need_review")  return m.status === "matched";
+    if (exceptionFilter === "unmatched")    return m.status === "unmatched";
+    if (exceptionFilter === "duplicate")    return m.status === "duplicate_need_review";
+    if (exceptionFilter === "belum_jurnal") return m.status === "approved";
+    if (exceptionFilter === "closed")       return m.status === "rejected";
+    return false;
+  });
+
   return (
     <div className="space-y-4">
-      {/* Context badges */}
-      {appCtx && (
-        <div className="flex flex-wrap gap-1.5">
-          <span className="inline-flex items-center rounded-full border border-emerald-300 bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">Engine Baru</span>
-          <span className="inline-flex items-center rounded-full border border-blue-300 bg-blue-50 px-2 py-0.5 text-[11px] font-semibold text-blue-700">Jurnal Aktif</span>
-          <span className="inline-flex items-center rounded-full border border-purple-300 bg-purple-50 px-2 py-0.5 text-[11px] font-semibold text-purple-700">Closing Aktif</span>
-          {appCtx.ownerTenantId != null && (
-            <span className="inline-flex items-center rounded-full border border-orange-300 bg-orange-50 px-2 py-0.5 text-[11px] font-semibold text-orange-700">Tenant ID: {appCtx.ownerTenantId}</span>
-          )}
-          {appCtx.isBizPortal && (
-            <span className="inline-flex items-center rounded-full border border-indigo-300 bg-indigo-50 px-2 py-0.5 text-[11px] font-semibold text-indigo-700">BizPortal</span>
-          )}
-          {appCtx.isFullAccess && (
-            <span className="inline-flex items-center rounded-full border border-green-300 bg-green-50 px-2 py-0.5 text-[11px] font-semibold text-green-700">Akses Penuh</span>
-          )}
-        </div>
-      )}
-
-      {/* Action Toolbar */}
-      <div className="flex flex-wrap gap-2">
-        <Button variant="outline" onClick={() => fileRef.current?.click()} disabled={importMutation.isPending}>
-          {importMutation.isPending ? <><RefreshCw className="mr-2 h-4 w-4 animate-spin" />Mengimport...</> : <><FileUp className="mr-2 h-4 w-4" />Import CSV</>}
-        </Button>
-        <input ref={fileRef} type="file" accept=".csv" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) { importMutation.mutate(f); e.target.value = ""; } }} />
-        <Button variant="outline" className="border-emerald-300 text-emerald-700 hover:bg-emerald-50" onClick={() => { setShowImportSheet(true); setSheetPreview(null); setPreviewError(""); }} disabled={importSheetMut.isPending}>
-          <FileSpreadsheet className="mr-2 h-4 w-4" />Import dari Sheets
-        </Button>
-        <Button variant="outline" onClick={() => runMatchMutation.mutate()} disabled={runMatchMutation.isPending}>
-          {runMatchMutation.isPending ? <><RefreshCw className="mr-2 h-4 w-4 animate-spin" />Memproses...</> : <><Zap className="mr-2 h-4 w-4" />Jalankan Auto-Match</>}
-        </Button>
-        <Button variant="ghost" size="icon" onClick={() => { refetch(); refetchKpi(); }} disabled={isLoading}>
-          <RefreshCw className={`h-4 w-4 ${isLoading ? "animate-spin" : ""}`} />
-        </Button>
-        <div className="w-px bg-border h-8 mx-1" />
-        <Button variant="outline" className="border-green-300 text-green-700 hover:bg-green-50" onClick={() => setShowExport(true)}>
-          <FileSpreadsheet className="mr-2 h-4 w-4" />Export Google Sheets
-        </Button>
-        <Button variant="outline" className="border-blue-300 text-blue-700 hover:bg-blue-50" onClick={() => setShowWa(true)}>
-          <MessageCircle className="mr-2 h-4 w-4" />Kirim Reminder WA
-        </Button>
-      </div>
-
       {/* ── Main Tabs ── */}
       <Tabs defaultValue="dashboard" className="w-full">
         <TabsList className="mb-0 flex-wrap h-auto">
           <TabsTrigger value="dashboard" className="text-xs flex items-center gap-1.5"><LayoutDashboard className="h-3 w-3" />Dashboard</TabsTrigger>
-          <TabsTrigger value="mutasi" className="text-xs flex items-center gap-1.5"><Banknote className="h-3 w-3" />Mutasi</TabsTrigger>
           <TabsTrigger value="audit-trail" className="text-xs flex items-center gap-1.5"><ClipboardList className="h-3 w-3" />Audit Trail</TabsTrigger>
+          <TabsTrigger value="mutasi" className="text-xs flex items-center gap-1.5"><Banknote className="h-3 w-3" />Mutasi</TabsTrigger>
           <TabsTrigger value="laporan" className="text-xs flex items-center gap-1.5"><TrendingUp className="h-3 w-3" />Laporan</TabsTrigger>
           <TabsTrigger value="closing" className="text-xs flex items-center gap-1.5"><Lock className="h-3 w-3" />Closing Bank</TabsTrigger>
           <TabsTrigger value="coa" className="text-xs flex items-center gap-1.5"><BookOpen className="h-3 w-3" />Aturan COA</TabsTrigger>
-          <TabsTrigger value="kesesuaian" className="text-xs flex items-center gap-1.5"><GitCompareArrows className="h-3 w-3" />Cek Kesesuaian</TabsTrigger>
         </TabsList>
 
         {/* ══ DASHBOARD TAB ══ */}
         <TabsContent value="dashboard" className="space-y-4 mt-4">
-          {kpi ? (
-            <>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <Card className="border-blue-200 bg-blue-50/40">
-                  <CardHeader className="pb-2 pt-4 px-4">
-                    <CardTitle className="text-sm font-semibold text-blue-800 flex items-center gap-1.5"><Banknote className="h-4 w-4" />Mutasi Bank</CardTitle>
-                  </CardHeader>
-                  <CardContent className="px-4 pb-4">
-                    <div className="grid grid-cols-3 gap-2 text-center">
-                      <div><p className="text-xs text-muted-foreground">Total</p><p className="text-lg font-bold text-blue-700">{kpi.mutations.total}</p></div>
-                      <div><p className="text-xs text-muted-foreground">Perlu Review</p><p className="text-lg font-bold text-yellow-700">{kpi.mutations.matched + kpi.mutations.duplicateNeedReview}</p></div>
-                      <div><p className="text-xs text-muted-foreground">Selesai</p><p className="text-lg font-bold text-green-700">{kpi.mutations.approved}</p></div>
-                    </div>
-                  </CardContent>
-                </Card>
-                <Card className="border-purple-200 bg-purple-50/40">
-                  <CardHeader className="pb-2 pt-4 px-4">
-                    <CardTitle className="text-sm font-semibold text-purple-800 flex items-center gap-1.5"><Receipt className="h-4 w-4" />Event Pembayaran</CardTitle>
-                  </CardHeader>
-                  <CardContent className="px-4 pb-4">
-                    <div className="grid grid-cols-3 gap-2 text-center">
-                      <div><p className="text-xs text-muted-foreground">Total</p><p className="text-lg font-bold text-purple-700">{kpi.paymentEvents.total}</p></div>
-                      <div><p className="text-xs text-muted-foreground">Menunggu</p><p className="text-lg font-bold text-orange-600">{kpi.paymentEvents.pending + kpi.paymentEvents.waitingConfirmation}</p></div>
-                      <div><p className="text-xs text-muted-foreground">Dikonfirmasi</p><p className="text-lg font-bold text-green-700">{kpi.paymentEvents.confirmed}</p></div>
-                    </div>
-                    {kpi.paymentEvents.totalConfirmedAmount > 0 && (
-                      <p className="text-xs text-center text-muted-foreground mt-2 border-t pt-2">Total konfirmasi: <span className="font-semibold text-green-700">{formatRp(kpi.paymentEvents.totalConfirmedAmount)}</span></p>
-                    )}
-                  </CardContent>
-                </Card>
-                <Card className="border-green-200 bg-green-50/40">
-                  <CardHeader className="pb-2 pt-4 px-4">
-                    <CardTitle className="text-sm font-semibold text-green-800 flex items-center gap-1.5"><FileCheck className="h-4 w-4" />Status Invoice</CardTitle>
-                  </CardHeader>
-                  <CardContent className="px-4 pb-4">
-                    <div className="grid grid-cols-4 gap-1 text-center">
-                      <div><p className="text-xs text-muted-foreground">Lunas</p><p className="text-lg font-bold text-green-700">{kpi.invoices.paid}</p></div>
-                      <div><p className="text-xs text-muted-foreground">Sebagian</p><p className="text-lg font-bold text-blue-700">{kpi.invoices.partial}</p></div>
-                      <div><p className="text-xs text-muted-foreground">Belum</p><p className="text-lg font-bold text-gray-600">{kpi.invoices.unpaid}</p></div>
-                      <div><p className="text-xs text-muted-foreground">Lewat</p><p className="text-lg font-bold text-red-600">{kpi.invoices.overdue}</p></div>
-                    </div>
-                  </CardContent>
-                </Card>
-              </div>
+          <h3 className="text-sm font-semibold text-gray-700">Exception Dashboard</h3>
 
-              <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-                {[
-                  { label: "Total",        val: stats.total,     color: "text-gray-700",   bg: "" },
-                  { label: "Tidak Cocok",  val: stats.unmatched, color: "text-gray-600",   bg: "bg-gray-50" },
-                  { label: "Ada Kandidat", val: stats.matched,   color: "text-blue-700",   bg: "bg-blue-50" },
-                  { label: "Duplikat",     val: stats.duplicate, color: "text-yellow-700", bg: "bg-yellow-50" },
-                  { label: "Disetujui",    val: stats.approved,  color: "text-green-700",  bg: "bg-green-50" },
-                ].map((s) => (
-                  <div key={s.label} className={`rounded-lg border p-3 text-center ${s.bg}`}>
-                    <p className="text-xs text-muted-foreground">{s.label}</p>
-                    <p className={`text-xl font-bold ${s.color}`}>{s.val}</p>
-                  </div>
-                ))}
-              </div>
-            </>
-          ) : (
-            <div className="text-center py-8 text-muted-foreground text-sm">Memuat dashboard...</div>
-          )}
+          {/* Row 1: 4 metric cards */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <div className="rounded-lg border bg-white p-4">
+              <p className="text-[11px] text-muted-foreground">Total Mutasi</p>
+              <p className="text-2xl font-bold mt-1">{kpi?.mutations.total ?? 0}</p>
+            </div>
+            <div className="rounded-lg border border-green-200 bg-green-50 p-4">
+              <p className="text-[11px] text-green-600">Approved</p>
+              <p className="text-2xl font-bold text-green-700 mt-1">{kpi?.mutations.approved ?? 0}</p>
+            </div>
+            <div className="rounded-lg border border-yellow-200 bg-yellow-50 p-4">
+              <p className="text-[11px] text-yellow-700">Need Review</p>
+              <p className="text-2xl font-bold text-yellow-800 mt-1">{kpi?.mutations.matched ?? 0}</p>
+            </div>
+            <div className="rounded-lg border border-red-200 bg-red-50 p-4">
+              <p className="text-[11px] text-red-500">Unmatched</p>
+              <p className="text-2xl font-bold text-red-600 mt-1">{kpi?.mutations.unmatched ?? 0}</p>
+            </div>
+          </div>
 
-          {/* Exception Dashboard */}
-          {auditException && (
-            <Card className={auditException.totalIssues > 0 ? "border-orange-200 bg-orange-50/20" : "border-green-200 bg-green-50/20"}>
-              <CardHeader className="pb-2 pt-4 px-4">
-                <CardTitle className="text-sm font-semibold flex items-center gap-2">
-                  {auditException.totalIssues > 0
-                    ? <><AlertCircle className="h-4 w-4 text-orange-500" />Exception Dashboard — {auditException.totalIssues} isu ditemukan</>
-                    : <><CheckCircle2 className="h-4 w-4 text-green-600" />Exception Dashboard — Semua normal</>}
-                </CardTitle>
-              </CardHeader>
-              {auditException.totalIssues > 0 && (
-                <CardContent className="px-4 pb-4">
-                  <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-                    {Object.entries(auditException.issues)
-                      .filter(([, v]) => v.count > 0)
-                      .map(([key, val]) => (
-                        <div key={key} className="rounded-md border border-orange-200 bg-white p-2">
-                          <p className="text-[10px] font-mono text-muted-foreground">{key}</p>
-                          <p className="text-base font-bold text-orange-700">{val.count}</p>
-                          {val.note && <p className="text-[10px] text-muted-foreground mt-0.5">{val.note}</p>}
-                        </div>
-                      ))}
-                  </div>
-                </CardContent>
-              )}
-            </Card>
-          )}
+          {/* Row 2: 3 metric cards */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="rounded-lg border border-yellow-200 bg-yellow-50 p-4">
+              <p className="text-[11px] text-yellow-700">Duplikat</p>
+              <p className="text-2xl font-bold text-yellow-800 mt-1">{kpi?.mutations.duplicateNeedReview ?? 0}</p>
+            </div>
+            <div className="rounded-lg border bg-white p-4">
+              <p className="text-[11px] text-muted-foreground">Belum Jurnal</p>
+              <p className="text-2xl font-bold mt-1">{belumJurnal}</p>
+            </div>
+            <div className="rounded-lg border border-blue-200 bg-blue-50 p-4">
+              <p className="text-[11px] text-blue-600">Outstanding IN</p>
+              <p className="text-lg font-bold text-blue-700 mt-1">{formatRp(outstandingIn)}</p>
+            </div>
+          </div>
+
+          {/* Daftar Exception */}
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-semibold">Daftar Exception</h3>
+              <Button variant="ghost" size="sm" className="h-7 text-xs gap-1.5" onClick={() => refetchDashboardMuts()}>
+                <RefreshCw className="h-3.5 w-3.5" />Refresh
+              </Button>
+            </div>
+
+            {/* Filter chips */}
+            <div className="flex flex-wrap gap-2">
+              {([
+                { key: "need_review",  label: "Need Review",      count: kpi?.mutations.matched ?? 0 },
+                { key: "unmatched",    label: "Unmatched",        count: kpi?.mutations.unmatched ?? 0 },
+                { key: "duplicate",    label: "Duplikat",         count: kpi?.mutations.duplicateNeedReview ?? 0 },
+                { key: "belum_jurnal", label: "Belum Jurnal",     count: belumJurnal },
+                { key: "closed",       label: "Closed Violations", count: kpi?.mutations.rejected ?? 0 },
+              ] as const).map(({ key, label, count }) => (
+                <button
+                  key={key}
+                  onClick={() => setExceptionFilter(key)}
+                  className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium transition-colors ${
+                    exceptionFilter === key
+                      ? "bg-orange-500 text-white"
+                      : "bg-muted text-muted-foreground hover:bg-muted/80"
+                  }`}
+                >
+                  {label}
+                  {count > 0 && (
+                    <span className={`inline-flex rounded-full px-1.5 py-0.5 text-[10px] font-bold leading-none ${exceptionFilter === key ? "bg-white/30 text-white" : "bg-orange-100 text-orange-700"}`}>
+                      {count}
+                    </span>
+                  )}
+                </button>
+              ))}
+            </div>
+
+            {/* Exception table */}
+            <div className="rounded-md border overflow-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow className="bg-muted/40">
+                    <TableHead className="py-2 text-xs w-14">ID</TableHead>
+                    <TableHead className="py-2 text-xs whitespace-nowrap">Tanggal</TableHead>
+                    <TableHead className="py-2 text-xs">Keterangan</TableHead>
+                    <TableHead className="py-2 text-xs w-16">Arah</TableHead>
+                    <TableHead className="py-2 text-xs text-right">Jumlah</TableHead>
+                    <TableHead className="py-2 text-xs">Rekening</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {dashboardMutItems.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={6} className="text-center py-8 text-muted-foreground text-sm">
+                        <CheckCircle2 className="mx-auto mb-2 h-6 w-6 text-green-500 opacity-60" />
+                        <p>Tidak ada exception untuk kategori ini</p>
+                      </TableCell>
+                    </TableRow>
+                  ) : dashboardMutItems.map((m) => (
+                    <TableRow key={m.id} className="text-xs">
+                      <TableCell className="py-2 font-mono text-muted-foreground">#{m.id}</TableCell>
+                      <TableCell className="py-2 whitespace-nowrap font-mono">{m.transactionDate}</TableCell>
+                      <TableCell className="py-2">
+                        <p>{m.description}</p>
+                        {m.providerOrderId && <p className="text-[10px] text-muted-foreground font-mono">{m.providerOrderId}</p>}
+                      </TableCell>
+                      <TableCell className="py-2">
+                        <span className={`inline-flex rounded-sm px-2 py-0.5 text-[10px] font-bold uppercase ${m.direction === "IN" ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"}`}>{m.direction}</span>
+                      </TableCell>
+                      <TableCell className="py-2 text-right font-medium whitespace-nowrap">
+                        {formatRp(m.direction === "IN" ? m.creditAmount : m.debitAmount)}
+                      </TableCell>
+                      <TableCell className="py-2 text-muted-foreground">{m.bankAccountId ?? "—"}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          </div>
+
+          {/* Final Audit — Production Readiness */}
+          <div className="rounded-lg border bg-white p-4 flex items-center justify-between gap-4">
+            <div>
+              <p className="text-sm font-semibold">Final Audit — Production Readiness</p>
+              <p className="text-xs text-muted-foreground mt-0.5">Validasi integritas data: duplikat jurnal, invoice overpaid, closing dengan selisih, dll.</p>
+            </div>
+            <Button
+              size="sm"
+              className="bg-orange-500 hover:bg-orange-600 text-white shrink-0"
+              onClick={() => { void refetchKpi(); }}
+            >
+              Jalankan Audit
+            </Button>
+          </div>
         </TabsContent>
 
         {/* ══ MUTASI TAB ══ */}
         <TabsContent value="mutasi" className="space-y-4 mt-4">
+          {/* Action Toolbar */}
+          <div className="flex flex-wrap gap-2">
+            <Button variant="outline" size="sm" onClick={() => fileRef.current?.click()} disabled={importMutation.isPending}>
+              {importMutation.isPending ? <><RefreshCw className="mr-2 h-3.5 w-3.5 animate-spin" />Mengimport...</> : <><FileUp className="mr-2 h-3.5 w-3.5" />Import CSV</>}
+            </Button>
+            <input ref={fileRef} type="file" accept=".csv" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) { importMutation.mutate(f); e.target.value = ""; } }} />
+            <Button variant="outline" size="sm" className="border-emerald-300 text-emerald-700 hover:bg-emerald-50" onClick={() => { setShowImportSheet(true); setSheetPreview(null); setPreviewError(""); }} disabled={importSheetMut.isPending}>
+              <FileSpreadsheet className="mr-2 h-3.5 w-3.5" />Import dari Sheets
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => runMatchMutation.mutate()} disabled={runMatchMutation.isPending}>
+              {runMatchMutation.isPending ? <><RefreshCw className="mr-2 h-3.5 w-3.5 animate-spin" />Memproses...</> : <><Zap className="mr-2 h-3.5 w-3.5" />Jalankan Auto-Match</>}
+            </Button>
+            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => { refetch(); refetchKpi(); }} disabled={isLoading}>
+              <RefreshCw className={`h-4 w-4 ${isLoading ? "animate-spin" : ""}`} />
+            </Button>
+            <div className="w-px bg-border h-8 mx-1" />
+            <Button variant="outline" size="sm" className="border-green-300 text-green-700 hover:bg-green-50" onClick={() => setShowExport(true)}>
+              <FileSpreadsheet className="mr-2 h-3.5 w-3.5" />Export Google Sheets
+            </Button>
+            <Button variant="outline" size="sm" className="border-blue-300 text-blue-700 hover:bg-blue-50" onClick={() => setShowWa(true)}>
+              <MessageCircle className="mr-2 h-3.5 w-3.5" />Kirim Reminder WA
+            </Button>
+          </div>
+
           <Alert className="border-blue-200 bg-blue-50 py-3">
             <BarChart2 className="h-4 w-4 text-blue-600" />
             <AlertDescription className="text-blue-700 text-xs">
@@ -997,159 +1043,7 @@ export default function BankRekonPanel() {
           </div>
         </TabsContent>
 
-        {/* ══ CEK KESESUAIAN TAB ══ */}
-        <TabsContent value="kesesuaian" className="space-y-4 mt-4">
-          {/* Filter bar */}
-          <div className="flex flex-wrap items-end gap-2">
-            <div className="space-y-1">
-              <label className="text-xs text-muted-foreground">Status</label>
-              <Select value={kesesuaianStatus} onValueChange={setKesesuaianStatus}>
-                <SelectTrigger className="h-8 w-36 text-xs"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Semua Status</SelectItem>
-                  <SelectItem value="approved">Disetujui</SelectItem>
-                  <SelectItem value="matched">Ada Kandidat</SelectItem>
-                  <SelectItem value="unmatched">Tidak Cocok</SelectItem>
-                  <SelectItem value="duplicate_need_review">Duplikat</SelectItem>
-                  <SelectItem value="rejected">Ditolak</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1">
-              <label className="text-xs text-muted-foreground">Dari Tanggal</label>
-              <Input type="date" className="h-8 text-xs w-36" value={kesesuaianDateFrom} onChange={(e) => setKesesuaianDateFrom(e.target.value)} />
-            </div>
-            <div className="space-y-1">
-              <label className="text-xs text-muted-foreground">Sampai Tanggal</label>
-              <Input type="date" className="h-8 text-xs w-36" value={kesesuaianDateTo} onChange={(e) => setKesesuaianDateTo(e.target.value)} />
-            </div>
-            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => refetchKesesuaian()} disabled={loadingKesesuaian}>
-              <RefreshCw className={`h-4 w-4 ${loadingKesesuaian ? "animate-spin" : ""}`} />
-            </Button>
-          </div>
 
-          {/* Summary cards */}
-          {kesesuaianData && (
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-              <Card className="border-slate-200">
-                <CardContent className="p-3">
-                  <p className="text-[10px] text-muted-foreground uppercase tracking-wide">Total Mutasi</p>
-                  <p className="text-2xl font-bold mt-0.5">{kesesuaianData.summary.total}</p>
-                </CardContent>
-              </Card>
-              <Card className="border-green-200 bg-green-50">
-                <CardContent className="p-3">
-                  <p className="text-[10px] text-green-600 uppercase tracking-wide">Disetujui</p>
-                  <p className="text-2xl font-bold text-green-700 mt-0.5">{kesesuaianData.summary.approved}</p>
-                </CardContent>
-              </Card>
-              <Card className="border-gray-200 bg-gray-50">
-                <CardContent className="p-3">
-                  <p className="text-[10px] text-gray-500 uppercase tracking-wide">Belum Cocok</p>
-                  <p className="text-2xl font-bold text-gray-700 mt-0.5">{kesesuaianData.summary.unmatched}</p>
-                </CardContent>
-              </Card>
-              <Card className={kesesuaianData.summary.withSelisih > 0 ? "border-red-200 bg-red-50" : "border-emerald-200 bg-emerald-50"}>
-                <CardContent className="p-3">
-                  <p className={`text-[10px] uppercase tracking-wide ${kesesuaianData.summary.withSelisih > 0 ? "text-red-600" : "text-emerald-600"}`}>Ada Selisih</p>
-                  <p className={`text-2xl font-bold mt-0.5 ${kesesuaianData.summary.withSelisih > 0 ? "text-red-700" : "text-emerald-700"}`}>
-                    {kesesuaianData.summary.withSelisih}
-                  </p>
-                </CardContent>
-              </Card>
-            </div>
-          )}
-
-          {/* Main table */}
-          <div className="rounded-md border overflow-auto">
-            <Table>
-              <TableHeader>
-                <TableRow className="bg-muted/40 text-[11px]">
-                  <TableHead className="py-2 text-[11px]">Tanggal</TableHead>
-                  <TableHead className="py-2 text-[11px]">Keterangan</TableHead>
-                  <TableHead className="py-2 text-[11px] text-right">Nominal Bank</TableHead>
-                  <TableHead className="py-2 text-[11px]">Status</TableHead>
-                  <TableHead className="py-2 text-[11px]">Jenis Bukti</TableHead>
-                  <TableHead className="py-2 text-[11px] text-right">Nominal Bukti</TableHead>
-                  <TableHead className="py-2 text-[11px] text-right">Selisih</TableHead>
-                  <TableHead className="py-2 text-[11px]">Tenant / Referensi</TableHead>
-                  <TableHead className="py-2 text-[11px] text-center">Kesesuaian</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {loadingKesesuaian && (
-                  <TableRow><TableCell colSpan={9} className="text-center py-10 text-muted-foreground text-sm">
-                    <RefreshCw className="mx-auto mb-2 h-6 w-6 animate-spin opacity-40" /><p>Memuat data kesesuaian...</p>
-                  </TableCell></TableRow>
-                )}
-                {!loadingKesesuaian && (!kesesuaianData || kesesuaianData.rows.length === 0) && (
-                  <TableRow><TableCell colSpan={9} className="text-center py-10 text-muted-foreground text-sm">
-                    <GitCompareArrows className="mx-auto mb-2 h-8 w-8 opacity-25" /><p>Belum ada data mutasi.</p>
-                  </TableCell></TableRow>
-                )}
-                {kesesuaianData?.rows.map((row) => {
-                  const selisih = row.selisih != null ? parseFloat(row.selisih) : null;
-                  const hasSelisih = selisih != null && Math.abs(selisih) > 1;
-                  const isApproved = row.status === "approved";
-                  const isUnmatched = row.status === "unmatched" || row.status === "rejected";
-                  return (
-                    <TableRow key={row.id} className={`text-[11px] ${hasSelisih ? "bg-red-50/50" : isApproved && !hasSelisih ? "bg-green-50/30" : ""}`}>
-                      <TableCell className="py-2 font-mono whitespace-nowrap">{row.transactionDate}</TableCell>
-                      <TableCell className="py-2 max-w-[180px]">
-                        <p className="truncate">{row.description}</p>
-                        {row.providerName && <span className="inline-flex rounded bg-purple-100 text-purple-700 px-1.5 py-0.5 text-[10px] font-medium mt-0.5">{row.providerName}</span>}
-                      </TableCell>
-                      <TableCell className="py-2 text-right font-medium whitespace-nowrap">
-                        <span className={row.direction === "IN" ? "text-green-700" : "text-red-700"}>
-                          {row.direction === "IN" ? "+" : "-"}{formatRp(row.amount)}
-                        </span>
-                      </TableCell>
-                      <TableCell className="py-2"><StatusBadge status={row.status as MutationStatus} /></TableCell>
-                      <TableCell className="py-2">
-                        {row.candidateType ? (
-                          <span className="inline-flex rounded border px-2 py-0.5 text-[10px] font-medium bg-blue-50 text-blue-700 border-blue-200">
-                            {row.candidateType === "payment_event" ? "Bukti Bayar" : row.candidateType === "invoice" ? "Faktur" : "Pembayaran"}
-                          </span>
-                        ) : <span className="text-muted-foreground text-[10px]">—</span>}
-                      </TableCell>
-                      <TableCell className="py-2 text-right whitespace-nowrap">
-                        {row.refAmount != null ? (
-                          <span className="font-medium">{formatRp(row.refAmount)}</span>
-                        ) : <span className="text-muted-foreground">—</span>}
-                      </TableCell>
-                      <TableCell className="py-2 text-right whitespace-nowrap">
-                        {selisih != null ? (
-                          <span className={`font-semibold ${hasSelisih ? "text-red-600" : "text-green-600"}`}>
-                            {hasSelisih ? (selisih > 0 ? "+" : "") + formatRp(selisih) : "✓ Sesuai"}
-                          </span>
-                        ) : <span className="text-muted-foreground">—</span>}
-                      </TableCell>
-                      <TableCell className="py-2 max-w-[160px]">
-                        <p className="truncate font-medium">{row.refTenant ?? "—"}</p>
-                        {row.refReference && <p className="text-[10px] text-muted-foreground font-mono truncate">{row.refReference}</p>}
-                      </TableCell>
-                      <TableCell className="py-2 text-center">
-                        {isApproved && !hasSelisih && <ShieldCheck className="mx-auto h-4 w-4 text-green-600" />}
-                        {isApproved && hasSelisih && <ShieldAlert className="mx-auto h-4 w-4 text-red-500" />}
-                        {!isApproved && !isUnmatched && <HelpCircle className="mx-auto h-4 w-4 text-yellow-500" />}
-                        {isUnmatched && <XCircle className="mx-auto h-4 w-4 text-gray-400" />}
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
-          </div>
-
-          {kesesuaianData && kesesuaianData.rows.length > 0 && (
-            <p className="text-[11px] text-muted-foreground text-right">
-              Menampilkan {kesesuaianData.rows.length} mutasi
-              {kesesuaianData.summary.withSelisih > 0 && (
-                <span className="ml-2 text-red-600 font-medium">⚠ {kesesuaianData.summary.withSelisih} ada selisih nominal</span>
-              )}
-            </p>
-          )}
-        </TabsContent>
       </Tabs>
 
       {/* ─── Dialog: Import dari Google Sheets ─── */}
