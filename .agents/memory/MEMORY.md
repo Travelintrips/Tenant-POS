@@ -1,7 +1,7 @@
 - [api-zod duplicate exports](api-zod-exports.md) — only export from `./generated/api`, not `./generated/types` (same names clash)
 - [scripts workspace resolution](scripts-workspace-resolution.md) — scripts pkg needs `paths` in tsconfig to resolve `@workspace/*` libs; symlinks not created by pnpm for scripts
 - [invalid hook call fix](invalid-hook-call.md) — avoid generated lib hooks (useListTenants etc); use `useQuery` directly in admin-portal pages
-- [supabase-connection](supabase-connection.md) — app uses SUPABASE_PG_URL (pooler port 6543); drizzle-kit push hangs on pooler, use direct pg script from lib/db/ instead
+- [supabase-connection](supabase-connection.md) — active project nzdweipzckfszczzqtuw; pg dotted-username bug: parse URL individually, not connectionString; config.ts prioritizes SUPABASE_PG_URL
 - [DB split-brain](db-connection-priority.md) — SUPABASE_PG_URL takes priority; psql $DATABASE_URL hits local Postgres (IDs 1-14), running API uses Supabase (IDs 15+); seed via API endpoints not psql
 - [schema-column-fix](schema-column-fix.md) — 3 tables needed ALTER TABLE to add missing columns; sync old data booking_id from tenant_booking_id after adding new column
 - [drizzle-kit-tty](drizzle-kit-tty.md) — drizzle-kit push requires interactive TTY for new tables; add SQL migration to lib/db/src/migrator.ts instead
@@ -23,7 +23,6 @@
 - [supabase-shared-db-migration](supabase-shared-db-migration.md) — new Supabase project xssrfshdrtdfupgqwfdw is shared; tenant_invoices pre-existed with wrong schema; fix: defensive ADD COLUMN IF NOT EXISTS for every missing column; seed INSERT must use EXECUTE (dynamic SQL) to avoid PL/pgSQL compile-time column validation error
 - [migrator-site-id-dynamic](migrator-site-id-dynamic.md) — migrations 0019 hardcoded site_id=3 for Sport Center but actual id depends on INSERT order; always use `SELECT id FROM mall_sites WHERE code='SPORT_CENTER_BANDARA'`
 - [config-ts-dedup](config-ts-dedup.md) — lib/db/src/config.ts had duplicate parseDbUrl, duplicate rawUrl, duplicate ssl from prior bad merges; keep single clean version with SUPABASE_PG_URL → SUPABASE_DATABASE_URL → DATABASE_URL priority
-- [supabase-active-connection](supabase-connection.md) — active DB is Supabase xssrfshdrtdfupgqwfdw via SUPABASE_PG_URL secret (pooler port 6543, SSL rejectUnauthorized:false); config.ts prioritizes SUPABASE_PG_URL > DATABASE_URL
 - [config-ts-merge-conflict](config-ts-merge-conflict.md) — lib/db/src/config.ts terus kena git merge conflict; selalu overwrite penuh, jangan edit parsial
 - [migrator-site-id-dynamic](migrator-site-id-dynamic.md) — migrations 0019/0020/0021/0022 hardcoded site_id=3 for Sport Center; fixed to `SELECT id FROM mall_sites WHERE code='SPORT_CENTER_BANDARA'`; migration 0029 needs pgcrypto — add CREATE EXTENSION IF NOT EXISTS pgcrypto first
 - [booking-status-bilingual](booking-status-bilingual.md) — booking_status has mixed values: 'aktif' (Indonesian, site 1) and 'active' (English, site 2 Sport Center); always use IN ('aktif','active') in joins/filters
