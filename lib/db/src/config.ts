@@ -1,20 +1,9 @@
 const isProduction = (process.env["NODE_ENV"] ?? "development") === "production";
 
-const rawUrl = (isProduction
-  ? (process.env["SUPABASE_PG_URL_PROD"] ??
-     process.env["SUPABASE_PG_URL"] ??
-     process.env["SUPABASE_DATABASE_URL"] ??
-     process.env["DATABASE_URL"] ??
-     (() => { throw new Error("SUPABASE_PG_URL_PROD atau DATABASE_URL harus diset di production"); })())
-  : (process.env["SUPABASE_PG_URL"] ??
-     process.env["SUPABASE_DATABASE_URL"] ??
-     process.env["DATABASE_URL"] ??
-     (() => { throw new Error("SUPABASE_PG_URL atau DATABASE_URL harus diset"); })())).trim();
-     (() => { throw new Error("SUPABASE_PG_URL atau DATABASE_URL harus diset"); })())
 const rawUrl = (
+  process.env["DATABASE_URL"] ??
   process.env["SUPABASE_PG_URL"] ??
   process.env["SUPABASE_DATABASE_URL"] ??
-  process.env["DATABASE_URL"] ??
   (() => { throw new Error("DATABASE_URL harus diset"); })()
 ).trim();
 
