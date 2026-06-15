@@ -1671,6 +1671,39 @@ ON CONFLICT (coa_code) DO UPDATE SET
   description  = EXCLUDED.description;
     `.trim(),
   },
+  {
+    name: "0040_finance_payment_events",
+    sql: `
+CREATE TABLE IF NOT EXISTS finance_payment_events (
+  id serial PRIMARY KEY NOT NULL,
+  source_app text NOT NULL,
+  owner_app text NOT NULL,
+  source_module text NOT NULL,
+  source_table text NOT NULL,
+  source_id integer NOT NULL,
+  owner_company_id integer,
+  owner_tenant_id integer,
+  tenant_id integer,
+  site_id integer,
+  invoice_id integer,
+  amount numeric NOT NULL,
+  direction text NOT NULL DEFAULT 'IN',
+  payment_method text NOT NULL,
+  payment_reference text,
+  external_order_id text,
+  payment_status text NOT NULL DEFAULT 'pending',
+  proof_url text,
+  bank_mutation_id integer,
+  is_reconciled boolean NOT NULL DEFAULT false,
+  reconciled_at timestamptz,
+  created_by_app text,
+  approval_scope text,
+  metadata jsonb,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+    `.trim(),
+  },
 ];
 
 const MIGRATIONS_TABLE = "schema_migrations";
