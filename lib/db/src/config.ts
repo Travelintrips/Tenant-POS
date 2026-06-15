@@ -34,15 +34,16 @@ function parseDbUrl(url: string): PgParams {
 
 const isProduction = (process.env["NODE_ENV"] ?? "development") === "production";
 
-// Production → SUPABASE_PG_URL_PROD, Development → SUPABASE_PG_URL
+// Prioritas koneksi: DATABASE_URL (local Replit postgres) > SUPABASE_PG_URL > error
+// DATABASE_URL diprioritaskan karena koneksi Supabase pooler memerlukan kredensial aktif
 const rawUrl = isProduction
   ? (process.env["SUPABASE_PG_URL_PROD"] ??
      process.env["SUPABASE_PG_URL"] ??
      process.env["DATABASE_URL"] ??
      (() => { throw new Error("SUPABASE_PG_URL_PROD harus diset di production"); })())
-  : (process.env["SUPABASE_PG_URL"] ??
-     process.env["DATABASE_URL"] ??
-     (() => { throw new Error("SUPABASE_PG_URL harus diset di development"); })());
+  : (process.env["DATABASE_URL"] ??
+     process.env["SUPABASE_PG_URL"] ??
+     (() => { throw new Error("DATABASE_URL atau SUPABASE_PG_URL harus diset di development"); })());
 
 const isSupabase =
   rawUrl.includes("supabase") ||
