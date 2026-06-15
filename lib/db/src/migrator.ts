@@ -114,7 +114,6 @@ END $$;
   {
     name: "0003_enhance_tenant_contracts",
     sql: `
--- Tambah kolom baru ke tenants
 DO $$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='tenants' AND column_name='notes') THEN
     ALTER TABLE "tenants" ADD COLUMN "notes" text;
@@ -130,7 +129,6 @@ DO $$ BEGIN
   END IF;
 END $$;
 
--- Tambah kolom kontrak baru ke tenant_bookings
 DO $$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='tenant_bookings' AND column_name='contract_number') THEN
     ALTER TABLE "tenant_bookings" ADD COLUMN "contract_number" text;
@@ -188,12 +186,10 @@ DO $$ BEGIN
   END IF;
 END $$;
 
--- Migrasi status lama ke nilai baru untuk tenant_bookings
 UPDATE "tenant_bookings" SET contract_status = 'active' WHERE booking_status = 'aktif' AND contract_status = 'draft';
 UPDATE "tenant_bookings" SET contract_status = 'expired' WHERE booking_status = 'selesai' AND contract_status = 'draft';
 UPDATE "tenant_bookings" SET contract_status = 'terminated' WHERE booking_status = 'batal' AND contract_status = 'draft';
 
--- Seed: Tambah tenant contoh jika tabel kosong
 INSERT INTO "tenants" ("business_name","owner_name","phone","email","category","booth_number","area_name","status","notes")
 SELECT 'Warung Nasi Bu Sari','Sari Dewi','081234567890','sari@email.com','Kuliner','A-01','Lantai 1','active','Tenant lama, pembayaran selalu tepat waktu'
 WHERE NOT EXISTS (SELECT 1 FROM "tenants" LIMIT 1);
@@ -210,7 +206,6 @@ INSERT INTO "tenants" ("business_name","owner_name","phone","email","category","
 SELECT 'Apotek Sehat Sejahtera','Hendra Wijaya','085612347654','hendra@apotekss.com','Kesehatan','D-02','Lantai Ground','inactive','Sedang dalam renovasi'
 WHERE (SELECT count(*) FROM "tenants") < 4;
 
--- Seed: Tambah kontrak contoh jika tenant_bookings kosong
 DO $$
 DECLARE
   t1 integer;
@@ -282,7 +277,6 @@ END $$;
   {
     name: "0004_tenant_invoices",
     sql: `
--- Buat tabel tenant_invoices
 CREATE TABLE IF NOT EXISTS "tenant_invoices" (
   "id" serial PRIMARY KEY NOT NULL,
   "invoice_number" text NOT NULL UNIQUE,
@@ -310,7 +304,6 @@ CREATE TABLE IF NOT EXISTS "tenant_invoices" (
   "updated_at" timestamptz NOT NULL DEFAULT now()
 );
 
--- Defensive: tambah semua kolom yang mungkin tidak ada (jika tabel sudah exist dengan schema berbeda dari app lain)
 DO $$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='tenant_invoices' AND column_name='booking_id') THEN
     ALTER TABLE "tenant_invoices" ADD COLUMN "booking_id" integer;
@@ -356,7 +349,6 @@ DO $$ BEGIN
   END IF;
 END $$;
 
--- FK tenant_invoices -> tenants (gunakan EXCEPTION agar tidak gagal jika FK sudah ada dengan nama berbeda)
 DO $$ BEGIN
   IF NOT EXISTS (
     SELECT 1 FROM information_schema.table_constraints
@@ -371,7 +363,6 @@ DO $$ BEGIN
   END IF;
 END $$;
 
--- FK tenant_invoices -> tenant_bookings
 DO $$ BEGIN
   IF NOT EXISTS (
     SELECT 1 FROM information_schema.table_constraints
@@ -386,14 +377,12 @@ DO $$ BEGIN
   END IF;
 END $$;
 
--- Tambah kolom invoice_id ke tenant_payments
 DO $$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='tenant_payments' AND column_name='invoice_id') THEN
     ALTER TABLE "tenant_payments" ADD COLUMN "invoice_id" integer;
   END IF;
 END $$;
 
--- Seed: gunakan EXECUTE (dynamic SQL) supaya tidak gagal compile-time jika kolom baru saja ditambah
 DO $$
 DECLARE
   has_bookings boolean;
@@ -441,7 +430,6 @@ END $$;
   {
     name: "0005_pos_kasir_upgrade",
     sql: `
--- Buat tabel cashier_shifts
 CREATE TABLE IF NOT EXISTS "cashier_shifts" (
   "id" serial PRIMARY KEY NOT NULL,
   "cashier_name" text NOT NULL,
@@ -457,7 +445,6 @@ CREATE TABLE IF NOT EXISTS "cashier_shifts" (
   "updated_at" timestamptz NOT NULL DEFAULT now()
 );
 
--- Tambah kolom baru ke tenant_payments
 DO $$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='tenant_payments' AND column_name='is_voided') THEN
     ALTER TABLE "tenant_payments" ADD COLUMN "is_voided" boolean NOT NULL DEFAULT false;
@@ -491,7 +478,6 @@ DO $$ BEGIN
   END IF;
 END $$;
 
--- Tambah kolom receipt_number ke tenant_payments jika belum ada
 DO $$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='tenant_payments' AND column_name='receipt_number') THEN
     ALTER TABLE "tenant_payments" ADD COLUMN "receipt_number" text;
@@ -578,7 +564,6 @@ ALTER TABLE "tenant_payments" ALTER COLUMN "tenant_booking_id" DROP NOT NULL;
   {
     name: "0011_multi_site",
     sql: `
--- 1. Buat tabel mall_sites
 CREATE TABLE IF NOT EXISTS "mall_sites" (
   "id" serial PRIMARY KEY NOT NULL,
   "code" text NOT NULL,
@@ -598,7 +583,6 @@ DO $$ BEGIN
   END IF;
 END $$;
 
--- 2. Seed dua site
 INSERT INTO "mall_sites" ("code", "name", "type", "status")
 VALUES ('TOD_M1_BANDARA', 'TOD M1 Bandara', 'mall_tenant', 'active')
 ON CONFLICT DO NOTHING;
@@ -607,7 +591,6 @@ INSERT INTO "mall_sites" ("code", "name", "type", "status")
 VALUES ('SPORT_CENTER_BANDARA', 'Sport Center Bandara', 'sport_center', 'active')
 ON CONFLICT DO NOTHING;
 
--- 3. Buat tabel user_site_access
 CREATE TABLE IF NOT EXISTS "user_site_access" (
   "id" serial PRIMARY KEY NOT NULL,
   "user_id" integer NOT NULL,
@@ -624,56 +607,48 @@ DO $$ BEGIN
   END IF;
 END $$;
 
--- 4a. Tambah site_id ke tenants
 DO $$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='tenants' AND column_name='site_id') THEN
     ALTER TABLE "tenants" ADD COLUMN "site_id" integer;
   END IF;
 END $$;
 
--- 4b. Tambah site_id ke tenant_bookings
 DO $$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='tenant_bookings' AND column_name='site_id') THEN
     ALTER TABLE "tenant_bookings" ADD COLUMN "site_id" integer;
   END IF;
 END $$;
 
--- 4c. Tambah site_id ke tenant_invoices
 DO $$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='tenant_invoices' AND column_name='site_id') THEN
     ALTER TABLE "tenant_invoices" ADD COLUMN "site_id" integer;
   END IF;
 END $$;
 
--- 4d. Tambah site_id ke tenant_payments
 DO $$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='tenant_payments' AND column_name='site_id') THEN
     ALTER TABLE "tenant_payments" ADD COLUMN "site_id" integer;
   END IF;
 END $$;
 
--- 4e. Tambah site_id ke mall_units
 DO $$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='mall_units' AND column_name='site_id') THEN
     ALTER TABLE "mall_units" ADD COLUMN "site_id" integer;
   END IF;
 END $$;
 
--- 4f. Tambah site_id ke audit_logs
 DO $$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='audit_logs' AND column_name='site_id') THEN
     ALTER TABLE "audit_logs" ADD COLUMN "site_id" integer;
   END IF;
 END $$;
 
--- 4g. Tambah site_id ke cashier_shifts
 DO $$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='cashier_shifts' AND column_name='site_id') THEN
     ALTER TABLE "cashier_shifts" ADD COLUMN "site_id" integer;
   END IF;
 END $$;
 
--- 5. Isi semua data lama dengan TOD_M1_BANDARA
 UPDATE "tenants" SET "site_id" = (SELECT id FROM mall_sites WHERE code = 'TOD_M1_BANDARA') WHERE "site_id" IS NULL;
 UPDATE "tenant_bookings" SET "site_id" = (SELECT id FROM mall_sites WHERE code = 'TOD_M1_BANDARA') WHERE "site_id" IS NULL;
 UPDATE "tenant_invoices" SET "site_id" = (SELECT id FROM mall_sites WHERE code = 'TOD_M1_BANDARA') WHERE "site_id" IS NULL;
@@ -682,7 +657,6 @@ UPDATE "mall_units" SET "site_id" = (SELECT id FROM mall_sites WHERE code = 'TOD
 UPDATE "audit_logs" SET "site_id" = (SELECT id FROM mall_sites WHERE code = 'TOD_M1_BANDARA') WHERE "site_id" IS NULL;
 UPDATE "cashier_shifts" SET "site_id" = (SELECT id FROM mall_sites WHERE code = 'TOD_M1_BANDARA') WHERE "site_id" IS NULL;
 
--- 6. Buat NOT NULL pada tabel utama
 ALTER TABLE "tenants" ALTER COLUMN "site_id" SET NOT NULL;
 ALTER TABLE "tenant_bookings" ALTER COLUMN "site_id" SET NOT NULL;
 ALTER TABLE "tenant_invoices" ALTER COLUMN "site_id" SET NOT NULL;
@@ -703,7 +677,6 @@ END $$;
   {
     name: "0013_whatsapp_tenant_user",
     sql: `
--- 1. Tambah kolom baru ke users (aman, tidak drop data)
 DO $$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='users' AND column_name='phone_number') THEN
     ALTER TABLE "users" ADD COLUMN "phone_number" text;
@@ -719,17 +692,14 @@ DO $$ BEGIN
   END IF;
 END $$;
 
--- 2. Buat email nullable (untuk user WhatsApp yang tidak punya email)
 ALTER TABLE "users" ALTER COLUMN "email" DROP NOT NULL;
 
--- 2b. Tambahkan DEFAULT gen_random_uuid() ke users.id supaya INSERT tanpa id berhasil
 DO $$ BEGIN
   IF (SELECT column_default FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'users' AND column_name = 'id') IS NULL THEN
     ALTER TABLE "users" ALTER COLUMN "id" SET DEFAULT gen_random_uuid()::text;
   END IF;
 END $$;
 
--- 3. Buat tabel tenant_user_access
 CREATE TABLE IF NOT EXISTS "tenant_user_access" (
   "id" serial PRIMARY KEY NOT NULL,
   "user_id" text NOT NULL,
@@ -749,7 +719,6 @@ DO $$ BEGIN
   END IF;
 END $$;
 
--- 4. Buat tabel otp_tokens
 CREATE TABLE IF NOT EXISTS "otp_tokens" (
   "id" serial PRIMARY KEY NOT NULL,
   "phone_number" text NOT NULL,
@@ -772,14 +741,12 @@ END $$;
   {
     name: "0014_users_avatar_url",
     sql: `
--- Tambah kolom avatar_url ke users (kolom ini ada di schema Drizzle tapi belum di DB)
 DO $$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='users' AND column_name='avatar_url') THEN
     ALTER TABLE "users" ADD COLUMN "avatar_url" text;
   END IF;
 END $$;
 
--- Pastikan order_number di tenant_bookings punya DEFAULT '' agar INSERT tanpa field ini tidak gagal
 DO $$ BEGIN
   IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='tenant_bookings' AND column_name='order_number' AND column_default IS NULL) THEN
     ALTER TABLE "tenant_bookings" ALTER COLUMN "order_number" SET DEFAULT '';
@@ -790,7 +757,6 @@ END $$;
   {
     name: "0016_payment_proof_approval",
     sql: `
--- Tambah payment_token ke tenant_invoices (link publik untuk upload bukti)
 DO $$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='tenant_invoices' AND column_name='payment_token') THEN
     ALTER TABLE "tenant_invoices" ADD COLUMN "payment_token" text;
@@ -800,10 +766,8 @@ DO $$ BEGIN
   END IF;
 END $$;
 
--- Isi payment_token untuk invoice yang sudah ada (gunakan gen_random_uuid)
 UPDATE "tenant_invoices" SET payment_token = gen_random_uuid()::text WHERE payment_token IS NULL;
 
--- Set default untuk row baru
 DO $$ BEGIN
   IF NOT EXISTS (
     SELECT 1 FROM information_schema.columns
@@ -814,7 +778,6 @@ DO $$ BEGIN
   END IF;
 END $$;
 
--- Unique index untuk payment_token
 DO $$ BEGIN
   IF NOT EXISTS (
     SELECT 1 FROM pg_indexes WHERE tablename = 'tenant_invoices' AND indexname = 'tenant_invoices_payment_token_uq'
@@ -823,7 +786,6 @@ DO $$ BEGIN
   END IF;
 END $$;
 
--- Tambah kolom approval ke tenant_payments
 DO $$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='tenant_payments' AND column_name='approval_status') THEN
     ALTER TABLE "tenant_payments" ADD COLUMN "approval_status" text NOT NULL DEFAULT 'approved';
@@ -843,8 +805,6 @@ END $$;
   {
     name: "0015_role_enum_to_text",
     sql: `
--- Konversi kolom role dari ENUM ke text agar semua nilai role bisa disimpan.
--- Jika sudah text, ALTER TABLE ini diabaikan oleh IF NOT EXISTS check di bawah.
 DO $$ BEGIN
   IF EXISTS (
     SELECT 1 FROM information_schema.columns
@@ -1224,51 +1184,43 @@ END $$;
   {
     name: "0006_mall_units_extended",
     sql: `
--- Add site_id column to mall_units if missing
 DO $$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='mall_units' AND column_name='site_id') THEN
     ALTER TABLE "mall_units" ADD COLUMN "site_id" integer;
   END IF;
 END $$;
 
--- Add unit_type column
 DO $$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='mall_units' AND column_name='unit_type') THEN
     ALTER TABLE "mall_units" ADD COLUMN "unit_type" text NOT NULL DEFAULT 'other';
   END IF;
 END $$;
 
--- Add area_kantin column
 DO $$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='mall_units' AND column_name='area_kantin') THEN
     ALTER TABLE "mall_units" ADD COLUMN "area_kantin" text;
   END IF;
 END $$;
 
--- Seed Kantin Sport Center site
 INSERT INTO "mall_sites" ("code","name","type","status","address")
 VALUES ('KANTIN_SPORT_CENTER','Kantin Sport Center','sport_center','active','Kawasan Sport Center')
 ON CONFLICT ("code") DO NOTHING;
 
--- Seed Kantin TOD M1 site
 INSERT INTO "mall_sites" ("code","name","type","status","address")
 VALUES ('KANTIN_TOD_M1','Kantin TOD M1','mall_tenant','active','TOD M1')
 ON CONFLICT ("code") DO NOTHING;
 
--- Assign existing units with NULL site_id to the first active site
 UPDATE "mall_units"
 SET "site_id" = (SELECT "id" FROM "mall_sites" WHERE "status" = 'active' ORDER BY "id" LIMIT 1)
 WHERE "site_id" IS NULL
   AND EXISTS (SELECT 1 FROM "mall_sites" WHERE "status" = 'active');
 
--- Drop old global unique index on unit_code if it exists
 DO $$ BEGIN
   IF EXISTS (SELECT 1 FROM pg_indexes WHERE tablename = 'mall_units' AND indexname = 'mall_units_unit_code_unique') THEN
     DROP INDEX "mall_units_unit_code_unique";
   END IF;
 END $$;
 
--- Create composite unique index on (site_id, unit_code) if it does not exist
 DO $$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_indexes WHERE tablename = 'mall_units' AND indexname = 'mall_units_site_unit_unique') THEN
     CREATE UNIQUE INDEX "mall_units_site_unit_unique" ON "mall_units" ("site_id", "unit_code");
@@ -1279,19 +1231,13 @@ END $$;
   {
     name: "0008_cleanup_kantin_sites",
     sql: `
--- ═══════════════════════════════════════════════════════════════════════════════
--- Cleanup: Kantin bukan site terpisah — pindah ke site induknya, lalu nonaktifkan
--- Idempotent: aman dijalankan berkali-kali
--- ═══════════════════════════════════════════════════════════════════════════════
 
--- 1. Perbaiki nama tampilan site utama (agar pendek & konsisten)
 UPDATE "mall_sites" SET "name" = 'Sport Center', "updated_at" = now()
 WHERE "code" = 'SPORT_CENTER_BANDARA' AND "name" != 'Sport Center';
 
 UPDATE "mall_sites" SET "name" = 'TOD M1', "updated_at" = now()
 WHERE "code" = 'TOD_M1_BANDARA' AND "name" != 'TOD M1';
 
--- 2. Pindahkan data & nonaktifkan site kantin
 DO $$
 DECLARE
   sc_id  integer;
@@ -1354,7 +1300,6 @@ END $$;
   {
     name: "0007_system_settings_and_units_seed",
     sql: `
--- Tabel konfigurasi sistem
 CREATE TABLE IF NOT EXISTS "system_settings" (
   "id" serial PRIMARY KEY NOT NULL,
   "key" text NOT NULL UNIQUE,
@@ -1362,12 +1307,10 @@ CREATE TABLE IF NOT EXISTS "system_settings" (
   "updated_at" timestamptz NOT NULL DEFAULT now()
 );
 
--- Seed system settings default
 INSERT INTO "system_settings" ("key", "value")
 VALUES ('mall_config', '{"mallName":"Mall Admin","tagline":"Manajemen Tenant Mall","address":"","phone":"","email":"","invoicePrefix":"INV-TENANT","taxRate":0,"currency":"IDR","logoUrl":""}')
 ON CONFLICT ("key") DO NOTHING;
 
--- Seed mall units jika masih kosong
 DO $$
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM "mall_units" LIMIT 1) THEN
@@ -1469,14 +1412,11 @@ END $$;
   {
     name: "0029_short_payment_tokens",
     sql: `
--- Perbarui token pembayaran yang ada (UUID panjang) ke format 12-karakter hex pendek
--- Menggunakan substr(md5(...)) karena gen_random_bytes memerlukan pgcrypto
 UPDATE "tenant_invoices"
 SET payment_token = substr(md5(random()::text || clock_timestamp()::text || id::text), 1, 12)
 WHERE payment_token IS NOT NULL
   AND LENGTH(payment_token) > 20;
 
--- Ganti default kolom ke format 12-karakter hex pendek
 ALTER TABLE "tenant_invoices"
   ALTER COLUMN payment_token SET DEFAULT substr(md5(random()::text || clock_timestamp()::text), 1, 12);
     `.trim(),
@@ -1643,7 +1583,6 @@ CREATE INDEX IF NOT EXISTS "draft_agreements_created_at_idx" ON "tenant_draft_ag
   {
     name: "0039_coa_and_journal_tables",
     sql: `
--- 1. Buat tabel bank_journal_entries (jurnal akuntansi double-entry)
 CREATE TABLE IF NOT EXISTS bank_journal_entries (
   id serial PRIMARY KEY NOT NULL,
   journal_id text NOT NULL UNIQUE,
@@ -1672,7 +1611,6 @@ CREATE TABLE IF NOT EXISTS bank_journal_entries (
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
--- Tambah kolom baru jika tabel sudah ada dengan skema lama
 ALTER TABLE bank_journal_entries
   ADD COLUMN IF NOT EXISTS debit_account_name text,
   ADD COLUMN IF NOT EXISTS credit_account_name text,
@@ -1689,7 +1627,6 @@ ALTER TABLE bank_journal_entries
   ADD COLUMN IF NOT EXISTS metadata jsonb,
   ADD COLUMN IF NOT EXISTS updated_at timestamptz DEFAULT now();
 
--- 2. Buat tabel bank_coa_rules dengan unique constraint pada coa_code
 CREATE TABLE IF NOT EXISTS bank_coa_rules (
   id serial PRIMARY KEY NOT NULL,
   provider_name text,
@@ -1704,11 +1641,9 @@ CREATE TABLE IF NOT EXISTS bank_coa_rules (
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
--- Tambah kolom account_type jika tabel sudah ada tanpa kolom itu
 ALTER TABLE bank_coa_rules
   ADD COLUMN IF NOT EXISTS account_type text DEFAULT 'other';
 
--- Tambah unique constraint jika belum ada (untuk tabel yang sudah exist sebelumnya)
 DO $$ BEGIN
   IF NOT EXISTS (
     SELECT 1 FROM pg_constraint WHERE conname = 'bank_coa_rules_coa_code_key'
@@ -1717,7 +1652,6 @@ DO $$ BEGIN
   END IF;
 END $$;
 
--- 3. Seed CoA standar mall Indonesia (bisa dijalankan ulang tanpa error)
 INSERT INTO bank_coa_rules (coa_code, coa_name, account_type, direction, description, is_active) VALUES
   ('1-1001', 'Kas dan Bank',              'kas',        'ALL', 'Akun utama kas masuk dan keluar',                   true),
   ('1-1002', 'Piutang Sewa',              'piutang',    'IN',  'Piutang atas tagihan sewa tenant',                  true),
@@ -1743,6 +1677,36 @@ ON CONFLICT (coa_code) DO UPDATE SET
 ALTER TABLE tenant_draft_agreements ADD COLUMN IF NOT EXISTS pic_name text;
 ALTER TABLE tenant_draft_agreements ADD COLUMN IF NOT EXISTS source text DEFAULT 'admin';
 ALTER TABLE tenant_draft_agreements ADD COLUMN IF NOT EXISTS interested_unit text;
+    name: "0040_finance_payment_events",
+    sql: `
+CREATE TABLE IF NOT EXISTS finance_payment_events (
+  id serial PRIMARY KEY NOT NULL,
+  source_app text NOT NULL,
+  owner_app text NOT NULL,
+  source_module text NOT NULL,
+  source_table text NOT NULL,
+  source_id integer NOT NULL,
+  owner_company_id integer,
+  owner_tenant_id integer,
+  tenant_id integer,
+  site_id integer,
+  invoice_id integer,
+  amount numeric NOT NULL,
+  direction text NOT NULL DEFAULT 'IN',
+  payment_method text NOT NULL,
+  payment_reference text,
+  external_order_id text,
+  payment_status text NOT NULL DEFAULT 'pending',
+  proof_url text,
+  bank_mutation_id integer,
+  is_reconciled boolean NOT NULL DEFAULT false,
+  reconciled_at timestamptz,
+  created_by_app text,
+  approval_scope text,
+  metadata jsonb,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
     `.trim(),
   },
 ];

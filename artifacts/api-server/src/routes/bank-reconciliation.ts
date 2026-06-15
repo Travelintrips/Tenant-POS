@@ -14,6 +14,7 @@ import {
   tenantBookingsTable,
   tenantsTable,
   financePaymentEventsTable,
+  systemSettingsTable,
 } from "@workspace/db/schema";
 import { eq, and, desc, sql, inArray, isNull, gt, ne, or } from "drizzle-orm";
 import { z } from "zod";
@@ -2131,5 +2132,197 @@ router.get("/bank-reconciliation/journal-entries", async (req, res) => {
 });
 
 
+// ── SYNC CONFIG: GET & POST ───────────────────────────────────────────────────
+
+const SYNC_CONFIG_KEY = "bank_rekon_sync_config";
+
+router.get("/bank-reconciliation/sync-config", async (_req, res) => {
+  try {
+    const row = await db
+      .select({ value: systemSettingsTable.value })
+      .from(systemSettingsTable)
+      .where(eq(systemSettingsTable.key, SYNC_CONFIG_KEY))
+      .limit(1);
+    res.json(row[0]?.value ?? { enabled: false, spreadsheetId: "", sheetName: "", bankAccountId: "", intervalMinutes: 5, lastSyncAt: null, lastSyncResult: null });
+  } catch {
+    res.status(500).json({ error: "Gagal memuat konfigurasi sinkronisasi" });
+  }
+});
+
+const syncConfigSchema = z.object({
+  enabled: z.boolean(),
+  spreadsheetId: z.string(),
+  sheetName: z.string().optional().default(""),
+  bankAccountId: z.string().optional().default(""),
+  intervalMinutes: z.number().int().min(1).max(1440).default(5),
+});
+
+router.post("/bank-reconciliation/sync-config", async (req, res) => {
+  const parsed = syncConfigSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Format tidak valid", detail: parsed.error.issues });
+    return;
+  }
+  try {
+    const existing = await db
+      .select({ value: systemSettingsTable.value })
+      .from(systemSettingsTable)
+      .where(eq(systemSettingsTable.key, SYNC_CONFIG_KEY))
+      .limit(1);
+
+    const merged = { ...(existing[0]?.value as object ?? {}), ...parsed.data };
+
+    if (existing.length > 0) {
+      await db.update(systemSettingsTable)
+        .set({ value: merged, updatedAt: new Date() })
+        .where(eq(systemSettingsTable.key, SYNC_CONFIG_KEY));
+    } else {
+      await db.insert(systemSettingsTable).values({ key: SYNC_CONFIG_KEY, value: merged });
+    }
+    res.json({ success: true, config: merged });
+  } catch {
+    res.status(500).json({ error: "Gagal menyimpan konfigurasi" });
+  }
+});
+
+// ── POST /bank-reconciliation/sync-now ────────────────────────────────────────
+// Sinkronisasi dari Google Sheets — hanya insert baris yang belum ada (berdasarkan mutationKey)
+
+router.post("/bank-reconciliation/sync-now", async (req, res) => {
+  const ctx = appCtx(req);
+
+  let spreadsheetId: string;
+  let sheetName: string | undefined;
+  let bankAccountId: string | undefined;
+
+  // Bisa pakai config dari body atau dari system_settings
+  if (req.body?.spreadsheetId) {
+    spreadsheetId = extractSheetId(req.body.spreadsheetId) ?? "";
+    sheetName = req.body.sheetName || undefined;
+    bankAccountId = req.body.bankAccountId || undefined;
+  } else {
+    const cfgRow = await db
+      .select({ value: systemSettingsTable.value })
+      .from(systemSettingsTable)
+      .where(eq(systemSettingsTable.key, SYNC_CONFIG_KEY))
+      .limit(1);
+    const cfg = cfgRow[0]?.value as Record<string, unknown> | undefined;
+    if (!cfg?.spreadsheetId) {
+      res.status(400).json({ error: "Belum ada konfigurasi sinkronisasi. Atur URL spreadsheet terlebih dahulu." });
+      return;
+    }
+    spreadsheetId = extractSheetId(String(cfg.spreadsheetId)) ?? "";
+    sheetName = cfg.sheetName ? String(cfg.sheetName) : undefined;
+    bankAccountId = cfg.bankAccountId ? String(cfg.bankAccountId) : undefined;
+  }
+
+  if (!spreadsheetId) {
+    res.status(400).json({ error: "URL atau ID spreadsheet tidak valid" });
+    return;
+  }
+
+  let rows: string[][];
+  try {
+    const range = sheetName ? `'${sheetName}'!A:Z` : "A:Z";
+    rows = await readFromSheet({ spreadsheetId, range });
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e);
+    await updateSyncResult({ success: false, error: msg, newRows: 0, totalRows: 0, spreadsheetId });
+    res.status(500).json({ error: "Gagal membaca spreadsheet: " + msg });
+    return;
+  }
+
+  if (!rows || rows.length < 2) {
+    await updateSyncResult({ success: true, newRows: 0, totalRows: 0, spreadsheetId });
+    res.json({ success: true, newRows: 0, totalRows: 0, skipped: 0, autoMatched: 0, duplicates: 0 });
+    return;
+  }
+
+  const parsed = parseRows(rows);
+  const totalRows = parsed.length;
+
+  if (totalRows === 0) {
+    await updateSyncResult({ success: true, newRows: 0, totalRows: 0, spreadsheetId });
+    res.json({ success: true, newRows: 0, totalRows: 0, skipped: 0, autoMatched: 0, duplicates: 0 });
+    return;
+  }
+
+  // Ambil semua mutationKey yang sudah ada di DB agar tidak duplikat
+  const parsedKeys = parsed.map((m) => m.mutationKey);
+  const existingRows = await db
+    .select({ mutationKey: bankMutationsTable.mutationKey })
+    .from(bankMutationsTable)
+    .where(inArray(bankMutationsTable.mutationKey, parsedKeys));
+  const existingKeys = new Set(existingRows.map((r) => r.mutationKey));
+
+  const newMutations = parsed.filter((m) => !existingKeys.has(m.mutationKey));
+  const skipped = totalRows - newMutations.length;
+
+  if (newMutations.length === 0) {
+    await updateSyncResult({ success: true, newRows: 0, totalRows, spreadsheetId });
+    res.json({ success: true, newRows: 0, totalRows, skipped, autoMatched: 0, duplicates: 0 });
+    return;
+  }
+
+  const siteId: number | undefined = (req as any).siteId > 0 ? (req as any).siteId : undefined;
+  const toInsert = newMutations.map((m) => ({
+    ...m,
+    bankAccountId: bankAccountId ?? null,
+    siteId: siteId ?? null,
+    ownerApp: ctx.ownerApp,
+    sourceApp: ctx.sourceApp,
+    ownerTenantId: ctx.ownerTenantId ?? null,
+    ownerCompanyId: ctx.ownerCompanyId ?? null,
+  }));
+
+  const inserted = await db.insert(bankMutationsTable).values(toInsert).returning({ id: bankMutationsTable.id });
+  const ids = inserted.map((r) => r.id);
+
+  const mc = matchCtx(ctx);
+  const matchResults = await Promise.allSettled(ids.map((id) => runMatchingForMutation(id, mc)));
+  const autoMatched = matchResults.filter((r) => r.status === "fulfilled" && (r.value as any).autoMatched).length;
+  const duplicates = matchResults.filter((r) => r.status === "fulfilled" && (r.value as any).status === "duplicate_need_review").length;
+
+  await updateSyncResult({ success: true, newRows: ids.length, totalRows, spreadsheetId });
+
+  logBankReconAudit(req, ctx, "import_mutasi", {
+    metadata: { count: ids.length, bankAccountId, source: "sheet_sync", spreadsheetId, skipped },
+    sourceModule: "bank_reconciliation",
+  });
+
+  res.json({ success: true, newRows: ids.length, totalRows, skipped, autoMatched, duplicates });
+});
+
+async function updateSyncResult(result: { success: boolean; newRows: number; totalRows: number; spreadsheetId: string; error?: string }) {
+  try {
+    const existing = await db
+      .select({ value: systemSettingsTable.value })
+      .from(systemSettingsTable)
+      .where(eq(systemSettingsTable.key, SYNC_CONFIG_KEY))
+      .limit(1);
+
+    if (existing.length === 0) return;
+
+    const cfg = existing[0].value as Record<string, unknown>;
+    const updated = {
+      ...cfg,
+      lastSyncAt: new Date().toISOString(),
+      lastSyncResult: {
+        success: result.success,
+        newRows: result.newRows,
+        totalRows: result.totalRows,
+        error: result.error ?? null,
+        at: new Date().toISOString(),
+      },
+    };
+    await db.update(systemSettingsTable)
+      .set({ value: updated, updatedAt: new Date() })
+      .where(eq(systemSettingsTable.key, SYNC_CONFIG_KEY));
+  } catch {
+    // fire-and-forget, jangan sampai gagalkan response
+  }
+}
+
+export { SYNC_CONFIG_KEY };
 export default router;
 
