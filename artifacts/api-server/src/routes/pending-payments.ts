@@ -11,6 +11,7 @@ import { requireAnyRole } from "../middlewares/auth";
 import { sseBroker } from "../lib/sse-broker";
 import { sendPaymentApproved, sendPaymentRejected } from "../lib/whatsapp";
 import { logAudit } from "../lib/audit";
+import { writePaymentEvent, normalizePaymentMethod } from "../lib/payment-events";
 
 const router: IRouter = Router();
 
@@ -179,6 +180,28 @@ router.post("/pending-payments/:id/approve", async (req, res) => {
       paymentId: id,
       invoiceId: result.invoice.id,
     });
+
+    writePaymentEvent({
+      sourceApp: "tenant_management",
+      ownerApp: "tenant_management",
+      sourceModule: "tenant_invoice",
+      sourceTable: "tenant_payments",
+      sourceId: result.payment.id,
+      tenantId: result.payment.tenantId ?? null,
+      siteId: result.payment.siteId ?? null,
+      invoiceId: result.payment.invoiceId ?? null,
+      amount: parseFloat(String(result.payment.amount)),
+      direction: "IN",
+      paymentMethod: normalizePaymentMethod(result.payment.paymentMethod ?? "transfer"),
+      paymentReference: result.payment.referenceNumber ?? null,
+      proofUrl: result.payment.proofUrl ?? result.payment.proofImageUrl ?? null,
+      paymentStatus: "confirmed",
+      metadata: {
+        receiptNumber: result.payment.receiptNumber,
+        approvedBy: req.user?.name ?? req.user?.email ?? "Admin",
+        invoiceStatus: result.invoice.status,
+      },
+    }).catch(() => {});
 
     if (result.invoice.tenantId) {
       const [tenant] = await db

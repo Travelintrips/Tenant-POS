@@ -12,8 +12,9 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
-  Building2, FileText, CreditCard, Receipt, LogOut, MapPin, User,
+  Building2, FileText, CreditCard, Receipt, LogOut, MapPin, User, Landmark,
 } from "lucide-react";
+import BankRekonPanel from "@/components/bank-rekon-panel";
 
 function formatCurrency(val: string | number | null | undefined) {
   if (val === null || val === undefined) return "—";
@@ -28,16 +29,16 @@ function formatDate(d: string | null | undefined) {
 }
 
 const STATUS_BADGES: Record<string, { label: string; variant: "default" | "secondary" | "destructive" | "outline" }> = {
-  active: { label: "Aktif", variant: "default" },
-  draft: { label: "Draft", variant: "secondary" },
-  expired: { label: "Kedaluwarsa", variant: "destructive" },
-  terminated: { label: "Diakhiri", variant: "destructive" },
-  paid: { label: "Lunas", variant: "default" },
-  partial: { label: "Sebagian", variant: "secondary" },
-  unpaid: { label: "Belum Bayar", variant: "destructive" },
-  overdue: { label: "Jatuh Tempo", variant: "destructive" },
-  PAID: { label: "Lunas", variant: "default" },
-  UNPAID: { label: "Belum Bayar", variant: "destructive" },
+  active:      { label: "Aktif",        variant: "default" },
+  draft:       { label: "Draft",        variant: "secondary" },
+  expired:     { label: "Kedaluwarsa",  variant: "destructive" },
+  terminated:  { label: "Diakhiri",     variant: "destructive" },
+  paid:        { label: "Lunas",        variant: "default" },
+  partial:     { label: "Sebagian",     variant: "secondary" },
+  unpaid:      { label: "Belum Bayar",  variant: "destructive" },
+  overdue:     { label: "Jatuh Tempo",  variant: "destructive" },
+  PAID:        { label: "Lunas",        variant: "default" },
+  UNPAID:      { label: "Belum Bayar",  variant: "destructive" },
 };
 
 function StatusBadge({ status }: { status: string }) {
@@ -116,7 +117,7 @@ export default function TenantPortal() {
         </Button>
       </header>
 
-      <main className="max-w-5xl mx-auto px-4 py-6 space-y-6">
+      <main className="max-w-6xl mx-auto px-4 py-6 space-y-6">
         {meLoading ? (
           <LoadingSkeleton />
         ) : tenantAccess.length === 0 ? (
@@ -131,6 +132,7 @@ export default function TenantPortal() {
           </Card>
         ) : (
           <>
+            {/* Tenant Info Cards */}
             <div className="grid gap-4 sm:grid-cols-2">
               {tenantAccess.map((access: any) => (
                 <Card key={`${access.tenantId}-${access.siteId}`}>
@@ -163,8 +165,9 @@ export default function TenantPortal() {
               ))}
             </div>
 
+            {/* Main Tabs */}
             <Tabs defaultValue="contracts">
-              <TabsList>
+              <TabsList className="flex-wrap h-auto">
                 <TabsTrigger value="contracts" className="gap-1.5">
                   <FileText className="h-4 w-4" /> Kontrak
                 </TabsTrigger>
@@ -174,8 +177,12 @@ export default function TenantPortal() {
                 <TabsTrigger value="payments" className="gap-1.5">
                   <CreditCard className="h-4 w-4" /> Pembayaran
                 </TabsTrigger>
+                <TabsTrigger value="rekonsiliasi" className="gap-1.5">
+                  <Landmark className="h-4 w-4" /> Rekonsiliasi Bank
+                </TabsTrigger>
               </TabsList>
 
+              {/* Kontrak */}
               <TabsContent value="contracts">
                 <Card>
                   <CardHeader><CardTitle className="text-sm">Kontrak / Booking</CardTitle></CardHeader>
@@ -218,6 +225,7 @@ export default function TenantPortal() {
                 </Card>
               </TabsContent>
 
+              {/* Invoice */}
               <TabsContent value="invoices">
                 <Card>
                   <CardHeader><CardTitle className="text-sm">Invoice</CardTitle></CardHeader>
@@ -258,6 +266,7 @@ export default function TenantPortal() {
                 </Card>
               </TabsContent>
 
+              {/* Pembayaran */}
               <TabsContent value="payments">
                 <Card>
                   <CardHeader><CardTitle className="text-sm">Riwayat Pembayaran</CardTitle></CardHeader>
@@ -298,6 +307,19 @@ export default function TenantPortal() {
                     )}
                   </CardContent>
                 </Card>
+              </TabsContent>
+
+              {/* Rekonsiliasi Bank */}
+              <TabsContent value="rekonsiliasi" className="mt-0">
+                <div className="space-y-3 pt-4">
+                  <div>
+                    <h2 className="text-base font-semibold">Rekonsiliasi Mutasi Bank</h2>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      Data rekonsiliasi tenant Anda. Import mutasi, cocokkan dengan pembayaran/invoice, dan pantau status secara real-time.
+                    </p>
+                  </div>
+                  <BankRekonPanel />
+                </div>
               </TabsContent>
             </Tabs>
           </>

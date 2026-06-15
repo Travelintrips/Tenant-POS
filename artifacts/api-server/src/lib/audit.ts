@@ -58,6 +58,10 @@ export function logAudit(req: Request, opts: AuditOptions): void {
         ? Number(rawDbId)
         : null;
 
+  // Ambil ownerTenantId dari appContext untuk tenant scoping
+  const appCtx = (req as any).appContext as { ownerTenantId?: number | null } | undefined;
+  const tenantId = appCtx?.ownerTenantId ?? null;
+
   const entry = {
     userId: numericUserId,
     userEmail: user?.email ?? null,
@@ -69,6 +73,7 @@ export function logAudit(req: Request, opts: AuditOptions): void {
     afterData: opts.afterData ? (stripSensitive(opts.afterData) as Record<string, unknown>) : null,
     siteId: (req as any).siteId ?? null,
     siteCode: (req as any).siteCode ?? null,
+    tenantId,
     ipAddress: ip,
     userAgent: req.headers["user-agent"] ?? null,
   };

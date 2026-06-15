@@ -1,8 +1,6 @@
 import { Router, type IRouter } from "express";
 import { db } from "@workspace/db";
 import { tenantInvoicesTable, tenantsTable } from "@workspace/db/schema";
-import { eq, and, gte, lte, sql } from "drizzle-orm";
-import { z } from "zod";
 import { eq, and, gte, lte, sql, inArray } from "drizzle-orm";
 import { z } from "zod/v4";
 import { writeToSheet, readFromSheet, extractSheetId, getServiceAccountEmail } from "../services/google-sheets";
@@ -18,15 +16,17 @@ const exportSchema = z.object({
   spreadsheetId: z.string().min(1),
   year: z.number().int().min(2020).max(2100),
   month: z.number().int().min(1).max(12),
+  sheetTitle: z.string().trim().min(1).optional(),
 });
 
 router.post("/reconciliation/export", async (req, res) => {
+  console.warn("[LEGACY] POST /api/reconciliation/export diakses. Gunakan POST /api/bank-reconciliation/export-google-sheet untuk export dari engine baru.");
   const parsed = exportSchema.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: "Parameter tidak valid", detail: parsed.error.issues });
     return;
   }
-  const { spreadsheetId: rawId, year, month } = parsed.data;
+  const { spreadsheetId: rawId, year, month, sheetTitle: customSheetTitle } = parsed.data;
   const spreadsheetId = extractSheetId(rawId);
 
   const periodStart = `${year}-${String(month).padStart(2, "0")}-01`;
@@ -68,7 +68,7 @@ router.post("/reconciliation/export", async (req, res) => {
     .orderBy(tenantsTable.businessName);
 
   const MONTH_ID = ["", "Januari","Februari","Maret","April","Mei","Juni","Juli","Agustus","September","Oktober","November","Desember"];
-  const sheetTitle = `Rekonsiliasi ${MONTH_ID[month]} ${year}`;
+  const sheetTitle = customSheetTitle ?? `Rekonsiliasi ${MONTH_ID[month]} ${year}`;
 
   const statusLabel: Record<string, string> = {
     paid: "Lunas",
@@ -142,6 +142,7 @@ const importSchema = z.object({
 });
 
 router.post("/reconciliation/read", async (req, res) => {
+  console.warn("[LEGACY] POST /api/reconciliation/read diakses. Endpoint ini hanya membaca Google Sheets dan tidak terhubung ke engine bank baru.");
   const parsed = importSchema.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: "Parameter tidak valid" });
@@ -166,6 +167,7 @@ const notifySchema = z.object({
 });
 
 router.post("/reconciliation/notify", async (req, res) => {
+  console.warn("[LEGACY] POST /api/reconciliation/notify diakses. Gunakan POST /api/bank-reconciliation/send-reminder-wa untuk reminder dari engine baru.");
   const parsed = notifySchema.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: "Parameter tidak valid", detail: parsed.error.issues });

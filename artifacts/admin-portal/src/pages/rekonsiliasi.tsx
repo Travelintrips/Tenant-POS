@@ -1,4 +1,16 @@
+/**
+ * LEGACY_MODULE - deprecated after bank reconciliation engine migration.
+ *
+ * Halaman ini adalah modul rekonsiliasi lama berbasis Google Sheets.
+ * Tidak lagi dirender sebagai route aktif — semua route /rekonsiliasi,
+ * /reconciliation, dan /laporan-rekonsiliasi sekarang redirect ke
+ * /bank-rekonsiliasi (engine baru dengan jurnal, matching, approval).
+ *
+ * JANGAN dihapus dulu — disimpan untuk rollback sementara.
+ * Modul aktif: artifacts/admin-portal/src/pages/bank-rekonsiliasi.tsx
+ */
 import { useState } from "react";
+import { Link } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -37,6 +49,9 @@ import {
   Send,
   XCircle,
   SkipForward,
+  FileText,
+  ArrowRight,
+  TriangleAlert,
 } from "lucide-react";
 
 const MONTH_NAMES = [
@@ -70,9 +85,13 @@ export default function Rekonsiliasi() {
   const [spreadsheetUrl, setSpreadsheetUrlRaw] = useState(() => localStorage.getItem(LS_URL_KEY) ?? "");
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth() + 1);
+  const [customSheetTitle, setCustomSheetTitle] = useState("");
   const [exportResult, setExportResult] = useState<ExportResult | null>(null);
   const [sheetData, setSheetData] = useState<string[][] | null>(null);
   const [readSheetTitle, setReadSheetTitleRaw] = useState(() => localStorage.getItem(LS_TITLE_KEY) ?? "");
+
+  const defaultSheetTitle = `Rekonsiliasi ${MONTH_NAMES[month - 1]} ${year}`;
+  const effectiveSheetTitle = customSheetTitle.trim() || defaultSheetTitle;
 
   function setSpreadsheetUrl(val: string) {
     setSpreadsheetUrlRaw(val);
@@ -98,7 +117,7 @@ export default function Rekonsiliasi() {
       const r = await fetch("/api/reconciliation/export", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ spreadsheetId: spreadsheetUrl.trim(), year, month }),
+        body: JSON.stringify({ spreadsheetId: spreadsheetUrl.trim(), year, month, sheetTitle: effectiveSheetTitle }),
       });
       const data = await r.json();
       if (!r.ok) throw new Error(data.error ?? "Gagal export");
@@ -214,6 +233,23 @@ export default function Rekonsiliasi() {
 
   return (
     <div className="space-y-6 p-6">
+      {/* ─── Banner Legacy ─── */}
+      <div className="rounded-lg border border-amber-300 bg-amber-50 p-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:gap-4">
+        <TriangleAlert className="h-5 w-5 text-amber-600 shrink-0 mt-0.5" />
+        <div className="flex-1 min-w-0">
+          <p className="font-semibold text-amber-800 text-sm">Halaman ini adalah versi lama berbasis Google Sheets.</p>
+          <p className="text-amber-700 text-xs mt-1">
+            Gunakan <strong>Rekonsiliasi Bank</strong> untuk approval, matching, jurnal, dan closing.
+            Halaman ini tetap tersedia untuk ekspor referensi dan notifikasi WA manual.
+          </p>
+        </div>
+        <Link href="/bank-rekonsiliasi">
+          <button className="inline-flex items-center gap-2 rounded-md bg-amber-600 px-3 py-2 text-xs font-semibold text-white hover:bg-amber-700 whitespace-nowrap shrink-0">
+            Buka Rekonsiliasi Bank Baru
+            <ArrowRight className="h-3.5 w-3.5" />
+          </button>
+        </Link>
+      </div>
       <div>
         <h1 className="text-2xl font-bold tracking-tight">Rekonsiliasi Pembayaran</h1>
         <p className="text-muted-foreground mt-1">
@@ -272,7 +308,7 @@ export default function Rekonsiliasi() {
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
               <Label>Bulan</Label>
-              <Select value={String(month)} onValueChange={(v) => setMonth(Number(v))}>
+              <Select value={String(month)} onValueChange={(v) => { setMonth(Number(v)); setCustomSheetTitle(""); }}>
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
@@ -285,7 +321,7 @@ export default function Rekonsiliasi() {
             </div>
             <div className="space-y-1.5">
               <Label>Tahun</Label>
-              <Select value={String(year)} onValueChange={(v) => setYear(Number(v))}>
+              <Select value={String(year)} onValueChange={(v) => { setYear(Number(v)); setCustomSheetTitle(""); }}>
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
@@ -296,6 +332,17 @@ export default function Rekonsiliasi() {
                 </SelectContent>
               </Select>
             </div>
+          </div>
+          <div className="space-y-1.5">
+            <Label>Nama Sheet (tab)</Label>
+            <Input
+              placeholder={defaultSheetTitle}
+              value={customSheetTitle}
+              onChange={(e) => setCustomSheetTitle(e.target.value)}
+            />
+            <p className="text-xs text-muted-foreground">
+              Nama tab sheet di Google Sheets. Default: <span className="font-medium">{defaultSheetTitle}</span>
+            </p>
           </div>
           <Button
             onClick={() => exportMutation.mutate()}
@@ -330,6 +377,23 @@ export default function Rekonsiliasi() {
               </AlertDescription>
             </Alert>
           )}
+        </CardContent>
+      </Card>
+
+      {/* Info Audit */}
+      <Card className="border-blue-100 bg-blue-50/30">
+        <CardContent className="py-3">
+          <div className="flex items-start gap-3">
+            <FileText className="w-4 h-4 text-blue-500 shrink-0 mt-0.5" />
+            <div>
+              <p className="text-xs font-semibold text-blue-700 mb-0.5">Catatan Audit</p>
+              <p className="text-xs text-blue-600">
+                Laporan ini merangkum data dari <strong>tenant_invoices</strong> dan <strong>tenant_payments</strong>.
+                "Total Mutasi" = jumlah invoice dalam periode. "Matched" = invoice dengan status <em>paid</em>.
+                "Collection Rate" = total_bayar / total_tagihan × 100%. Invoice yang dibatalkan (<em>cancelled</em>) tidak termasuk.
+              </p>
+            </div>
+          </div>
         </CardContent>
       </Card>
 

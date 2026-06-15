@@ -14,7 +14,7 @@ import {
   SidebarInset,
   SidebarTrigger
 } from "@/components/ui/sidebar";
-import { Building2, Store, CalendarRange, Calculator, BarChart3, LogOut, FileText, Shield, ChevronDown, GitCompare, Dumbbell, MapPin, Check, Layers, ClipboardCheck, LayoutGrid, Users, Bell, AlertTriangle, Clock, LayoutDashboard, Settings, MessageCircle, BookTemplate, FileSpreadsheet, Landmark } from "lucide-react";
+import { Building2, Store, CalendarRange, Calculator, BarChart3, LogOut, FileText, Shield, ChevronDown, GitCompare, Dumbbell, MapPin, Check, Layers, ClipboardCheck, LayoutGrid, Users, Bell, AlertTriangle, Clock, LayoutDashboard, Settings, MessageCircle, BookTemplate, ClipboardList, FileSpreadsheet, Landmark } from "lucide-react";
 import { Separator } from "@/components/ui/separator";
 import { useAuth, useLogout, ROLE_LABELS, type UserRole } from "@/hooks/use-auth";
 import { Button } from "@/components/ui/button";
@@ -147,7 +147,7 @@ export function SidebarLayout({ children }: { children: React.ReactNode }) {
       <Sidebar>
         <SidebarHeader className="flex flex-col gap-2 px-4 py-3">
           <div className="flex flex-row items-center gap-2">
-            <Building2 className="h-6 w-6 text-primary shrink-0" />
+            <img src="/logo-cst.png" alt="Logo CST" className="h-8 w-8 object-contain shrink-0" />
             <span className="text-lg font-bold text-sidebar-foreground">
               Portal Admin
             </span>
@@ -337,18 +337,6 @@ export function SidebarLayout({ children }: { children: React.ReactNode }) {
                     <Link href="/laporan">
                       <BarChart3 className="mr-2 h-4 w-4" />
                       <span>Laporan Keuangan</span>
-                    </Link>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-                <SidebarMenuItem>
-                  <SidebarMenuButton
-                    asChild
-                    isActive={location === "/rekonsiliasi"}
-                    data-testid="nav-rekonsiliasi"
-                  >
-                    <Link href="/rekonsiliasi">
-                      <FileSpreadsheet className="mr-2 h-4 w-4" />
-                      <span>Rekonsiliasi</span>
                     </Link>
                   </SidebarMenuButton>
                 </SidebarMenuItem>

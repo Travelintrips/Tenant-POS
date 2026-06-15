@@ -84,6 +84,39 @@ router.post("/uploads/tenant-logo", uploadRateLimiter, requireAuth, async (req, 
   }
 });
 
+router.post("/uploads/mall-logo", uploadRateLimiter, requireAuth, async (req, res) => {
+  try {
+    await runMulter(uploadLogo, "file")(req, res);
+  } catch (err) {
+    const msg =
+      err instanceof multer.MulterError && err.code === "LIMIT_FILE_SIZE"
+        ? "File terlalu besar. Maksimal 5MB."
+        : (err as Error).message ?? "Upload gagal";
+    res.status(400).json({ error: msg });
+    return;
+  }
+
+  if (!req.file) {
+    res.status(400).json({ error: "File tidak ditemukan dalam request" });
+    return;
+  }
+
+  try {
+    const ext = path.extname(req.file.originalname).toLowerCase() || ".png";
+    const filename = `mall-logo-${crypto.randomUUID()}${ext}`;
+    const url = await uploadToStorage(
+      "tenant-logos",
+      filename,
+      req.file.buffer,
+      req.file.mimetype,
+    );
+    res.json({ url });
+  } catch (err) {
+    req.log?.error(err, "Upload mall logo gagal");
+    res.status(500).json({ error: "Gagal menyimpan file ke storage" });
+  }
+});
+
 router.post("/uploads/contract-document", uploadRateLimiter, requireAuth, async (req, res) => {
   try {
     await runMulter(uploadDoc, "file")(req, res);

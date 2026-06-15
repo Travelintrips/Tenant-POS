@@ -1,0 +1,110 @@
+Lanjutkan implementasi Audit Log Bank Reconciliation.
+
+Tujuan:
+Semua aksi penting di Bank Reconciliation harus punya jejak audit lengkap:
+siapa, dari app mana, tenant/company mana, aksi apa, data sebelum/sesudah, dan kapan.
+
+Kerjakan:
+
+1. Buat tabel baru bank_reconciliation_audit_logs:
+- id
+- mutation_id nullable
+- match_id nullable
+- finance_payment_event_id nullable
+- journal_id nullable
+- action
+- action_app
+- action_user_id
+- action_role
+- owner_app
+- owner_company_id
+- owner_tenant_id nullable
+- source_app nullable
+- source_module nullable
+- before_value jsonb
+- after_value jsonb
+- metadata jsonb
+- ip_address nullable
+- user_agent nullable
+- created_at
+
+2. Buat helper logBankReconAudit(action, context, beforeValue, afterValue, metadata).
+
+3. Pasang audit log pada aksi:
+- import mutasi
+- run matching
+- auto matched
+- need review
+- approve
+- reject
+- manual match
+- mark unmatched
+- mark duplicate
+- post journal
+- export google sheet
+- send WA reminder
+- close period
+- reopen period
+- update tax fields
+- create/update/delete account rules
+
+4. Scope audit log:
+- Tenant Admin hanya melihat audit log owner_tenant_id miliknya.
+- POS Tenant hanya melihat source_app = tenant_pos miliknya.
+- BizPortal Finance bisa melihat semua audit log sesuai company_id.
+- Super Admin bisa melihat semua.
+
+5. Endpoint baru:
+GET /api/bank-reconciliation/audit-logs
+
+Filter:
+- mutation_id
+- action
+- owner_app
+- source_app
+- owner_tenant_id
+- date_from
+- date_to
+- user_id
+- page
+- limit
+
+6. UI:
+Tambahkan tab baru di halaman Bank Reconciliation:
+"Audit Log"
+
+Tampilkan:
+- waktu
+- aksi
+- user/role
+- app
+- tenant
+- mutation id
+- source module
+- ringkasan before/after
+- metadata
+- filter action/date/app/tenant
+
+7. Security:
+- Jangan tampilkan audit log tenant lain.
+- Jangan tampilkan data app lain ke user scoped.
+- Semua query audit log wajib pakai appContext.
+
+8. Test wajib:
+- approve membuat audit log.
+- reject membuat audit log.
+- manual match membuat audit log.
+- export sheet membuat audit log.
+- WA reminder membuat audit log.
+- Tenant A tidak bisa lihat audit log Tenant B.
+- BizPortal bisa lihat semua.
+- audit log tidak hilang walaupun mutation berubah status.
+- build/typecheck pass.
+
+Berikan laporan:
+- migration dibuat
+- helper dibuat
+- endpoint baru
+- aksi yang sudah tercatat
+- test result
+- gap jika ada

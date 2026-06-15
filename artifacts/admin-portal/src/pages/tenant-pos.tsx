@@ -1581,7 +1581,7 @@ function ModalPembayaran({ item, invoice, shiftId, cashierName, onClose, onSucce
             <Button variant="outline" className="flex-1" onClick={onClose}>Tutup</Button>
             <Button className="flex-1 bg-emerald-600 hover:bg-emerald-700" onClick={() => {
               const now = new Date();
-              cetakStrukPDF({
+              void cetakStrukPDF({
                 noStruk: result.receiptNumber,
                 tanggal: formatTanggal(now),
                 jam: formatJam(now),

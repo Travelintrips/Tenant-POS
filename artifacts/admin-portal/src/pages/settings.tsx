@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -7,11 +7,13 @@ import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
+import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import {
   Settings, Building2, FileText, DollarSign, Save, RefreshCw,
   MessageSquare, CheckCircle2, XCircle, Wifi, WifiOff, Send,
   AlertCircle, Loader2, ExternalLink, Smartphone, Info, Link,
+  Upload, Palette, Eye, ImageIcon, X,
 } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 
@@ -31,6 +33,9 @@ interface MallConfig {
   waSenderPhone: string;
   waSenderLabel: string;
   paymentDomain: string;
+  invoiceColor: string;
+  invoiceFooterNote: string;
+  invoiceSignerName: string;
 }
 
 interface FonnteDevice {
@@ -403,6 +408,157 @@ function WhatsAppPanel({ config, onSaveSender }: {
   );
 }
 
+// ─── Invoice Preview ─────────────────────────────────────────────────────────
+
+function InvoicePreview({
+  mallName, tagline, logoUrl, invoiceColor, invoiceFooterNote, invoiceSignerName,
+}: {
+  mallName: string; tagline: string; logoUrl: string;
+  invoiceColor: string; invoiceFooterNote: string; invoiceSignerName: string;
+}) {
+  const accent = invoiceColor || "#1e3a5f";
+  const accentLight = accent + "14";
+  return (
+    <div style={{ fontFamily: "'Segoe UI', Arial, sans-serif", color: "#1a1a1a", background: "#fff", padding: "20px", maxWidth: "100%", fontSize: "10px", border: "1px solid #e5e7eb", borderRadius: "8px" }}>
+      {/* Header */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "14px" }}>
+        <div>
+          {logoUrl ? (
+            <>
+              <img src={logoUrl} alt="Logo" style={{ height: "32px", maxWidth: "120px", objectFit: "contain", display: "block", marginBottom: "3px" }} onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
+              <div style={{ fontWeight: 700, color: accent, fontSize: "10px" }}>{mallName || "Nama Mall"}</div>
+              <div style={{ fontSize: "9px", color: "#666" }}>{tagline || "Tagline Mall"}</div>
+            </>
+          ) : (
+            <>
+              <div style={{ fontWeight: 700, color: accent, fontSize: "14px" }}>{mallName || "Nama Mall"}</div>
+              <div style={{ fontSize: "9px", color: "#666", marginTop: "1px" }}>{tagline || "Tagline Mall"}</div>
+            </>
+          )}
+        </div>
+        <div style={{ textAlign: "right" }}>
+          <div style={{ fontWeight: 700, color: accent, fontSize: "11px" }}>INV-TENANT/202506/00001</div>
+          <div style={{ fontSize: "9px", color: "#666", marginTop: "2px" }}>Tanggal: 13 Juni 2026</div>
+          <div style={{ display: "inline-block", marginTop: "4px", padding: "2px 8px", borderRadius: "20px", fontSize: "9px", fontWeight: 600, background: "#fef3c7", color: "#b45309", border: "1px solid #fcd34d" }}>Belum Lunas</div>
+        </div>
+      </div>
+      <div style={{ borderTop: `3px solid ${accent}`, marginBottom: "10px" }} />
+      {/* Info rows */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px", marginBottom: "12px", fontSize: "9px" }}>
+        <div>
+          <div style={{ color: "#888", textTransform: "uppercase", fontSize: "8px", letterSpacing: "0.05em", marginBottom: "2px", fontWeight: 600 }}>Tagihan Kepada</div>
+          <div style={{ fontWeight: 600 }}>PT Contoh Tenant</div>
+          <div style={{ color: "#666" }}>Budi Santoso</div>
+          <div style={{ color: "#666" }}>budi@example.com</div>
+        </div>
+        <div>
+          <div style={{ color: "#888", textTransform: "uppercase", fontSize: "8px", letterSpacing: "0.05em", marginBottom: "2px", fontWeight: 600 }}>Detail Invoice</div>
+          <div style={{ display: "flex", gap: "6px" }}><span style={{ color: "#666" }}>Unit/Booth</span><span style={{ fontWeight: 500 }}>A-01</span></div>
+          <div style={{ display: "flex", gap: "6px" }}><span style={{ color: "#666" }}>Periode</span><span style={{ fontWeight: 500 }}>Jun 2026</span></div>
+          <div style={{ display: "flex", gap: "6px" }}><span style={{ color: "#666" }}>Jatuh Tempo</span><span style={{ fontWeight: 500 }}>30 Jun 2026</span></div>
+        </div>
+      </div>
+      {/* Table */}
+      <table style={{ width: "100%", borderCollapse: "collapse", marginBottom: "10px", fontSize: "9px" }}>
+        <thead>
+          <tr style={{ background: accent }}>
+            <th style={{ textAlign: "left", padding: "5px 8px", color: "#fff", textTransform: "uppercase", fontSize: "8px" }}>Uraian</th>
+            <th style={{ textAlign: "right", padding: "5px 8px", color: "#fff", textTransform: "uppercase", fontSize: "8px" }}>Jumlah</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td style={{ padding: "4px 8px", borderBottom: "1px solid #f1f5f9" }}>Sewa Ruang / Booth</td><td style={{ padding: "4px 8px", textAlign: "right", borderBottom: "1px solid #f1f5f9" }}>Rp 5.000.000</td></tr>
+          <tr style={{ background: accentLight }}><td style={{ padding: "4px 8px", borderBottom: "1px solid #f1f5f9" }}>Service Charge</td><td style={{ padding: "4px 8px", textAlign: "right", borderBottom: "1px solid #f1f5f9" }}>Rp 500.000</td></tr>
+          <tr><td style={{ padding: "4px 8px" }}>Biaya Listrik</td><td style={{ padding: "4px 8px", textAlign: "right" }}>Rp 250.000</td></tr>
+        </tbody>
+      </table>
+      {/* Totals */}
+      <div style={{ marginLeft: "auto", width: "180px", fontSize: "9px" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", padding: "2px 0" }}><span>Subtotal</span><span>Rp 5.750.000</span></div>
+        <div style={{ display: "flex", justifyContent: "space-between", padding: "5px 0", fontSize: "11px", fontWeight: 700, borderTop: `2px solid ${accent}`, marginTop: "2px", color: accent }}><span>Total</span><span>Rp 5.750.000</span></div>
+      </div>
+      {/* Signer */}
+      {invoiceSignerName && (
+        <div style={{ marginTop: "16px", textAlign: "right", fontSize: "9px", color: "#444" }}>
+          <div>Hormat kami,</div>
+          <div style={{ marginTop: "20px", borderTop: "1px solid #ccc", paddingTop: "2px", display: "inline-block", minWidth: "100px", fontWeight: 600 }}>{invoiceSignerName}</div>
+        </div>
+      )}
+      {/* Footer */}
+      <div style={{ marginTop: "12px", fontSize: "8px", color: "#aaa", textAlign: "center", borderTop: "1px solid #e5e7eb", paddingTop: "8px" }}>
+        {invoiceFooterNote && <div style={{ marginBottom: "2px", fontWeight: 500, color: "#777" }}>{invoiceFooterNote}</div>}
+        <div>Dokumen ini dibuat secara otomatis oleh sistem {mallName || "Mall Admin"}.</div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Logo Uploader ────────────────────────────────────────────────────────────
+
+function LogoUploader({ logoUrl, onUpload }: { logoUrl: string; onUpload: (url: string) => void }) {
+  const { toast } = useToast();
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [uploading, setUploading] = useState(false);
+
+  async function handleFile(file: File) {
+    setUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      const res = await apiFetch("/api/uploads/mall-logo", { method: "POST", body: formData });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({})) as { error?: string };
+        throw new Error(err.error ?? "Upload gagal");
+      }
+      const { url } = await res.json() as { url: string };
+      onUpload(url);
+      toast({ title: "Logo berhasil diunggah", description: "URL logo telah disimpan." });
+    } catch (e) {
+      toast({ title: "Gagal upload", description: e instanceof Error ? e.message : "Terjadi kesalahan", variant: "destructive" });
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center gap-3">
+        {logoUrl ? (
+          <div className="relative flex-shrink-0 h-14 w-36 border rounded-md bg-muted/30 flex items-center justify-center overflow-hidden">
+            <img src={logoUrl} alt="Logo" className="max-h-full max-w-full object-contain p-1" onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
+          </div>
+        ) : (
+          <div className="flex-shrink-0 h-14 w-36 border-2 border-dashed rounded-md bg-muted/20 flex flex-col items-center justify-center gap-1 text-muted-foreground">
+            <ImageIcon className="h-5 w-5 opacity-40" />
+            <span className="text-[10px]">Belum ada logo</span>
+          </div>
+        )}
+        <div className="space-y-1.5 flex-1">
+          <input ref={fileRef} type="file" accept="image/jpeg,image/jpg,image/png,image/webp" className="hidden"
+            onChange={e => { const f = e.target.files?.[0]; if (f) void handleFile(f); e.target.value = ""; }} />
+          <Button type="button" variant="outline" size="sm" className="h-8 gap-1.5 w-full" disabled={uploading}
+            onClick={() => fileRef.current?.click()}>
+            {uploading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
+            {uploading ? "Mengunggah..." : "Pilih Gambar Logo"}
+          </Button>
+          {logoUrl && (
+            <Button type="button" variant="ghost" size="sm" className="h-7 gap-1 w-full text-destructive hover:text-destructive text-xs"
+              onClick={() => onUpload("")}>
+              <X className="h-3 w-3" />Hapus Logo
+            </Button>
+          )}
+          <p className="text-[10px] text-muted-foreground">JPG, PNG, WebP — maks. 5 MB</p>
+        </div>
+      </div>
+      {logoUrl && (
+        <div className="text-[10px] text-muted-foreground truncate font-mono bg-muted/40 px-2 py-1 rounded">
+          {logoUrl}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Main Settings Page ────────────────────────────────────────────────────────
 
 export default function SettingsPage() {
@@ -418,9 +574,17 @@ export default function SettingsPage() {
     },
   });
 
-  const { register, handleSubmit, reset, formState: { isDirty } } = useForm<MallConfig>({
+  const { register, handleSubmit, reset, watch, setValue, formState: { isDirty } } = useForm<MallConfig>({
     defaultValues: config,
   });
+
+  const watchedMallName = watch("mallName") ?? "";
+  const watchedTagline = watch("tagline") ?? "";
+  const watchedLogoUrl = watch("logoUrl") ?? "";
+  const watchedColor = watch("invoiceColor") ?? "#1e3a5f";
+  const watchedFooterNote = watch("invoiceFooterNote") ?? "";
+  const watchedSignerName = watch("invoiceSignerName") ?? "";
+  const [showPreview, setShowPreview] = useState(false);
 
   useEffect(() => {
     if (config) reset(config);
@@ -506,8 +670,11 @@ export default function SettingsPage() {
                   </div>
                 </div>
                 <div className="space-y-1.5">
-                  <Label className="text-xs">URL Logo (opsional)</Label>
-                  <Input {...register("logoUrl")} placeholder="https://..." className="h-8 text-sm" />
+                  <Label className="text-xs">Logo Mall</Label>
+                  <LogoUploader
+                    logoUrl={watchedLogoUrl}
+                    onUpload={(url) => { setValue("logoUrl", url, { shouldDirty: true }); }}
+                  />
                 </div>
               </>
             )}
@@ -540,6 +707,109 @@ export default function SettingsPage() {
                   <Input {...register("currency")} placeholder="IDR" className="h-8 text-sm" />
                 </div>
               </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Desain Invoice */}
+        <Card>
+          <CardHeader className="pb-3">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-sm flex items-center gap-2">
+                <Palette className="h-4 w-4 text-primary" />
+                Desain &amp; Branding Invoice
+              </CardTitle>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-7 gap-1.5 text-xs text-muted-foreground"
+                onClick={() => setShowPreview(p => !p)}
+              >
+                <Eye className="h-3.5 w-3.5" />
+                {showPreview ? "Sembunyikan" : "Preview Invoice"}
+              </Button>
+            </div>
+            <CardDescription className="text-xs">
+              Warna tema, catatan kaki, dan penandatangan invoice cetak
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {isLoading ? (
+              <div className="h-24 flex items-center justify-center text-sm text-muted-foreground">Memuat...</div>
+            ) : (
+              <>
+                {/* Warna Invoice */}
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Warna Tema Invoice</Label>
+                  <div className="flex items-center gap-3">
+                    <input
+                      type="color"
+                      {...register("invoiceColor")}
+                      className="h-9 w-14 cursor-pointer rounded-md border border-input p-0.5"
+                    />
+                    <div className="flex-1 space-y-0.5">
+                      <Input
+                        value={watchedColor}
+                        onChange={e => setValue("invoiceColor", e.target.value, { shouldDirty: true })}
+                        placeholder="#1e3a5f"
+                        className="h-8 text-sm font-mono"
+                        maxLength={7}
+                      />
+                    </div>
+                    <div
+                      className="h-9 w-16 rounded-md border flex items-center justify-center text-white text-[10px] font-semibold"
+                      style={{ background: watchedColor || "#1e3a5f" }}
+                    >
+                      Contoh
+                    </div>
+                  </div>
+                  <p className="text-[10px] text-muted-foreground">Diterapkan pada header, garis aksen, dan total invoice.</p>
+                </div>
+
+                <Separator />
+
+                {/* Catatan Kaki */}
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Catatan Kaki Invoice (opsional)</Label>
+                  <Textarea
+                    {...register("invoiceFooterNote")}
+                    placeholder="Contoh: Pembayaran ke Rek. BCA 1234567890 a/n PT Mall Admin. Terima kasih."
+                    className="text-sm min-h-[60px] resize-none"
+                    rows={2}
+                  />
+                  <p className="text-[10px] text-muted-foreground">Muncul di bagian bawah invoice, sebelum teks otomatis sistem.</p>
+                </div>
+
+                {/* Nama Penandatangan */}
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Nama Penandatangan (opsional)</Label>
+                  <Input
+                    {...register("invoiceSignerName")}
+                    placeholder="Nama Manager / Direktur"
+                    className="h-8 text-sm"
+                  />
+                  <p className="text-[10px] text-muted-foreground">Jika diisi, akan tampil blok TTD di pojok kanan bawah invoice.</p>
+                </div>
+
+                {/* Preview */}
+                {showPreview && (
+                  <div className="space-y-2 pt-2">
+                    <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+                      <Eye className="h-3.5 w-3.5" />
+                      Preview invoice (tampilan aktual saat cetak)
+                    </div>
+                    <InvoicePreview
+                      mallName={watchedMallName}
+                      tagline={watchedTagline}
+                      logoUrl={watchedLogoUrl}
+                      invoiceColor={watchedColor}
+                      invoiceFooterNote={watchedFooterNote}
+                      invoiceSignerName={watchedSignerName}
+                    />
+                  </div>
+                )}
+              </>
             )}
           </CardContent>
         </Card>

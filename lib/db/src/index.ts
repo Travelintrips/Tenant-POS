@@ -6,7 +6,7 @@ import { dbConfig } from "./config";
 const { Pool } = pg;
 
 export const pool = new Pool({
-  connectionString: dbConfig.url,
+  ...dbConfig.parsed,
   ssl: dbConfig.ssl,
 });
 
