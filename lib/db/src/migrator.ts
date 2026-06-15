@@ -310,22 +310,64 @@ CREATE TABLE IF NOT EXISTS "tenant_invoices" (
   "updated_at" timestamptz NOT NULL DEFAULT now()
 );
 
--- FK tenant_invoices -> tenants
+-- Defensive: tambah semua kolom yang mungkin tidak ada (jika tabel sudah exist dengan schema berbeda dari app lain)
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='tenant_invoices' AND column_name='booking_id') THEN
+    ALTER TABLE "tenant_invoices" ADD COLUMN "booking_id" integer;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='tenant_invoices' AND column_name='unit_code') THEN
+    ALTER TABLE "tenant_invoices" ADD COLUMN "unit_code" text;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='tenant_invoices' AND column_name='period_start') THEN
+    ALTER TABLE "tenant_invoices" ADD COLUMN "period_start" date;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='tenant_invoices' AND column_name='period_end') THEN
+    ALTER TABLE "tenant_invoices" ADD COLUMN "period_end" date;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='tenant_invoices' AND column_name='rent_amount') THEN
+    ALTER TABLE "tenant_invoices" ADD COLUMN "rent_amount" numeric NOT NULL DEFAULT 0;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='tenant_invoices' AND column_name='service_charge_amount') THEN
+    ALTER TABLE "tenant_invoices" ADD COLUMN "service_charge_amount" numeric NOT NULL DEFAULT 0;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='tenant_invoices' AND column_name='electricity_charge_amount') THEN
+    ALTER TABLE "tenant_invoices" ADD COLUMN "electricity_charge_amount" numeric NOT NULL DEFAULT 0;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='tenant_invoices' AND column_name='water_charge_amount') THEN
+    ALTER TABLE "tenant_invoices" ADD COLUMN "water_charge_amount" numeric NOT NULL DEFAULT 0;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='tenant_invoices' AND column_name='other_charge_amount') THEN
+    ALTER TABLE "tenant_invoices" ADD COLUMN "other_charge_amount" numeric NOT NULL DEFAULT 0;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='tenant_invoices' AND column_name='discount_amount') THEN
+    ALTER TABLE "tenant_invoices" ADD COLUMN "discount_amount" numeric NOT NULL DEFAULT 0;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='tenant_invoices' AND column_name='penalty_amount') THEN
+    ALTER TABLE "tenant_invoices" ADD COLUMN "penalty_amount" numeric NOT NULL DEFAULT 0;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='tenant_invoices' AND column_name='subtotal') THEN
+    ALTER TABLE "tenant_invoices" ADD COLUMN "subtotal" numeric NOT NULL DEFAULT 0;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='tenant_invoices' AND column_name='paid_amount') THEN
+    ALTER TABLE "tenant_invoices" ADD COLUMN "paid_amount" numeric NOT NULL DEFAULT 0;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='tenant_invoices' AND column_name='outstanding_amount') THEN
+    ALTER TABLE "tenant_invoices" ADD COLUMN "outstanding_amount" numeric NOT NULL DEFAULT 0;
+  END IF;
+END $$;
+
+-- FK tenant_invoices -> tenants (gunakan EXCEPTION agar tidak gagal jika FK sudah ada dengan nama berbeda)
 DO $$ BEGIN
   IF NOT EXISTS (
     SELECT 1 FROM information_schema.table_constraints
     WHERE constraint_name = 'tenant_invoices_tenant_id_tenants_id_fk'
   ) THEN
-    ALTER TABLE "tenant_invoices"
-      ADD CONSTRAINT "tenant_invoices_tenant_id_tenants_id_fk"
-      FOREIGN KEY ("tenant_id") REFERENCES "tenants"("id") ON DELETE no action ON UPDATE no action;
-  END IF;
-END $$;
-
--- Pastikan kolom booking_id ada sebelum FK (defensive: mungkin CREATE TABLE dilewati karena tabel sudah ada)
-DO $$ BEGIN
-  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='tenant_invoices' AND column_name='booking_id') THEN
-    ALTER TABLE "tenant_invoices" ADD COLUMN "booking_id" integer;
+    BEGIN
+      ALTER TABLE "tenant_invoices"
+        ADD CONSTRAINT "tenant_invoices_tenant_id_tenants_id_fk"
+        FOREIGN KEY ("tenant_id") REFERENCES "tenants"("id") ON DELETE no action ON UPDATE no action;
+    EXCEPTION WHEN others THEN NULL;
+    END;
   END IF;
 END $$;
 
@@ -335,9 +377,12 @@ DO $$ BEGIN
     SELECT 1 FROM information_schema.table_constraints
     WHERE constraint_name = 'tenant_invoices_booking_id_tenant_bookings_id_fk'
   ) THEN
-    ALTER TABLE "tenant_invoices"
-      ADD CONSTRAINT "tenant_invoices_booking_id_tenant_bookings_id_fk"
-      FOREIGN KEY ("booking_id") REFERENCES "tenant_bookings"("id") ON DELETE no action ON UPDATE no action;
+    BEGIN
+      ALTER TABLE "tenant_invoices"
+        ADD CONSTRAINT "tenant_invoices_booking_id_tenant_bookings_id_fk"
+        FOREIGN KEY ("booking_id") REFERENCES "tenant_bookings"("id") ON DELETE no action ON UPDATE no action;
+    EXCEPTION WHEN others THEN NULL;
+    END;
   END IF;
 END $$;
 
@@ -348,97 +393,47 @@ DO $$ BEGIN
   END IF;
 END $$;
 
--- Seed: Tambah invoice contoh berdasarkan booking yang ada
+-- Seed: gunakan EXECUTE (dynamic SQL) supaya tidak gagal compile-time jika kolom baru saja ditambah
 DO $$
 DECLARE
-  b1 record;
-  b2 record;
-  t1 record;
-  t2 record;
+  has_bookings boolean;
+  has_our_invoices boolean;
 BEGIN
-  SELECT tb.*, te.business_name, te.owner_name, te.booth_number, te.area_name
-    INTO b1
-    FROM tenant_bookings tb JOIN tenants te ON te.id = tb.tenant_id
-    ORDER BY tb.id LIMIT 1 OFFSET 0;
-
-  SELECT tb.*, te.business_name, te.owner_name, te.booth_number, te.area_name
-    INTO b2
-    FROM tenant_bookings tb JOIN tenants te ON te.id = tb.tenant_id
-    ORDER BY tb.id LIMIT 1 OFFSET 1;
-
-  IF b1.id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM tenant_invoices LIMIT 1) THEN
-    INSERT INTO "tenant_invoices" (
-      invoice_number, tenant_id, booking_id, unit_code,
-      period_start, period_end, due_date,
-      rent_amount, service_charge_amount, electricity_charge_amount, water_charge_amount,
-      other_charge_amount, discount_amount, penalty_amount,
-      subtotal, tax_amount, total_amount, paid_amount, outstanding_amount, status, notes
-    ) VALUES (
-      'INV-TENANT/202506/00001', b1.tenant_id, b1.id, b1.unit_code,
-      '2025-06-01', '2025-06-30', '2025-06-10',
-      COALESCE(b1.rent_amount, 0),
-      COALESCE(b1.service_charge_amount, 0),
-      COALESCE(b1.electricity_charge_amount, 0),
-      COALESCE(b1.water_charge_amount, 0),
-      0, 0, 0,
-      COALESCE(b1.rent_amount,0) + COALESCE(b1.service_charge_amount,0) + COALESCE(b1.electricity_charge_amount,0) + COALESCE(b1.water_charge_amount,0),
-      0,
-      COALESCE(b1.rent_amount,0) + COALESCE(b1.service_charge_amount,0) + COALESCE(b1.electricity_charge_amount,0) + COALESCE(b1.water_charge_amount,0),
-      COALESCE(b1.rent_amount,0) + COALESCE(b1.service_charge_amount,0) + COALESCE(b1.electricity_charge_amount,0) + COALESCE(b1.water_charge_amount,0),
-      0,
-      'paid',
-      'Invoice Juni 2025 - lunas'
-    );
-  END IF;
-
-  IF b2.id IS NOT NULL AND (SELECT count(*) FROM tenant_invoices) < 2 THEN
-    INSERT INTO "tenant_invoices" (
-      invoice_number, tenant_id, booking_id, unit_code,
-      period_start, period_end, due_date,
-      rent_amount, service_charge_amount, electricity_charge_amount, water_charge_amount,
-      other_charge_amount, discount_amount, penalty_amount,
-      subtotal, tax_amount, total_amount, paid_amount, outstanding_amount, status, notes
-    ) VALUES (
-      'INV-TENANT/202507/00001', b2.tenant_id, b2.id, b2.unit_code,
-      '2025-07-01', '2025-07-31', '2025-07-10',
-      COALESCE(b2.rent_amount, 0),
-      COALESCE(b2.service_charge_amount, 0),
-      COALESCE(b2.electricity_charge_amount, 0),
-      COALESCE(b2.water_charge_amount, 0),
-      0, 0, 0,
-      COALESCE(b2.rent_amount,0) + COALESCE(b2.service_charge_amount,0) + COALESCE(b2.electricity_charge_amount,0) + COALESCE(b2.water_charge_amount,0),
-      0,
-      COALESCE(b2.rent_amount,0) + COALESCE(b2.service_charge_amount,0) + COALESCE(b2.electricity_charge_amount,0) + COALESCE(b2.water_charge_amount,0),
-      0,
-      COALESCE(b2.rent_amount,0) + COALESCE(b2.service_charge_amount,0) + COALESCE(b2.electricity_charge_amount,0) + COALESCE(b2.water_charge_amount,0),
-      'unpaid',
-      'Invoice Juli 2025 - belum bayar'
-    );
-  END IF;
-
-  IF b1.id IS NOT NULL AND (SELECT count(*) FROM tenant_invoices) < 3 THEN
-    INSERT INTO "tenant_invoices" (
-      invoice_number, tenant_id, booking_id, unit_code,
-      period_start, period_end, due_date,
-      rent_amount, service_charge_amount, electricity_charge_amount, water_charge_amount,
-      other_charge_amount, discount_amount, penalty_amount,
-      subtotal, tax_amount, total_amount, paid_amount, outstanding_amount, status, notes
-    ) VALUES (
-      'INV-TENANT/202508/00001', b1.tenant_id, b1.id, b1.unit_code,
-      '2025-08-01', '2025-08-31', '2025-08-10',
-      COALESCE(b1.rent_amount, 0),
-      COALESCE(b1.service_charge_amount, 0),
-      COALESCE(b1.electricity_charge_amount, 0),
-      COALESCE(b1.water_charge_amount, 0),
-      0, 0, 0,
-      COALESCE(b1.rent_amount,0) + COALESCE(b1.service_charge_amount,0) + COALESCE(b1.electricity_charge_amount,0) + COALESCE(b1.water_charge_amount,0),
-      0,
-      COALESCE(b1.rent_amount,0) + COALESCE(b1.service_charge_amount,0) + COALESCE(b1.electricity_charge_amount,0) + COALESCE(b1.water_charge_amount,0),
-      ROUND((COALESCE(b1.rent_amount,0) + COALESCE(b1.service_charge_amount,0) + COALESCE(b1.electricity_charge_amount,0) + COALESCE(b1.water_charge_amount,0)) * 0.5),
-      ROUND((COALESCE(b1.rent_amount,0) + COALESCE(b1.service_charge_amount,0) + COALESCE(b1.electricity_charge_amount,0) + COALESCE(b1.water_charge_amount,0)) * 0.5),
-      'partial',
-      'Invoice Agustus 2025 - sebagian terbayar'
-    );
+  SELECT EXISTS(SELECT 1 FROM tenant_bookings LIMIT 1) INTO has_bookings;
+  SELECT EXISTS(SELECT 1 FROM tenant_invoices WHERE invoice_number LIKE 'INV-TENANT/%' LIMIT 1) INTO has_our_invoices;
+  IF has_bookings AND NOT has_our_invoices THEN
+    EXECUTE $dyn$
+      INSERT INTO tenant_invoices (
+        invoice_number, tenant_id, booking_id, unit_code,
+        period_start, period_end, due_date,
+        rent_amount, service_charge_amount, electricity_charge_amount, water_charge_amount,
+        other_charge_amount, discount_amount, penalty_amount,
+        subtotal, tax_amount, total_amount, paid_amount, outstanding_amount, status, notes
+      )
+      SELECT
+        'INV-TENANT/202506/00001',
+        tb.tenant_id,
+        tb.id,
+        tb.unit_code,
+        '2025-06-01'::date,
+        '2025-06-30'::date,
+        '2025-06-10'::date,
+        COALESCE(tb.rent_amount, 0),
+        COALESCE(tb.service_charge_amount, 0),
+        COALESCE(tb.electricity_charge_amount, 0),
+        COALESCE(tb.water_charge_amount, 0),
+        0, 0, 0,
+        COALESCE(tb.rent_amount, 0),
+        0,
+        COALESCE(tb.rent_amount, 0),
+        COALESCE(tb.rent_amount, 0),
+        0,
+        'paid',
+        'Invoice Juni 2025 - lunas'
+      FROM tenant_bookings tb
+      ORDER BY tb.id LIMIT 1
+      ON CONFLICT (invoice_number) DO NOTHING
+    $dyn$;
   END IF;
 END $$;
     `.trim(),
