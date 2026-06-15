@@ -1677,6 +1677,9 @@ ON CONFLICT (coa_code) DO UPDATE SET
 ALTER TABLE tenant_draft_agreements ADD COLUMN IF NOT EXISTS pic_name text;
 ALTER TABLE tenant_draft_agreements ADD COLUMN IF NOT EXISTS source text DEFAULT 'admin';
 ALTER TABLE tenant_draft_agreements ADD COLUMN IF NOT EXISTS interested_unit text;
+    `.trim(),
+  },
+  {
     name: "0040_finance_payment_events",
     sql: `
 CREATE TABLE IF NOT EXISTS finance_payment_events (

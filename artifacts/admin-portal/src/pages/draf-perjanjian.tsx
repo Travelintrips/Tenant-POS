@@ -506,6 +506,7 @@ export default function DrafPerjanjian() {
     pending: drafts.filter((d) => d.status === "pending").length,
     approved: drafts.filter((d) => d.status === "approved").length,
     rejected: drafts.filter((d) => d.status === "rejected").length,
+    selfRegister: drafts.filter((d) => d.source === "self_register").length,
   };
 
   return (
@@ -528,12 +529,13 @@ export default function DrafPerjanjian() {
       </div>
 
       {/* Statistik */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
         {[
           { label: "Total", value: stats.total, color: "text-slate-700 bg-slate-50 border-slate-200" },
           { label: "Menunggu", value: stats.pending, color: "text-amber-700 bg-amber-50 border-amber-200" },
           { label: "Disetujui", value: stats.approved, color: "text-emerald-700 bg-emerald-50 border-emerald-200" },
           { label: "Tidak Disetujui", value: stats.rejected, color: "text-red-700 bg-red-50 border-red-200" },
+          { label: "🌐 Daftar Mandiri", value: stats.selfRegister, color: "text-blue-700 bg-blue-50 border-blue-200" },
         ].map((s) => (
           <div key={s.label} className={`rounded-lg border p-3 ${s.color}`}>
             <p className="text-2xl font-bold">{s.value}</p>
@@ -640,7 +642,12 @@ export default function DrafPerjanjian() {
                   >
                     <TableCell className="py-2.5"><DocTypeBadge type={d.docType} /></TableCell>
                     <TableCell className="py-2.5">
-                      <p className="font-medium text-sm">{d.brandName}</p>
+                      <div className="flex items-center gap-1.5">
+                        <p className="font-medium text-sm">{d.brandName}</p>
+                        {d.source === "self_register" && (
+                          <span className="text-[10px] text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded-full leading-none">🌐</span>
+                        )}
+                      </div>
                       <p className="text-xs text-muted-foreground">{d.tenantName}</p>
                     </TableCell>
                     <TableCell className="py-2.5 text-sm">

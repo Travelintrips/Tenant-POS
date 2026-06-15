@@ -40,41 +40,61 @@ const createDraftSchema = z.object({
   expiresInDays: z.number().int().min(1).max(365).optional(),
 });
 
+// kolom SELECT lengkap untuk list endpoint
+const LIST_COLS = sql`
+  id, token, site_id, doc_type,
+  pic_name, tenant_name, brand_name, business_type, email, phone,
+  unit_code, area_name, interested_unit, period_label,
+  start_date, end_date, duration_months, rent_amount, deposit_amount,
+  status, responded_at, responded_name, rejection_reason,
+  source, expires_at, created_by, created_at, updated_at
+`;
+
 // ── GET /api/draft-agreements ─────────────────────────────────────────────────
-// Admin — list semua draf dengan filter site_id dari context
+// Admin — list semua draf; site_id=0 (self-register) selalu ikut serta
 router.get("/draft-agreements", async (req: Request, res: Response) => {
   try {
     const siteId = (req as Request & { siteId?: number }).siteId;
     const status = req.query.status as string | undefined;
+    const validStatus = status && ["pending", "approved", "rejected"].includes(status);
 
     let rows: unknown[];
+
     if (siteId && siteId > 0) {
-      if (status && ["pending", "approved", "rejected"].includes(status)) {
+      // tampilkan data site ini + self-register (site_id=0)
+      if (validStatus) {
         const result = await db.execute(
-          sql`SELECT id, token, site_id, doc_type, tenant_name, brand_name, business_type, email, phone, unit_code, area_name, period_label, start_date, end_date, duration_months, rent_amount, deposit_amount, status, responded_at, responded_name, rejection_reason, expires_at, created_by, created_at, updated_at FROM tenant_draft_agreements WHERE site_id = ${siteId} AND status = ${status} ORDER BY created_at DESC`
+          sql`SELECT ${LIST_COLS} FROM tenant_draft_agreements
+              WHERE (site_id = ${siteId} OR site_id = 0) AND status = ${status}
+              ORDER BY created_at DESC`
         );
         rows = (result as { rows: unknown[] }).rows;
       } else {
         const result = await db.execute(
-          sql`SELECT id, token, site_id, doc_type, tenant_name, brand_name, business_type, email, phone, unit_code, area_name, period_label, start_date, end_date, duration_months, rent_amount, deposit_amount, status, responded_at, responded_name, rejection_reason, expires_at, created_by, created_at, updated_at FROM tenant_draft_agreements WHERE site_id = ${siteId} ORDER BY created_at DESC`
+          sql`SELECT ${LIST_COLS} FROM tenant_draft_agreements
+              WHERE (site_id = ${siteId} OR site_id = 0)
+              ORDER BY created_at DESC`
         );
         rows = (result as { rows: unknown[] }).rows;
       }
     } else {
-      if (status && ["pending", "approved", "rejected"].includes(status)) {
+      // admin tanpa site context → semua data
+      if (validStatus) {
         const result = await db.execute(
-          sql`SELECT id, token, site_id, doc_type, tenant_name, brand_name, business_type, email, phone, unit_code, area_name, period_label, start_date, end_date, duration_months, rent_amount, deposit_amount, status, responded_at, responded_name, rejection_reason, expires_at, created_by, created_at, updated_at FROM tenant_draft_agreements WHERE status = ${status} ORDER BY created_at DESC`
+          sql`SELECT ${LIST_COLS} FROM tenant_draft_agreements
+              WHERE status = ${status}
+              ORDER BY created_at DESC`
         );
         rows = (result as { rows: unknown[] }).rows;
       } else {
         const result = await db.execute(
-          sql`SELECT id, token, site_id, doc_type, tenant_name, brand_name, business_type, email, phone, unit_code, area_name, period_label, start_date, end_date, duration_months, rent_amount, deposit_amount, status, responded_at, responded_name, rejection_reason, expires_at, created_by, created_at, updated_at FROM tenant_draft_agreements ORDER BY created_at DESC`
+          sql`SELECT ${LIST_COLS} FROM tenant_draft_agreements
+              ORDER BY created_at DESC`
         );
         rows = (result as { rows: unknown[] }).rows;
       }
     }
 
-    // Tambahkan link publik ke setiap row
     const baseUrl = await getBaseUrl().catch(() => undefined);
     const withLinks = (rows as Record<string, unknown>[]).map((r) => {
       const c = toCamel(r);

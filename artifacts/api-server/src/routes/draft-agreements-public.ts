@@ -34,10 +34,20 @@ async function notifyAdmin(opts: {
   phone?: string | null;
   docUrl: string;
 }) {
-  const adminPhone = process.env.ADMIN_WHATSAPP;
-  if (!adminPhone) return;
   const token_api = process.env.FONNTE_TOKEN;
   if (!token_api) return;
+
+  // Ambil nomor admin dari env atau DB
+  const adminPhone = process.env.ADMIN_WHATSAPP ?? await (async () => {
+    try {
+      const r = await db.execute(
+        sql`SELECT phone_number FROM users WHERE role IN ('owner', 'admin') AND phone_number IS NOT NULL ORDER BY created_at ASC LIMIT 1`
+      );
+      const rows = (r as { rows: Record<string, unknown>[] }).rows;
+      return (rows[0]?.phone_number as string | undefined) ?? null;
+    } catch { return null; }
+  })();
+  if (!adminPhone) return;
 
   const docLabel = opts.docType === "perjanjian_sewa" ? "Perjanjian Sewa" : "Surat Minat Menyewa";
   const statusLabel = opts.status === "approved" ? "✅ *DISETUJUI*" : "❌ *TIDAK DISETUJUI*";

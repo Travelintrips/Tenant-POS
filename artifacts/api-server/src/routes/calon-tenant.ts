@@ -49,15 +49,29 @@ router.post("/calon-tenant/daftar", async (req: Request, res: Response) => {
     `);
 
     // Notifikasi admin via WA (fire-and-forget)
-    const adminPhone = process.env.ADMIN_WHATSAPP;
     const fonnteToken = process.env.FONNTE_TOKEN;
-    if (adminPhone && fonnteToken) {
-      const msg = `📋 *Pendaftaran Calon Tenant Baru*\n\nNama PIC: ${d.picName}\nBrand/Usaha: ${d.brandName}\nJenis Usaha: ${d.businessType}\nWhatsApp: ${d.phone}${d.interestedUnit ? `\nUnit Diminati: ${d.interestedUnit}` : ""}\n\nSilakan buka portal admin untuk meninjau dan membuat dokumen.`;
-      fetch("https://api.fonnte.com/send", {
-        method: "POST",
-        headers: { Authorization: fonnteToken, "Content-Type": "application/json" },
-        body: JSON.stringify({ target: adminPhone, message: msg }),
-      }).catch(() => {});
+    if (fonnteToken) {
+      // Ambil nomor WA admin/owner dari env atau DB
+      const adminPhone = process.env.ADMIN_WHATSAPP ?? await (async () => {
+        try {
+          const r = await db.execute(
+            sql`SELECT phone_number FROM users WHERE role IN ('owner', 'admin') AND phone_number IS NOT NULL ORDER BY created_at ASC LIMIT 1`
+          );
+          const rows = (r as { rows: Record<string, unknown>[] }).rows;
+          return (rows[0]?.phone_number as string | undefined) ?? null;
+        } catch {
+          return null;
+        }
+      })();
+
+      if (adminPhone) {
+        const msg = `📋 *Pendaftaran Calon Tenant Baru*\n\nNama PIC: ${d.picName}\nBrand/Usaha: ${d.brandName}\nJenis Usaha: ${d.businessType}\nWhatsApp: ${d.phone}${d.interestedUnit ? `\nUnit Diminati: ${d.interestedUnit}` : ""}${d.notes ? `\nCatatan: ${d.notes}` : ""}\n\nSilakan buka portal admin untuk meninjau dan membuat dokumen surat minat.`;
+        fetch("https://api.fonnte.com/send", {
+          method: "POST",
+          headers: { Authorization: fonnteToken, "Content-Type": "application/json" },
+          body: JSON.stringify({ target: adminPhone, message: msg }),
+        }).catch(() => {});
+      }
     }
 
     res.status(201).json({
