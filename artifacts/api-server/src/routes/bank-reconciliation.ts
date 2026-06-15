@@ -19,7 +19,7 @@ import { eq, and, desc, sql, inArray, isNull, gt, ne, or } from "drizzle-orm";
 import { z } from "zod";
 import { logAudit } from "../lib/audit";
 import { logBankReconAudit } from "../lib/bank-recon-audit";
-import { writeToSheet, extractSheetId, getServiceAccountEmail } from "../services/google-sheets";
+import { writeToSheet, readFromSheet, extractSheetId, getServiceAccountEmail } from "../services/google-sheets";
 import { sendReconciliationReminder } from "../lib/whatsapp";
 import {
   normalizeDescription,
@@ -264,6 +264,161 @@ router.get("/bank-reconciliation/info", (_req, res) => {
   res.json({ serviceAccountEmail: getServiceAccountEmail() });
 });
 
+// ── POST /bank-reconciliation/preview-from-sheet ─────────────────────────────
+// Baca data dari Google Sheets dan kembalikan preview tanpa menyimpan ke DB.
+
+const previewSheetSchema = z.object({
+  spreadsheetId: z.string().min(1),
+  sheetName: z.string().optional(),
+  bankAccountId: z.string().optional(),
+});
+
+router.post("/bank-reconciliation/preview-from-sheet", async (req, res) => {
+  const parsed = previewSheetSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Format tidak valid", detail: parsed.error.issues });
+    return;
+  }
+  const { spreadsheetId: rawId, sheetName, bankAccountId } = parsed.data;
+  const spreadsheetId = extractSheetId(rawId);
+  if (!spreadsheetId) {
+    res.status(400).json({ error: "URL atau ID spreadsheet tidak valid" });
+    return;
+  }
+
+  try {
+    const range = sheetName ? `'${sheetName}'!A:Z` : "A:Z";
+    const rows = await readFromSheet({ spreadsheetId, range });
+    if (!rows || rows.length < 2) {
+      res.status(400).json({ error: "Sheet kosong atau tidak memiliki data (minimal 1 baris header + 1 baris data)" });
+      return;
+    }
+    const mutations = parseRows(rows);
+    res.json({
+      success: true,
+      spreadsheetId,
+      sheetName: sheetName ?? null,
+      bankAccountId: bankAccountId ?? null,
+      totalRows: rows.length - 1,
+      validRows: mutations.length,
+      headers: rows[0] ?? [],
+      preview: mutations.slice(0, 5).map((m) => ({
+        transactionDate: m.transactionDate,
+        description: m.description,
+        amount: m.amount,
+        direction: m.direction,
+        providerName: m.providerName ?? null,
+        providerOrderId: m.providerOrderId ?? null,
+      })),
+    });
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.error("[preview-from-sheet]", msg);
+    res.status(500).json({ error: "Gagal membaca spreadsheet. Pastikan sheet sudah di-share ke service account dan ID/URL benar.", detail: msg });
+  }
+});
+
+// ── POST /bank-reconciliation/import-from-sheet ───────────────────────────────
+// Baca dari Google Sheets, insert ke DB, jalankan auto-matching.
+
+const importSheetSchema = z.object({
+  spreadsheetId: z.string().min(1),
+  sheetName: z.string().optional(),
+  bankAccountId: z.string().optional(),
+});
+
+router.post("/bank-reconciliation/import-from-sheet", async (req, res) => {
+  const parsed = importSheetSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Format tidak valid", detail: parsed.error.issues });
+    return;
+  }
+  const { spreadsheetId: rawId, sheetName, bankAccountId } = parsed.data;
+  const spreadsheetId = extractSheetId(rawId);
+  if (!spreadsheetId) {
+    res.status(400).json({ error: "URL atau ID spreadsheet tidak valid" });
+    return;
+  }
+
+  let rows: string[][];
+  try {
+    const range = sheetName ? `'${sheetName}'!A:Z` : "A:Z";
+    rows = await readFromSheet({ spreadsheetId, range });
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.error("[import-from-sheet] readFromSheet error:", msg);
+    res.status(500).json({ error: "Gagal membaca spreadsheet. Pastikan sheet sudah di-share ke service account dan ID/URL benar.", detail: msg });
+    return;
+  }
+
+  if (!rows || rows.length < 2) {
+    res.status(400).json({ error: "Sheet kosong atau tidak memiliki data (minimal 1 baris header + 1 baris data)" });
+    return;
+  }
+
+  const mutations = parseRows(rows);
+  if (mutations.length === 0) {
+    res.status(400).json({ error: "Tidak ada baris mutasi valid yang bisa diproses. Pastikan kolom Tanggal dan nominal (Kredit/Debet) ada di sheet." });
+    return;
+  }
+
+  const ctx = appCtx(req);
+  const siteId: number | undefined = (req as any).siteId > 0 ? (req as any).siteId : undefined;
+  const toInsert = mutations.map((m) => ({
+    ...m,
+    bankAccountId: bankAccountId ?? null,
+    siteId: siteId ?? null,
+    ownerApp: ctx.ownerApp,
+    sourceApp: ctx.sourceApp,
+    ownerTenantId: ctx.ownerTenantId ?? null,
+    ownerCompanyId: ctx.ownerCompanyId ?? null,
+  }));
+
+  const inserted = await db.insert(bankMutationsTable).values(toInsert).returning({ id: bankMutationsTable.id });
+  const ids = inserted.map((r) => r.id);
+
+  logAudit(req, {
+    action: "bank_mutation_import",
+    entityType: "bank_mutations",
+    afterData: { count: ids.length, bankAccountId, source: "google_sheets", spreadsheetId, ownerTenantId: ctx.ownerTenantId },
+  });
+  logBankReconAudit(req, ctx, "import_mutasi", {
+    metadata: { count: ids.length, bankAccountId, source: "google_sheets", spreadsheetId },
+    sourceModule: "bank_reconciliation",
+  });
+
+  const mc = matchCtx(ctx);
+  const matchResults = await Promise.allSettled(ids.map((id) => runMatchingForMutation(id, mc)));
+  const autoMatched = matchResults.filter(
+    (r) => r.status === "fulfilled" && (r.value as any).autoMatched
+  ).length;
+  const duplicates = matchResults.filter(
+    (r) => r.status === "fulfilled" && (r.value as any).status === "duplicate_need_review"
+  ).length;
+
+  matchResults.forEach((r, idx) => {
+    if (r.status === "fulfilled") {
+      const v = r.value as any;
+      if (v.status === "duplicate_need_review") {
+        logBankReconAudit(req, ctx, "need_review", {
+          mutationId: ids[idx],
+          metadata: { trigger: "import_sheet", candidatesCount: v.candidatesCount },
+          sourceModule: "bank_reconciliation",
+        });
+      } else if (v.autoMatched) {
+        logBankReconAudit(req, ctx, "auto_match", {
+          mutationId: ids[idx],
+          matchId: v.matchId ?? null,
+          metadata: { candidateType: v.candidateType, candidateId: v.candidateId, source: "google_sheets" },
+          sourceModule: "bank_reconciliation",
+        });
+      }
+    }
+  });
+
+  res.json({ success: true, imported: ids.length, autoMatched, duplicates });
+});
+
 // ── POST /bank-reconciliation/import ─────────────────────────────────────────
 
 const importJsonSchema = z.object({
@@ -453,6 +608,131 @@ router.get("/bank-reconciliation/kpi", async (req, res) => {
       totalPartialPaidAmount: invMap["partial"]?.totalPaid ?? 0,
     },
   });
+});
+
+// ── GET /bank-reconciliation/cek-kesesuaian ──────────────────────────────────
+// Laporan kesesuaian mutasi bank vs bukti transfer/faktur
+
+router.get("/bank-reconciliation/cek-kesesuaian", async (req, res) => {
+  const ctx = appCtx(req);
+  const siteId: number | undefined = (req as any).siteId > 0 ? (req as any).siteId : undefined;
+  const { dateFrom, dateTo, status: filterStatus } = req.query as Record<string, string>;
+
+  const mutTenantSql = mutationRawTenantSql(ctx);
+  const fpeTenantSql = fpeRawTenantSql(ctx);
+
+  const siteCond = siteId ? sql`AND bm.site_id = ${siteId}` : sql``;
+  const dateFromCond = dateFrom ? sql`AND bm.transaction_date >= ${dateFrom}` : sql``;
+  const dateToCond = dateTo ? sql`AND bm.transaction_date <= ${dateTo}` : sql``;
+  const statusCond = filterStatus && filterStatus !== "all" ? sql`AND bm.status = ${filterStatus}` : sql``;
+
+  const rows = await db.execute(sql`
+    SELECT
+      bm.id,
+      bm.transaction_date,
+      bm.description,
+      bm.amount::numeric              AS amount,
+      bm.direction,
+      bm.status,
+      bm.provider_name,
+      bm.provider_order_id,
+      bm.bank_account_id,
+      bm.owner_tenant_id,
+      brm.id                          AS match_id,
+      brm.candidate_type,
+      brm.candidate_id,
+      brm.match_score,
+      brm.amount_match,
+      -- Referensi berdasarkan candidate_type
+      CASE
+        WHEN brm.candidate_type = 'payment_event' THEN fpe.amount::numeric
+        WHEN brm.candidate_type = 'invoice'       THEN ti.total_amount::numeric
+        WHEN brm.candidate_type = 'payment'       THEN tp.amount::numeric
+      END                             AS ref_amount,
+      CASE
+        WHEN brm.candidate_type = 'payment_event' THEN fpe.payment_method
+        WHEN brm.candidate_type = 'payment'       THEN tp.method
+        ELSE NULL
+      END                             AS ref_method,
+      CASE
+        WHEN brm.candidate_type = 'payment_event' THEN fpe.payment_reference
+        WHEN brm.candidate_type = 'payment'       THEN tp.payment_number
+        WHEN brm.candidate_type = 'invoice'       THEN ti.invoice_number
+      END                             AS ref_reference,
+      CASE
+        WHEN brm.candidate_type = 'payment_event' THEN COALESCE(fpe_t.business_name, fpe_t.owner_name)
+        WHEN brm.candidate_type = 'invoice'       THEN COALESCE(inv_t.business_name, inv_t.owner_name)
+        WHEN brm.candidate_type = 'payment'       THEN COALESCE(pay_t.business_name, pay_t.owner_name)
+      END                             AS ref_tenant,
+      CASE
+        WHEN brm.candidate_type = 'payment_event' THEN fpe.payment_status
+        WHEN brm.candidate_type = 'invoice'       THEN ti.status
+        ELSE NULL
+      END                             AS ref_status,
+      -- Selisih nominal (hanya jika ada match)
+      CASE
+        WHEN brm.id IS NOT NULL THEN
+          bm.amount::numeric - CASE
+            WHEN brm.candidate_type = 'payment_event' THEN COALESCE(fpe.amount::numeric, 0)
+            WHEN brm.candidate_type = 'invoice'       THEN COALESCE(ti.total_amount::numeric, 0)
+            WHEN brm.candidate_type = 'payment'       THEN COALESCE(tp.amount::numeric, 0)
+            ELSE 0
+          END
+        ELSE NULL
+      END                             AS selisih
+    FROM bank_mutations bm
+    LEFT JOIN bank_reconciliation_matches brm
+      ON brm.mutation_id = bm.id AND brm.status = 'applied'
+    LEFT JOIN finance_payment_events fpe
+      ON brm.candidate_type = 'payment_event' AND fpe.id = brm.candidate_id
+      ${fpeTenantSql}
+    LEFT JOIN tenants fpe_t ON fpe.tenant_id = fpe_t.id
+    LEFT JOIN tenant_invoices ti
+      ON brm.candidate_type = 'invoice' AND ti.id = brm.candidate_id
+    LEFT JOIN tenants inv_t ON ti.tenant_id = inv_t.id
+    LEFT JOIN tenant_payments tp
+      ON brm.candidate_type = 'payment' AND tp.id = brm.candidate_id
+    LEFT JOIN tenants pay_t ON tp.tenant_id = pay_t.id
+    WHERE 1=1
+      ${siteCond}
+      ${mutTenantSql}
+      ${dateFromCond}
+      ${dateToCond}
+      ${statusCond}
+    ORDER BY bm.transaction_date DESC, bm.id DESC
+    LIMIT 500
+  `);
+
+  const data = (rows as unknown as any[]).map((r: any) => ({
+    id: Number(r.id),
+    transactionDate: r.transaction_date as string,
+    description: r.description as string,
+    amount: String(r.amount ?? "0"),
+    direction: r.direction as string,
+    status: r.status as string,
+    providerName: r.provider_name as string | null,
+    providerOrderId: r.provider_order_id as string | null,
+    bankAccountId: r.bank_account_id as string | null,
+    ownerTenantId: r.owner_tenant_id as number | null,
+    matchId: r.match_id != null ? Number(r.match_id) : null,
+    candidateType: r.candidate_type as string | null,
+    candidateId: r.candidate_id != null ? Number(r.candidate_id) : null,
+    matchScore: r.match_score != null ? Number(r.match_score) : null,
+    amountMatch: r.amount_match as boolean | null,
+    refAmount: r.ref_amount != null ? String(r.ref_amount) : null,
+    refMethod: r.ref_method as string | null,
+    refReference: r.ref_reference as string | null,
+    refTenant: r.ref_tenant as string | null,
+    refStatus: r.ref_status as string | null,
+    selisih: r.selisih != null ? String(r.selisih) : null,
+  }));
+
+  const total = data.length;
+  const approved = data.filter((r) => r.status === "approved").length;
+  const unmatched = data.filter((r) => r.status === "unmatched").length;
+  const withSelisih = data.filter((r) => r.selisih != null && Math.abs(parseFloat(r.selisih)) > 1).length;
+
+  res.json({ summary: { total, approved, unmatched, withSelisih }, rows: data });
 });
 
 // ── GET /bank-reconciliation/mutations ───────────────────────────────────────

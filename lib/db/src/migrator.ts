@@ -1458,6 +1458,21 @@ END $$;
     sql: `ALTER TABLE mall_units ADD COLUMN IF NOT EXISTS default_rent_amount numeric DEFAULT 0;`,
   },
   {
+    name: "0029_short_payment_tokens",
+    sql: `
+-- Perbarui token pembayaran yang ada (UUID panjang) ke format 12-karakter hex pendek
+-- Menggunakan substr(md5(...)) karena gen_random_bytes memerlukan pgcrypto
+UPDATE "tenant_invoices"
+SET payment_token = substr(md5(random()::text || clock_timestamp()::text || id::text), 1, 12)
+WHERE payment_token IS NOT NULL
+  AND LENGTH(payment_token) > 20;
+
+-- Ganti default kolom ke format 12-karakter hex pendek
+ALTER TABLE "tenant_invoices"
+  ALTER COLUMN payment_token SET DEFAULT substr(md5(random()::text || clock_timestamp()::text), 1, 12);
+    `.trim(),
+  },
+  {
     name: "0028_bank_reconciliation",
     sql: `
 CREATE TABLE IF NOT EXISTS "bank_mutations" (
