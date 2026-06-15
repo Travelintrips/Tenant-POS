@@ -1549,6 +1549,140 @@ ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS tenant_id integer;
     `.trim(),
   },
   {
+    name: "0032_missing_tables",
+    sql: `
+-- system_settings
+CREATE TABLE IF NOT EXISTS "system_settings" (
+  "id" serial PRIMARY KEY NOT NULL,
+  "key" text NOT NULL UNIQUE,
+  "value" jsonb,
+  "updated_at" timestamptz NOT NULL DEFAULT now()
+);
+INSERT INTO "system_settings" ("key", "value")
+VALUES ('mall_config', '{"mallName":"Mall Admin","tagline":"Manajemen Tenant Mall","address":"","phone":"","email":"","invoicePrefix":"INV-TENANT","taxRate":0,"currency":"IDR","logoUrl":"","adminPhone":"","waSenderPhone":"","waSenderLabel":"","paymentDomain":"","invoiceColor":"#1e3a5f","invoiceFooterNote":"","invoiceSignerName":""}')
+ON CONFLICT ("key") DO NOTHING;
+
+-- finance_payment_events
+CREATE TABLE IF NOT EXISTS "finance_payment_events" (
+  "id" serial PRIMARY KEY NOT NULL,
+  "source_app" text NOT NULL,
+  "owner_app" text NOT NULL,
+  "source_module" text NOT NULL,
+  "source_table" text NOT NULL,
+  "source_id" integer NOT NULL,
+  "owner_company_id" integer,
+  "owner_tenant_id" integer,
+  "tenant_id" integer REFERENCES "tenants"("id"),
+  "site_id" integer REFERENCES "mall_sites"("id"),
+  "invoice_id" integer,
+  "amount" numeric NOT NULL,
+  "direction" text NOT NULL DEFAULT 'IN',
+  "payment_method" text NOT NULL,
+  "payment_reference" text,
+  "external_order_id" text,
+  "payment_status" text NOT NULL DEFAULT 'pending',
+  "proof_url" text,
+  "bank_mutation_id" integer,
+  "is_reconciled" boolean NOT NULL DEFAULT false,
+  "reconciled_at" timestamptz,
+  "created_by_app" text,
+  "approval_scope" text,
+  "metadata" jsonb,
+  "created_at" timestamptz NOT NULL DEFAULT now(),
+  "updated_at" timestamptz NOT NULL DEFAULT now()
+);
+
+-- bank_account_balances
+CREATE TABLE IF NOT EXISTS "bank_account_balances" (
+  "id" serial PRIMARY KEY NOT NULL,
+  "bank_account_id" text NOT NULL,
+  "company_id" integer,
+  "owner_app" text,
+  "owner_tenant_id" integer,
+  "site_id" integer REFERENCES "mall_sites"("id"),
+  "current_balance" numeric NOT NULL DEFAULT '0',
+  "last_reconciled_balance" numeric,
+  "last_reconciled_at" timestamptz,
+  "created_at" timestamptz NOT NULL DEFAULT now(),
+  "updated_at" timestamptz NOT NULL DEFAULT now()
+);
+
+-- bank_closing_periods
+CREATE TABLE IF NOT EXISTS "bank_closing_periods" (
+  "id" serial PRIMARY KEY NOT NULL,
+  "year_month" text NOT NULL UNIQUE,
+  "locked_by" text,
+  "locked_by_role" text,
+  "notes" text,
+  "site_id" integer REFERENCES "mall_sites"("id"),
+  "created_at" timestamptz NOT NULL DEFAULT now(),
+  "updated_at" timestamptz NOT NULL DEFAULT now()
+);
+
+-- bank_coa_rules
+CREATE TABLE IF NOT EXISTS "bank_coa_rules" (
+  "id" serial PRIMARY KEY NOT NULL,
+  "provider_name" text,
+  "direction" text NOT NULL DEFAULT 'ALL',
+  "description_pattern" text,
+  "coa_code" text NOT NULL,
+  "coa_name" text NOT NULL,
+  "description" text,
+  "is_active" boolean NOT NULL DEFAULT true,
+  "created_at" timestamptz NOT NULL DEFAULT now(),
+  "updated_at" timestamptz NOT NULL DEFAULT now()
+);
+
+-- bank_journal_entries
+CREATE TABLE IF NOT EXISTS "bank_journal_entries" (
+  "id" serial PRIMARY KEY NOT NULL,
+  "journal_id" text NOT NULL UNIQUE,
+  "mutation_id" integer REFERENCES "bank_mutations"("id"),
+  "company_id" integer,
+  "owner_app" text,
+  "source_app" text,
+  "source_module" text,
+  "transaction_date" text NOT NULL,
+  "description" text NOT NULL DEFAULT '',
+  "debit_account_id" text,
+  "credit_account_id" text,
+  "debit_amount" numeric NOT NULL DEFAULT '0',
+  "credit_amount" numeric NOT NULL DEFAULT '0',
+  "currency" text NOT NULL DEFAULT 'IDR',
+  "status" text NOT NULL DEFAULT 'posted',
+  "created_by" text,
+  "site_id" integer REFERENCES "mall_sites"("id"),
+  "metadata" jsonb,
+  "created_at" timestamptz NOT NULL DEFAULT now(),
+  "updated_at" timestamptz NOT NULL DEFAULT now()
+);
+
+-- bank_recon_audit_logs
+CREATE TABLE IF NOT EXISTS "bank_recon_audit_logs" (
+  "id" serial PRIMARY KEY NOT NULL,
+  "mutation_id" integer,
+  "match_id" integer,
+  "finance_payment_event_id" integer,
+  "journal_id" text,
+  "action" text NOT NULL,
+  "action_app" text,
+  "action_user_id" text,
+  "action_role" text,
+  "owner_app" text,
+  "owner_company_id" integer,
+  "owner_tenant_id" integer,
+  "source_app" text,
+  "source_module" text,
+  "before_value" jsonb,
+  "after_value" jsonb,
+  "metadata" jsonb,
+  "ip_address" text,
+  "user_agent" text,
+  "created_at" timestamptz NOT NULL DEFAULT now()
+);
+    `.trim(),
+  },
+  {
     name: "0031_fix_mall_units_constraint_and_kantin",
     sql: `
 -- Tambah kolom unit_type dan area_kantin jika belum ada
