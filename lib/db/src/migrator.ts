@@ -1548,6 +1548,44 @@ END $$;
 ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS tenant_id integer;
     `.trim(),
   },
+  {
+    name: "0031_fix_mall_units_constraint_and_kantin",
+    sql: `
+-- Tambah kolom unit_type dan area_kantin jika belum ada
+ALTER TABLE mall_units ADD COLUMN IF NOT EXISTS unit_type text NOT NULL DEFAULT 'other';
+ALTER TABLE mall_units ADD COLUMN IF NOT EXISTS area_kantin text;
+
+-- Ganti unique constraint global unit_code menjadi per (site_id, unit_code)
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM pg_indexes WHERE tablename = 'mall_units' AND indexname = 'mall_units_unit_code_unique') THEN
+    DROP INDEX "mall_units_unit_code_unique";
+  END IF;
+END $$;
+
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_indexes WHERE tablename = 'mall_units' AND indexname = 'mall_units_site_unit_unique') THEN
+    CREATE UNIQUE INDEX "mall_units_site_unit_unique" ON "mall_units" ("site_id", "unit_code");
+  END IF;
+END $$;
+
+-- Insert unit kantin Sport Center (site_id=2) yang hilang akibat konflik constraint lama
+INSERT INTO mall_units (id, unit_code, unit_type, area_kantin, floor, size_m2, position_x, position_y, width, height, status, site_id)
+VALUES
+  (60, 'SC-KTN-01', 'food_booth',     'AREA KANTIN', 'Main', '12', 0, 0, 3, 2, 'available', 2),
+  (61, 'SC-KTN-02', 'beverage_booth', 'AREA KANTIN', 'Main', '10', 3, 0, 3, 2, 'available', 2),
+  (62, 'SC-KTN-03', 'food_booth',     'AREA KANTIN', 'Main',  '8', 6, 0, 2, 2, 'available', 2)
+ON CONFLICT (id) DO NOTHING;
+
+-- Update unit_type dan area_kantin untuk unit kantin yang sudah ada
+UPDATE mall_units SET unit_type='food_booth',     area_kantin='AREA KANTIN' WHERE id=127;
+UPDATE mall_units SET unit_type='food_booth'                                WHERE id=109 AND unit_type='other';
+UPDATE mall_units SET unit_type='beverage_booth'                            WHERE id=110 AND unit_type='other';
+UPDATE mall_units SET unit_type='storage'                                   WHERE id=111 AND unit_type='other';
+UPDATE mall_units SET unit_type='food_booth'                                WHERE id=112 AND unit_type='other';
+UPDATE mall_units SET unit_type='beverage_booth'                            WHERE id=113 AND unit_type='other';
+UPDATE mall_units SET unit_type='storage'                                   WHERE id=114 AND unit_type='other';
+    `.trim(),
+  },
 ];
 
 const MIGRATIONS_TABLE = "schema_migrations";
