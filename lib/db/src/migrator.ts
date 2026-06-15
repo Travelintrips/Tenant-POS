@@ -1542,6 +1542,12 @@ DO $$ BEGIN
 END $$;
     `.trim(),
   },
+  {
+    name: "0030_audit_logs_tenant_id",
+    sql: `
+ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS tenant_id integer;
+    `.trim(),
+  },
 ];
 
 const MIGRATIONS_TABLE = "schema_migrations";

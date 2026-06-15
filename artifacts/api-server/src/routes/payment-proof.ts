@@ -5,7 +5,7 @@ import crypto from "crypto";
 import { db } from "@workspace/db";
 import { tenantInvoicesTable, tenantPaymentsTable, tenantsTable, systemSettingsTable, waLogsTable } from "@workspace/db/schema";
 import { eq, sql, and, desc } from "drizzle-orm";
-import { z } from "zod/v4";
+import { z } from "zod";
 import { sseBroker } from "../lib/sse-broker";
 import { sendPaymentReceived, sendAdminPaymentAlert } from "../lib/whatsapp";
 import { uploadRateLimiter } from "../middlewares/rate-limit";

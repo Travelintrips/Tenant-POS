@@ -10,6 +10,13 @@ const rawUrl = (isProduction
      process.env["SUPABASE_DATABASE_URL"] ??
      process.env["DATABASE_URL"] ??
      (() => { throw new Error("SUPABASE_PG_URL atau DATABASE_URL harus diset"); })())).trim();
+     (() => { throw new Error("SUPABASE_PG_URL atau DATABASE_URL harus diset"); })())
+const rawUrl = (
+  process.env["SUPABASE_PG_URL"] ??
+  process.env["SUPABASE_DATABASE_URL"] ??
+  process.env["DATABASE_URL"] ??
+  (() => { throw new Error("DATABASE_URL harus diset"); })()
+).trim();
 
 const isSupabase =
   rawUrl.includes("supabase") ||
