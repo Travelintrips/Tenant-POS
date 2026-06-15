@@ -6,7 +6,7 @@ import {
   tenantsTable,
 } from "@workspace/db/schema";
 import { eq, and, inArray, desc } from "drizzle-orm";
-import { z } from "zod/v4";
+import { z } from "zod";
 import { requireAnyRole } from "../middlewares/auth";
 import { sseBroker } from "../lib/sse-broker";
 import { sendPaymentApproved, sendPaymentRejected } from "../lib/whatsapp";

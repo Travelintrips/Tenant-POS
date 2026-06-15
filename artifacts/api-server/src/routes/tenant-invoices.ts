@@ -8,7 +8,7 @@ import {
   tenantPaymentsTable,
 } from "@workspace/db/schema";
 import { eq, and, sql, desc, ilike, or, lte, gte, notInArray } from "drizzle-orm";
-import { z } from "zod/v4";
+import { z } from "zod";
 import { requireAnyRole } from "../middlewares/auth";
 import { logAudit } from "../lib/audit";
 import { getBaseUrl } from "../lib/app-url";

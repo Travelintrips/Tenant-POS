@@ -9,7 +9,7 @@ import { eq, and, ne, lt, lte, gte, or } from "drizzle-orm";
 import { requireAnyRole } from "../middlewares/auth";
 import { logAudit } from "../lib/audit";
 import { sseBroker } from "../lib/sse-broker";
-import { z } from "zod/v4";
+import { z } from "zod";
 
 const router: IRouter = Router();
 
