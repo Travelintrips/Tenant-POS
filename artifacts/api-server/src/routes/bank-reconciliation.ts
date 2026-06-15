@@ -610,6 +610,131 @@ router.get("/bank-reconciliation/kpi", async (req, res) => {
   });
 });
 
+// ── GET /bank-reconciliation/cek-kesesuaian ──────────────────────────────────
+// Laporan kesesuaian mutasi bank vs bukti transfer/faktur
+
+router.get("/bank-reconciliation/cek-kesesuaian", async (req, res) => {
+  const ctx = appCtx(req);
+  const siteId: number | undefined = (req as any).siteId > 0 ? (req as any).siteId : undefined;
+  const { dateFrom, dateTo, status: filterStatus } = req.query as Record<string, string>;
+
+  const mutTenantSql = mutationRawTenantSql(ctx);
+  const fpeTenantSql = fpeRawTenantSql(ctx);
+
+  const siteCond = siteId ? sql`AND bm.site_id = ${siteId}` : sql``;
+  const dateFromCond = dateFrom ? sql`AND bm.transaction_date >= ${dateFrom}` : sql``;
+  const dateToCond = dateTo ? sql`AND bm.transaction_date <= ${dateTo}` : sql``;
+  const statusCond = filterStatus && filterStatus !== "all" ? sql`AND bm.status = ${filterStatus}` : sql``;
+
+  const rows = await db.execute(sql`
+    SELECT
+      bm.id,
+      bm.transaction_date,
+      bm.description,
+      bm.amount::numeric              AS amount,
+      bm.direction,
+      bm.status,
+      bm.provider_name,
+      bm.provider_order_id,
+      bm.bank_account_id,
+      bm.owner_tenant_id,
+      brm.id                          AS match_id,
+      brm.candidate_type,
+      brm.candidate_id,
+      brm.match_score,
+      brm.amount_match,
+      -- Referensi berdasarkan candidate_type
+      CASE
+        WHEN brm.candidate_type = 'payment_event' THEN fpe.amount::numeric
+        WHEN brm.candidate_type = 'invoice'       THEN ti.total_amount::numeric
+        WHEN brm.candidate_type = 'payment'       THEN tp.amount::numeric
+      END                             AS ref_amount,
+      CASE
+        WHEN brm.candidate_type = 'payment_event' THEN fpe.payment_method
+        WHEN brm.candidate_type = 'payment'       THEN tp.method
+        ELSE NULL
+      END                             AS ref_method,
+      CASE
+        WHEN brm.candidate_type = 'payment_event' THEN fpe.payment_reference
+        WHEN brm.candidate_type = 'payment'       THEN tp.payment_number
+        WHEN brm.candidate_type = 'invoice'       THEN ti.invoice_number
+      END                             AS ref_reference,
+      CASE
+        WHEN brm.candidate_type = 'payment_event' THEN COALESCE(fpe_t.business_name, fpe_t.owner_name)
+        WHEN brm.candidate_type = 'invoice'       THEN COALESCE(inv_t.business_name, inv_t.owner_name)
+        WHEN brm.candidate_type = 'payment'       THEN COALESCE(pay_t.business_name, pay_t.owner_name)
+      END                             AS ref_tenant,
+      CASE
+        WHEN brm.candidate_type = 'payment_event' THEN fpe.payment_status
+        WHEN brm.candidate_type = 'invoice'       THEN ti.status
+        ELSE NULL
+      END                             AS ref_status,
+      -- Selisih nominal (hanya jika ada match)
+      CASE
+        WHEN brm.id IS NOT NULL THEN
+          bm.amount::numeric - CASE
+            WHEN brm.candidate_type = 'payment_event' THEN COALESCE(fpe.amount::numeric, 0)
+            WHEN brm.candidate_type = 'invoice'       THEN COALESCE(ti.total_amount::numeric, 0)
+            WHEN brm.candidate_type = 'payment'       THEN COALESCE(tp.amount::numeric, 0)
+            ELSE 0
+          END
+        ELSE NULL
+      END                             AS selisih
+    FROM bank_mutations bm
+    LEFT JOIN bank_reconciliation_matches brm
+      ON brm.mutation_id = bm.id AND brm.status = 'applied'
+    LEFT JOIN finance_payment_events fpe
+      ON brm.candidate_type = 'payment_event' AND fpe.id = brm.candidate_id
+      ${fpeTenantSql}
+    LEFT JOIN tenants fpe_t ON fpe.tenant_id = fpe_t.id
+    LEFT JOIN tenant_invoices ti
+      ON brm.candidate_type = 'invoice' AND ti.id = brm.candidate_id
+    LEFT JOIN tenants inv_t ON ti.tenant_id = inv_t.id
+    LEFT JOIN tenant_payments tp
+      ON brm.candidate_type = 'payment' AND tp.id = brm.candidate_id
+    LEFT JOIN tenants pay_t ON tp.tenant_id = pay_t.id
+    WHERE 1=1
+      ${siteCond}
+      ${mutTenantSql}
+      ${dateFromCond}
+      ${dateToCond}
+      ${statusCond}
+    ORDER BY bm.transaction_date DESC, bm.id DESC
+    LIMIT 500
+  `);
+
+  const data = (rows as unknown as any[]).map((r: any) => ({
+    id: Number(r.id),
+    transactionDate: r.transaction_date as string,
+    description: r.description as string,
+    amount: String(r.amount ?? "0"),
+    direction: r.direction as string,
+    status: r.status as string,
+    providerName: r.provider_name as string | null,
+    providerOrderId: r.provider_order_id as string | null,
+    bankAccountId: r.bank_account_id as string | null,
+    ownerTenantId: r.owner_tenant_id as number | null,
+    matchId: r.match_id != null ? Number(r.match_id) : null,
+    candidateType: r.candidate_type as string | null,
+    candidateId: r.candidate_id != null ? Number(r.candidate_id) : null,
+    matchScore: r.match_score != null ? Number(r.match_score) : null,
+    amountMatch: r.amount_match as boolean | null,
+    refAmount: r.ref_amount != null ? String(r.ref_amount) : null,
+    refMethod: r.ref_method as string | null,
+    refReference: r.ref_reference as string | null,
+    refTenant: r.ref_tenant as string | null,
+    refStatus: r.ref_status as string | null,
+    selisih: r.selisih != null ? String(r.selisih) : null,
+  }));
+
+  const total = data.length;
+  const approved = data.filter((r) => r.status === "approved").length;
+  const unmatched = data.filter((r) => r.status === "unmatched").length;
+  const withSelisih = data.filter((r) => r.selisih != null && Math.abs(parseFloat(r.selisih)) > 1).length;
+
+  res.json({ summary: { total, approved, unmatched, withSelisih }, rows: data });
+});
+
 // ── GET /bank-reconciliation/mutations ───────────────────────────────────────
 
 router.get("/bank-reconciliation/mutations", async (req, res) => {
