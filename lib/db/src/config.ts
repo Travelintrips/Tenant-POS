@@ -1,5 +1,4 @@
 
-
 interface PgParams {
   host: string;
   port: number;
@@ -13,69 +12,60 @@ interface PgParams {
  * dengan karakter khusus (@ # %) tidak merusak URL parser pg.
  */
 function parseDbUrl(rawUrl: string): PgParams {
-  const cleaned = rawUrl
-    .replace(/^postgresql:\/\//, "https://")
-    .replace(/^postgres:\/\//, "https://");
-
-  const u = new URL(cleaned);
-  return {
-    host: u.hostname,
-    port: u.port ? parseInt(u.port, 10) : 5432,
-    database: u.pathname.replace(/^\//, "") || "postgres",
-    user: decodeURIComponent(u.username),
-    password: decodeURIComponent(u.password),
-  };
+  try {
+    const protoEnd = rawUrl.indexOf("://") + 3;
+    const lastAt = rawUrl.lastIndexOf("@");
+    if (lastAt < protoEnd) {
+      const u = new URL(rawUrl.replace(/^postgresql:\/\//, "https://").replace(/^postgres:\/\//, "https://"));
+      return {
+        host: u.hostname,
+        port: u.port ? parseInt(u.port, 10) : 5432,
+        database: u.pathname.replace(/^\//, "") || "postgres",
+        user: decodeURIComponent(u.username),
+        password: decodeURIComponent(u.password),
+      };
+    }
+    const userinfo = rawUrl.substring(protoEnd, lastAt);
+    const rest = rawUrl.substring(lastAt + 1);
+    const colonIdx = userinfo.indexOf(":");
+    if (colonIdx < 0) throw new Error("No colon in userinfo");
+    const user = userinfo.substring(0, colonIdx);
+    const password = decodeURIComponent(userinfo.substring(colonIdx + 1));
+    const qIdx = rest.indexOf("?");
+    const restNoQuery = qIdx >= 0 ? rest.substring(0, qIdx) : rest;
+    const slashIdx = restNoQuery.indexOf("/");
+    const hostport = slashIdx >= 0 ? restNoQuery.substring(0, slashIdx) : restNoQuery;
+    const database = slashIdx >= 0 ? restNoQuery.substring(slashIdx + 1) : "postgres";
+    const portColon = hostport.lastIndexOf(":");
+    const host = portColon >= 0 ? hostport.substring(0, portColon) : hostport;
+    const port = portColon >= 0 ? Number(hostport.substring(portColon + 1)) : 5432;
+    return { user, password, host, port, database };
+  } catch {
+    const u = new URL(rawUrl.replace(/^postgresql:\/\//, "https://").replace(/^postgres:\/\//, "https://"));
+    return {
+      host: u.hostname,
+      port: u.port ? parseInt(u.port, 10) : 5432,
+      database: u.pathname.replace(/^\//, "") || "postgres",
+      user: decodeURIComponent(u.username),
+      password: decodeURIComponent(u.password),
+    };
+  }
 }
 
 const rawUrl =
-  process.env["DATABASE_URL"] ??
-  process.env["SUPABASE_DATABASE_URL"] ??
-  process.env["SUPABASE_PG_URL"] ??
-  process.env["DATABASE_URL"] ??
-  (() => {
-    throw new Error("DATABASE_URL atau SUPABASE_DATABASE_URL harus diset");
-  })();
-  (() => { throw new Error("DATABASE_URL harus diset"); })();
   process.env["SUPABASE_PG_URL"] ??
   process.env["SUPABASE_DATABASE_URL"] ??
-  process.env["SUPABASE_DATABASE_URL_DEV"] ??
-  (() => { throw new Error("DATABASE_URL atau SUPABASE_PG_URL harus diset"); })();
+  process.env["DATABASE_URL"] ??
+  (() => { throw new Error("SUPABASE_PG_URL atau DATABASE_URL harus diset"); })();
 
 const isSupabase =
   rawUrl.includes("supabase") ||
   rawUrl.includes("pooler") ||
   rawUrl.includes("nzdweipz");
 
-function parseDbUrl(url: string): { user?: string; password?: string; host?: string; port?: number; database?: string; connectionString?: string } {
-  try {
-    const protoEnd = url.indexOf("://") + 3;
-    const lastAt = url.lastIndexOf("@");
-    if (lastAt < protoEnd) return { connectionString: url };
-    const userinfo = url.substring(protoEnd, lastAt);
-    const rest = url.substring(lastAt + 1);
-    const colonIdx = userinfo.indexOf(":");
-    if (colonIdx < 0) return { connectionString: url };
-    const user = userinfo.substring(0, colonIdx);
-    const password = decodeURIComponent(userinfo.substring(colonIdx + 1));
-    // strip query string from rest before parsing host/db
-    const qIdx = rest.indexOf("?");
-    const restNoQuery = qIdx >= 0 ? rest.substring(0, qIdx) : rest;
-    const slashIdx = restNoQuery.indexOf("/");
-    const hostport = slashIdx >= 0 ? restNoQuery.substring(0, slashIdx) : restNoQuery;
-    const database = slashIdx >= 0 ? restNoQuery.substring(slashIdx + 1) : "";
-    const portColon = hostport.lastIndexOf(":");
-    const host = portColon >= 0 ? hostport.substring(0, portColon) : hostport;
-    const port = portColon >= 0 ? Number(hostport.substring(portColon + 1)) : 5432;
-    return { user, password, host, port, database };
-  } catch {
-    return { connectionString: url };
-  }
-}
-
 export const dbConfig = {
   url: rawUrl,
   parsed: parseDbUrl(rawUrl),
   ssl: isSupabase ? ({ rejectUnauthorized: false } as const) : (false as const),
-  ssl: isSupabase ? { rejectUnauthorized: false } : false,
   env: (process.env["NODE_ENV"] ?? "development") === "development" ? "development" : "production",
 } as const;
