@@ -31,3 +31,4 @@
 - [bank-accounting-journal](bank-accounting-journal.md) — postAccountingJournal in src/lib/accounting-journal.ts; bash heredoc required to create files (write tool does not persist to disk)
 - [googleapis-external-package](googleapis-external-package.md) — googleapis is esbuild-external; must be installed in artifacts/api-server; if missing, entire dist fails to load causing all bank-reconciliation routes to 404
 - [bank-recon-role-isolation](bank-recon-role-isolation.md) — AppContext has sourceAppFilterBypass: BizPortal (owner/finance+bizportal) bypass sourceApp filter; cashier cannot approve/match invoice or payment type; X-Tenant-Id only trusted when isBizPortal && !isFullAccess
+- [replit-migration-db-lessons](replit-migration-db-lessons.md) — users.id integer→text fix, seed migration duplicate-key workaround, missing migrations list for Replit Postgres
