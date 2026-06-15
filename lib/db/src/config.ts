@@ -32,13 +32,17 @@ function parseDbUrl(url: string): PgParams {
   }
 }
 
-const rawUrl =
-  process.env["SUPABASE_PG_URL"] ??
-  process.env["DATABASE_URL"] ??
-  process.env["SUPABASE_DATABASE_URL"] ??
-  (() => {
-    throw new Error("SUPABASE_PG_URL atau DATABASE_URL harus diset");
-  })();
+const isProduction = (process.env["NODE_ENV"] ?? "development") === "production";
+
+// Production → SUPABASE_PG_URL_PROD, Development → SUPABASE_PG_URL
+const rawUrl = isProduction
+  ? (process.env["SUPABASE_PG_URL_PROD"] ??
+     process.env["SUPABASE_PG_URL"] ??
+     process.env["DATABASE_URL"] ??
+     (() => { throw new Error("SUPABASE_PG_URL_PROD harus diset di production"); })())
+  : (process.env["SUPABASE_PG_URL"] ??
+     process.env["DATABASE_URL"] ??
+     (() => { throw new Error("SUPABASE_PG_URL harus diset di development"); })());
 
 const isSupabase =
   rawUrl.includes("supabase") ||
@@ -48,5 +52,5 @@ export const dbConfig = {
   url: rawUrl,
   parsed: parseDbUrl(rawUrl),
   ssl: isSupabase ? ({ rejectUnauthorized: false } as const) : (false as const),
-  env: (process.env["NODE_ENV"] ?? "development") === "development" ? "development" : "production",
+  env: isProduction ? "production" : "development",
 } as const;
