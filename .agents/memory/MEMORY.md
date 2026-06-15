@@ -24,6 +24,7 @@
 - [migrator-site-id-dynamic](migrator-site-id-dynamic.md) — migrations 0019 hardcoded site_id=3 for Sport Center but actual id depends on INSERT order; always use `SELECT id FROM mall_sites WHERE code='SPORT_CENTER_BANDARA'`
 - [config-ts-dedup](config-ts-dedup.md) — lib/db/src/config.ts had duplicate parseDbUrl, duplicate rawUrl, duplicate ssl from prior bad merges; keep single clean version with SUPABASE_PG_URL → SUPABASE_DATABASE_URL → DATABASE_URL priority
 - [supabase-active-connection](supabase-connection.md) — active DB is Supabase xssrfshdrtdfupgqwfdw via SUPABASE_PG_URL secret (pooler port 6543, SSL rejectUnauthorized:false); config.ts prioritizes SUPABASE_PG_URL > DATABASE_URL
+- [config-ts-merge-conflict](config-ts-merge-conflict.md) — lib/db/src/config.ts terus kena git merge conflict; selalu overwrite penuh, jangan edit parsial
 - [migrator-site-id-dynamic](migrator-site-id-dynamic.md) — migrations 0019/0020/0021/0022 hardcoded site_id=3 for Sport Center; fixed to `SELECT id FROM mall_sites WHERE code='SPORT_CENTER_BANDARA'`; migration 0029 needs pgcrypto — add CREATE EXTENSION IF NOT EXISTS pgcrypto first
 - [booking-status-bilingual](booking-status-bilingual.md) — booking_status has mixed values: 'aktif' (Indonesian, site 1) and 'active' (English, site 2 Sport Center); always use IN ('aktif','active') in joins/filters
 - [zod-v4-import](zod-v4-import.md) — workspace uses zod@3.x (catalog); `import { z } from "zod/v4"` fails at runtime (no such export path); always use `import { z } from "zod"`
