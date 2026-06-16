@@ -970,40 +970,46 @@ END $$;
     name: "0022_restore_mall_units",
     sql: `
 DO $$ BEGIN
-  -- Restore TOD M1 units (site_id=1) jika belum ada
-  IF NOT EXISTS (SELECT 1 FROM mall_units WHERE site_id = 1 AND unit_code = 'T-001') THEN
-    INSERT INTO mall_units (unit_code, floor, zone, size_m2, status, position_x, position_y, width, height, site_id) VALUES
-    ('T-001', '1', 'Zona A', 20, 'occupied',  0, 0, 2, 2, 1),
-    ('T-002', '1', 'Zona A', 16, 'occupied',  2, 0, 2, 2, 1),
-    ('T-003', '1', 'Zona A', 14, 'occupied',  4, 0, 2, 2, 1),
-    ('T-004', '1', 'Zona A', 18, 'occupied',  6, 0, 2, 2, 1),
-    ('T-005', '1', 'Zona B', 20, 'occupied',  0, 2, 2, 2, 1),
-    ('T-006', '1', 'Zona B', 16, 'occupied',  2, 2, 2, 2, 1),
-    ('T-007', '1', 'Zona B', 14, 'occupied',  4, 2, 2, 2, 1),
-    ('T-008', '1', 'Zona B', 18, 'available', 6, 2, 2, 2, 1),
-    ('T-009', '1', 'Zona A', 20, 'occupied',  0, 4, 2, 2, 1),
-    ('T-010', '1', 'Zona A', 16, 'occupied',  4, 4, 2, 2, 1),
-    ('T-011', '1', 'Zona B', 20, 'occupied',  6, 4, 2, 2, 1),
-    ('T-012', '1', 'Zona A', 18, 'occupied',  0, 6, 2, 2, 1),
-    ('T-013', '1', 'Zona B', 24, 'available', 2, 6, 2, 2, 1),
-    ('T-014', '1', 'Zona C', 30, 'available', 4, 6, 2, 2, 1),
-    ('T-015', '1', 'Zona C', 20, 'available', 6, 6, 2, 2, 1),
-    ('T-016', '1', 'Zona C', 20, 'available', 8, 6, 2, 2, 1);
+  -- Pastikan constraint global unit_code sudah diganti ke (site_id, unit_code)
+  IF EXISTS (SELECT 1 FROM pg_indexes WHERE tablename = 'mall_units' AND indexname = 'mall_units_unit_code_unique') THEN
+    DROP INDEX "mall_units_unit_code_unique";
   END IF;
-
-  -- Restore Sport Center units (site_id=3) jika belum ada
-  IF NOT EXISTS (SELECT 1 FROM mall_units WHERE site_id = 3 AND unit_code = 'SC-01') THEN
-    INSERT INTO mall_units (unit_code, floor, zone, size_m2, status, position_x, position_y, width, height, site_id) VALUES
-    ('SC-01', '1', 'Lapangan', 200, 'occupied',  0, 0, 4, 4, 3),
-    ('SC-02', '1', 'Lapangan', 200, 'occupied',  4, 0, 4, 4, 3),
-    ('SC-03', '1', 'Lapangan', 200, 'occupied',  8, 0, 4, 4, 3),
-    ('SC-04', '1', 'Fasilitas', 120, 'occupied', 0, 4, 4, 4, 3),
-    ('SC-05', '1', 'Fasilitas',  80, 'occupied', 4, 4, 2, 2, 3),
-    ('SC-06', '1', 'Fasilitas',  80, 'occupied', 6, 4, 2, 2, 3),
-    ('SC-07', '1', 'Tenant',     40, 'occupied', 8, 4, 2, 2, 3),
-    ('SC-08', '1', 'Tenant',     40, 'occupied', 8, 6, 2, 2, 3);
+  IF NOT EXISTS (SELECT 1 FROM pg_indexes WHERE tablename = 'mall_units' AND indexname = 'mall_units_site_unit_unique') THEN
+    CREATE UNIQUE INDEX "mall_units_site_unit_unique" ON "mall_units" ("site_id", "unit_code");
   END IF;
 END $$;
+
+-- Restore TOD M1 units (site_id=1) jika belum ada
+INSERT INTO mall_units (unit_code, floor, zone, size_m2, status, position_x, position_y, width, height, site_id) VALUES
+('T-001', '1', 'Zona A', 20, 'occupied',  0, 0, 2, 2, 1),
+('T-002', '1', 'Zona A', 16, 'occupied',  2, 0, 2, 2, 1),
+('T-003', '1', 'Zona A', 14, 'occupied',  4, 0, 2, 2, 1),
+('T-004', '1', 'Zona A', 18, 'occupied',  6, 0, 2, 2, 1),
+('T-005', '1', 'Zona B', 20, 'occupied',  0, 2, 2, 2, 1),
+('T-006', '1', 'Zona B', 16, 'occupied',  2, 2, 2, 2, 1),
+('T-007', '1', 'Zona B', 14, 'occupied',  4, 2, 2, 2, 1),
+('T-008', '1', 'Zona B', 18, 'available', 6, 2, 2, 2, 1),
+('T-009', '1', 'Zona A', 20, 'occupied',  0, 4, 2, 2, 1),
+('T-010', '1', 'Zona A', 16, 'occupied',  4, 4, 2, 2, 1),
+('T-011', '1', 'Zona B', 20, 'occupied',  6, 4, 2, 2, 1),
+('T-012', '1', 'Zona A', 18, 'occupied',  0, 6, 2, 2, 1),
+('T-013', '1', 'Zona B', 24, 'available', 2, 6, 2, 2, 1),
+('T-014', '1', 'Zona C', 30, 'available', 4, 6, 2, 2, 1),
+('T-015', '1', 'Zona C', 20, 'available', 6, 6, 2, 2, 1),
+('T-016', '1', 'Zona C', 20, 'available', 8, 6, 2, 2, 1)
+ON CONFLICT (site_id, unit_code) DO NOTHING;
+
+-- Restore Sport Center units (site_id=3) jika belum ada
+INSERT INTO mall_units (unit_code, floor, zone, size_m2, status, position_x, position_y, width, height, site_id) VALUES
+('SC-01', '1', 'Lapangan', 200, 'occupied',  0, 0, 4, 4, 3),
+('SC-02', '1', 'Lapangan', 200, 'occupied',  4, 0, 4, 4, 3),
+('SC-03', '1', 'Lapangan', 200, 'occupied',  8, 0, 4, 4, 3),
+('SC-04', '1', 'Fasilitas', 120, 'occupied', 0, 4, 4, 4, 3),
+('SC-05', '1', 'Fasilitas',  80, 'occupied', 4, 4, 2, 2, 3),
+('SC-06', '1', 'Fasilitas',  80, 'occupied', 6, 4, 2, 2, 3),
+('SC-07', '1', 'Tenant',     40, 'occupied', 8, 4, 2, 2, 3),
+('SC-08', '1', 'Tenant',     40, 'occupied', 8, 6, 2, 2, 3)
+ON CONFLICT (site_id, unit_code) DO NOTHING;
     `.trim(),
   },
   {

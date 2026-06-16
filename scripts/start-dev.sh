@@ -1,24 +1,23 @@
 #!/bin/bash
 set -e
 
-# Cek apakah port 8080 sudah aktif (gunakan TCP, bukan HTTP status)
-if (echo >/dev/tcp/localhost/8080) 2>/dev/null; then
-  echo "[start-dev] API server sudah berjalan di port 8080, lewati."
-else
-  echo "[start-dev] Memulai API server..."
-  PORT=8080 pnpm --filter @workspace/api-server run dev &
-  API_PID=$!
-  echo "[start-dev] API server starting (PID: $API_PID)..."
+# Bebaskan port 8080 dari proses sebelumnya (artifact workflow lama, dll)
+fuser -k 8080/tcp 2>/dev/null || true
+sleep 0.5
 
-  # Tunggu API server siap
-  for i in $(seq 1 30); do
-    if (echo >/dev/tcp/localhost/8080) 2>/dev/null; then
-      echo "[start-dev] API server siap di port 8080"
-      break
-    fi
-    sleep 1
-  done
-fi
+echo "[start-dev] Memulai API server..."
+PORT=8080 pnpm --filter @workspace/api-server run dev &
+API_PID=$!
+echo "[start-dev] API server starting (PID: $API_PID)..."
+
+# Tunggu API server siap
+for i in $(seq 1 60); do
+  if (echo >/dev/tcp/localhost/8080) 2>/dev/null; then
+    echo "[start-dev] API server siap di port 8080"
+    break
+  fi
+  sleep 1
+done
 
 # Mulai admin portal di foreground (Replit menunggu port 5000)
 echo "[start-dev] Memulai admin portal di port 5000..."
