@@ -29,6 +29,12 @@ import TenantProfile from "@/pages/tenant-profile";
 import WhatsAppSend from "@/pages/whatsapp-send";
 import WhatsAppTemplates from "@/pages/whatsapp-templates";
 import BankRekonsiliasi from "@/pages/bank-rekonsiliasi";
+import DbMonitoring from "@/pages/db-monitoring";
+import DrafPerjanjian from "@/pages/draf-perjanjian";
+import DokumenSewa from "@/pages/dokumen-sewa";
+import TenantRegister from "@/pages/tenant-register";
+import BukuJurnal from "@/pages/buku-jurnal";
+import KelolaCoa from "@/pages/kelola-coa";
 // Legacy module kept for rollback — DO NOT import Rekonsiliasi as a rendered route
 // import Rekonsiliasi from "@/pages/rekonsiliasi";
 
@@ -84,6 +90,15 @@ function Router() {
       </Route>
       <Route path="/bayar/:token">
         <PaymentProofUpload />
+      </Route>
+      <Route path="/tenant/register">
+        <TenantRegister />
+      </Route>
+      <Route path="/mitra/register">
+        <TenantRegister />
+      </Route>
+      <Route path="/dokumen/:token">
+        <DokumenSewa />
       </Route>
       <Route path="/">
         {() => {
@@ -193,6 +208,20 @@ function Router() {
           </SidebarLayout>
         </AuthGuard>
       </Route>
+      <Route path="/buku-jurnal">
+        <AuthGuard roles={["owner", "admin", "finance"]}>
+          <SidebarLayout>
+            <BukuJurnal />
+          </SidebarLayout>
+        </AuthGuard>
+      </Route>
+      <Route path="/kelola-coa">
+        <AuthGuard roles={["owner", "admin", "finance"]}>
+          <SidebarLayout>
+            <KelolaCoa />
+          </SidebarLayout>
+        </AuthGuard>
+      </Route>
       <Route path="/compare-sites">
         <AuthGuard roles={["owner", "admin", "finance"]}>
           <SidebarLayout>
@@ -225,6 +254,20 @@ function Router() {
         <AuthGuard roles={["owner", "admin", "finance"]}>
           <SidebarLayout>
             <WhatsAppTemplates />
+          </SidebarLayout>
+        </AuthGuard>
+      </Route>
+      <Route path="/db-monitoring">
+        <AuthGuard roles={["owner"]}>
+          <SidebarLayout>
+            <DbMonitoring />
+          </SidebarLayout>
+        </AuthGuard>
+      </Route>
+      <Route path="/draf-perjanjian">
+        <AuthGuard roles={["owner", "admin"]}>
+          <SidebarLayout>
+            <DrafPerjanjian />
           </SidebarLayout>
         </AuthGuard>
       </Route>

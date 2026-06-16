@@ -1,8 +1,11 @@
+- [raw-sql-camelcase](raw-sql-camelcase.md) — db.execute(sql`...`) returns snake_case; always apply toCamel() helper before sending response
 - [api-zod duplicate exports](api-zod-exports.md) — only export from `./generated/api`, not `./generated/types` (same names clash)
 - [scripts workspace resolution](scripts-workspace-resolution.md) — scripts pkg needs `paths` in tsconfig to resolve `@workspace/*` libs; symlinks not created by pnpm for scripts
 - [invalid hook call fix](invalid-hook-call.md) — avoid generated lib hooks (useListTenants etc); use `useQuery` directly in admin-portal pages
 - [local-postgres-active](local-postgres-active.md) — Supabase password invalid; config.ts now prioritizes DATABASE_URL (local Replit postgres heliumdb) over SUPABASE_PG_URL; Sport Center site_id=2 in local DB
 - [DB split-brain](db-connection-priority.md) — STALE: app now uses local postgres (DATABASE_URL first); Supabase xssrfshdrtdfupgqwfdw password invalid
+- [DB active connection](db-connection-priority.md) — app connects to Supabase via SUPABASE_PG_URL; config.ts priority: SUPABASE_PG_URL → SUPABASE_DATABASE_URL → DATABASE_URL; DATABASE_URL is Replit heliumdb (fallback only)
+- [config-ts-keep-function-style](config-ts-merge-conflict.md) — lib/db/src/config.ts terus kena syntax error karena nested ternary; ALWAYS use function `resolveDbUrl()` style (no nested ternary), ALWAYS overwrite penuh dengan write tool
 - [schema-column-fix](schema-column-fix.md) — 3 tables needed ALTER TABLE to add missing columns; sync old data booking_id from tenant_booking_id after adding new column
 - [drizzle-kit-tty](drizzle-kit-tty.md) — drizzle-kit push requires interactive TTY for new tables; add SQL migration to lib/db/src/migrator.ts instead
 - [drizzle-timestamptz](drizzle-timestamptz.md) — `timestamptz` is not exported from drizzle-orm@0.45; use `timestamp("col", { withTimezone: true })` instead
@@ -16,7 +19,7 @@
 - [site-id-resolution](site-id-resolution.md) — Sport Center site_id=2 in local postgres (serial from migration 0011); dev-login dbId is UUID string — Number(UUID)=NaN so site-context access check is safely skipped
 - [wa-otp-dev-phones](wa-otp-dev-phones.md) — dev users have fixed phone numbers: owner=6281111111111, admin=6281111111112, finance=6281111111113, cashier=6281111111114; dev-login upserts phoneNumber on each call so phone is always set
 - [otp-service-union-type](otp-service-union-type.md) — CreateOtpResult is a union: dev returns `{success,devOtp}`, production returns `{success,plainOtp}`; whatsapp-auth.ts must check NODE_ENV to access correct field; guard empty OTP in whatsapp-provider.ts before calling Fonnte
-- [audit-log-userid](audit-log-userid.md) — auditLogsTable.userId is integer but dbId from Supabase is UUID string; logAudit must coerce to number or null; booking orderNumber has unique constraint — auto-generate with ORD-{timestamp} when empty
+- [audit-log-tenant-id](audit-log-userid.md) — auditLogsTable has tenant_id column (migration 0030); userId is integer — logAudit must coerce UUID dbId to number or null; booking orderNumber has unique constraint
 - [tenant-portal-router-mount](tenant-portal-router-mount.md) — tenantPortalRouter mounted at "/tenant-portal" in index.ts; route paths inside must be "/me" not "/tenant-portal/me" (prefix already stripped by Express)
 - [api-server-dist-stale](api-server-dist-stale.md) — api-server "dev" script does build+start; if workflow not restarted after code changes, dist is stale and new routes return 404; restart "Start application" workflow to rebuild
 - [drizzle-schema-both-sides](drizzle-schema-both-sides.md) — adding a DB column requires BOTH: edit lib/db/src/schema/*.ts AND add migration in migrator.ts; schema-only edit = column missing from Drizzle SELECT (returns undefined silently)
@@ -24,8 +27,10 @@
 - [migrator-site-id-hardcoded](migrator-site-id-dynamic.md) — migrations 0020/0021/0022 hardcode site_id=3 for Sport Center; actual id is 2 in local postgres; these migrations are now all in schema_migrations so they won't re-run
 - [config-ts-priority](config-ts-dedup.md) — config.ts priority: production uses SUPABASE_PG_URL; development uses DATABASE_URL first (local works), SUPABASE_PG_URL as fallback
 - [config-ts-merge-conflict](config-ts-merge-conflict.md) — lib/db/src/config.ts terus kena git merge conflict; selalu overwrite penuh, jangan edit parsial
+- [migrator-duplicate-key](replit-migration-db-lessons.md) — migration 0022 hits duplicate key on fresh Replit DB (units already seeded by 0021); workaround: manually INSERT INTO schema_migrations to skip the failed migration
+- [migrator-site-id-dynamic](migrator-site-id-dynamic.md) — migrations 0019/0020/0021/0022 hardcoded site_id=3; actual id from INSERT order; use `SELECT id FROM mall_sites WHERE code='SPORT_CENTER_BANDARA'`
 - [booking-status-bilingual](booking-status-bilingual.md) — booking_status has mixed values: 'aktif' (Indonesian, site 1) and 'active' (English, site 2 Sport Center); always use IN ('aktif','active') in joins/filters
-- [zod-v4-import](zod-v4-import.md) — workspace uses zod@3.x (catalog); `import { z } from "zod/v4"` fails at runtime (no such export path); always use `import { z } from "zod"`
+- [zod-v4-import](zod-v4-import.md) — workspace uses zod@3.x (catalog); `import { z } from "zod/v4"` fails at runtime; always use `import { z } from "zod"`; fixed in 5 route files: bookings, payment-proof, pending-payments, reconciliation, tenant-invoices
 - [supabase-storage-symlink](supabase-storage-symlink.md) — @supabase/storage-js in package.json but symlink missing from api-server/node_modules after pnpm install; fix: `ln -sf /home/runner/workspace/node_modules/.pnpm/@supabase+storage-js@2.108.1/node_modules/@supabase/storage-js artifacts/api-server/node_modules/@supabase/storage-js`
 - [api-route-path-prefix](api-route-path-prefix.md) — routes di dalam router yang di-mount di `/api` harus pakai path tanpa `/api/` prefix (e.g. `/tenants` bukan `/api/tenants`)
 - [bank-recon-e2e](bank-recon-e2e.md) — API contract bank recon, import pakai `rows:string[][]`, manual-match ≠ approve (journal hanya dibuat di /approve)
@@ -33,4 +38,3 @@
 - [bank-accounting-journal](bank-accounting-journal.md) — postAccountingJournal in src/lib/accounting-journal.ts; bash heredoc required to create files (write tool does not persist to disk)
 - [googleapis-external-package](googleapis-external-package.md) — googleapis is esbuild-external; must be installed in artifacts/api-server; if missing, entire dist fails to load causing all bank-reconciliation routes to 404
 - [bank-recon-role-isolation](bank-recon-role-isolation.md) — AppContext has sourceAppFilterBypass: BizPortal (owner/finance+bizportal) bypass sourceApp filter; cashier cannot approve/match invoice or payment type; X-Tenant-Id only trusted when isBizPortal && !isFullAccess
-- [replit-migration-db-lessons](replit-migration-db-lessons.md) — users.id integer→text fix, seed migration duplicate-key workaround, missing migrations list for Replit Postgres

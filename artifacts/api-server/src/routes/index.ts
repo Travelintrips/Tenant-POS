@@ -17,9 +17,13 @@ import tenantPortalRouter from "./tenant-portal";
 import tenantUsersRouter from "./tenant-users";
 import whatsappRouter from "./whatsapp";
 import paymentProofRouter from "./payment-proof";
+import draftAgreementsPublicRouter from "./draft-agreements-public";
+import draftAgreementsRouter from "./draft-agreements";
+import calonTenantRouter from "./calon-tenant";
 import whatsappWebhookRouter from "./whatsapp-webhook";
 import pendingPaymentsRouter from "./pending-payments";
 import dashboardRouter from "./dashboard";
+import systemStatusRouter from "./system-status";
 import settingsRouter from "./settings";
 import reconciliationRouter from "./reconciliation";
 import bankReconciliationRouter from "./bank-reconciliation";
@@ -35,6 +39,8 @@ router.use(whatsappAuthRouter);
 // Public routes (tidak perlu login)
 router.use(configRouter);
 router.use(paymentProofRouter);
+router.use(draftAgreementsPublicRouter);
+router.use(calonTenantRouter);
 router.use(whatsappWebhookRouter); // Fonnte incoming message webhook
 
 router.use(requireAuth);
@@ -63,7 +69,9 @@ router.use(auditLogsRouter);
 router.use(whatsappRouter);
 router.use(pendingPaymentsRouter);
 router.use(dashboardRouter);
+router.use(systemStatusRouter);
 router.use(settingsRouter);
 router.use(reconciliationRouter);
+router.use(draftAgreementsRouter);
 
 export default router;
