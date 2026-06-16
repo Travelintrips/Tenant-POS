@@ -101,7 +101,7 @@ async function notifyTenant(opts: {
 // ── GET /api/dokumen/:token ───────────────────────────────────────────────────
 // Public — ambil data dokumen berdasarkan token
 router.get("/dokumen/:token", async (req: Request, res: Response) => {
-  const { token } = req.params;
+  const token = req.params["token"] as string;
   if (!token || token.length < 8) {
     res.status(400).json({ error: "Token tidak valid" });
     return;
@@ -139,7 +139,7 @@ const setujuSchema = z.object({
 });
 
 router.post("/dokumen/:token/setuju", async (req: Request, res: Response) => {
-  const { token } = req.params;
+  const token = req.params["token"] as string;
   if (!token || token.length < 8) {
     res.status(400).json({ error: "Token tidak valid" });
     return;
@@ -230,7 +230,7 @@ const tolakSchema = z.object({
 });
 
 router.post("/dokumen/:token/tolak", async (req: Request, res: Response) => {
-  const { token } = req.params;
+  const token = req.params["token"] as string;
   if (!token || token.length < 8) {
     res.status(400).json({ error: "Token tidak valid" });
     return;

@@ -115,7 +115,7 @@ router.get("/draft-agreements", async (req: Request, res: Response) => {
 
 // ── GET /api/draft-agreements/:id ─────────────────────────────────────────────
 router.get("/draft-agreements/:id", async (req: Request, res: Response) => {
-  const id = parseInt(req.params.id);
+  const id = parseInt(req.params["id"] as string);
   if (isNaN(id)) { res.status(400).json({ error: "ID tidak valid" }); return; }
 
   try {
@@ -198,7 +198,7 @@ router.post("/draft-agreements", async (req: Request, res: Response) => {
 
 // ── DELETE /api/draft-agreements/:id ─────────────────────────────────────────
 router.delete("/draft-agreements/:id", async (req: Request, res: Response) => {
-  const id = parseInt(req.params.id);
+  const id = parseInt(req.params["id"] as string);
   if (isNaN(id)) { res.status(400).json({ error: "ID tidak valid" }); return; }
 
   try {
@@ -220,7 +220,7 @@ router.delete("/draft-agreements/:id", async (req: Request, res: Response) => {
 // ── POST /api/draft-agreements/:id/remind ─────────────────────────────────────
 // Admin — kirim ulang link via WA ke calon tenant
 router.post("/draft-agreements/:id/remind", async (req: Request, res: Response) => {
-  const id = parseInt(req.params.id);
+  const id = parseInt(req.params["id"] as string);
   if (isNaN(id)) { res.status(400).json({ error: "ID tidak valid" }); return; }
 
   try {
@@ -265,7 +265,7 @@ router.post("/draft-agreements/:id/remind", async (req: Request, res: Response) 
 // ── PATCH /api/draft-agreements/:id ──────────────────────────────────────────
 // Admin — edit/perkaya data draf
 router.patch("/draft-agreements/:id", async (req: Request, res: Response) => {
-  const id = parseInt(req.params.id);
+  const id = parseInt(req.params["id"] as string);
   if (isNaN(id)) { res.status(400).json({ error: "ID tidak valid" }); return; }
 
   const patchSchema = createDraftSchema.partial();
@@ -343,7 +343,7 @@ const jadikanBookingSchema = z.object({
 });
 
 router.post("/draft-agreements/:id/jadikan-booking", async (req: Request, res: Response) => {
-  const id = parseInt(req.params.id);
+  const id = parseInt(req.params["id"] as string);
   if (isNaN(id)) { res.status(400).json({ error: "ID tidak valid" }); return; }
 
   const parsed = jadikanBookingSchema.safeParse(req.body);
@@ -390,7 +390,7 @@ router.post("/draft-agreements/:id/jadikan-booking", async (req: Request, res: R
     const existingTenantResult = await db.execute(
       sql`SELECT id FROM tenants WHERE phone = ${draft.phone as string} AND site_id = ${siteId} LIMIT 1`
     );
-    const existingTenant = (existingTenantResult as { rows: { id: number }[] }).rows[0];
+    const existingTenant = (existingTenantResult as unknown as { rows: { id: number }[] }).rows[0];
 
     let tenantId: number;
     if (existingTenant) {
@@ -416,7 +416,7 @@ router.post("/draft-agreements/:id/jadikan-booking", async (req: Request, res: R
         )
         RETURNING id
       `);
-      tenantId = (tenantInsert as { rows: { id: number }[] }).rows[0].id;
+      tenantId = (tenantInsert as unknown as { rows: { id: number }[] }).rows[0].id;
     }
 
     // Buat booking
@@ -449,7 +449,7 @@ router.post("/draft-agreements/:id/jadikan-booking", async (req: Request, res: R
       )
       RETURNING id
     `);
-    const bookingId = (bookingInsert as { rows: { id: number }[] }).rows[0].id;
+    const bookingId = (bookingInsert as unknown as { rows: { id: number }[] }).rows[0].id;
 
     // Update draf dengan referensi tenant & booking
     await db.execute(sql`
