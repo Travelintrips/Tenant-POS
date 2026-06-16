@@ -1717,6 +1717,13 @@ CREATE TABLE IF NOT EXISTS bank_recon_audit_logs (
     `.trim(),
   },
   {
+    name: "0042_draft_agreements_booking_ref",
+    sql: `
+ALTER TABLE tenant_draft_agreements ADD COLUMN IF NOT EXISTS tenant_id integer;
+ALTER TABLE tenant_draft_agreements ADD COLUMN IF NOT EXISTS booking_id integer;
+    `.trim(),
+  },
+  {
     name: "0040_finance_payment_events",
     sql: `
 CREATE TABLE IF NOT EXISTS finance_payment_events (

@@ -49,6 +49,7 @@ import {
   TabsList,
   TabsTrigger,
 } from "@/components/ui/tabs";
+import { useLocation } from "wouter";
 import {
   FilePlus,
   Copy,
@@ -64,6 +65,7 @@ import {
   ExternalLink,
   RefreshCw,
   Link2,
+  BookmarkCheck,
 } from "lucide-react";
 
 // ── Tipe data ──────────────────────────────────────────────────────────────────
@@ -98,6 +100,8 @@ interface DraftAgreement {
   expiresAt: string | null;
   createdAt: string;
   publicUrl: string;
+  tenantId: number | null;
+  bookingId: number | null;
 }
 
 // ── Helper ──────────────────────────────────────────────────────────────────────
@@ -181,14 +185,61 @@ function DetailPanel({
   onDelete,
   onRemind,
   onEdit,
+  onBookingCreated,
 }: {
   draft: DraftAgreement;
   onClose: () => void;
   onDelete: (id: number) => void;
   onRemind: (id: number) => void;
   onEdit: (draft: DraftAgreement) => void;
+  onBookingCreated: () => void;
 }) {
   const { toast } = useToast();
+  const [, setLocation] = useLocation();
+  const [showBookingDialog, setShowBookingDialog] = useState(false);
+  const [bookingForm, setBookingForm] = useState({
+    startDate: draft.startDate ?? "",
+    endDate: draft.endDate ?? "",
+    rentAmount: draft.rentAmount ? String(Number(draft.rentAmount)) : "",
+    depositAmount: draft.depositAmount ? String(Number(draft.depositAmount)) : "",
+    unitCode: draft.unitCode ?? "",
+    areaName: draft.areaName ?? "",
+    billingCycle: "monthly" as "monthly" | "quarterly" | "yearly",
+    notes: "",
+  });
+
+  const jadikanBookingMutation = useMutation({
+    mutationFn: async (form: typeof bookingForm) => {
+      const res = await apiFetch(`/api/draft-agreements/${draft.id}/jadikan-booking`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          startDate: form.startDate,
+          endDate: form.endDate,
+          rentAmount: form.rentAmount ? Number(form.rentAmount) : undefined,
+          depositAmount: form.depositAmount ? Number(form.depositAmount) : undefined,
+          unitCode: form.unitCode || undefined,
+          areaName: form.areaName || undefined,
+          billingCycle: form.billingCycle,
+          notes: form.notes || undefined,
+        }),
+      });
+      const body = await res.json();
+      if (!res.ok) throw new Error((body as { error?: string }).error ?? `Error ${res.status}`);
+      return body as { success: boolean; tenantId: number; bookingId: number; message: string };
+    },
+    onSuccess: (result) => {
+      toast({
+        title: "Berhasil dibuat!",
+        description: `Tenant ID #${result.tenantId} dan Booking #${result.bookingId} telah dibuat.`,
+      });
+      setShowBookingDialog(false);
+      onBookingCreated();
+    },
+    onError: (err: Error) => {
+      toast({ title: "Gagal membuat booking", description: err.message, variant: "destructive" });
+    },
+  });
 
   function copyLink() {
     navigator.clipboard.writeText(draft.publicUrl).then(() => {
@@ -196,129 +247,303 @@ function DetailPanel({
     });
   }
 
+  const canCreateBooking = draft.status === "approved" && !draft.bookingId;
+  const alreadyConverted = !!draft.bookingId;
+
   return (
-    <Card className="border-0 shadow-none">
-      <CardHeader className="pb-3">
-        <div className="flex items-start justify-between gap-2">
-          <div>
-            <CardTitle className="text-base">{draft.brandName}</CardTitle>
-            <CardDescription className="mt-0.5">{draft.tenantName} · {draft.phone}</CardDescription>
-          </div>
-          <StatusBadge status={draft.status} />
-        </div>
-        <div className="mt-1 flex items-center gap-2 flex-wrap">
-          <DocTypeBadge type={draft.docType} />
-          {draft.source === "self_register" && (
-            <span className="inline-flex items-center gap-1 text-xs text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
-              🌐 Pendaftaran Mandiri
-            </span>
-          )}
-        </div>
-      </CardHeader>
-
-      <CardContent className="space-y-4 text-sm">
-        {/* Link publik */}
-        <div className="rounded-lg bg-muted p-3 space-y-2">
-          <p className="font-medium text-xs text-muted-foreground uppercase tracking-wide">Link Dokumen Calon Tenant</p>
-          <p className="break-all text-primary font-mono text-xs">{draft.publicUrl}</p>
-          <div className="flex gap-2 flex-wrap">
-            <Button size="sm" variant="outline" className="h-7 text-xs gap-1" onClick={copyLink}>
-              <Copy className="h-3 w-3" />Salin Link
-            </Button>
-            <Button size="sm" variant="outline" className="h-7 text-xs gap-1" asChild>
-              <a href={draft.publicUrl} target="_blank" rel="noopener noreferrer">
-                <ExternalLink className="h-3 w-3" />Buka
-              </a>
-            </Button>
-            {draft.status === "pending" && (
-              <Button size="sm" variant="outline" className="h-7 text-xs gap-1" onClick={() => onRemind(draft.id)}>
-                <Send className="h-3 w-3" />Kirim WA
-              </Button>
-            )}
-          </div>
-        </div>
-
-        {/* Data calon tenant */}
-        {draft.picName && (
-          <div><p className="text-xs text-muted-foreground">Nama PIC / Penanggung Jawab</p><p className="font-medium">{draft.picName}</p></div>
-        )}
-        {draft.interestedUnit && (
-          <div><p className="text-xs text-muted-foreground">Unit yang Diminati</p><p className="font-medium">{draft.interestedUnit}</p></div>
-        )}
-        <div className="grid grid-cols-2 gap-x-4 gap-y-2">
-          <div><p className="text-xs text-muted-foreground">Email</p><p className="font-medium">{draft.email || "—"}</p></div>
-          <div><p className="text-xs text-muted-foreground">Jenis Usaha</p><p className="font-medium">{draft.businessType}</p></div>
-          <div className="col-span-2"><p className="text-xs text-muted-foreground">Alamat</p><p className="font-medium">{draft.address || "—"}</p></div>
-        </div>
-
-        {/* Unit & periode */}
-        <div className="grid grid-cols-2 gap-x-4 gap-y-2">
-          <div><p className="text-xs text-muted-foreground">Unit / Lokasi</p><p className="font-medium">{[draft.unitCode, draft.areaName].filter(Boolean).join(" — ") || "—"}</p></div>
-          <div><p className="text-xs text-muted-foreground">Durasi</p><p className="font-medium">{draft.periodLabel || (draft.durationMonths ? `${draft.durationMonths} bulan` : "—")}</p></div>
-          <div><p className="text-xs text-muted-foreground">Mulai</p><p className="font-medium">{formatTanggal(draft.startDate)}</p></div>
-          <div><p className="text-xs text-muted-foreground">Selesai</p><p className="font-medium">{formatTanggal(draft.endDate)}</p></div>
-        </div>
-
-        {/* Finansial */}
-        <div className="grid grid-cols-2 gap-x-4 gap-y-2">
-          <div><p className="text-xs text-muted-foreground">Harga Sewa/Bulan</p><p className="font-semibold text-primary">{formatRp(draft.rentAmount)}</p></div>
-          <div><p className="text-xs text-muted-foreground">Deposit/Jaminan</p><p className="font-semibold">{formatRp(draft.depositAmount)}</p></div>
-        </div>
-
-        {/* Status respon */}
-        {draft.status !== "pending" && (
-          <div className="rounded-lg border p-3 space-y-1.5">
-            <p className="font-medium text-xs text-muted-foreground uppercase tracking-wide">Respon Tenant</p>
-            <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-xs">
-              <div><p className="text-muted-foreground">Nama Responden</p><p className="font-medium">{draft.respondedName || "—"}</p></div>
-              <div><p className="text-muted-foreground">Waktu Respon</p><p className="font-medium">{formatTanggal(draft.respondedAt)}</p></div>
+    <>
+      <Card className="border-0 shadow-none">
+        <CardHeader className="pb-3">
+          <div className="flex items-start justify-between gap-2">
+            <div>
+              <CardTitle className="text-base">{draft.brandName}</CardTitle>
+              <CardDescription className="mt-0.5">{draft.tenantName} · {draft.phone}</CardDescription>
             </div>
-            {draft.rejectionReason && (
-              <div className="mt-1.5">
-                <p className="text-xs text-muted-foreground">Alasan Penolakan</p>
-                <p className="text-sm mt-0.5 text-red-700 bg-red-50 rounded p-2">{draft.rejectionReason}</p>
-              </div>
+            <StatusBadge status={draft.status} />
+          </div>
+          <div className="mt-1 flex items-center gap-2 flex-wrap">
+            <DocTypeBadge type={draft.docType} />
+            {draft.source === "self_register" && (
+              <span className="inline-flex items-center gap-1 text-xs text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
+                🌐 Pendaftaran Mandiri
+              </span>
+            )}
+            {alreadyConverted && (
+              <span className="inline-flex items-center gap-1 text-xs text-violet-700 bg-violet-50 px-2 py-0.5 rounded-full border border-violet-200">
+                <BookmarkCheck className="h-3 w-3" />Booking #{draft.bookingId}
+              </span>
             )}
           </div>
-        )}
+        </CardHeader>
 
-        {draft.expiresAt && (
-          <p className="text-xs text-muted-foreground">
-            Link kedaluwarsa: {formatTanggal(draft.expiresAt)}
-          </p>
-        )}
+        <CardContent className="space-y-4 text-sm">
+          {/* Banner: Siap dijadikan booking */}
+          {canCreateBooking && (
+            <div className="rounded-lg bg-emerald-50 border border-emerald-200 p-3 space-y-2">
+              <p className="text-xs font-semibold text-emerald-800">✅ Dokumen telah disetujui oleh calon tenant</p>
+              <p className="text-xs text-emerald-700">Buat kontrak resmi tenant dan booking di sistem untuk mulai proses sewa.</p>
+              <Button
+                size="sm"
+                className="gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white"
+                onClick={() => setShowBookingDialog(true)}
+              >
+                <BookmarkCheck className="h-3.5 w-3.5" />Buat Tenant &amp; Booking
+              </Button>
+            </div>
+          )}
 
-        {/* Aksi */}
-        <div className="flex flex-wrap justify-between gap-2 pt-2 border-t">
-          <div className="flex gap-1.5">
-            <Button size="sm" variant="ghost" onClick={onClose}>Tutup</Button>
-            <Button
-              size="sm"
-              variant="outline"
-              className="gap-1"
-              onClick={() => onEdit(draft)}
-            >
-              ✏️ Edit
-            </Button>
+          {/* Banner: Sudah dikonversi */}
+          {alreadyConverted && (
+            <div className="rounded-lg bg-violet-50 border border-violet-200 p-3 space-y-1.5">
+              <p className="text-xs font-semibold text-violet-800">Draf ini sudah dikonversi ke booking resmi</p>
+              <div className="flex gap-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-7 text-xs gap-1 border-violet-300 text-violet-700"
+                  onClick={() => setLocation("/booking-tenant")}
+                >
+                  <BookmarkCheck className="h-3 w-3" />Lihat di Booking Tenant
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {/* Link publik */}
+          <div className="rounded-lg bg-muted p-3 space-y-2">
+            <p className="font-medium text-xs text-muted-foreground uppercase tracking-wide">Link Dokumen Calon Tenant</p>
+            <p className="break-all text-primary font-mono text-xs">{draft.publicUrl}</p>
+            <div className="flex gap-2 flex-wrap">
+              <Button size="sm" variant="outline" className="h-7 text-xs gap-1" onClick={copyLink}>
+                <Copy className="h-3 w-3" />Salin Link
+              </Button>
+              <Button size="sm" variant="outline" className="h-7 text-xs gap-1" asChild>
+                <a href={draft.publicUrl} target="_blank" rel="noopener noreferrer">
+                  <ExternalLink className="h-3 w-3" />Buka
+                </a>
+              </Button>
+              {draft.status === "pending" && (
+                <Button size="sm" variant="outline" className="h-7 text-xs gap-1" onClick={() => onRemind(draft.id)}>
+                  <Send className="h-3 w-3" />Kirim WA
+                </Button>
+              )}
+            </div>
           </div>
-          <div className="flex gap-1.5">
-            <Button size="sm" variant="outline" className="gap-1" asChild>
-              <a href={draft.publicUrl} target="_blank" rel="noopener noreferrer">
-                🖨️ PDF
-              </a>
-            </Button>
-            <Button
-              size="sm"
-              variant="destructive"
-              className="gap-1"
-              onClick={() => onDelete(draft.id)}
-            >
-              <Trash2 className="h-3.5 w-3.5" />Hapus
-            </Button>
+
+          {/* Data calon tenant */}
+          {draft.picName && (
+            <div><p className="text-xs text-muted-foreground">Nama PIC / Penanggung Jawab</p><p className="font-medium">{draft.picName}</p></div>
+          )}
+          {draft.interestedUnit && (
+            <div><p className="text-xs text-muted-foreground">Unit yang Diminati</p><p className="font-medium">{draft.interestedUnit}</p></div>
+          )}
+          <div className="grid grid-cols-2 gap-x-4 gap-y-2">
+            <div><p className="text-xs text-muted-foreground">Email</p><p className="font-medium">{draft.email || "—"}</p></div>
+            <div><p className="text-xs text-muted-foreground">Jenis Usaha</p><p className="font-medium">{draft.businessType}</p></div>
+            <div className="col-span-2"><p className="text-xs text-muted-foreground">Alamat</p><p className="font-medium">{draft.address || "—"}</p></div>
           </div>
-        </div>
-      </CardContent>
-    </Card>
+
+          {/* Unit & periode */}
+          <div className="grid grid-cols-2 gap-x-4 gap-y-2">
+            <div><p className="text-xs text-muted-foreground">Unit / Lokasi</p><p className="font-medium">{[draft.unitCode, draft.areaName].filter(Boolean).join(" — ") || "—"}</p></div>
+            <div><p className="text-xs text-muted-foreground">Durasi</p><p className="font-medium">{draft.periodLabel || (draft.durationMonths ? `${draft.durationMonths} bulan` : "—")}</p></div>
+            <div><p className="text-xs text-muted-foreground">Mulai</p><p className="font-medium">{formatTanggal(draft.startDate)}</p></div>
+            <div><p className="text-xs text-muted-foreground">Selesai</p><p className="font-medium">{formatTanggal(draft.endDate)}</p></div>
+          </div>
+
+          {/* Finansial */}
+          <div className="grid grid-cols-2 gap-x-4 gap-y-2">
+            <div><p className="text-xs text-muted-foreground">Harga Sewa/Bulan</p><p className="font-semibold text-primary">{formatRp(draft.rentAmount)}</p></div>
+            <div><p className="text-xs text-muted-foreground">Deposit/Jaminan</p><p className="font-semibold">{formatRp(draft.depositAmount)}</p></div>
+          </div>
+
+          {/* Status respon */}
+          {draft.status !== "pending" && (
+            <div className="rounded-lg border p-3 space-y-1.5">
+              <p className="font-medium text-xs text-muted-foreground uppercase tracking-wide">Respon Tenant</p>
+              <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-xs">
+                <div><p className="text-muted-foreground">Nama Responden</p><p className="font-medium">{draft.respondedName || "—"}</p></div>
+                <div><p className="text-muted-foreground">Waktu Respon</p><p className="font-medium">{formatTanggal(draft.respondedAt)}</p></div>
+              </div>
+              {draft.rejectionReason && (
+                <div className="mt-1.5">
+                  <p className="text-xs text-muted-foreground">Alasan Penolakan</p>
+                  <p className="text-sm mt-0.5 text-red-700 bg-red-50 rounded p-2">{draft.rejectionReason}</p>
+                </div>
+              )}
+            </div>
+          )}
+
+          {draft.expiresAt && (
+            <p className="text-xs text-muted-foreground">
+              Link kedaluwarsa: {formatTanggal(draft.expiresAt)}
+            </p>
+          )}
+
+          {/* Aksi */}
+          <div className="flex flex-wrap justify-between gap-2 pt-2 border-t">
+            <div className="flex gap-1.5">
+              <Button size="sm" variant="ghost" onClick={onClose}>Tutup</Button>
+              <Button
+                size="sm"
+                variant="outline"
+                className="gap-1"
+                onClick={() => onEdit(draft)}
+              >
+                ✏️ Edit
+              </Button>
+            </div>
+            <div className="flex gap-1.5">
+              <Button size="sm" variant="outline" className="gap-1" asChild>
+                <a href={draft.publicUrl} target="_blank" rel="noopener noreferrer">
+                  🖨️ PDF
+                </a>
+              </Button>
+              <Button
+                size="sm"
+                variant="destructive"
+                className="gap-1"
+                onClick={() => onDelete(draft.id)}
+              >
+                <Trash2 className="h-3.5 w-3.5" />Hapus
+              </Button>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Dialog: Buat Tenant & Booking */}
+      <Dialog open={showBookingDialog} onOpenChange={setShowBookingDialog}>
+        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <BookmarkCheck className="h-4 w-4 text-emerald-600" />Buat Tenant &amp; Booking Resmi
+            </DialogTitle>
+            <DialogDescription>
+              Data dari draf <strong>{draft.brandName}</strong> akan digunakan untuk membuat tenant dan kontrak booking di sistem.
+              Lengkapi detail kontrak di bawah ini.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-2 text-sm">
+            {/* Info tenant */}
+            <div className="rounded-lg bg-slate-50 border p-3 space-y-1 text-xs">
+              <p className="font-semibold text-slate-700">Data Tenant (dari draf)</p>
+              <p><span className="text-muted-foreground">Nama:</span> {draft.tenantName}</p>
+              <p><span className="text-muted-foreground">Brand:</span> {draft.brandName}</p>
+              <p><span className="text-muted-foreground">Telepon:</span> {draft.phone}</p>
+            </div>
+
+            {/* Periode kontrak */}
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label>Tanggal Mulai <span className="text-destructive">*</span></Label>
+                <Input
+                  type="date"
+                  value={bookingForm.startDate}
+                  onChange={(e) => setBookingForm((f) => ({ ...f, startDate: e.target.value }))}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Tanggal Selesai <span className="text-destructive">*</span></Label>
+                <Input
+                  type="date"
+                  value={bookingForm.endDate}
+                  onChange={(e) => setBookingForm((f) => ({ ...f, endDate: e.target.value }))}
+                />
+              </div>
+            </div>
+
+            {/* Unit */}
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label>Kode Unit</Label>
+                <Input
+                  placeholder="misal: SC-01"
+                  value={bookingForm.unitCode}
+                  onChange={(e) => setBookingForm((f) => ({ ...f, unitCode: e.target.value }))}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Area / Lokasi</Label>
+                <Input
+                  placeholder="misal: Lantai 1"
+                  value={bookingForm.areaName}
+                  onChange={(e) => setBookingForm((f) => ({ ...f, areaName: e.target.value }))}
+                />
+              </div>
+            </div>
+
+            {/* Finansial */}
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label>Harga Sewa/Bulan (Rp)</Label>
+                <Input
+                  type="number"
+                  placeholder="0"
+                  value={bookingForm.rentAmount}
+                  onChange={(e) => setBookingForm((f) => ({ ...f, rentAmount: e.target.value }))}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Deposit/Jaminan (Rp)</Label>
+                <Input
+                  type="number"
+                  placeholder="0"
+                  value={bookingForm.depositAmount}
+                  onChange={(e) => setBookingForm((f) => ({ ...f, depositAmount: e.target.value }))}
+                />
+              </div>
+            </div>
+
+            {/* Siklus billing */}
+            <div className="space-y-1.5">
+              <Label>Siklus Tagihan</Label>
+              <Select
+                value={bookingForm.billingCycle}
+                onValueChange={(v) => setBookingForm((f) => ({ ...f, billingCycle: v as typeof f.billingCycle }))}
+              >
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="monthly">Bulanan</SelectItem>
+                  <SelectItem value="quarterly">Triwulan (3 bulan)</SelectItem>
+                  <SelectItem value="yearly">Tahunan</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Catatan */}
+            <div className="space-y-1.5">
+              <Label>Catatan Internal</Label>
+              <Textarea
+                rows={2}
+                placeholder="Catatan admin (opsional)"
+                value={bookingForm.notes}
+                onChange={(e) => setBookingForm((f) => ({ ...f, notes: e.target.value }))}
+              />
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowBookingDialog(false)}>Batal</Button>
+            <Button
+              className="gap-2 bg-emerald-600 hover:bg-emerald-700"
+              disabled={
+                jadikanBookingMutation.isPending ||
+                !bookingForm.startDate ||
+                !bookingForm.endDate ||
+                bookingForm.endDate <= bookingForm.startDate
+              }
+              onClick={() => jadikanBookingMutation.mutate(bookingForm)}
+            >
+              {jadikanBookingMutation.isPending
+                ? <><RefreshCw className="h-3.5 w-3.5 animate-spin" />Membuat...</>
+                : <><BookmarkCheck className="h-3.5 w-3.5" />Buat Tenant &amp; Booking</>}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
 
@@ -701,6 +926,10 @@ export default function DrafPerjanjian() {
               onDelete={(id) => setDeleteId(id)}
               onRemind={(id) => remindMutation.mutate(id)}
               onEdit={handleOpenEdit}
+              onBookingCreated={() => {
+                qc.invalidateQueries({ queryKey: ["draft-agreements"] });
+                refetch();
+              }}
             />
           </div>
         )}

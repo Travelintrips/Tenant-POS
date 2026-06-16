@@ -329,4 +329,145 @@ router.patch("/draft-agreements/:id", async (req: Request, res: Response) => {
   }
 });
 
+// ── POST /api/draft-agreements/:id/jadikan-booking ────────────────────────────
+// Admin — konversi draf yang disetujui menjadi tenant + booking resmi
+const jadikanBookingSchema = z.object({
+  startDate: z.string().min(1, "Tanggal mulai wajib diisi"),
+  endDate: z.string().min(1, "Tanggal selesai wajib diisi"),
+  rentAmount: z.union([z.string(), z.number()]).optional(),
+  depositAmount: z.union([z.string(), z.number()]).optional(),
+  unitCode: z.string().max(50).optional(),
+  areaName: z.string().max(200).optional(),
+  billingCycle: z.enum(["monthly", "quarterly", "yearly"]).default("monthly"),
+  notes: z.string().max(1000).optional(),
+});
+
+router.post("/draft-agreements/:id/jadikan-booking", async (req: Request, res: Response) => {
+  const id = parseInt(req.params.id);
+  if (isNaN(id)) { res.status(400).json({ error: "ID tidak valid" }); return; }
+
+  const parsed = jadikanBookingSchema.safeParse(req.body);
+  if (!parsed.success) {
+    const msg = parsed.error.issues.map((i) => i.message).join("; ");
+    res.status(400).json({ error: msg });
+    return;
+  }
+  const d = parsed.data;
+
+  if (d.startDate && d.endDate && d.endDate <= d.startDate) {
+    res.status(400).json({ error: "Tanggal selesai tidak boleh sebelum tanggal mulai" });
+    return;
+  }
+
+  try {
+    // Ambil draf
+    const draftResult = await db.execute(
+      sql`SELECT * FROM tenant_draft_agreements WHERE id = ${id} LIMIT 1`
+    );
+    const draft = (draftResult as { rows: Record<string, unknown>[] }).rows[0];
+    if (!draft) { res.status(404).json({ error: "Draf tidak ditemukan" }); return; }
+
+    if (draft.booking_id) {
+      res.status(409).json({
+        error: "Draf ini sudah pernah dikonversi ke booking",
+        bookingId: draft.booking_id,
+        tenantId: draft.tenant_id,
+      });
+      return;
+    }
+
+    const siteId = (req as Request & { siteId?: number }).siteId ?? (draft.site_id as number) ?? 0;
+    const rentAmount = d.rentAmount !== undefined && d.rentAmount !== ""
+      ? String(Number(d.rentAmount))
+      : String(Number(draft.rent_amount ?? 0));
+    const depositAmount = d.depositAmount !== undefined && d.depositAmount !== ""
+      ? String(Number(d.depositAmount))
+      : String(Number(draft.deposit_amount ?? 0));
+    const unitCode = d.unitCode ?? (draft.unit_code as string | null) ?? null;
+    const areaName = d.areaName ?? (draft.area_name as string | null) ?? "";
+
+    // Cari tenant existing berdasarkan nomor telepon di site yang sama
+    const existingTenantResult = await db.execute(
+      sql`SELECT id FROM tenants WHERE phone = ${draft.phone as string} AND site_id = ${siteId} LIMIT 1`
+    );
+    const existingTenant = (existingTenantResult as { rows: { id: number }[] }).rows[0];
+
+    let tenantId: number;
+    if (existingTenant) {
+      tenantId = existingTenant.id;
+    } else {
+      // Buat tenant baru
+      const tenantInsert = await db.execute(sql`
+        INSERT INTO tenants (
+          site_id, business_name, owner_name, phone, email,
+          business_category, area_name, address, status,
+          default_rent_amount
+        ) VALUES (
+          ${siteId},
+          ${(draft.brand_name as string) || (draft.tenant_name as string)},
+          ${draft.tenant_name as string},
+          ${draft.phone as string},
+          ${(draft.email as string | null) ?? null},
+          ${(draft.business_type as string) ?? null},
+          ${areaName},
+          ${(draft.address as string | null) ?? null},
+          'active',
+          ${rentAmount}
+        )
+        RETURNING id
+      `);
+      tenantId = (tenantInsert as { rows: { id: number }[] }).rows[0].id;
+    }
+
+    // Buat booking
+    const orderNumber = `ORD-${Date.now().toString(36).toUpperCase()}`;
+    const bookingInsert = await db.execute(sql`
+      INSERT INTO tenant_bookings (
+        site_id, tenant_id, order_number,
+        unit_code, floor, billing_cycle,
+        start_date, end_date,
+        duration_months,
+        rent_amount, deposit_amount,
+        notes, booking_status, contract_status,
+        payment_status
+      ) VALUES (
+        ${siteId},
+        ${tenantId},
+        ${orderNumber},
+        ${unitCode},
+        ${(draft.area_name as string | null) ?? null},
+        ${d.billingCycle},
+        ${d.startDate},
+        ${d.endDate},
+        ${(draft.duration_months as number | null) ?? null},
+        ${rentAmount},
+        ${depositAmount},
+        ${d.notes ?? (draft.notes as string | null) ?? null},
+        'aktif',
+        'active',
+        'UNPAID'
+      )
+      RETURNING id
+    `);
+    const bookingId = (bookingInsert as { rows: { id: number }[] }).rows[0].id;
+
+    // Update draf dengan referensi tenant & booking
+    await db.execute(sql`
+      UPDATE tenant_draft_agreements
+      SET tenant_id = ${tenantId}, booking_id = ${bookingId}, updated_at = NOW()
+      WHERE id = ${id}
+    `);
+
+    res.status(201).json({
+      success: true,
+      tenantId,
+      bookingId,
+      message: `Berhasil! Tenant dan booking telah dibuat.`,
+    });
+  } catch (err) {
+    console.error("[draft-agreements] POST jadikan-booking error:", err);
+    res.status(500).json({ error: "Gagal membuat tenant dan booking" });
+  }
+});
+
 export default router;
