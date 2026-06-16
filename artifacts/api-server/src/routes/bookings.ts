@@ -11,7 +11,12 @@ import { eq, and, ne, lt, lte, gte, or } from "drizzle-orm";
 import { requireAnyRole } from "../middlewares/auth";
 import { logAudit } from "../lib/audit";
 import { sseBroker } from "../lib/sse-broker";
-import { sendBookingConfirmation } from "../lib/whatsapp";
+import {
+  sendBookingConfirmation,
+  sendContractActivated,
+  sendContractExpiringSoon,
+  sendContractTerminated,
+} from "../lib/whatsapp";
 import { z } from "zod";
 
 const router: IRouter = Router();
@@ -367,6 +372,70 @@ router.put("/bookings/:id", async (req, res) => {
 
     sseBroker.publish("booking_updated", { bookingId: id });
     res.json({ ...withTenant, contractStatus: computeContractStatus(withTenant) });
+
+    // Notifikasi WA saat status kontrak berubah — fire-and-forget
+    const newStatus = computeContractStatus(withTenant);
+    const oldStatus = before ? computeContractStatus(before) : null;
+    const statusChanged = newStatus !== oldStatus;
+    if (statusChanged && withTenant) {
+      const [tenant] = await db
+        .select({ phone: tenantsTable.phone, ownerName: tenantsTable.ownerName })
+        .from(tenantsTable)
+        .where(eq(tenantsTable.id, withTenant.tenantId!));
+      const phone = tenant?.phone;
+      if (phone) {
+        const sentBy = (req.user as { email?: string } | undefined)?.email ?? null;
+        let waPromise: Promise<import("../lib/whatsapp").WaResult> | null = null;
+        let msgType = "";
+
+        if (newStatus === "active" && oldStatus !== "active") {
+          msgType = "contract_activated";
+          waPromise = sendContractActivated({
+            ownerName: tenant.ownerName ?? withTenant.tenantName ?? "Tenant",
+            businessName: withTenant.tenantName ?? "-",
+            contractNumber: withTenant.contractNumber,
+            orderNumber: withTenant.orderNumber ?? "",
+            unitCode: withTenant.unitCode ?? "-",
+            floor: withTenant.floor,
+            startDate: withTenant.startDate ?? "",
+            endDate: withTenant.endDate ?? "",
+            phone,
+          });
+        } else if (newStatus === "expiring_soon" && oldStatus !== "expiring_soon") {
+          msgType = "contract_expiring_soon";
+          const daysLeft = withTenant.endDate
+            ? Math.ceil((new Date(withTenant.endDate).getTime() - Date.now()) / 86400000)
+            : 30;
+          waPromise = sendContractExpiringSoon({
+            ownerName: tenant.ownerName ?? withTenant.tenantName ?? "Tenant",
+            businessName: withTenant.tenantName ?? "-",
+            contractNumber: withTenant.contractNumber,
+            orderNumber: withTenant.orderNumber ?? "",
+            unitCode: withTenant.unitCode ?? "-",
+            endDate: withTenant.endDate ?? "",
+            daysLeft: Math.max(1, daysLeft),
+            phone,
+          });
+        }
+
+        if (waPromise && msgType) {
+          waPromise.then(async (result) => {
+            try {
+              await db.insert(waLogsTable).values({
+                siteId: withTenant.siteId ?? null,
+                tenantId: withTenant.tenantId ?? null,
+                invoiceId: null,
+                phone,
+                messageType: msgType,
+                status: result.skipped ? "skipped" : result.ok ? "sent" : "failed",
+                errorMessage: result.error ?? null,
+                sentBy,
+              });
+            } catch { /* abaikan error logging */ }
+          }).catch(() => {});
+        }
+      }
+    }
   } catch (err) {
     req.log.error(err, "Failed to update booking");
     res.status(500).json({ error: "Gagal memperbarui kontrak" });
@@ -415,6 +484,40 @@ router.post("/bookings/:id/terminate", requireAnyRole("owner", "admin"), async (
     });
 
     res.json({ success: true, booking: updated });
+
+    // Notifikasi WA terminasi — fire-and-forget
+    if (before) {
+      const [tenant] = await db
+        .select({ phone: tenantsTable.phone, ownerName: tenantsTable.ownerName })
+        .from(tenantsTable)
+        .where(eq(tenantsTable.id, before.tenantId!));
+      const phone = tenant?.phone;
+      if (phone) {
+        const sentBy = (req.user as { email?: string } | undefined)?.email ?? null;
+        sendContractTerminated({
+          ownerName: tenant.ownerName ?? before.tenantName ?? "Tenant",
+          businessName: before.tenantName ?? "-",
+          contractNumber: before.contractNumber,
+          orderNumber: before.orderNumber ?? "",
+          unitCode: before.unitCode ?? "-",
+          reason: reason ?? null,
+          phone,
+        }).then(async (result) => {
+          try {
+            await db.insert(waLogsTable).values({
+              siteId: before.siteId ?? null,
+              tenantId: before.tenantId ?? null,
+              invoiceId: null,
+              phone,
+              messageType: "contract_terminated",
+              status: result.skipped ? "skipped" : result.ok ? "sent" : "failed",
+              errorMessage: result.error ?? null,
+              sentBy,
+            });
+          } catch { /* abaikan error logging */ }
+        }).catch(() => {});
+      }
+    }
   } catch (err) {
     req.log.error(err, "Failed to terminate booking");
     res.status(500).json({ error: "Gagal mengakhiri kontrak" });
