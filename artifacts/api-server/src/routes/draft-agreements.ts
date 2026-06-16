@@ -1,6 +1,6 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import { db } from "@workspace/db";
-import { sql } from "drizzle-orm";
+import { sql, type SQL } from "drizzle-orm";
 import { z } from "zod";
 import crypto from "crypto";
 import { getBaseUrl } from "../lib/app-url";
@@ -16,6 +16,25 @@ function toCamel(row: Record<string, unknown>): Record<string, unknown> {
   }
   return out;
 }
+
+// ── Kolom SELECT lengkap ───────────────────────────────────────────────────────
+const LIST_COLS = sql`
+  id, token, site_id, doc_type,
+  pic_name, tenant_name, brand_name, business_type, email, phone,
+  unit_code, area_name, interested_unit, period_label,
+  start_date, end_date, duration_months, rent_amount, deposit_amount,
+  status, responded_at, responded_name, rejection_reason,
+  source, expires_at, created_by, created_at, updated_at,
+  tenant_id, booking_id
+`;
+
+const ALLOWED_SORT: Record<string, string> = {
+  created_at: "created_at",
+  tenant_name: "tenant_name",
+  brand_name: "brand_name",
+  status: "status",
+  rent_amount: "rent_amount",
+};
 
 // ── Schema validasi ────────────────────────────────────────────────────────────
 const createDraftSchema = z.object({
@@ -41,73 +60,160 @@ const createDraftSchema = z.object({
   expiresInDays: z.number().int().min(1).max(365).optional(),
 });
 
-// kolom SELECT lengkap untuk list endpoint
-const LIST_COLS = sql`
-  id, token, site_id, doc_type,
-  pic_name, tenant_name, brand_name, business_type, email, phone,
-  unit_code, area_name, interested_unit, period_label,
-  start_date, end_date, duration_months, rent_amount, deposit_amount,
-  status, responded_at, responded_name, rejection_reason,
-  source, expires_at, created_by, created_at, updated_at
-`;
+// ── GET /api/draft-agreements/summary ─────────────────────────────────────────
+router.get("/draft-agreements/summary", async (req: Request, res: Response) => {
+  try {
+    const siteId = (req as Request & { siteId?: number }).siteId;
+
+    let siteCondition: SQL;
+    if (siteId && siteId > 0) {
+      siteCondition = sql`WHERE (site_id = ${siteId} OR site_id = 0)`;
+    } else {
+      siteCondition = sql`WHERE TRUE`;
+    }
+
+    const today = new Date().toISOString().slice(0, 10);
+    const monthStart = today.slice(0, 7) + "-01";
+
+    const result = await db.execute(sql`
+      SELECT
+        COUNT(*)                                                    AS total,
+        COUNT(*) FILTER (WHERE status = 'pending')                 AS pending,
+        COUNT(*) FILTER (WHERE status = 'approved')                AS approved,
+        COUNT(*) FILTER (WHERE status = 'rejected')                AS rejected,
+        COUNT(*) FILTER (WHERE created_at::date = ${today}::date)  AS today,
+        COUNT(*) FILTER (WHERE created_at >= ${monthStart}::date)  AS this_month,
+        COUNT(*) FILTER (WHERE source = 'self_register')           AS self_register
+      FROM tenant_draft_agreements
+      ${siteCondition}
+    `);
+
+    const row = (result as { rows: Record<string, unknown>[] }).rows[0] ?? {};
+    res.json({
+      total:        Number(row["total"]        ?? 0),
+      pending:      Number(row["pending"]      ?? 0),
+      approved:     Number(row["approved"]     ?? 0),
+      rejected:     Number(row["rejected"]     ?? 0),
+      today:        Number(row["today"]        ?? 0),
+      thisMonth:    Number(row["this_month"]   ?? 0),
+      selfRegister: Number(row["self_register"]?? 0),
+    });
+  } catch (err) {
+    console.error("[draft-agreements] GET summary error:", err);
+    res.status(500).json({ error: "Gagal mengambil ringkasan draf perjanjian" });
+  }
+});
 
 // ── GET /api/draft-agreements ─────────────────────────────────────────────────
-// Admin — list semua draf; site_id=0 (self-register) selalu ikut serta
+// Mendukung pagination, filter, search, sorting
 router.get("/draft-agreements", async (req: Request, res: Response) => {
   try {
     const siteId = (req as Request & { siteId?: number }).siteId;
-    const status = req.query.status as string | undefined;
-    const validStatus = status && ["pending", "approved", "rejected"].includes(status);
 
-    let rows: unknown[];
+    // — parse query params —
+    const page    = Math.max(1, parseInt(String(req.query["page"]  ?? "1"),  10) || 1);
+    const limit   = Math.min(100, Math.max(1, parseInt(String(req.query["limit"] ?? "20"), 10) || 20));
+    const offset  = (page - 1) * limit;
 
+    const statusQ   = req.query["status"]   as string | undefined;
+    const sourceQ   = req.query["source"]   as string | undefined;
+    const siteIdQ   = req.query["siteId"]   as string | undefined;
+    const searchQ   = req.query["search"]   as string | undefined;
+    const dateFrom  = req.query["dateFrom"] as string | undefined;
+    const dateTo    = req.query["dateTo"]   as string | undefined;
+    const sortByRaw = String(req.query["sortBy"]  ?? "created_at");
+    const sortDir   = String(req.query["sortDir"] ?? "desc").toLowerCase() === "asc" ? "ASC" : "DESC";
+    const sortCol   = ALLOWED_SORT[sortByRaw] ?? "created_at";
+
+    // — build WHERE conditions —
+    const conditions: SQL[] = [];
+
+    // site isolation
     if (siteId && siteId > 0) {
-      // tampilkan data site ini + self-register (site_id=0)
-      if (validStatus) {
-        const result = await db.execute(
-          sql`SELECT ${LIST_COLS} FROM tenant_draft_agreements
-              WHERE (site_id = ${siteId} OR site_id = 0) AND status = ${status}
-              ORDER BY created_at DESC`
-        );
-        rows = (result as { rows: unknown[] }).rows;
-      } else {
-        const result = await db.execute(
-          sql`SELECT ${LIST_COLS} FROM tenant_draft_agreements
-              WHERE (site_id = ${siteId} OR site_id = 0)
-              ORDER BY created_at DESC`
-        );
-        rows = (result as { rows: unknown[] }).rows;
-      }
-    } else {
-      // admin tanpa site context → semua data
-      if (validStatus) {
-        const result = await db.execute(
-          sql`SELECT ${LIST_COLS} FROM tenant_draft_agreements
-              WHERE status = ${status}
-              ORDER BY created_at DESC`
-        );
-        rows = (result as { rows: unknown[] }).rows;
-      } else {
-        const result = await db.execute(
-          sql`SELECT ${LIST_COLS} FROM tenant_draft_agreements
-              ORDER BY created_at DESC`
-        );
-        rows = (result as { rows: unknown[] }).rows;
+      conditions.push(sql`(site_id = ${siteId} OR site_id = 0)`);
+    } else if (siteIdQ) {
+      const parsedSiteId = parseInt(siteIdQ, 10);
+      if (!isNaN(parsedSiteId) && parsedSiteId > 0) {
+        conditions.push(sql`(site_id = ${parsedSiteId} OR site_id = 0)`);
       }
     }
 
+    if (statusQ && ["pending", "approved", "rejected"].includes(statusQ)) {
+      conditions.push(sql`status = ${statusQ}`);
+    }
+
+    if (sourceQ && ["admin", "self_register"].includes(sourceQ)) {
+      conditions.push(sql`source = ${sourceQ}`);
+    }
+
+    if (searchQ && searchQ.trim()) {
+      const like = `%${searchQ.trim()}%`;
+      conditions.push(sql`(
+        tenant_name  ILIKE ${like} OR
+        brand_name   ILIKE ${like} OR
+        email        ILIKE ${like} OR
+        phone        ILIKE ${like}
+      )`);
+    }
+
+    if (dateFrom) {
+      conditions.push(sql`created_at >= ${dateFrom}::date`);
+    }
+
+    if (dateTo) {
+      conditions.push(sql`created_at < (${dateTo}::date + INTERVAL '1 day')`);
+    }
+
+    const whereClause: SQL = conditions.length > 0
+      ? sql`WHERE ${sql.join(conditions, sql` AND `)}`
+      : sql`WHERE TRUE`;
+
+    // Sort direction in raw SQL (whitelisted)
+    const orderClause = sortDir === "ASC"
+      ? sql`ORDER BY ${sql.raw(sortCol)} ASC NULLS LAST`
+      : sql`ORDER BY ${sql.raw(sortCol)} DESC NULLS LAST`;
+
+    // — COUNT query —
+    const countResult = await db.execute(sql`
+      SELECT COUNT(*)::int AS total
+      FROM tenant_draft_agreements
+      ${whereClause}
+    `);
+    const total = Number((countResult as { rows: { total: number }[] }).rows[0]?.total ?? 0);
+    const totalPages = Math.max(1, Math.ceil(total / limit));
+
+    // — DATA query —
+    const dataResult = await db.execute(sql`
+      SELECT ${LIST_COLS}
+      FROM tenant_draft_agreements
+      ${whereClause}
+      ${orderClause}
+      LIMIT ${limit} OFFSET ${offset}
+    `);
+
     const baseUrl = await getBaseUrl().catch(() => undefined);
-    const withLinks = (rows as Record<string, unknown>[]).map((r) => {
+    const data = (dataResult as { rows: Record<string, unknown>[] }).rows.map((r) => {
       const c = toCamel(r);
       return {
         ...c,
         publicUrl: baseUrl
-          ? `${baseUrl}/dokumen/${c.token}`
-          : `/dokumen/${c.token}`,
+          ? `${baseUrl}/dokumen/${c["token"]}`
+          : `/dokumen/${c["token"]}`,
       };
     });
 
-    res.json(withLinks);
+    res.json({
+      success: true,
+      data,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages,
+        hasNext: page < totalPages,
+        hasPrev: page > 1,
+      },
+    });
   } catch (err) {
     console.error("[draft-agreements] GET list error:", err);
     res.status(500).json({ error: "Gagal mengambil daftar draf perjanjian" });
@@ -131,8 +237,8 @@ router.get("/draft-agreements/:id", async (req: Request, res: Response) => {
     res.json({
       ...row,
       publicUrl: baseUrl
-        ? `${baseUrl}/dokumen/${row.token}`
-        : `/dokumen/${row.token}`,
+        ? `${baseUrl}/dokumen/${row["token"]}`
+        : `/dokumen/${row["token"]}`,
     });
   } catch (err) {
     console.error("[draft-agreements] GET :id error:", err);
@@ -141,7 +247,6 @@ router.get("/draft-agreements/:id", async (req: Request, res: Response) => {
 });
 
 // ── POST /api/draft-agreements ────────────────────────────────────────────────
-// Admin — buat draf baru
 router.post("/draft-agreements", requireAnyRole("admin", "owner"), async (req: Request, res: Response) => {
   const parsed = createDraftSchema.safeParse(req.body);
   if (!parsed.success) {
@@ -219,7 +324,6 @@ router.delete("/draft-agreements/:id", requireAnyRole("admin", "owner"), async (
 });
 
 // ── POST /api/draft-agreements/:id/remind ─────────────────────────────────────
-// Admin — kirim ulang link via WA ke calon tenant
 router.post("/draft-agreements/:id/remind", requireAnyRole("admin", "owner"), async (req: Request, res: Response) => {
   const id = parseInt(req.params["id"] as string);
   if (isNaN(id)) { res.status(400).json({ error: "ID tidak valid" }); return; }
@@ -231,12 +335,12 @@ router.post("/draft-agreements/:id/remind", requireAnyRole("admin", "owner"), as
     const row = (result as { rows: Record<string, unknown>[] }).rows[0];
     if (!row) { res.status(404).json({ error: "Draf tidak ditemukan" }); return; }
 
-    if (row.status !== "pending") {
+    if (row["status"] !== "pending") {
       res.status(409).json({ error: "Dokumen ini sudah direspon oleh tenant" });
       return;
     }
 
-    const token_api = process.env.FONNTE_TOKEN;
+    const token_api = process.env["FONNTE_TOKEN"];
     if (!token_api) {
       res.status(422).json({ error: "Konfigurasi WhatsApp belum diatur (FONNTE_TOKEN)" });
       return;
@@ -244,16 +348,16 @@ router.post("/draft-agreements/:id/remind", requireAnyRole("admin", "owner"), as
 
     const baseUrl = await getBaseUrl().catch(() => undefined);
     const docUrl = baseUrl
-      ? `${baseUrl}/dokumen/${row.token}`
-      : `/dokumen/${row.token}`;
+      ? `${baseUrl}/dokumen/${row["token"]}`
+      : `/dokumen/${row["token"]}`;
 
-    const docLabel = row.doc_type === "perjanjian_sewa" ? "Perjanjian Sewa" : "Surat Minat Menyewa";
-    const message = `📄 *${docLabel}*\n\nYth. ${row.tenant_name},\n\nBerikut link dokumen yang perlu Anda tinjau dan berikan persetujuan:\n\n${docUrl}\n\nSilakan buka link tersebut dan pilih *Setuju* atau *Tidak Setuju*.\n\nTerima kasih.`;
+    const docLabel = row["doc_type"] === "perjanjian_sewa" ? "Perjanjian Sewa" : "Surat Minat Menyewa";
+    const message = `📄 *${docLabel}*\n\nYth. ${row["tenant_name"]},\n\nBerikut link dokumen yang perlu Anda tinjau dan berikan persetujuan:\n\n${docUrl}\n\nSilakan buka link tersebut dan pilih *Setuju* atau *Tidak Setuju*.\n\nTerima kasih.`;
 
     await fetch("https://api.fonnte.com/send", {
       method: "POST",
       headers: { Authorization: token_api, "Content-Type": "application/json" },
-      body: JSON.stringify({ target: row.phone as string, message }),
+      body: JSON.stringify({ target: row["phone"] as string, message }),
     });
 
     res.json({ success: true, message: "Pengingat berhasil dikirim via WhatsApp" });
@@ -264,7 +368,6 @@ router.post("/draft-agreements/:id/remind", requireAnyRole("admin", "owner"), as
 });
 
 // ── PATCH /api/draft-agreements/:id ──────────────────────────────────────────
-// Admin — edit/perkaya data draf
 router.patch("/draft-agreements/:id", requireAnyRole("admin", "owner"), async (req: Request, res: Response) => {
   const id = parseInt(req.params["id"] as string);
   if (isNaN(id)) { res.status(400).json({ error: "ID tidak valid" }); return; }
@@ -288,29 +391,29 @@ router.patch("/draft-agreements/:id", requireAnyRole("admin", "owner"), async (r
 
     const expiresAt = d.expiresInDays
       ? new Date(Date.now() + d.expiresInDays * 86_400_000).toISOString()
-      : (old.expires_at as string | null);
+      : (old["expires_at"] as string | null);
 
     const result = await db.execute(sql`
       UPDATE tenant_draft_agreements SET
-        doc_type         = ${d.docType         !== undefined ? d.docType         : old.doc_type},
-        pic_name         = ${d.picName         !== undefined ? (d.picName || null)         : old.pic_name},
-        tenant_name      = ${d.tenantName      !== undefined ? d.tenantName      : old.tenant_name},
-        brand_name       = ${d.brandName       !== undefined ? d.brandName       : old.brand_name},
-        business_type    = ${d.businessType    !== undefined ? d.businessType    : old.business_type},
-        email            = ${d.email           !== undefined ? (d.email || null)           : old.email},
-        phone            = ${d.phone           !== undefined ? d.phone           : old.phone},
-        address          = ${d.address         !== undefined ? (d.address || null)         : old.address},
-        unit_code        = ${d.unitCode        !== undefined ? (d.unitCode || null)        : old.unit_code},
-        area_name        = ${d.areaName        !== undefined ? (d.areaName || null)        : old.area_name},
-        interested_unit  = ${d.interestedUnit  !== undefined ? (d.interestedUnit || null)  : old.interested_unit},
-        start_date       = ${d.startDate       !== undefined ? (d.startDate || null)       : old.start_date},
-        end_date         = ${d.endDate         !== undefined ? (d.endDate || null)         : old.end_date},
-        duration_months  = ${d.durationMonths  !== undefined ? d.durationMonths  : old.duration_months},
-        period_label     = ${d.periodLabel     !== undefined ? (d.periodLabel || null)     : old.period_label},
-        rent_amount      = ${d.rentAmount      !== undefined ? d.rentAmount      : old.rent_amount},
-        deposit_amount   = ${d.depositAmount   !== undefined ? d.depositAmount   : old.deposit_amount},
-        payment_terms    = ${d.paymentTerms    !== undefined ? (d.paymentTerms || null)    : old.payment_terms},
-        notes            = ${d.notes           !== undefined ? (d.notes || null)           : old.notes},
+        doc_type         = ${d.docType         !== undefined ? d.docType         : old["doc_type"]},
+        pic_name         = ${d.picName         !== undefined ? (d.picName || null)         : old["pic_name"]},
+        tenant_name      = ${d.tenantName      !== undefined ? d.tenantName      : old["tenant_name"]},
+        brand_name       = ${d.brandName       !== undefined ? d.brandName       : old["brand_name"]},
+        business_type    = ${d.businessType    !== undefined ? d.businessType    : old["business_type"]},
+        email            = ${d.email           !== undefined ? (d.email || null)           : old["email"]},
+        phone            = ${d.phone           !== undefined ? d.phone           : old["phone"]},
+        address          = ${d.address         !== undefined ? (d.address || null)         : old["address"]},
+        unit_code        = ${d.unitCode        !== undefined ? (d.unitCode || null)        : old["unit_code"]},
+        area_name        = ${d.areaName        !== undefined ? (d.areaName || null)        : old["area_name"]},
+        interested_unit  = ${d.interestedUnit  !== undefined ? (d.interestedUnit || null)  : old["interested_unit"]},
+        start_date       = ${d.startDate       !== undefined ? (d.startDate || null)       : old["start_date"]},
+        end_date         = ${d.endDate         !== undefined ? (d.endDate || null)         : old["end_date"]},
+        duration_months  = ${d.durationMonths  !== undefined ? d.durationMonths  : old["duration_months"]},
+        period_label     = ${d.periodLabel     !== undefined ? (d.periodLabel || null)     : old["period_label"]},
+        rent_amount      = ${d.rentAmount      !== undefined ? d.rentAmount      : old["rent_amount"]},
+        deposit_amount   = ${d.depositAmount   !== undefined ? d.depositAmount   : old["deposit_amount"]},
+        payment_terms    = ${d.paymentTerms    !== undefined ? (d.paymentTerms || null)    : old["payment_terms"]},
+        notes            = ${d.notes           !== undefined ? (d.notes || null)           : old["notes"]},
         expires_at       = ${expiresAt},
         updated_at       = NOW()
       WHERE id = ${id}
@@ -322,7 +425,7 @@ router.patch("/draft-agreements/:id", requireAnyRole("admin", "owner"), async (r
     const baseUrl = await getBaseUrl().catch(() => undefined);
     res.json({
       ...row,
-      publicUrl: baseUrl ? `${baseUrl}/dokumen/${row.token}` : `/dokumen/${row.token}`,
+      publicUrl: baseUrl ? `${baseUrl}/dokumen/${row["token"]}` : `/dokumen/${row["token"]}`,
     });
   } catch (err) {
     console.error("[draft-agreements] PATCH error:", err);
@@ -331,7 +434,6 @@ router.patch("/draft-agreements/:id", requireAnyRole("admin", "owner"), async (r
 });
 
 // ── POST /api/draft-agreements/:id/jadikan-booking ────────────────────────────
-// Admin — konversi draf yang disetujui menjadi tenant + booking resmi
 const jadikanBookingSchema = z.object({
   startDate: z.string().min(1, "Tanggal mulai wajib diisi"),
   endDate: z.string().min(1, "Tanggal selesai wajib diisi"),
@@ -361,35 +463,33 @@ router.post("/draft-agreements/:id/jadikan-booking", requireAnyRole("admin", "ow
   }
 
   try {
-    // Ambil draf
     const draftResult = await db.execute(
       sql`SELECT * FROM tenant_draft_agreements WHERE id = ${id} LIMIT 1`
     );
     const draft = (draftResult as { rows: Record<string, unknown>[] }).rows[0];
     if (!draft) { res.status(404).json({ error: "Draf tidak ditemukan" }); return; }
 
-    if (draft.booking_id) {
+    if (draft["booking_id"]) {
       res.status(409).json({
         error: "Draf ini sudah pernah dikonversi ke booking",
-        bookingId: draft.booking_id,
-        tenantId: draft.tenant_id,
+        bookingId: draft["booking_id"],
+        tenantId: draft["tenant_id"],
       });
       return;
     }
 
-    const siteId = (req as Request & { siteId?: number }).siteId ?? (draft.site_id as number) ?? 0;
+    const siteId = (req as Request & { siteId?: number }).siteId ?? (draft["site_id"] as number) ?? 0;
     const rentAmount = d.rentAmount !== undefined && d.rentAmount !== ""
       ? String(Number(d.rentAmount))
-      : String(Number(draft.rent_amount ?? 0));
+      : String(Number(draft["rent_amount"] ?? 0));
     const depositAmount = d.depositAmount !== undefined && d.depositAmount !== ""
       ? String(Number(d.depositAmount))
-      : String(Number(draft.deposit_amount ?? 0));
-    const unitCode = d.unitCode ?? (draft.unit_code as string | null) ?? null;
-    const areaName = d.areaName ?? (draft.area_name as string | null) ?? "";
+      : String(Number(draft["deposit_amount"] ?? 0));
+    const unitCode = d.unitCode ?? (draft["unit_code"] as string | null) ?? null;
+    const areaName = d.areaName ?? (draft["area_name"] as string | null) ?? "";
 
-    // Cari tenant existing berdasarkan nomor telepon di site yang sama
     const existingTenantResult = await db.execute(
-      sql`SELECT id FROM tenants WHERE phone = ${draft.phone as string} AND site_id = ${siteId} LIMIT 1`
+      sql`SELECT id FROM tenants WHERE phone = ${draft["phone"] as string} AND site_id = ${siteId} LIMIT 1`
     );
     const existingTenant = (existingTenantResult as unknown as { rows: { id: number }[] }).rows[0];
 
@@ -397,7 +497,6 @@ router.post("/draft-agreements/:id/jadikan-booking", requireAnyRole("admin", "ow
     if (existingTenant) {
       tenantId = existingTenant.id;
     } else {
-      // Buat tenant baru
       const tenantInsert = await db.execute(sql`
         INSERT INTO tenants (
           site_id, business_name, owner_name, phone, email,
@@ -405,13 +504,13 @@ router.post("/draft-agreements/:id/jadikan-booking", requireAnyRole("admin", "ow
           default_rent_amount
         ) VALUES (
           ${siteId},
-          ${(draft.brand_name as string) || (draft.tenant_name as string)},
-          ${draft.tenant_name as string},
-          ${draft.phone as string},
-          ${(draft.email as string | null) ?? null},
-          ${(draft.business_type as string) ?? null},
+          ${(draft["brand_name"] as string) || (draft["tenant_name"] as string)},
+          ${draft["tenant_name"] as string},
+          ${draft["phone"] as string},
+          ${(draft["email"] as string | null) ?? null},
+          ${(draft["business_type"] as string) ?? null},
           ${areaName},
-          ${(draft.address as string | null) ?? null},
+          ${(draft["address"] as string | null) ?? null},
           'active',
           ${rentAmount}
         )
@@ -420,7 +519,6 @@ router.post("/draft-agreements/:id/jadikan-booking", requireAnyRole("admin", "ow
       tenantId = (tenantInsert as unknown as { rows: { id: number }[] }).rows[0].id;
     }
 
-    // Buat booking
     const orderNumber = `ORD-${Date.now().toString(36).toUpperCase()}`;
     const bookingInsert = await db.execute(sql`
       INSERT INTO tenant_bookings (
@@ -436,14 +534,14 @@ router.post("/draft-agreements/:id/jadikan-booking", requireAnyRole("admin", "ow
         ${tenantId},
         ${orderNumber},
         ${unitCode},
-        ${(draft.area_name as string | null) ?? null},
+        ${(draft["area_name"] as string | null) ?? null},
         ${d.billingCycle},
         ${d.startDate},
         ${d.endDate},
-        ${(draft.duration_months as number | null) ?? null},
+        ${(draft["duration_months"] as number | null) ?? null},
         ${rentAmount},
         ${depositAmount},
-        ${d.notes ?? (draft.notes as string | null) ?? null},
+        ${d.notes ?? (draft["notes"] as string | null) ?? null},
         'aktif',
         'active',
         'UNPAID'
@@ -452,7 +550,6 @@ router.post("/draft-agreements/:id/jadikan-booking", requireAnyRole("admin", "ow
     `);
     const bookingId = (bookingInsert as unknown as { rows: { id: number }[] }).rows[0].id;
 
-    // Update draf dengan referensi tenant & booking
     await db.execute(sql`
       UPDATE tenant_draft_agreements
       SET tenant_id = ${tenantId}, booking_id = ${bookingId}, updated_at = NOW()

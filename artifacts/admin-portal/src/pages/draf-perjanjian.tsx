@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useLocation, useSearch } from "wouter";
 import { apiFetch, apiFetchJson } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
@@ -45,12 +46,6 @@ import {
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
 import {
-  Tabs,
-  TabsList,
-  TabsTrigger,
-} from "@/components/ui/tabs";
-import { useLocation } from "wouter";
-import {
   FilePlus,
   Copy,
   Trash2,
@@ -69,6 +64,16 @@ import {
   ThumbsUp,
   ThumbsDown,
   BellRing,
+  ChevronLeft,
+  ChevronRight,
+  ChevronsLeft,
+  ChevronsRight,
+  ArrowUpDown,
+  ArrowUp,
+  ArrowDown,
+  X,
+  Search,
+  CalendarRange,
 } from "lucide-react";
 
 // ── Tipe data ──────────────────────────────────────────────────────────────────
@@ -107,6 +112,29 @@ interface DraftAgreement {
   bookingId: number | null;
 }
 
+interface PaginatedResponse {
+  success: boolean;
+  data: DraftAgreement[];
+  pagination: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+    hasNext: boolean;
+    hasPrev: boolean;
+  };
+}
+
+interface SummaryResponse {
+  total: number;
+  pending: number;
+  approved: number;
+  rejected: number;
+  today: number;
+  thisMonth: number;
+  selfRegister: number;
+}
+
 // ── Helper ──────────────────────────────────────────────────────────────────────
 function formatRp(v: string | number | null | undefined) {
   if (!v) return "—";
@@ -132,6 +160,119 @@ function DocTypeBadge({ type }: { type: DraftAgreement["docType"] }) {
   if (type === "perjanjian_sewa")
     return <span className="inline-flex items-center gap-1 text-xs text-violet-700 bg-violet-50 px-2 py-0.5 rounded-full border border-violet-200"><FileSignature className="h-3 w-3" />Perjanjian Sewa</span>;
   return <span className="inline-flex items-center gap-1 text-xs text-blue-700 bg-blue-50 px-2 py-0.5 rounded-full border border-blue-200"><FileText className="h-3 w-3" />Surat Minat</span>;
+}
+
+// ── Sort Header ────────────────────────────────────────────────────────────────
+function SortHeader({
+  label,
+  colKey,
+  currentSort,
+  currentDir,
+  onSort,
+}: {
+  label: string;
+  colKey: string;
+  currentSort: string;
+  currentDir: string;
+  onSort: (col: string, dir: string) => void;
+}) {
+  const active = currentSort === colKey;
+  const nextDir = active && currentDir === "asc" ? "desc" : "asc";
+  return (
+    <button
+      className="flex items-center gap-1 text-xs font-medium hover:text-primary transition-colors"
+      onClick={() => onSort(colKey, active && currentDir === "asc" ? "desc" : nextDir)}
+    >
+      {label}
+      {active ? (
+        currentDir === "asc"
+          ? <ArrowUp className="h-3 w-3 text-primary" />
+          : <ArrowDown className="h-3 w-3 text-primary" />
+      ) : (
+        <ArrowUpDown className="h-3 w-3 text-muted-foreground" />
+      )}
+    </button>
+  );
+}
+
+// ── Pagination UI ──────────────────────────────────────────────────────────────
+function PaginationBar({
+  page,
+  totalPages,
+  total,
+  limit,
+  onPage,
+  onLimit,
+}: {
+  page: number;
+  totalPages: number;
+  total: number;
+  limit: number;
+  onPage: (p: number) => void;
+  onLimit: (l: number) => void;
+}) {
+  const from = total === 0 ? 0 : (page - 1) * limit + 1;
+  const to = Math.min(page * limit, total);
+
+  const pages: (number | "...")[] = [];
+  if (totalPages <= 7) {
+    for (let i = 1; i <= totalPages; i++) pages.push(i);
+  } else {
+    pages.push(1);
+    if (page > 3) pages.push("...");
+    for (let i = Math.max(2, page - 1); i <= Math.min(totalPages - 1, page + 1); i++) pages.push(i);
+    if (page < totalPages - 2) pages.push("...");
+    pages.push(totalPages);
+  }
+
+  return (
+    <div className="flex flex-col sm:flex-row items-center justify-between gap-3 px-1 py-2">
+      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+        <span>Tampil {from}–{to} dari <strong>{total}</strong> data</span>
+        <Select value={String(limit)} onValueChange={(v) => onLimit(Number(v))}>
+          <SelectTrigger className="h-7 w-[72px] text-xs">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {[10, 20, 50, 100].map((n) => (
+              <SelectItem key={n} value={String(n)} className="text-xs">{n}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <span>per halaman</span>
+      </div>
+
+      <div className="flex items-center gap-1">
+        <Button variant="outline" size="icon" className="h-7 w-7" disabled={page <= 1} onClick={() => onPage(1)}>
+          <ChevronsLeft className="h-3.5 w-3.5" />
+        </Button>
+        <Button variant="outline" size="icon" className="h-7 w-7" disabled={page <= 1} onClick={() => onPage(page - 1)}>
+          <ChevronLeft className="h-3.5 w-3.5" />
+        </Button>
+        {pages.map((p, i) =>
+          p === "..." ? (
+            <span key={`e${i}`} className="px-1.5 text-muted-foreground text-xs">…</span>
+          ) : (
+            <Button
+              key={p}
+              variant={p === page ? "default" : "outline"}
+              size="icon"
+              className="h-7 w-7 text-xs"
+              onClick={() => onPage(p as number)}
+            >
+              {p}
+            </Button>
+          )
+        )}
+        <Button variant="outline" size="icon" className="h-7 w-7" disabled={page >= totalPages} onClick={() => onPage(page + 1)}>
+          <ChevronRight className="h-3.5 w-3.5" />
+        </Button>
+        <Button variant="outline" size="icon" className="h-7 w-7" disabled={page >= totalPages} onClick={() => onPage(totalPages)}>
+          <ChevronsRight className="h-3.5 w-3.5" />
+        </Button>
+      </div>
+    </div>
+  );
 }
 
 // ── Form buat draf baru ────────────────────────────────────────────────────────
@@ -314,7 +455,6 @@ function DetailPanel({
         </CardHeader>
 
         <CardContent className="space-y-4 text-sm">
-          {/* Banner: Siap dijadikan booking */}
           {canCreateBooking && (
             <div className="rounded-lg bg-emerald-50 border border-emerald-200 p-3 space-y-2">
               <p className="text-xs font-semibold text-emerald-800">✅ Dokumen telah disetujui oleh calon tenant</p>
@@ -329,7 +469,6 @@ function DetailPanel({
             </div>
           )}
 
-          {/* Banner: Sudah dikonversi */}
           {alreadyConverted && (
             <div className="rounded-lg bg-violet-50 border border-violet-200 p-3 space-y-1.5">
               <p className="text-xs font-semibold text-violet-800">Draf ini sudah dikonversi ke booking resmi</p>
@@ -346,7 +485,6 @@ function DetailPanel({
             </div>
           )}
 
-          {/* Link publik */}
           <div className="rounded-lg bg-muted p-3 space-y-2">
             <p className="font-medium text-xs text-muted-foreground uppercase tracking-wide">Link Dokumen Calon Tenant</p>
             <p className="break-all text-primary font-mono text-xs">{draft.publicUrl}</p>
@@ -367,7 +505,6 @@ function DetailPanel({
             </div>
           </div>
 
-          {/* Data calon tenant */}
           {draft.picName && (
             <div><p className="text-xs text-muted-foreground">Nama PIC / Penanggung Jawab</p><p className="font-medium">{draft.picName}</p></div>
           )}
@@ -380,7 +517,6 @@ function DetailPanel({
             <div className="col-span-2"><p className="text-xs text-muted-foreground">Alamat</p><p className="font-medium">{draft.address || "—"}</p></div>
           </div>
 
-          {/* Unit & periode */}
           <div className="grid grid-cols-2 gap-x-4 gap-y-2">
             <div><p className="text-xs text-muted-foreground">Unit / Lokasi</p><p className="font-medium">{[draft.unitCode, draft.areaName].filter(Boolean).join(" — ") || "—"}</p></div>
             <div><p className="text-xs text-muted-foreground">Durasi</p><p className="font-medium">{draft.periodLabel || (draft.durationMonths ? `${draft.durationMonths} bulan` : "—")}</p></div>
@@ -388,13 +524,11 @@ function DetailPanel({
             <div><p className="text-xs text-muted-foreground">Selesai</p><p className="font-medium">{formatTanggal(draft.endDate)}</p></div>
           </div>
 
-          {/* Finansial */}
           <div className="grid grid-cols-2 gap-x-4 gap-y-2">
             <div><p className="text-xs text-muted-foreground">Harga Sewa/Bulan</p><p className="font-semibold text-primary">{formatRp(draft.rentAmount)}</p></div>
             <div><p className="text-xs text-muted-foreground">Deposit/Jaminan</p><p className="font-semibold">{formatRp(draft.depositAmount)}</p></div>
           </div>
 
-          {/* Status respon */}
           {draft.status !== "pending" && (
             <div className="rounded-lg border p-3 space-y-1.5">
               <p className="font-medium text-xs text-muted-foreground uppercase tracking-wide">Respon Tenant</p>
@@ -417,7 +551,6 @@ function DetailPanel({
             </p>
           )}
 
-          {/* Aksi Approve / Reject — hanya untuk status pending */}
           {draft.status === "pending" && (
             <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 space-y-2">
               <p className="text-xs font-semibold text-amber-800">Tindakan Admin</p>
@@ -444,16 +577,10 @@ function DetailPanel({
             </div>
           )}
 
-          {/* Aksi */}
           <div className="flex flex-wrap justify-between gap-2 pt-2 border-t">
             <div className="flex gap-1.5">
               <Button size="sm" variant="ghost" onClick={onClose}>Tutup</Button>
-              <Button
-                size="sm"
-                variant="outline"
-                className="gap-1"
-                onClick={() => onEdit(draft)}
-              >
+              <Button size="sm" variant="outline" className="gap-1" onClick={() => onEdit(draft)}>
                 ✏️ Edit
               </Button>
             </div>
@@ -463,12 +590,7 @@ function DetailPanel({
                   🖨️ PDF
                 </a>
               </Button>
-              <Button
-                size="sm"
-                variant="destructive"
-                className="gap-1"
-                onClick={() => onDelete(draft.id)}
-              >
+              <Button size="sm" variant="destructive" className="gap-1" onClick={() => onDelete(draft.id)}>
                 <Trash2 className="h-3.5 w-3.5" />Hapus
               </Button>
             </div>
@@ -544,12 +666,10 @@ function DetailPanel({
             </DialogTitle>
             <DialogDescription>
               Data dari draf <strong>{draft.brandName}</strong> akan digunakan untuk membuat tenant dan kontrak booking di sistem.
-              Lengkapi detail kontrak di bawah ini.
             </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-4 py-2 text-sm">
-            {/* Info tenant */}
             <div className="rounded-lg bg-slate-50 border p-3 space-y-1 text-xs">
               <p className="font-semibold text-slate-700">Data Tenant (dari draf)</p>
               <p><span className="text-muted-foreground">Nama:</span> {draft.tenantName}</p>
@@ -557,69 +677,33 @@ function DetailPanel({
               <p><span className="text-muted-foreground">Telepon:</span> {draft.phone}</p>
             </div>
 
-            {/* Periode kontrak */}
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label>Tanggal Mulai <span className="text-destructive">*</span></Label>
-                <Input
-                  type="date"
-                  value={bookingForm.startDate}
-                  onChange={(e) => setBookingForm((f) => ({ ...f, startDate: e.target.value }))}
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label>Tanggal Selesai <span className="text-destructive">*</span></Label>
-                <Input
-                  type="date"
-                  value={bookingForm.endDate}
-                  onChange={(e) => setBookingForm((f) => ({ ...f, endDate: e.target.value }))}
-                />
-              </div>
-            </div>
-
-            {/* Unit */}
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <Label>Kode Unit</Label>
-                <Input
-                  placeholder="misal: SC-01"
-                  value={bookingForm.unitCode}
-                  onChange={(e) => setBookingForm((f) => ({ ...f, unitCode: e.target.value }))}
-                />
+                <Input placeholder="SC-01" value={bookingForm.unitCode} onChange={(e) => setBookingForm((f) => ({ ...f, unitCode: e.target.value }))} />
               </div>
               <div className="space-y-1.5">
-                <Label>Area / Lokasi</Label>
-                <Input
-                  placeholder="misal: Lantai 1"
-                  value={bookingForm.areaName}
-                  onChange={(e) => setBookingForm((f) => ({ ...f, areaName: e.target.value }))}
-                />
+                <Label>Area/Lokasi</Label>
+                <Input placeholder="Sport Center Lt. 1" value={bookingForm.areaName} onChange={(e) => setBookingForm((f) => ({ ...f, areaName: e.target.value }))} />
               </div>
-            </div>
-
-            {/* Finansial */}
-            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label>Tanggal Mulai <span className="text-destructive">*</span></Label>
+                <Input type="date" value={bookingForm.startDate} onChange={(e) => setBookingForm((f) => ({ ...f, startDate: e.target.value }))} />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Tanggal Selesai <span className="text-destructive">*</span></Label>
+                <Input type="date" value={bookingForm.endDate} onChange={(e) => setBookingForm((f) => ({ ...f, endDate: e.target.value }))} />
+              </div>
               <div className="space-y-1.5">
                 <Label>Harga Sewa/Bulan (Rp)</Label>
-                <Input
-                  type="number"
-                  placeholder="0"
-                  value={bookingForm.rentAmount}
-                  onChange={(e) => setBookingForm((f) => ({ ...f, rentAmount: e.target.value }))}
-                />
+                <Input placeholder="0" value={bookingForm.rentAmount} onChange={(e) => setBookingForm((f) => ({ ...f, rentAmount: e.target.value }))} />
               </div>
               <div className="space-y-1.5">
-                <Label>Deposit/Jaminan (Rp)</Label>
-                <Input
-                  type="number"
-                  placeholder="0"
-                  value={bookingForm.depositAmount}
-                  onChange={(e) => setBookingForm((f) => ({ ...f, depositAmount: e.target.value }))}
-                />
+                <Label>Deposit (Rp)</Label>
+                <Input placeholder="0" value={bookingForm.depositAmount} onChange={(e) => setBookingForm((f) => ({ ...f, depositAmount: e.target.value }))} />
               </div>
             </div>
 
-            {/* Siklus billing */}
             <div className="space-y-1.5">
               <Label>Siklus Tagihan</Label>
               <Select
@@ -635,7 +719,6 @@ function DetailPanel({
               </Select>
             </div>
 
-            {/* Catatan */}
             <div className="space-y-1.5">
               <Label>Catatan Internal</Label>
               <Textarea
@@ -674,36 +757,95 @@ function DetailPanel({
 export default function DrafPerjanjian() {
   const { toast } = useToast();
   const qc = useQueryClient();
+  const [, setLocation] = useLocation();
+  const rawSearch = useSearch();
 
-  const [statusFilter, setStatusFilter] = useState<string>("all");
-  const [searchQ, setSearchQ] = useState("");
+  // ── URL state helpers ───────────────────────────────────────────────────────
+  const params = new URLSearchParams(rawSearch);
+  const page     = Math.max(1, parseInt(params.get("page") ?? "1", 10) || 1);
+  const limit    = Math.min(100, Math.max(1, parseInt(params.get("limit") ?? "20", 10) || 20));
+  const status   = params.get("status")   ?? "all";
+  const source   = params.get("source")   ?? "all";
+  const search   = params.get("search")   ?? "";
+  const dateFrom = params.get("dateFrom") ?? "";
+  const dateTo   = params.get("dateTo")   ?? "";
+  const sortBy   = params.get("sortBy")   ?? "created_at";
+  const sortDir  = params.get("sortDir")  ?? "desc";
+
+  const setParams = useCallback((updates: Record<string, string | null>) => {
+    const np = new URLSearchParams(rawSearch);
+    for (const [k, v] of Object.entries(updates)) {
+      if (v === null || v === "") np.delete(k);
+      else np.set(k, v);
+    }
+    // reset to page 1 on any filter change (unless explicitly setting page)
+    if (!("page" in updates)) np.set("page", "1");
+    const qs = np.toString();
+    setLocation(`/draf-perjanjian${qs ? "?" + qs : ""}`);
+  }, [rawSearch, setLocation]);
+
+  const resetFilters = useCallback(() => {
+    setLocation("/draf-perjanjian");
+  }, [setLocation]);
+
+  // ── Local state ─────────────────────────────────────────────────────────────
+  const [searchInput, setSearchInput] = useState(search);
   const [showCreate, setShowCreate] = useState(false);
   const [showBulkReminder, setShowBulkReminder] = useState(false);
   const [form, setForm] = useState<CreateForm>(BLANK_FORM);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [deleteId, setDeleteId] = useState<number | null>(null);
+  const [editDraft, setEditDraft] = useState<DraftAgreement | null>(null);
+  const [editForm, setEditForm] = useState<CreateForm>(BLANK_FORM);
 
-  // ── Data ──────────────────────────────────────────────────────────────────
-  const { data: drafts = [], isLoading, refetch } = useQuery<DraftAgreement[]>({
-    queryKey: ["draft-agreements", statusFilter],
-    queryFn: () => {
-      const qs = statusFilter !== "all" ? `?status=${statusFilter}` : "";
-      return apiFetchJson<DraftAgreement[]>(`/api/draft-agreements${qs}`);
-    },
+  // ── Build API query string ─────────────────────────────────────────────────
+  const apiQs = new URLSearchParams();
+  apiQs.set("page", String(page));
+  apiQs.set("limit", String(limit));
+  if (status !== "all") apiQs.set("status", status);
+  if (source !== "all") apiQs.set("source", source);
+  if (search) apiQs.set("search", search);
+  if (dateFrom) apiQs.set("dateFrom", dateFrom);
+  if (dateTo) apiQs.set("dateTo", dateTo);
+  apiQs.set("sortBy", sortBy);
+  apiQs.set("sortDir", sortDir);
+
+  // ── Query: paginated list ──────────────────────────────────────────────────
+  const {
+    data: pageData,
+    isLoading,
+    isFetching,
+    refetch,
+  } = useQuery<PaginatedResponse>({
+    queryKey: ["draft-agreements", page, limit, status, source, search, dateFrom, dateTo, sortBy, sortDir],
+    queryFn: () => apiFetchJson<PaginatedResponse>(`/api/draft-agreements?${apiQs.toString()}`),
+    placeholderData: (prev) => prev,
   });
 
+  const drafts = pageData?.data ?? [];
+  const pagination = pageData?.pagination ?? { page: 1, limit: 20, total: 0, totalPages: 1, hasNext: false, hasPrev: false };
   const selected = drafts.find((d) => d.id === selectedId) ?? null;
 
-  const filtered = drafts.filter((d) => {
-    if (!searchQ) return true;
-    const q = searchQ.toLowerCase();
-    return (
-      d.tenantName.toLowerCase().includes(q) ||
-      d.brandName.toLowerCase().includes(q) ||
-      d.businessType.toLowerCase().includes(q) ||
-      d.phone.includes(q)
-    );
+  // ── Query: summary (aggregate) ────────────────────────────────────────────
+  const { data: summary } = useQuery<SummaryResponse>({
+    queryKey: ["draft-agreements-summary"],
+    queryFn: () => apiFetchJson<SummaryResponse>("/api/draft-agreements/summary"),
+    staleTime: 30_000,
   });
+
+  // ── Active filter count ───────────────────────────────────────────────────
+  const activeFilterCount = [
+    status !== "all",
+    source !== "all",
+    search !== "",
+    dateFrom !== "",
+    dateTo !== "",
+  ].filter(Boolean).length;
+
+  // ── Sort handler ──────────────────────────────────────────────────────────
+  function handleSort(col: string, dir: string) {
+    setParams({ sortBy: col, sortDir: dir });
+  }
 
   // ── Helper: konversi form ke body API ─────────────────────────────────────
   function formToBody(f: CreateForm) {
@@ -731,14 +873,18 @@ export default function DrafPerjanjian() {
     };
   }
 
-  // ── Mutasi create ──────────────────────────────────────────────────────────
+  // ── Mutations ─────────────────────────────────────────────────────────────
+  const invalidate = useCallback(() => {
+    qc.invalidateQueries({ queryKey: ["draft-agreements"] });
+    qc.invalidateQueries({ queryKey: ["draft-agreements-summary"] });
+  }, [qc]);
+
   const createMutation = useMutation({
     mutationFn: async (f: CreateForm) => {
-      const body = formToBody(f);
       const res = await apiFetch("/api/draft-agreements", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
+        body: JSON.stringify(formToBody(f)),
       });
       if (!res.ok) {
         const text = await res.text().catch(() => "");
@@ -747,12 +893,11 @@ export default function DrafPerjanjian() {
       return res.json() as Promise<DraftAgreement>;
     },
     onSuccess: (created) => {
-      qc.invalidateQueries({ queryKey: ["draft-agreements"] });
+      invalidate();
       setShowCreate(false);
       setForm(BLANK_FORM);
       setSelectedId(created.id);
       toast({ title: "Draf berhasil dibuat!", description: `Link telah dibuat untuk ${created.brandName}` });
-      // salin link otomatis
       navigator.clipboard.writeText(created.publicUrl).catch(() => {});
     },
     onError: (err: Error) => {
@@ -760,11 +905,10 @@ export default function DrafPerjanjian() {
     },
   });
 
-  // ── Mutasi delete ──────────────────────────────────────────────────────────
   const deleteMutation = useMutation({
     mutationFn: (id: number) => apiFetchJson(`/api/draft-agreements/${id}`, { method: "DELETE" }),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["draft-agreements"] });
+      invalidate();
       setSelectedId(null);
       setDeleteId(null);
       toast({ title: "Draf berhasil dihapus" });
@@ -774,9 +918,75 @@ export default function DrafPerjanjian() {
     },
   });
 
-  // ── State edit ────────────────────────────────────────────────────────────
-  const [editDraft, setEditDraft] = useState<DraftAgreement | null>(null);
-  const [editForm, setEditForm] = useState<CreateForm>(BLANK_FORM);
+  const editMutation = useMutation({
+    mutationFn: async ({ id, f }: { id: number; f: CreateForm }) => {
+      const res = await apiFetch(`/api/draft-agreements/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(formToBody(f)),
+      });
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        throw new Error(text || `Error ${res.status}`);
+      }
+      return res.json() as Promise<DraftAgreement>;
+    },
+    onSuccess: (updated) => {
+      invalidate();
+      setEditDraft(null);
+      setSelectedId(updated.id);
+      toast({ title: "Draf berhasil diperbarui!" });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Gagal memperbarui", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const remindMutation = useMutation({
+    mutationFn: (id: number) => apiFetchJson(`/api/draft-agreements/${id}/remind`, { method: "POST" }),
+    onSuccess: () => {
+      toast({ title: "Pengingat terkirim!", description: "Link dokumen telah dikirim via WhatsApp" });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Gagal mengirim", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const bulkReminderMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiFetch("/api/calon-tenant/bulk-reminder", { method: "POST" });
+      const body = await res.json();
+      if (!res.ok) throw new Error((body as { error?: string }).error ?? `Error ${res.status}`);
+      return body as { success: boolean; total: number; sent: number; failed: number; results: unknown[] };
+    },
+    onSuccess: (data) => {
+      setShowBulkReminder(false);
+      invalidate();
+      qc.invalidateQueries({ queryKey: ["calon-tenant-pending-count"] });
+      if (data.total === 0) {
+        toast({ title: "Tidak ada penerima", description: "Tidak ada calon tenant pending dari pendaftaran mandiri." });
+      } else if (data.failed === 0) {
+        toast({ title: `Reminder terkirim ke ${data.sent} calon tenant`, description: "Semua notifikasi WhatsApp berhasil dikirim." });
+      } else {
+        toast({
+          title: `Reminder dikirim: ${data.sent} berhasil, ${data.failed} gagal`,
+          description: `dari total ${data.total} calon tenant pending.`,
+          variant: data.sent === 0 ? "destructive" : "default",
+        });
+      }
+    },
+    onError: (err: Error) => {
+      toast({ title: "Gagal kirim bulk reminder", description: err.message, variant: "destructive" });
+    },
+  });
+
+  function setField(key: keyof CreateForm, value: string) {
+    setForm((f) => ({ ...f, [key]: value }));
+  }
+
+  function setEditField(key: keyof CreateForm, value: string) {
+    setEditForm((f) => ({ ...f, [key]: value }));
+  }
 
   function handleOpenEdit(d: DraftAgreement) {
     setEditDraft(d);
@@ -804,91 +1014,8 @@ export default function DrafPerjanjian() {
     });
   }
 
-  // ── Mutasi edit (PATCH) ────────────────────────────────────────────────────
-  const editMutation = useMutation({
-    mutationFn: async ({ id, f }: { id: number; f: CreateForm }) => {
-      const body = formToBody(f);
-      const res = await apiFetch(`/api/draft-agreements/${id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      if (!res.ok) {
-        const text = await res.text().catch(() => "");
-        throw new Error(text || `Error ${res.status}`);
-      }
-      return res.json() as Promise<DraftAgreement>;
-    },
-    onSuccess: (updated) => {
-      qc.invalidateQueries({ queryKey: ["draft-agreements"] });
-      setEditDraft(null);
-      setSelectedId(updated.id);
-      toast({ title: "Draf berhasil diperbarui!" });
-    },
-    onError: (err: Error) => {
-      toast({ title: "Gagal memperbarui", description: err.message, variant: "destructive" });
-    },
-  });
-
-  function setEditField(key: keyof CreateForm, value: string) {
-    setEditForm((f) => ({ ...f, [key]: value }));
-  }
-
-  // ── Mutasi remind ──────────────────────────────────────────────────────────
-  const remindMutation = useMutation({
-    mutationFn: (id: number) => apiFetchJson(`/api/draft-agreements/${id}/remind`, { method: "POST" }),
-    onSuccess: () => {
-      toast({ title: "Pengingat terkirim!", description: "Link dokumen telah dikirim via WhatsApp" });
-    },
-    onError: (err: Error) => {
-      toast({ title: "Gagal mengirim", description: err.message, variant: "destructive" });
-    },
-  });
-
-  // ── Mutasi bulk reminder ───────────────────────────────────────────────────
-  const bulkReminderMutation = useMutation({
-    mutationFn: async () => {
-      const res = await apiFetch("/api/calon-tenant/bulk-reminder", { method: "POST" });
-      const body = await res.json();
-      if (!res.ok) throw new Error((body as { error?: string }).error ?? `Error ${res.status}`);
-      return body as { success: boolean; total: number; sent: number; failed: number; results: unknown[] };
-    },
-    onSuccess: (data) => {
-      setShowBulkReminder(false);
-      qc.invalidateQueries({ queryKey: ["draft-agreements"] });
-      qc.invalidateQueries({ queryKey: ["calon-tenant-pending-count"] });
-      if (data.total === 0) {
-        toast({ title: "Tidak ada penerima", description: "Tidak ada calon tenant pending dari pendaftaran mandiri." });
-      } else if (data.failed === 0) {
-        toast({
-          title: `Reminder terkirim ke ${data.sent} calon tenant`,
-          description: "Semua notifikasi WhatsApp berhasil dikirim.",
-        });
-      } else {
-        toast({
-          title: `Reminder dikirim: ${data.sent} berhasil, ${data.failed} gagal`,
-          description: `dari total ${data.total} calon tenant pending.`,
-          variant: data.sent === 0 ? "destructive" : "default",
-        });
-      }
-    },
-    onError: (err: Error) => {
-      toast({ title: "Gagal kirim bulk reminder", description: err.message, variant: "destructive" });
-    },
-  });
-
-  function setField(key: keyof CreateForm, value: string) {
-    setForm((f) => ({ ...f, [key]: value }));
-  }
-
-  // ── Statistik ──────────────────────────────────────────────────────────────
-  const stats = {
-    total: drafts.length,
-    pending: drafts.filter((d) => d.status === "pending").length,
-    approved: drafts.filter((d) => d.status === "approved").length,
-    rejected: drafts.filter((d) => d.status === "rejected").length,
-    selfRegister: drafts.filter((d) => d.source === "self_register").length,
-  };
+  // ── Render ──────────────────────────────────────────────────────────────────
+  const pendingCount = summary?.pending ?? 0;
 
   return (
     <div className="p-4 md:p-6 space-y-5 max-w-7xl mx-auto">
@@ -908,16 +1035,15 @@ export default function DrafPerjanjian() {
             variant="outline"
             className="gap-2"
             onClick={() => setShowBulkReminder(true)}
-            disabled={stats.pending === 0 || bulkReminderMutation.isPending}
-            title={stats.pending === 0 ? "Tidak ada calon tenant pending" : `Kirim reminder ke ${stats.pending} calon tenant pending`}
+            disabled={pendingCount === 0 || bulkReminderMutation.isPending}
           >
             {bulkReminderMutation.isPending
               ? <RefreshCw className="h-4 w-4 animate-spin" />
               : <BellRing className="h-4 w-4" />}
             Kirim Reminder WA
-            {stats.pending > 0 && (
+            {pendingCount > 0 && (
               <span className="ml-0.5 bg-amber-100 text-amber-700 border border-amber-200 text-xs font-semibold px-1.5 py-0.5 rounded-full leading-none">
-                {stats.pending}
+                {pendingCount}
               </span>
             )}
           </Button>
@@ -928,14 +1054,16 @@ export default function DrafPerjanjian() {
         </div>
       </div>
 
-      {/* Statistik */}
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+      {/* Summary Cards */}
+      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3">
         {[
-          { label: "Total", value: stats.total, color: "text-slate-700 bg-slate-50 border-slate-200" },
-          { label: "Menunggu", value: stats.pending, color: "text-amber-700 bg-amber-50 border-amber-200" },
-          { label: "Disetujui", value: stats.approved, color: "text-emerald-700 bg-emerald-50 border-emerald-200" },
-          { label: "Tidak Disetujui", value: stats.rejected, color: "text-red-700 bg-red-50 border-red-200" },
-          { label: "🌐 Daftar Mandiri", value: stats.selfRegister, color: "text-blue-700 bg-blue-50 border-blue-200" },
+          { label: "Total", value: summary?.total ?? 0,        color: "text-slate-700 bg-slate-50 border-slate-200" },
+          { label: "Menunggu",  value: summary?.pending ?? 0,    color: "text-amber-700 bg-amber-50 border-amber-200" },
+          { label: "Disetujui", value: summary?.approved ?? 0,   color: "text-emerald-700 bg-emerald-50 border-emerald-200" },
+          { label: "Ditolak",   value: summary?.rejected ?? 0,   color: "text-red-700 bg-red-50 border-red-200" },
+          { label: "Hari Ini",  value: summary?.today ?? 0,      color: "text-sky-700 bg-sky-50 border-sky-200" },
+          { label: "Bulan Ini", value: summary?.thisMonth ?? 0,  color: "text-indigo-700 bg-indigo-50 border-indigo-200" },
+          { label: "🌐 Mandiri",value: summary?.selfRegister ?? 0,color: "text-blue-700 bg-blue-50 border-blue-200" },
         ].map((s) => (
           <div key={s.label} className={`rounded-lg border p-3 ${s.color}`}>
             <p className="text-2xl font-bold">{s.value}</p>
@@ -979,26 +1107,129 @@ export default function DrafPerjanjian() {
         );
       })()}
 
-      {/* Filter & search */}
-      <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center">
-        <Tabs value={statusFilter} onValueChange={setStatusFilter} className="w-auto">
-          <TabsList className="h-8">
-            <TabsTrigger value="all" className="text-xs h-6 px-2.5">Semua</TabsTrigger>
-            <TabsTrigger value="pending" className="text-xs h-6 px-2.5">Menunggu</TabsTrigger>
-            <TabsTrigger value="approved" className="text-xs h-6 px-2.5">Disetujui</TabsTrigger>
-            <TabsTrigger value="rejected" className="text-xs h-6 px-2.5">Ditolak</TabsTrigger>
-          </TabsList>
-        </Tabs>
-        <div className="flex gap-2 flex-1">
-          <Input
-            placeholder="Cari nama, brand, telepon..."
-            value={searchQ}
-            onChange={(e) => setSearchQ(e.target.value)}
-            className="max-w-xs h-8 text-sm"
-          />
-          <Button variant="ghost" size="sm" className="h-8 px-2" onClick={() => refetch()}>
-            <RefreshCw className="h-3.5 w-3.5" />
-          </Button>
+      {/* Filter Bar */}
+      <div className="rounded-lg border bg-card p-3 space-y-3">
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-1.5 text-sm font-medium">
+            <Search className="h-4 w-4 text-muted-foreground" />
+            Filter & Pencarian
+            {activeFilterCount > 0 && (
+              <Badge variant="secondary" className="text-xs h-5 px-1.5">{activeFilterCount} aktif</Badge>
+            )}
+          </div>
+          <div className="flex gap-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 gap-1 text-xs"
+              onClick={() => refetch()}
+              disabled={isFetching}
+            >
+              <RefreshCw className={`h-3.5 w-3.5 ${isFetching ? "animate-spin" : ""}`} />
+              Refresh
+            </Button>
+            {activeFilterCount > 0 && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-7 gap-1 text-xs text-destructive border-destructive/30 hover:bg-destructive/5"
+                onClick={() => {
+                  setSearchInput("");
+                  resetFilters();
+                }}
+              >
+                <X className="h-3.5 w-3.5" />
+                Reset Filter
+              </Button>
+            )}
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2">
+          {/* Status */}
+          <div className="space-y-1 col-span-2 md:col-span-1">
+            <p className="text-xs text-muted-foreground font-medium">Status</p>
+            <Select value={status} onValueChange={(v) => setParams({ status: v === "all" ? null : v })}>
+              <SelectTrigger className="h-8 text-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all" className="text-xs">Semua Status</SelectItem>
+                <SelectItem value="pending" className="text-xs">⏳ Menunggu</SelectItem>
+                <SelectItem value="approved" className="text-xs">✅ Disetujui</SelectItem>
+                <SelectItem value="rejected" className="text-xs">❌ Ditolak</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* Source */}
+          <div className="space-y-1">
+            <p className="text-xs text-muted-foreground font-medium">Sumber</p>
+            <Select value={source} onValueChange={(v) => setParams({ source: v === "all" ? null : v })}>
+              <SelectTrigger className="h-8 text-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all" className="text-xs">Semua Sumber</SelectItem>
+                <SelectItem value="admin" className="text-xs">👤 Admin</SelectItem>
+                <SelectItem value="self_register" className="text-xs">🌐 Daftar Mandiri</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* Date From */}
+          <div className="space-y-1">
+            <p className="text-xs text-muted-foreground font-medium flex items-center gap-1">
+              <CalendarRange className="h-3 w-3" />Dari Tanggal
+            </p>
+            <Input
+              type="date"
+              value={dateFrom}
+              onChange={(e) => setParams({ dateFrom: e.target.value || null })}
+              className="h-8 text-xs"
+            />
+          </div>
+
+          {/* Date To */}
+          <div className="space-y-1">
+            <p className="text-xs text-muted-foreground font-medium flex items-center gap-1">
+              <CalendarRange className="h-3 w-3" />Sampai Tanggal
+            </p>
+            <Input
+              type="date"
+              value={dateTo}
+              onChange={(e) => setParams({ dateTo: e.target.value || null })}
+              className="h-8 text-xs"
+            />
+          </div>
+
+          {/* Search */}
+          <div className="space-y-1 col-span-2">
+            <p className="text-xs text-muted-foreground font-medium">Cari</p>
+            <div className="relative">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+              <Input
+                placeholder="Nama, brand, email, telepon..."
+                value={searchInput}
+                onChange={(e) => setSearchInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") setParams({ search: searchInput || null });
+                }}
+                onBlur={() => {
+                  if (searchInput !== search) setParams({ search: searchInput || null });
+                }}
+                className="pl-8 h-8 text-xs"
+              />
+              {searchInput && (
+                <button
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  onClick={() => { setSearchInput(""); setParams({ search: null }); }}
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              )}
+            </div>
+          </div>
         </div>
       </div>
 
@@ -1010,11 +1241,17 @@ export default function DrafPerjanjian() {
             <TableHeader>
               <TableRow className="bg-muted/40">
                 <TableHead className="text-xs">Jenis</TableHead>
-                <TableHead className="text-xs">Calon Tenant</TableHead>
+                <TableHead className="text-xs">
+                  <SortHeader label="Calon Tenant" colKey="brand_name" currentSort={sortBy} currentDir={sortDir} onSort={handleSort} />
+                </TableHead>
                 <TableHead className="text-xs">Unit / Lokasi</TableHead>
                 <TableHead className="text-xs">Sewa/Bulan</TableHead>
-                <TableHead className="text-xs">Status</TableHead>
-                <TableHead className="text-xs">Dibuat</TableHead>
+                <TableHead className="text-xs">
+                  <SortHeader label="Status" colKey="status" currentSort={sortBy} currentDir={sortDir} onSort={handleSort} />
+                </TableHead>
+                <TableHead className="text-xs">
+                  <SortHeader label="Dibuat" colKey="created_at" currentSort={sortBy} currentDir={sortDir} onSort={handleSort} />
+                </TableHead>
                 <TableHead className="w-8"></TableHead>
               </TableRow>
             </TableHeader>
@@ -1026,18 +1263,18 @@ export default function DrafPerjanjian() {
                     Memuat data...
                   </TableCell>
                 </TableRow>
-              ) : filtered.length === 0 ? (
+              ) : drafts.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={7} className="text-center text-muted-foreground py-12">
                     <FileText className="h-8 w-8 mx-auto mb-2 opacity-30" />
-                    Belum ada draf perjanjian
+                    {activeFilterCount > 0 ? "Tidak ada data sesuai filter" : "Belum ada draf perjanjian"}
                   </TableCell>
                 </TableRow>
               ) : (
-                filtered.map((d) => (
+                drafts.map((d) => (
                   <TableRow
                     key={d.id}
-                    className={`cursor-pointer hover:bg-muted/30 ${selectedId === d.id ? "bg-primary/5" : ""}`}
+                    className={`cursor-pointer hover:bg-muted/30 ${selectedId === d.id ? "bg-primary/5" : ""} ${isFetching ? "opacity-70" : ""}`}
                     onClick={() => setSelectedId(selectedId === d.id ? null : d.id)}
                   >
                     <TableCell className="py-2.5"><DocTypeBadge type={d.docType} /></TableCell>
@@ -1080,9 +1317,7 @@ export default function DrafPerjanjian() {
                             <DropdownMenuSeparator />
                             <DropdownMenuItem
                               className="gap-2 text-emerald-700 focus:text-emerald-700"
-                              onClick={() => {
-                                setSelectedId(d.id);
-                              }}
+                              onClick={() => setSelectedId(d.id)}
                             >
                               <ThumbsUp className="h-3.5 w-3.5" />Setujui / Tolak...
                             </DropdownMenuItem>
@@ -1099,6 +1334,20 @@ export default function DrafPerjanjian() {
               )}
             </TableBody>
           </Table>
+
+          {/* Pagination */}
+          {pagination.total > 0 && (
+            <div className="border-t px-2">
+              <PaginationBar
+                page={pagination.page}
+                totalPages={pagination.totalPages}
+                total={pagination.total}
+                limit={pagination.limit}
+                onPage={(p) => setParams({ page: String(p) })}
+                onLimit={(l) => setParams({ limit: String(l), page: "1" })}
+              />
+            </div>
+          )}
         </div>
 
         {/* Panel detail */}
@@ -1111,11 +1360,11 @@ export default function DrafPerjanjian() {
               onRemind={(id) => remindMutation.mutate(id)}
               onEdit={handleOpenEdit}
               onBookingCreated={() => {
-                qc.invalidateQueries({ queryKey: ["draft-agreements"] });
+                invalidate();
                 refetch();
               }}
               onStatusChanged={() => {
-                qc.invalidateQueries({ queryKey: ["draft-agreements"] });
+                invalidate();
                 qc.invalidateQueries({ queryKey: ["calon-tenant-pending-count"] });
               }}
             />
@@ -1133,9 +1382,9 @@ export default function DrafPerjanjian() {
             <DialogDescription>
               Sistem akan mengirimkan pesan WhatsApp pengingat ke semua calon tenant yang pendaftarannya masih
               <span className="font-semibold text-amber-700"> menunggu proses</span>.
-              {stats.pending > 0 && (
+              {pendingCount > 0 && (
                 <span className="block mt-1 text-slate-600">
-                  Estimasi penerima: <strong>{stats.pending}</strong> calon tenant.
+                  Estimasi penerima: <strong>{pendingCount}</strong> calon tenant.
                 </span>
               )}
             </DialogDescription>
@@ -1149,11 +1398,7 @@ export default function DrafPerjanjian() {
             </ul>
           </div>
           <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setShowBulkReminder(false)}
-              disabled={bulkReminderMutation.isPending}
-            >
+            <Button variant="outline" onClick={() => setShowBulkReminder(false)} disabled={bulkReminderMutation.isPending}>
               Batal
             </Button>
             <Button
@@ -1182,13 +1427,10 @@ export default function DrafPerjanjian() {
           </DialogHeader>
 
           <div className="space-y-5 py-2">
-            {/* Jenis dokumen */}
             <div className="space-y-1.5">
               <Label>Jenis Dokumen <span className="text-destructive">*</span></Label>
               <Select value={form.docType} onValueChange={(v) => setField("docType", v as CreateForm["docType"])}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
+                <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="surat_minat">📄 Surat Minat Menyewa Tenant</SelectItem>
                   <SelectItem value="perjanjian_sewa">📋 Draf Perjanjian Sewa Tenant</SelectItem>
@@ -1196,7 +1438,6 @@ export default function DrafPerjanjian() {
               </Select>
             </div>
 
-            {/* Data calon tenant */}
             <div className="space-y-3">
               <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide border-b pb-1">Data Calon Tenant</h3>
               <div className="grid grid-cols-2 gap-3">
@@ -1231,9 +1472,8 @@ export default function DrafPerjanjian() {
               </div>
             </div>
 
-            {/* Unit & periode */}
             <div className="space-y-3">
-              <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide border-b pb-1">Unit & Periode Sewa</h3>
+              <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide border-b pb-1">Unit &amp; Periode Sewa</h3>
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1.5">
                   <Label>Kode Unit</Label>
@@ -1262,7 +1502,6 @@ export default function DrafPerjanjian() {
               </div>
             </div>
 
-            {/* Finansial */}
             <div className="space-y-3">
               <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide border-b pb-1">Keuangan</h3>
               <div className="grid grid-cols-2 gap-3">
@@ -1281,13 +1520,11 @@ export default function DrafPerjanjian() {
               </div>
             </div>
 
-            {/* Catatan */}
             <div className="space-y-1.5">
               <Label>Catatan Tambahan</Label>
               <Textarea rows={2} placeholder="Catatan atau syarat khusus (opsional)" value={form.notes} onChange={(e) => setField("notes", e.target.value)} />
             </div>
 
-            {/* Masa berlaku link */}
             <div className="space-y-1.5">
               <Label>Masa Berlaku Link (hari)</Label>
               <Input type="number" placeholder="30" value={form.expiresInDays} onChange={(e) => setField("expiresInDays", e.target.value)} className="max-w-xs" />
@@ -1303,7 +1540,7 @@ export default function DrafPerjanjian() {
               className="gap-2"
             >
               {createMutation.isPending ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <FilePlus className="h-3.5 w-3.5" />}
-              Buat & Salin Link
+              Buat &amp; Salin Link
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1340,7 +1577,6 @@ export default function DrafPerjanjian() {
           </DialogHeader>
 
           <div className="space-y-5 py-2">
-            {/* Jenis dokumen */}
             <div className="space-y-1.5">
               <Label>Jenis Dokumen</Label>
               <Select value={editForm.docType} onValueChange={(v) => setEditField("docType", v as CreateForm["docType"])}>
@@ -1352,7 +1588,6 @@ export default function DrafPerjanjian() {
               </Select>
             </div>
 
-            {/* Data calon tenant */}
             <div className="space-y-3">
               <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide border-b pb-1">Data Calon Tenant</h3>
               <div className="grid grid-cols-2 gap-3">
@@ -1387,9 +1622,8 @@ export default function DrafPerjanjian() {
               </div>
             </div>
 
-            {/* Unit & periode */}
             <div className="space-y-3">
-              <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide border-b pb-1">Unit & Periode Sewa</h3>
+              <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide border-b pb-1">Unit &amp; Periode Sewa</h3>
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1.5 col-span-2">
                   <Label>Unit / Lokasi yang Diminati</Label>
@@ -1422,7 +1656,6 @@ export default function DrafPerjanjian() {
               </div>
             </div>
 
-            {/* Finansial */}
             <div className="space-y-3">
               <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide border-b pb-1">Keuangan</h3>
               <div className="grid grid-cols-2 gap-3">
@@ -1441,7 +1674,6 @@ export default function DrafPerjanjian() {
               </div>
             </div>
 
-            {/* Catatan */}
             <div className="space-y-1.5">
               <Label>Catatan Tambahan</Label>
               <Textarea rows={2} value={editForm.notes} onChange={(e) => setEditField("notes", e.target.value)} />
@@ -1449,7 +1681,7 @@ export default function DrafPerjanjian() {
           </div>
 
           <DialogFooter>
-            <Button variant="outline" onClick={() => setEditDraft(null)}>Batal</Button>
+            <Button variant="outline" onClick={() => setEditDraft(null)} disabled={editMutation.isPending}>Batal</Button>
             <Button
               onClick={() => editDraft && editMutation.mutate({ id: editDraft.id, f: editForm })}
               disabled={editMutation.isPending || !editForm.tenantName || !editForm.brandName || !editForm.businessType || !editForm.phone}
