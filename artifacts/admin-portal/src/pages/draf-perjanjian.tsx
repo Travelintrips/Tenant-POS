@@ -68,6 +68,7 @@ import {
   BookmarkCheck,
   ThumbsUp,
   ThumbsDown,
+  BellRing,
 } from "lucide-react";
 
 // ── Tipe data ──────────────────────────────────────────────────────────────────
@@ -677,6 +678,7 @@ export default function DrafPerjanjian() {
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [searchQ, setSearchQ] = useState("");
   const [showCreate, setShowCreate] = useState(false);
+  const [showBulkReminder, setShowBulkReminder] = useState(false);
   const [form, setForm] = useState<CreateForm>(BLANK_FORM);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [deleteId, setDeleteId] = useState<number | null>(null);
@@ -843,6 +845,38 @@ export default function DrafPerjanjian() {
     },
   });
 
+  // ── Mutasi bulk reminder ───────────────────────────────────────────────────
+  const bulkReminderMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiFetch("/api/calon-tenant/bulk-reminder", { method: "POST" });
+      const body = await res.json();
+      if (!res.ok) throw new Error((body as { error?: string }).error ?? `Error ${res.status}`);
+      return body as { success: boolean; total: number; sent: number; failed: number; results: unknown[] };
+    },
+    onSuccess: (data) => {
+      setShowBulkReminder(false);
+      qc.invalidateQueries({ queryKey: ["draft-agreements"] });
+      qc.invalidateQueries({ queryKey: ["calon-tenant-pending-count"] });
+      if (data.total === 0) {
+        toast({ title: "Tidak ada penerima", description: "Tidak ada calon tenant pending dari pendaftaran mandiri." });
+      } else if (data.failed === 0) {
+        toast({
+          title: `Reminder terkirim ke ${data.sent} calon tenant`,
+          description: "Semua notifikasi WhatsApp berhasil dikirim.",
+        });
+      } else {
+        toast({
+          title: `Reminder dikirim: ${data.sent} berhasil, ${data.failed} gagal`,
+          description: `dari total ${data.total} calon tenant pending.`,
+          variant: data.sent === 0 ? "destructive" : "default",
+        });
+      }
+    },
+    onError: (err: Error) => {
+      toast({ title: "Gagal kirim bulk reminder", description: err.message, variant: "destructive" });
+    },
+  });
+
   function setField(key: keyof CreateForm, value: string) {
     setForm((f) => ({ ...f, [key]: value }));
   }
@@ -869,10 +903,29 @@ export default function DrafPerjanjian() {
             Buat dan kirim Surat Minat atau Perjanjian Sewa kepada calon tenant untuk ditandatangani secara online.
           </p>
         </div>
-        <Button className="gap-2 shrink-0" onClick={() => setShowCreate(true)}>
-          <FilePlus className="h-4 w-4" />
-          Buat Draf Baru
-        </Button>
+        <div className="flex gap-2 shrink-0">
+          <Button
+            variant="outline"
+            className="gap-2"
+            onClick={() => setShowBulkReminder(true)}
+            disabled={stats.pending === 0 || bulkReminderMutation.isPending}
+            title={stats.pending === 0 ? "Tidak ada calon tenant pending" : `Kirim reminder ke ${stats.pending} calon tenant pending`}
+          >
+            {bulkReminderMutation.isPending
+              ? <RefreshCw className="h-4 w-4 animate-spin" />
+              : <BellRing className="h-4 w-4" />}
+            Kirim Reminder WA
+            {stats.pending > 0 && (
+              <span className="ml-0.5 bg-amber-100 text-amber-700 border border-amber-200 text-xs font-semibold px-1.5 py-0.5 rounded-full leading-none">
+                {stats.pending}
+              </span>
+            )}
+          </Button>
+          <Button className="gap-2" onClick={() => setShowCreate(true)}>
+            <FilePlus className="h-4 w-4" />
+            Buat Draf Baru
+          </Button>
+        </div>
       </div>
 
       {/* Statistik */}
@@ -1069,6 +1122,52 @@ export default function DrafPerjanjian() {
           </div>
         )}
       </div>
+
+      {/* Dialog: Konfirmasi Bulk Reminder WA */}
+      <Dialog open={showBulkReminder} onOpenChange={(open) => !bulkReminderMutation.isPending && setShowBulkReminder(open)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <BellRing className="h-4 w-4 text-amber-600" />Kirim Reminder WA
+            </DialogTitle>
+            <DialogDescription>
+              Sistem akan mengirimkan pesan WhatsApp pengingat ke semua calon tenant yang pendaftarannya masih
+              <span className="font-semibold text-amber-700"> menunggu proses</span>.
+              {stats.pending > 0 && (
+                <span className="block mt-1 text-slate-600">
+                  Estimasi penerima: <strong>{stats.pending}</strong> calon tenant.
+                </span>
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="rounded-lg bg-amber-50 border border-amber-200 p-3 text-xs text-amber-800 space-y-1">
+            <p className="font-semibold">Catatan:</p>
+            <ul className="list-disc pl-4 space-y-0.5">
+              <li>Hanya calon tenant dari <strong>pendaftaran mandiri</strong> yang dikirim</li>
+              <li>Pesan dikirim satu per satu (400ms delay) agar tidak dianggap spam</li>
+              <li>Jika satu nomor gagal, pengiriman ke nomor lain tetap berlanjut</li>
+            </ul>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setShowBulkReminder(false)}
+              disabled={bulkReminderMutation.isPending}
+            >
+              Batal
+            </Button>
+            <Button
+              className="gap-2 bg-amber-600 hover:bg-amber-700"
+              onClick={() => bulkReminderMutation.mutate()}
+              disabled={bulkReminderMutation.isPending}
+            >
+              {bulkReminderMutation.isPending
+                ? <><RefreshCw className="h-3.5 w-3.5 animate-spin" />Mengirim...</>
+                : <><BellRing className="h-3.5 w-3.5" />Ya, Kirim Reminder</>}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Dialog: Buat Draf Baru */}
       <Dialog open={showCreate} onOpenChange={setShowCreate}>

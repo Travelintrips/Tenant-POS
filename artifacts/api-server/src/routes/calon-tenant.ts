@@ -5,7 +5,7 @@ import { z } from "zod";
 import crypto from "crypto";
 import { registrationRateLimiter } from "../middlewares/rate-limit";
 import { requireAuth, requireAnyRole } from "../middlewares/auth";
-import { sendCalonTenantApproved, sendCalonTenantRejected } from "../lib/whatsapp";
+import { sendCalonTenantApproved, sendCalonTenantRejected, sendCalonTenantReminder } from "../lib/whatsapp";
 import { logAudit } from "../lib/audit";
 
 const router: IRouter = Router();
@@ -201,6 +201,86 @@ router.patch(
     } catch (err) {
       console.error("[calon-tenant] PATCH /:id/status error:", err);
       res.status(500).json({ error: "Terjadi kesalahan server saat memperbarui status" });
+    }
+  }
+);
+
+// ── POST /api/calon-tenant/bulk-reminder ──────────────────────────────────────
+// Admin/owner — kirim WA reminder ke semua calon tenant pending dari pendaftaran mandiri
+router.post(
+  "/calon-tenant/bulk-reminder",
+  requireAuth,
+  requireAnyRole("admin", "owner"),
+  async (req: Request, res: Response) => {
+    try {
+      // Ambil semua pending self-register dengan nomor HP valid
+      const result = await db.execute(sql`
+        SELECT id, brand_name, tenant_name, phone
+        FROM tenant_draft_agreements
+        WHERE status = 'pending'
+          AND source = 'self_register'
+          AND phone IS NOT NULL
+          AND phone != ''
+        ORDER BY created_at ASC
+      `);
+      const rows = (result as { rows: Record<string, unknown>[] }).rows;
+
+      if (rows.length === 0) {
+        logAudit(req, {
+          action: "calon_tenant_bulk_reminder",
+          entityType: "tenant_draft_agreement",
+          afterData: { total: 0, sent: 0, failed: 0 },
+        });
+        res.json({ success: true, total: 0, sent: 0, failed: 0, results: [] });
+        return;
+      }
+
+      const results: { id: number; brandName: string; phone: string; ok: boolean; error?: string }[] = [];
+      let sent = 0;
+      let failed = 0;
+
+      for (const row of rows) {
+        const id = row.id as number;
+        const phone = row.phone as string;
+        const brandName = (row.brand_name as string | null) ?? (row.tenant_name as string | null) ?? undefined;
+
+        try {
+          const waResult = await sendCalonTenantReminder(phone, brandName);
+          if (waResult.ok) {
+            sent++;
+            results.push({ id, brandName: brandName ?? phone, phone, ok: true });
+          } else {
+            failed++;
+            results.push({ id, brandName: brandName ?? phone, phone, ok: false, error: waResult.error });
+          }
+        } catch (err) {
+          failed++;
+          results.push({
+            id,
+            brandName: brandName ?? phone,
+            phone,
+            ok: false,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+
+        // Delay 400ms antar pesan agar tidak dianggap spam
+        if (rows.indexOf(row) < rows.length - 1) {
+          await new Promise((resolve) => setTimeout(resolve, 400));
+        }
+      }
+
+      // Audit log
+      logAudit(req, {
+        action: "calon_tenant_bulk_reminder",
+        entityType: "tenant_draft_agreement",
+        afterData: { total: rows.length, sent, failed },
+      });
+
+      res.json({ success: true, total: rows.length, sent, failed, results });
+    } catch (err) {
+      console.error("[calon-tenant] POST /bulk-reminder error:", err);
+      res.status(500).json({ error: "Terjadi kesalahan server saat mengirim bulk reminder" });
     }
   }
 );

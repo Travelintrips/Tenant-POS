@@ -561,6 +561,22 @@ export async function sendContractTerminated(params: ContractTerminatedParams): 
  * Kirim pengingat tagihan overdue ke tenant
  */
 /**
+ * Kirim reminder ke calon tenant yang pendaftarannya masih pending (bulk reminder)
+ */
+export async function sendCalonTenantReminder(phone: string, brandOrName?: string): Promise<WaResult> {
+  const nameLine = brandOrName ? `Halo *${brandOrName}*,` : "Halo,";
+  const message =
+    `🔔 *Pengingat Pendaftaran Tenant*\n` +
+    `━━━━━━━━━━━━━━━━━━━━━\n\n` +
+    `${nameLine}\n\n` +
+    `Pendaftaran tenant Anda saat ini masih *menunggu proses* dari tim kami.\n\n` +
+    `Mohon pastikan dokumen/perjanjian Anda telah dilengkapi. Jika membutuhkan bantuan atau ada pertanyaan, tim kami siap membantu.\n\n` +
+    `Terima kasih atas kesabaran Anda. 🙏\n` +
+    `_Manajemen CST_`;
+  return sendMessage(phone, message);
+}
+
+/**
  * Kirim notifikasi ke calon tenant saat pendaftaran disetujui admin
  */
 export async function sendCalonTenantApproved(phone: string, brandName?: string): Promise<WaResult> {
