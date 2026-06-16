@@ -8,7 +8,7 @@ const rawUrl = (
 ).trim();
 const rawUrl = isProduction
   ? (process.env["SUPABASE_PG_URL_PROD"] ?? process.env["SUPABASE_PG_URL"] ?? process.env["DATABASE_URL"] ?? (() => { throw new Error("SUPABASE_PG_URL_PROD harus diset di production"); })())
-  : (process.env["SUPABASE_PG_URL"] ?? process.env["DATABASE_URL"] ?? (() => { throw new Error("SUPABASE_PG_URL atau DATABASE_URL harus diset"); })());
+  : (process.env["DATABASE_URL"] ?? process.env["SUPABASE_PG_URL"] ?? (() => { throw new Error("DATABASE_URL atau SUPABASE_PG_URL harus diset"); })());
 
 const isSupabase = rawUrl.includes("supabase") || rawUrl.includes("pooler");
 
