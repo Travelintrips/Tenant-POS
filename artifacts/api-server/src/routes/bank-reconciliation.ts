@@ -727,7 +727,7 @@ router.get("/bank-reconciliation/cek-kesesuaian", async (req, res) => {
     LIMIT 500
   `);
 
-  const data = (rows as unknown as any[]).map((r: any) => ({
+  const data = ((rows as any).rows as any[]).map((r: any) => ({
     id: Number(r.id),
     transactionDate: r.transaction_date as string,
     description: r.description as string,
