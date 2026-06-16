@@ -3,6 +3,7 @@ import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
 import { z } from "zod";
 import crypto from "crypto";
+import { registrationRateLimiter } from "../middlewares/rate-limit";
 
 const router: IRouter = Router();
 
@@ -19,7 +20,8 @@ const registerSchema = z.object({
 
 // ── POST /api/calon-tenant/daftar ─────────────────────────────────────────────
 // Public — self-registration calon tenant baru
-router.post("/calon-tenant/daftar", async (req: Request, res: Response) => {
+// Rate limit: 5 request per IP per 10 menit (anti-spam)
+router.post("/calon-tenant/daftar", registrationRateLimiter, async (req: Request, res: Response) => {
   const parsed = registerSchema.safeParse(req.body);
   if (!parsed.success) {
     const msg = parsed.error.issues.map((i) => i.message).join("; ");
