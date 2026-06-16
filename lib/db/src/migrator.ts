@@ -1680,6 +1680,43 @@ ALTER TABLE tenant_draft_agreements ADD COLUMN IF NOT EXISTS interested_unit tex
     `.trim(),
   },
   {
+    name: "0041_bank_closing_periods",
+    sql: `
+CREATE TABLE IF NOT EXISTS bank_closing_periods (
+  id serial PRIMARY KEY NOT NULL,
+  year_month text NOT NULL UNIQUE,
+  locked_by text,
+  locked_by_role text,
+  notes text,
+  site_id integer REFERENCES mall_sites(id),
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS bank_recon_audit_logs (
+  id serial PRIMARY KEY NOT NULL,
+  mutation_id integer,
+  match_id integer,
+  finance_payment_event_id integer,
+  journal_id text,
+  action text NOT NULL,
+  action_app text,
+  action_user_id text,
+  action_role text,
+  owner_app text,
+  owner_company_id integer,
+  owner_tenant_id integer,
+  source_app text,
+  source_module text,
+  before_value jsonb,
+  after_value jsonb,
+  metadata jsonb,
+  ip_address text,
+  user_agent text,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+    `.trim(),
+  },
+  {
     name: "0040_finance_payment_events",
     sql: `
 CREATE TABLE IF NOT EXISTS finance_payment_events (
