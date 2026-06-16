@@ -66,6 +66,8 @@ import {
   RefreshCw,
   Link2,
   BookmarkCheck,
+  ThumbsUp,
+  ThumbsDown,
 } from "lucide-react";
 
 // ── Tipe data ──────────────────────────────────────────────────────────────────
@@ -186,6 +188,7 @@ function DetailPanel({
   onRemind,
   onEdit,
   onBookingCreated,
+  onStatusChanged,
 }: {
   draft: DraftAgreement;
   onClose: () => void;
@@ -193,10 +196,16 @@ function DetailPanel({
   onRemind: (id: number) => void;
   onEdit: (draft: DraftAgreement) => void;
   onBookingCreated: () => void;
+  onStatusChanged: () => void;
 }) {
   const { toast } = useToast();
   const [, setLocation] = useLocation();
   const [showBookingDialog, setShowBookingDialog] = useState(false);
+  const [confirmDialog, setConfirmDialog] = useState<{
+    open: boolean;
+    type: "approved" | "rejected" | null;
+    note: string;
+  }>({ open: false, type: null, note: "" });
   const [bookingForm, setBookingForm] = useState({
     startDate: draft.startDate ?? "",
     endDate: draft.endDate ?? "",
@@ -206,6 +215,33 @@ function DetailPanel({
     areaName: draft.areaName ?? "",
     billingCycle: "monthly" as "monthly" | "quarterly" | "yearly",
     notes: "",
+  });
+
+  const statusMutation = useMutation({
+    mutationFn: async ({ status, note }: { status: "approved" | "rejected"; note?: string }) => {
+      const res = await apiFetch(`/api/calon-tenant/${draft.id}/status`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status, note: note || undefined }),
+      });
+      const body = await res.json();
+      if (!res.ok) throw new Error((body as { error?: string }).error ?? `Error ${res.status}`);
+      return body as { success: boolean; status: string; waSent: boolean };
+    },
+    onSuccess: (result) => {
+      const isApproved = result.status === "approved";
+      toast({
+        title: isApproved ? "Calon tenant disetujui!" : "Calon tenant ditolak",
+        description: result.waSent
+          ? "Notifikasi WhatsApp telah dikirim ke calon tenant."
+          : "Status berhasil diperbarui.",
+      });
+      setConfirmDialog({ open: false, type: null, note: "" });
+      onStatusChanged();
+    },
+    onError: (err: Error) => {
+      toast({ title: "Gagal memperbarui status", description: err.message, variant: "destructive" });
+    },
   });
 
   const jadikanBookingMutation = useMutation({
@@ -380,6 +416,33 @@ function DetailPanel({
             </p>
           )}
 
+          {/* Aksi Approve / Reject — hanya untuk status pending */}
+          {draft.status === "pending" && (
+            <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 space-y-2">
+              <p className="text-xs font-semibold text-amber-800">Tindakan Admin</p>
+              <p className="text-xs text-amber-700">Setujui atau tolak pendaftaran calon tenant ini. Notifikasi WhatsApp akan dikirim otomatis.</p>
+              <div className="flex gap-2">
+                <Button
+                  size="sm"
+                  className="gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white flex-1"
+                  onClick={() => setConfirmDialog({ open: true, type: "approved", note: "" })}
+                  disabled={statusMutation.isPending}
+                >
+                  <ThumbsUp className="h-3.5 w-3.5" />Setujui
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="gap-1.5 border-red-300 text-red-700 hover:bg-red-50 flex-1"
+                  onClick={() => setConfirmDialog({ open: true, type: "rejected", note: "" })}
+                  disabled={statusMutation.isPending}
+                >
+                  <ThumbsDown className="h-3.5 w-3.5" />Tolak
+                </Button>
+              </div>
+            </div>
+          )}
+
           {/* Aksi */}
           <div className="flex flex-wrap justify-between gap-2 pt-2 border-t">
             <div className="flex gap-1.5">
@@ -411,6 +474,65 @@ function DetailPanel({
           </div>
         </CardContent>
       </Card>
+
+      {/* Dialog: Konfirmasi Approve / Reject */}
+      <Dialog
+        open={confirmDialog.open}
+        onOpenChange={(open) => !open && setConfirmDialog({ open: false, type: null, note: "" })}
+      >
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              {confirmDialog.type === "approved"
+                ? <><ThumbsUp className="h-4 w-4 text-emerald-600" />Setujui Calon Tenant?</>
+                : <><ThumbsDown className="h-4 w-4 text-red-600" />Tolak Calon Tenant?</>}
+            </DialogTitle>
+            <DialogDescription>
+              {confirmDialog.type === "approved"
+                ? <>Pendaftaran <strong>{draft.brandName}</strong> akan disetujui. Notifikasi WA akan dikirim ke calon tenant.</>
+                : <>Pendaftaran <strong>{draft.brandName}</strong> akan ditolak. Notifikasi WA akan dikirim ke calon tenant.</>}
+            </DialogDescription>
+          </DialogHeader>
+          {confirmDialog.type === "rejected" && (
+            <div className="space-y-1.5">
+              <Label>Alasan Penolakan (opsional)</Label>
+              <Textarea
+                rows={3}
+                placeholder="Tulis alasan penolakan untuk calon tenant..."
+                value={confirmDialog.note}
+                onChange={(e) => setConfirmDialog((s) => ({ ...s, note: e.target.value }))}
+              />
+            </div>
+          )}
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setConfirmDialog({ open: false, type: null, note: "" })}
+              disabled={statusMutation.isPending}
+            >
+              Batal
+            </Button>
+            <Button
+              className={confirmDialog.type === "approved"
+                ? "bg-emerald-600 hover:bg-emerald-700 gap-2"
+                : "bg-red-600 hover:bg-red-700 gap-2"}
+              onClick={() => {
+                if (confirmDialog.type) {
+                  statusMutation.mutate({ status: confirmDialog.type, note: confirmDialog.note || undefined });
+                }
+              }}
+              disabled={statusMutation.isPending}
+            >
+              {statusMutation.isPending
+                ? <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                : confirmDialog.type === "approved"
+                  ? <ThumbsUp className="h-3.5 w-3.5" />
+                  : <ThumbsDown className="h-3.5 w-3.5" />}
+              {confirmDialog.type === "approved" ? "Ya, Setujui" : "Ya, Tolak"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Dialog: Buat Tenant & Booking */}
       <Dialog open={showBookingDialog} onOpenChange={setShowBookingDialog}>
@@ -898,11 +1020,20 @@ export default function DrafPerjanjian() {
                           }}>
                             <Copy className="h-3.5 w-3.5" />Salin Link
                           </DropdownMenuItem>
-                          {d.status === "pending" && (
+                          {d.status === "pending" && (<>
                             <DropdownMenuItem className="gap-2" onClick={() => remindMutation.mutate(d.id)}>
                               <Send className="h-3.5 w-3.5" />Kirim WA
                             </DropdownMenuItem>
-                          )}
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem
+                              className="gap-2 text-emerald-700 focus:text-emerald-700"
+                              onClick={() => {
+                                setSelectedId(d.id);
+                              }}
+                            >
+                              <ThumbsUp className="h-3.5 w-3.5" />Setujui / Tolak...
+                            </DropdownMenuItem>
+                          </>)}
                           <DropdownMenuSeparator />
                           <DropdownMenuItem className="gap-2 text-destructive" onClick={() => setDeleteId(d.id)}>
                             <Trash2 className="h-3.5 w-3.5" />Hapus
@@ -929,6 +1060,10 @@ export default function DrafPerjanjian() {
               onBookingCreated={() => {
                 qc.invalidateQueries({ queryKey: ["draft-agreements"] });
                 refetch();
+              }}
+              onStatusChanged={() => {
+                qc.invalidateQueries({ queryKey: ["draft-agreements"] });
+                qc.invalidateQueries({ queryKey: ["calon-tenant-pending-count"] });
               }}
             />
           </div>
