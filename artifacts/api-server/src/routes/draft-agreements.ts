@@ -4,6 +4,7 @@ import { sql } from "drizzle-orm";
 import { z } from "zod";
 import crypto from "crypto";
 import { getBaseUrl } from "../lib/app-url";
+import { requireAnyRole } from "../middlewares/auth";
 
 const router: IRouter = Router();
 
@@ -141,7 +142,7 @@ router.get("/draft-agreements/:id", async (req: Request, res: Response) => {
 
 // ── POST /api/draft-agreements ────────────────────────────────────────────────
 // Admin — buat draf baru
-router.post("/draft-agreements", async (req: Request, res: Response) => {
+router.post("/draft-agreements", requireAnyRole("admin", "owner"), async (req: Request, res: Response) => {
   const parsed = createDraftSchema.safeParse(req.body);
   if (!parsed.success) {
     const msg = parsed.error.issues.map((i) => i.message).join("; ");
@@ -197,7 +198,7 @@ router.post("/draft-agreements", async (req: Request, res: Response) => {
 });
 
 // ── DELETE /api/draft-agreements/:id ─────────────────────────────────────────
-router.delete("/draft-agreements/:id", async (req: Request, res: Response) => {
+router.delete("/draft-agreements/:id", requireAnyRole("admin", "owner"), async (req: Request, res: Response) => {
   const id = parseInt(req.params["id"] as string);
   if (isNaN(id)) { res.status(400).json({ error: "ID tidak valid" }); return; }
 
@@ -219,7 +220,7 @@ router.delete("/draft-agreements/:id", async (req: Request, res: Response) => {
 
 // ── POST /api/draft-agreements/:id/remind ─────────────────────────────────────
 // Admin — kirim ulang link via WA ke calon tenant
-router.post("/draft-agreements/:id/remind", async (req: Request, res: Response) => {
+router.post("/draft-agreements/:id/remind", requireAnyRole("admin", "owner"), async (req: Request, res: Response) => {
   const id = parseInt(req.params["id"] as string);
   if (isNaN(id)) { res.status(400).json({ error: "ID tidak valid" }); return; }
 
@@ -264,7 +265,7 @@ router.post("/draft-agreements/:id/remind", async (req: Request, res: Response) 
 
 // ── PATCH /api/draft-agreements/:id ──────────────────────────────────────────
 // Admin — edit/perkaya data draf
-router.patch("/draft-agreements/:id", async (req: Request, res: Response) => {
+router.patch("/draft-agreements/:id", requireAnyRole("admin", "owner"), async (req: Request, res: Response) => {
   const id = parseInt(req.params["id"] as string);
   if (isNaN(id)) { res.status(400).json({ error: "ID tidak valid" }); return; }
 
@@ -342,7 +343,7 @@ const jadikanBookingSchema = z.object({
   notes: z.string().max(1000).optional(),
 });
 
-router.post("/draft-agreements/:id/jadikan-booking", async (req: Request, res: Response) => {
+router.post("/draft-agreements/:id/jadikan-booking", requireAnyRole("admin", "owner"), async (req: Request, res: Response) => {
   const id = parseInt(req.params["id"] as string);
   if (isNaN(id)) { res.status(400).json({ error: "ID tidak valid" }); return; }
 
