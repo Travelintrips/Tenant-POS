@@ -4,6 +4,7 @@ import { sql } from "drizzle-orm";
 import { z } from "zod";
 import crypto from "crypto";
 import { registrationRateLimiter } from "../middlewares/rate-limit";
+import { requireAuth } from "../middlewares/auth";
 
 const router: IRouter = Router();
 
@@ -83,6 +84,30 @@ router.post("/calon-tenant/daftar", registrationRateLimiter, async (req: Request
   } catch (err) {
     console.error("[calon-tenant] POST /daftar error:", err);
     res.status(500).json({ error: "Terjadi kesalahan server. Silakan coba lagi." });
+  }
+});
+
+// ── GET /api/calon-tenant/pending-count ───────────────────────────────────────
+// Protected — hanya admin/owner yang login; dipakai untuk polling badge sidebar
+router.get("/calon-tenant/pending-count", requireAuth, async (req: Request, res: Response) => {
+  try {
+    const result = await db.execute(sql`
+      SELECT
+        COUNT(*)::int                    AS pending_count,
+        MAX(created_at)::text            AS latest_created_at
+      FROM tenant_draft_agreements
+      WHERE status = 'pending'
+        AND source = 'self_register'
+    `);
+    const row = (result as { rows: Record<string, unknown>[] }).rows[0];
+    res.json({
+      success: true,
+      pendingCount: Number(row?.pending_count ?? 0),
+      latestCreatedAt: (row?.latest_created_at as string | null) ?? null,
+    });
+  } catch (err) {
+    console.error("[calon-tenant] GET /pending-count error:", err);
+    res.status(500).json({ success: false, error: "Terjadi kesalahan server." });
   }
 });
 

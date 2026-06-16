@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useRef, useEffect } from "react";
 import { Link, useLocation } from "wouter";
 import {
   Sidebar,
@@ -31,6 +31,7 @@ import { useSite, type MallSite, ALL_SITES_SENTINEL } from "@/contexts/site-cont
 import { useQuery } from "@tanstack/react-query";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { useToast } from "@/hooks/use-toast";
 
 const ROLE_COLORS: Record<UserRole, string> = {
   owner:       "bg-purple-100 text-purple-800",
@@ -95,6 +96,7 @@ export function SidebarLayout({ children }: { children: React.ReactNode }) {
   const { data: user } = useAuth();
   const logout = useLogout();
   const { activeSite, sites, setActiveSite } = useSite();
+  const { toast } = useToast();
 
   const role = user?.role as UserRole | undefined;
   const can = (...roles: UserRole[]) => !!role && roles.includes(role);
@@ -110,6 +112,36 @@ export function SidebarLayout({ children }: { children: React.ReactNode }) {
     refetchInterval: 30_000,
     enabled: can("owner", "admin", "finance"),
   });
+
+  // ── Polling: jumlah calon tenant pending (self-register) ──────────────────
+  type PendingRegistrationData = { success: boolean; pendingCount: number; latestCreatedAt: string | null };
+  const prevPendingRegistrationCount = useRef<number | undefined>(undefined);
+
+  const { data: pendingRegistrationData } = useQuery<PendingRegistrationData>({
+    queryKey: ["pending-registration-count"],
+    queryFn: async () => {
+      const res = await fetch("/api/calon-tenant/pending-count");
+      if (!res.ok) throw new Error("Gagal mengambil data pending registrasi");
+      return res.json();
+    },
+    refetchInterval: 30_000,
+    enabled: can("owner", "admin"),
+  });
+
+  const pendingRegistrationCount = pendingRegistrationData?.pendingCount ?? 0;
+
+  useEffect(() => {
+    if (pendingRegistrationData === undefined) return;
+    const prev = prevPendingRegistrationCount.current;
+    if (prev !== undefined && pendingRegistrationCount > prev) {
+      const tambah = pendingRegistrationCount - prev;
+      toast({
+        title: "Ada pendaftar tenant baru",
+        description: `${tambah} pendaftaran baru menunggu ditinjau di Draf Perjanjian.`,
+      });
+    }
+    prevPendingRegistrationCount.current = pendingRegistrationCount;
+  }, [pendingRegistrationCount, pendingRegistrationData]);
 
   type UpcomingItem = {
     id: number;
@@ -267,9 +299,16 @@ export function SidebarLayout({ children }: { children: React.ReactNode }) {
                       isActive={location === "/draf-perjanjian"}
                       data-testid="nav-draf-perjanjian"
                     >
-                      <Link href="/draf-perjanjian">
-                        <FileSignature className="mr-2 h-4 w-4" />
-                        <span>Draf Perjanjian</span>
+                      <Link href="/draf-perjanjian" className="flex items-center justify-between w-full">
+                        <span className="flex items-center">
+                          <FileSignature className="mr-2 h-4 w-4" />
+                          <span>Draf Perjanjian</span>
+                        </span>
+                        {pendingRegistrationCount > 0 && (
+                          <Badge className="ml-auto h-5 min-w-5 text-[10px] bg-blue-500 hover:bg-blue-500 text-white px-1.5 border-0">
+                            {pendingRegistrationCount}
+                          </Badge>
+                        )}
                       </Link>
                     </SidebarMenuButton>
                   </SidebarMenuItem>
