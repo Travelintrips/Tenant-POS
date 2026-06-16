@@ -3,6 +3,8 @@ modules = ["nodejs-20", "web", "bash", "python-3.11", "postgresql-16"]
 [deployment]
 router = "application"
 deploymentTarget = "autoscale"
+run = ["bash", "scripts/start-prod.sh"]
+build = ["bash", "-c", "NODE_ENV=production pnpm run build"]
 
 [deployment.postBuild]
 args = ["pnpm", "store", "prune"]
