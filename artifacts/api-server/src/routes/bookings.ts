@@ -4,12 +4,14 @@ import {
   tenantBookingsTable,
   tenantsTable,
   tenantInvoicesTable,
+  waLogsTable,
   insertTenantBookingSchema,
 } from "@workspace/db/schema";
 import { eq, and, ne, lt, lte, gte, or } from "drizzle-orm";
 import { requireAnyRole } from "../middlewares/auth";
 import { logAudit } from "../lib/audit";
 import { sseBroker } from "../lib/sse-broker";
+import { sendBookingConfirmation } from "../lib/whatsapp";
 import { z } from "zod";
 
 const router: IRouter = Router();
@@ -226,6 +228,46 @@ router.post("/bookings", async (req, res) => {
 
     sseBroker.publish("booking_updated", { bookingId: booking.id });
     res.status(201).json({ ...withTenant, contractStatus: computeContractStatus(withTenant) });
+
+    // Kirim notifikasi WA ke tenant — fire-and-forget, tidak memblokir response
+    if (withTenant) {
+      const [tenant] = await db
+        .select({ phone: tenantsTable.phone, ownerName: tenantsTable.ownerName })
+        .from(tenantsTable)
+        .where(eq(tenantsTable.id, withTenant.tenantId!));
+
+      const phone = tenant?.phone;
+      if (phone) {
+        sendBookingConfirmation({
+          ownerName: tenant.ownerName ?? withTenant.tenantName ?? "Tenant",
+          businessName: withTenant.tenantName ?? "-",
+          orderNumber: withTenant.orderNumber ?? "",
+          contractNumber: withTenant.contractNumber,
+          unitCode: withTenant.unitCode ?? "-",
+          floor: withTenant.floor,
+          startDate: withTenant.startDate ?? "",
+          endDate: withTenant.endDate ?? "",
+          durationMonths: withTenant.durationMonths,
+          rentAmount: withTenant.rentAmount ?? "0",
+          totalAmount: withTenant.totalAmount,
+          dueDate: withTenant.dueDate,
+          phone,
+        }).then(async (result) => {
+          try {
+            await db.insert(waLogsTable).values({
+              siteId: withTenant.siteId ?? null,
+              tenantId: withTenant.tenantId ?? null,
+              invoiceId: null,
+              phone,
+              messageType: "booking_confirmation",
+              status: result.skipped ? "skipped" : result.ok ? "sent" : "failed",
+              errorMessage: result.error ?? null,
+              sentBy: (req.user as { email?: string } | undefined)?.email ?? null,
+            });
+          } catch { /* jangan gagalkan jika logging error */ }
+        }).catch(() => { /* abaikan error WA */ });
+      }
+    }
   } catch (err) {
     req.log.error(err, "Failed to create booking");
     res.status(500).json({ error: "Gagal membuat kontrak" });

@@ -383,6 +383,69 @@ export async function sendReconciliationReminder(params: ReconciliationReminderP
   return sendMessage(params.phone, message);
 }
 
+export interface BookingConfirmationParams {
+  ownerName: string;
+  businessName: string;
+  orderNumber: string;
+  contractNumber?: string | null;
+  unitCode: string;
+  floor?: string | null;
+  startDate: string;
+  endDate: string;
+  durationMonths?: number | null;
+  rentAmount: string | number;
+  totalAmount?: string | number | null;
+  dueDate?: string | null;
+  phone: string;
+}
+
+/**
+ * Kirim konfirmasi booking/kontrak resmi ke tenant
+ */
+export async function sendBookingConfirmation(params: BookingConfirmationParams): Promise<WaResult> {
+  const fmtDate = (d: string) => {
+    const dt = new Date(d);
+    return isNaN(dt.getTime()) ? d : dt.toLocaleDateString("id-ID", { day: "numeric", month: "long", year: "numeric" });
+  };
+
+  const contractLine = params.contractNumber
+    ? `• No. Kontrak    : *${params.contractNumber}*\n`
+    : `• No. Order      : *${params.orderNumber}*\n`;
+
+  const floorLine = params.floor ? ` · ${params.floor}` : "";
+  const durationLine = params.durationMonths
+    ? `• Durasi Sewa    : *${params.durationMonths} bulan*\n`
+    : "";
+
+  const totalLine = params.totalAmount
+    ? `• Total Tagihan  : ${formatRupiah(params.totalAmount)}\n`
+    : "";
+
+  const dueLine = params.dueDate
+    ? `• Tagihan Pertama: *${fmtDate(params.dueDate)}*\n`
+    : "";
+
+  const message =
+    `🎉 *Kontrak Sewa Resmi Dibuat*\n` +
+    `━━━━━━━━━━━━━━━━━━━━━\n\n` +
+    `Yth. Bapak/Ibu *${params.ownerName}*,\n\n` +
+    `Selamat! Kontrak sewa untuk usaha Anda telah resmi dibuat dengan rincian sebagai berikut:\n\n` +
+    contractLine +
+    `• Nama Usaha     : *${params.businessName}*\n` +
+    `• Unit / Lokasi  : *${params.unitCode}*${floorLine}\n` +
+    `• Periode Sewa   : ${fmtDate(params.startDate)} s/d ${fmtDate(params.endDate)}\n` +
+    durationLine +
+    `• Harga Sewa     : *${formatRupiah(params.rentAmount)}/bulan*\n` +
+    totalLine +
+    dueLine +
+    `\nMohon simpan pesan ini sebagai bukti konfirmasi kontrak Anda.\n\n` +
+    `Jika ada pertanyaan terkait kontrak, silakan hubungi tim manajemen kami.\n\n` +
+    `Terima kasih atas kepercayaan Anda. 🙏\n` +
+    `_Manajemen CST_`;
+
+  return sendMessage(params.phone, message);
+}
+
 /**
  * Kirim pengingat tagihan overdue ke tenant
  */
