@@ -74,7 +74,6 @@ ENABLE_DEV_LOGIN = "true"
 FONNTE_ADMIN_WA = "085121073537"
 SESSION_SECRET = "MXF8tVM+GYDQyrAOg0o79vPvEg7V7xTWd3C6pPOS/ee7T0gNLD2LO/PRk+97KR2x01VdMHK1Oc3VuoZoOR/naw=="
 CI = "true"
-NODE_ENV = "development"
 LOG_LEVEL = "info"
 APP_URL = "https://tenant.travelintrips.co.id"
 
@@ -87,6 +86,7 @@ SUPABASE_STORAGE_BUCKET = "https://xssrfshdrtdfupgqwfdw.storage.supabase.co/stor
 VITE_SUPABASE_ANON_KEY = "https://nzdweipzckfszczzqtuw.supabase.co"
 VITE_SUPABASE_URL = "https://nzdweipzckfszczzqtuw.supabase.co"
 SUPABASE_PG_URL = "postgresql://postgres.xssrfshdrtdfupgqwfdw:HXihlKjxcXNRujW4@aws-1-ap-southeast-2.pooler.supabase.com:6543/postgres "
+NODE_ENV = "development"
 
 [userenv.production]
 SUPABASE_URL = "https://nzdweipzckfszczzqtuw.supabase.co"
@@ -97,6 +97,7 @@ SUPABASE_STORAGE_BUCKET = "https://nzdweipzckfszczzqtuw.storage.supabase.co/stor
 VITE_SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im56ZHdlaXB6Y2tmc3pjenpxdHV3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg0MDI4NDQsImV4cCI6MjA5Mzk3ODg0NH0.p9k3-qyRjPuXsHLizUrSRMyS-0yJAatUyjQU9NIIu1U"
 VITE_SUPABASE_URL = "https://nzdweipzckfszczzqtuw.supabase.co"
 SUPABASE_PG_URL = "postgresql://postgres.nzdweipzckfszczzqtuw:AnTXXOl0t1ArQOEU@aws-1-ap-southeast-2.pooler.supabase.com:6543/postgres"
+NODE_ENV = "production"
 
 [nix]
 channel = "stable-25_05"
