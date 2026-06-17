@@ -1619,6 +1619,10 @@ CREATE TABLE IF NOT EXISTS "bank_recon_audit_logs" (
   "ip_address" text,
   "user_agent" text,
   "created_at" timestamptz NOT NULL DEFAULT now()
+);
+    `.trim(),
+  },
+  {
     name: "0031_system_settings_table",
     sql: `
 CREATE TABLE IF NOT EXISTS system_settings (
@@ -1705,6 +1709,9 @@ UPDATE mall_units SET unit_type='storage'                                   WHER
 UPDATE mall_units SET unit_type='food_booth'                                WHERE id=112 AND unit_type='other';
 UPDATE mall_units SET unit_type='beverage_booth'                            WHERE id=113 AND unit_type='other';
 UPDATE mall_units SET unit_type='storage'                                   WHERE id=114 AND unit_type='other';
+    `.trim(),
+  },
+  {
     name: "0034_draft_agreements",
     sql: `
 CREATE TABLE IF NOT EXISTS "tenant_draft_agreements" (
