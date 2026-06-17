@@ -3,7 +3,9 @@ import fs from "fs";
 
 const isProduction = process.env["NODE_ENV"] === "production";
 
-const supabaseUrl = process.env["SUPABASE_URL"] ?? "";
+const supabaseUrl = isProduction
+  ? (process.env["SUPABASE_URL"] ?? "")
+  : (process.env["SUPABASE_URL_DEV"] ?? process.env["SUPABASE_URL"] ?? "");
 
 const supabaseKey = isProduction
   ? (process.env["SUPABASE_SERVICE_ROLE_KEY"] ?? "")
