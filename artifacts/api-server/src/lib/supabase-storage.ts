@@ -1,8 +1,15 @@
 import path from "path";
 import fs from "fs";
 
-const supabaseUrl = process.env["SUPABASE_URL"] ?? "";
-const supabaseKey = process.env["SUPABASE_SERVICE_ROLE_KEY"] ?? "";
+const isProduction = process.env["NODE_ENV"] === "production";
+
+const supabaseUrl = isProduction
+  ? (process.env["SUPABASE_URL"] ?? "")
+  : (process.env["SUPABASE_URL_DEV"] ?? process.env["SUPABASE_URL"] ?? "");
+
+const supabaseKey = isProduction
+  ? (process.env["SUPABASE_SERVICE_ROLE_KEY"] ?? "")
+  : (process.env["SUPABASE_SERVICE_ROLE_KEY_DEV"] ?? process.env["SUPABASE_SERVICE_ROLE_KEY"] ?? "");
 
 const useSupabase = Boolean(supabaseUrl && supabaseKey);
 

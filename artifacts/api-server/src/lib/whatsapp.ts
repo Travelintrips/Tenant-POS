@@ -560,6 +560,52 @@ export async function sendContractTerminated(params: ContractTerminatedParams): 
 /**
  * Kirim pengingat tagihan overdue ke tenant
  */
+/**
+ * Kirim reminder ke calon tenant yang pendaftarannya masih pending (bulk reminder)
+ */
+export async function sendCalonTenantReminder(phone: string, brandOrName?: string): Promise<WaResult> {
+  const nameLine = brandOrName ? `Halo *${brandOrName}*,` : "Halo,";
+  const message =
+    `🔔 *Pengingat Pendaftaran Tenant*\n` +
+    `━━━━━━━━━━━━━━━━━━━━━\n\n` +
+    `${nameLine}\n\n` +
+    `Pendaftaran tenant Anda saat ini masih *menunggu proses* dari tim kami.\n\n` +
+    `Mohon pastikan dokumen/perjanjian Anda telah dilengkapi. Jika membutuhkan bantuan atau ada pertanyaan, tim kami siap membantu.\n\n` +
+    `Terima kasih atas kesabaran Anda. 🙏\n` +
+    `_Manajemen CST_`;
+  return sendMessage(phone, message);
+}
+
+/**
+ * Kirim notifikasi ke calon tenant saat pendaftaran disetujui admin
+ */
+export async function sendCalonTenantApproved(phone: string, brandName?: string): Promise<WaResult> {
+  const nameLine = brandName ? ` atas nama *${brandName}*` : "";
+  const message =
+    `✅ *Pendaftaran Tenant Disetujui*\n` +
+    `━━━━━━━━━━━━━━━━━━━━━\n\n` +
+    `Selamat! Pendaftaran tenant Anda${nameLine} telah *disetujui* oleh tim kami.\n\n` +
+    `Tim kami akan segera menghubungi Anda untuk proses berikutnya.\n\n` +
+    `Terima kasih atas kepercayaan Anda. 🙏\n` +
+    `_Manajemen CST_`;
+  return sendMessage(phone, message);
+}
+
+/**
+ * Kirim notifikasi ke calon tenant saat pendaftaran ditolak admin
+ */
+export async function sendCalonTenantRejected(phone: string, brandName?: string): Promise<WaResult> {
+  const nameLine = brandName ? ` atas nama *${brandName}*` : "";
+  const message =
+    `❌ *Pendaftaran Tenant Tidak Dapat Diproses*\n` +
+    `━━━━━━━━━━━━━━━━━━━━━\n\n` +
+    `Mohon maaf, pendaftaran tenant Anda${nameLine} belum dapat kami lanjutkan saat ini.\n\n` +
+    `Untuk informasi lebih lanjut, silakan hubungi tim manajemen kami.\n\n` +
+    `Terima kasih. 🙏\n` +
+    `_Manajemen CST_`;
+  return sendMessage(phone, message);
+}
+
 export async function sendOverdueReminder(params: OverdueReminderParams): Promise<WaResult> {
   const message =
     `⚠️ *Tagihan Melewati Jatuh Tempo — ${params.businessName}*\n` +

@@ -1,4 +1,4 @@
-import express, { type Express } from "express";
+import express, { type Express, type Request, type Response, type NextFunction } from "express";
 import session from "express-session";
 import cors from "cors";
 import helmet from "helmet";
@@ -56,11 +56,45 @@ app.use(
   }),
 );
 
-app.use(cors({ origin: true, credentials: true }));
+const isProduction = process.env.NODE_ENV === "production";
+
+// ─── CORS ──────────────────────────────────────────────────────────────────
+// Development  : semua origin diizinkan (origin: true) agar Vite proxy dan
+//               tool lokal bisa bekerja tanpa konfigurasi tambahan.
+//
+// Production   : hanya origin yang ada di ALLOWED_ORIGINS (comma-separated)
+//               yang boleh mengirim request dengan credentials. Request
+//               same-origin (tanpa header Origin) selalu diizinkan.
+//               Jika ALLOWED_ORIGINS tidak diset, semua request cross-origin
+//               dengan credentials ditolak — sesuai dengan arsitektur
+//               Replit deployment di mana frontend dan API berada di domain
+//               yang sama (same-origin via reverse-proxy).
+//
+// CATATAN: Webhook Fonnte (/api/whatsapp-webhook/*) tidak butuh credentials
+//          sehingga penolakan CORS di sini tidak menghalangi webhook.
+const allowedOrigins: string[] = process.env.ALLOWED_ORIGINS
+  ? process.env.ALLOWED_ORIGINS.split(",").map((o) => o.trim()).filter(Boolean)
+  : [];
+
+app.use(
+  cors({
+    origin: isProduction
+      ? (origin, callback) => {
+          if (!origin) return callback(null, true);
+          if (allowedOrigins.length > 0 && allowedOrigins.includes(origin)) {
+            return callback(null, true);
+          }
+          logger.warn({ origin }, "[cors] Cross-origin request ditolak di production");
+          return callback(null, false);
+        }
+      : true,
+    credentials: true,
+  }),
+);
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-const isProduction = process.env.NODE_ENV === "production";
 const sessionSecret = process.env.SESSION_SECRET ?? "fallback-dev-secret";
 
 if (isProduction && sessionSecret === "fallback-dev-secret") {
@@ -91,5 +125,28 @@ app.get("/api/healthz", (_req, res) => {
 });
 
 app.use("/api", router);
+
+// ─── Global error handler ──────────────────────────────────────────────────
+// Tangani error yang tidak ter-catch di route handlers. Di production, hanya
+// pesan generik yang dikembalikan ke client — stack trace TIDAK bocor.
+// Di development, detail error dan stack trace ditampilkan untuk memudahkan
+// debugging.
+//
+// Middleware error Express WAJIB 4 parameter (err, req, res, next).
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
+  logger.error({ err }, "[app] Unhandled error");
+
+  if (res.headersSent) return;
+
+  if (isProduction) {
+    res.status(500).json({ error: "Terjadi kesalahan internal server. Silakan coba lagi." });
+  } else {
+    res.status(500).json({
+      error: err.message ?? "Internal server error",
+      stack: err.stack,
+    });
+  }
+});
 
 export default app;

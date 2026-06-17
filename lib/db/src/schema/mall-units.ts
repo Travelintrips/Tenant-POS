@@ -1,6 +1,6 @@
 import { pgTable, serial, integer, text, numeric, timestamp } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
-import { z } from "zod/v4";
+import { z } from "zod";
 import { mallSitesTable } from "./mall-sites";
 
 export const UNIT_STATUSES = ["available", "booked", "occupied", "overdue", "expired", "maintenance"] as const;

@@ -4,6 +4,18 @@ set -e
 # Bebaskan port 8080 dari proses sebelumnya (artifact workflow lama, dll)
 fuser -k 8080/tcp 2>/dev/null || true
 sleep 0.5
+# Pastikan NODE_ENV=development secara eksplisit agar tidak ada ambiguitas
+# antara development dan production environment.
+export NODE_ENV=development
+
+# Cek apakah port 8080 sudah aktif (gunakan TCP, bukan HTTP status)
+if (echo >/dev/tcp/localhost/8080) 2>/dev/null; then
+  echo "[start-dev] API server sudah berjalan di port 8080, lewati."
+else
+  echo "[start-dev] Memulai API server..."
+  PORT=8080 pnpm --filter @workspace/api-server run dev &
+  API_PID=$!
+  echo "[start-dev] API server starting (PID: $API_PID)..."
 
 echo "[start-dev] Memulai API server..."
 PORT=8080 pnpm --filter @workspace/api-server run dev &

@@ -76,11 +76,12 @@ function makeLoggingRateLimiter(options: {
 }
 
 /**
- * 30 req / 15 menit per IP — endpoint dev-login
+ * 10 req / 15 menit per IP — endpoint dev-login
+ * Lebih ketat karena endpoint ini bypass autentikasi normal.
  */
 export const devLoginRateLimiter = makeLoggingRateLimiter({
   name: "dev-login",
-  max: 30,
+  max: 10,
   windowMs: 15 * 60 * 1000,
 });
 
