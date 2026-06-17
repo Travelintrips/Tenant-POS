@@ -3,8 +3,8 @@ import multer from "multer";
 import path from "path";
 import crypto from "crypto";
 import { db } from "@workspace/db";
-import { tenantInvoicesTable, tenantPaymentsTable, tenantsTable, systemSettingsTable, waLogsTable } from "@workspace/db/schema";
-import { eq, sql, and, desc } from "drizzle-orm";
+import { tenantInvoicesTable, tenantPaymentsTable, tenantsTable, systemSettingsTable, waLogsTable, usersTable } from "@workspace/db/schema";
+import { eq, sql, and, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { sseBroker } from "../lib/sse-broker";
 import { sendPaymentReceived, sendAdminPaymentAlert } from "../lib/whatsapp";
@@ -12,18 +12,42 @@ import { uploadRateLimiter } from "../middlewares/rate-limit";
 import { uploadToStorage } from "../lib/supabase-storage";
 import { getBaseUrl } from "../lib/app-url";
 
-/** Ambil nomor WA admin dari env (prioritas) atau settings DB */
-async function getAdminPhone(): Promise<string | null> {
-  if (process.env.ADMIN_WHATSAPP) return process.env.ADMIN_WHATSAPP;
+/** Ambil semua nomor WA owner/admin yang aktif dari DB, fallback ke env */
+async function getOwnerPhones(): Promise<Array<{ name: string; phone: string }>> {
   try {
-    const [row] = await db
-      .select({ value: systemSettingsTable.value })
-      .from(systemSettingsTable)
-      .where(eq(systemSettingsTable.key, "mall_config"));
-    const phone = (row?.value as Record<string, unknown> | undefined)?.adminPhone;
-    return typeof phone === "string" && phone.length > 0 ? phone : null;
+    const rows = await db
+      .select({ name: usersTable.name, phoneNumber: usersTable.phoneNumber })
+      .from(usersTable)
+      .where(
+        and(
+          inArray(usersTable.role, ["owner", "admin"]),
+          eq(usersTable.status, "active"),
+          sql`phone_number IS NOT NULL AND phone_number != ''`,
+        ),
+      );
+
+    const result = rows
+      .filter((u) => u.phoneNumber)
+      .map((u) => ({ name: u.name, phone: u.phoneNumber! }));
+
+    // Fallback ke env ADMIN_WHATSAPP atau settings DB jika tidak ada owner/admin dengan HP
+    if (result.length === 0) {
+      const envPhone = process.env.ADMIN_WHATSAPP ?? process.env.FONNTE_ADMIN_WA;
+      if (envPhone) return [{ name: "Admin", phone: envPhone }];
+
+      const [row] = await db
+        .select({ value: systemSettingsTable.value })
+        .from(systemSettingsTable)
+        .where(eq(systemSettingsTable.key, "mall_config"));
+      const phone = (row?.value as Record<string, unknown> | undefined)?.adminPhone;
+      if (typeof phone === "string" && phone.length > 0) {
+        return [{ name: "Admin", phone }];
+      }
+    }
+
+    return result;
   } catch {
-    return null;
+    return [];
   }
 }
 
@@ -253,20 +277,25 @@ router.post("/pay/:token/proof", uploadRateLimiter, async (req, res) => {
       }
     }
 
-    // Notifikasi admin via WA — fire-and-forget (selalu kirim agar admin tahu ada upload baru)
-    getAdminPhone().then(async (adminPhone) => {
-      if (!adminPhone) return;
-      sendAdminPaymentAlert({
-        ownerName: invoice.ownerName ?? "Tenant",
-        businessName: invoice.businessName ?? "",
-        invoiceNumber: invoice.invoiceNumber,
-        amount,
-        paymentMethod,
-        referenceNumber: referenceNumber ?? null,
-        paymentId: payment.id,
-        adminPhone,
-        reviewLink: await buildReviewLink(),
-      }).catch(() => {});
+    // Notifikasi ke semua owner/admin via WA — fire-and-forget
+    getOwnerPhones().then(async (owners) => {
+      if (owners.length === 0) return;
+      const reviewLink = await buildReviewLink();
+      await Promise.allSettled(
+        owners.map((owner) =>
+          sendAdminPaymentAlert({
+            ownerName: invoice.ownerName ?? "Tenant",
+            businessName: invoice.businessName ?? "",
+            invoiceNumber: invoice.invoiceNumber,
+            amount,
+            paymentMethod,
+            referenceNumber: referenceNumber ?? null,
+            paymentId: payment.id,
+            adminPhone: owner.phone,
+            reviewLink,
+          }),
+        ),
+      );
     }).catch(() => {});
 
     res.status(201).json({
