@@ -3,8 +3,7 @@
 - [scripts workspace resolution](scripts-workspace-resolution.md) — scripts pkg needs `paths` in tsconfig to resolve `@workspace/*` libs; symlinks not created by pnpm for scripts
 - [invalid hook call fix](invalid-hook-call.md) — avoid generated lib hooks (useListTenants etc); use `useQuery` directly in admin-portal pages
 - [local-postgres-active](local-postgres-active.md) — Supabase password invalid; config.ts now prioritizes DATABASE_URL (local Replit postgres heliumdb) over SUPABASE_PG_URL; Sport Center site_id=2 in local DB
-- [DB split-brain](db-connection-priority.md) — STALE: app now uses local postgres (DATABASE_URL first); Supabase xssrfshdrtdfupgqwfdw password invalid
-- [DB active connection](db-connection-priority.md) — app connects to Supabase via SUPABASE_PG_URL; config.ts priority: SUPABASE_PG_URL → SUPABASE_DATABASE_URL → DATABASE_URL; DATABASE_URL is Replit heliumdb (fallback only)
+- [DB active connection](db-connection-priority.md) — dev now uses Supabase nzdweipzckfszczzqtuw via SUPABASE_PG_URL (dev env); config.ts priority dev: SUPABASE_PG_URL → DATABASE_URL; prod: SUPABASE_PG_URL_PROD → SUPABASE_PG_URL → DATABASE_URL; old xssrfshdrtdfupgqwfdw password invalid + deleted
 - [config-ts-keep-function-style](config-ts-merge-conflict.md) — lib/db/src/config.ts terus kena syntax error karena nested ternary; ALWAYS use function `resolveDbUrl()` style (no nested ternary), ALWAYS overwrite penuh dengan write tool
 - [schema-column-fix](schema-column-fix.md) — 3 tables needed ALTER TABLE to add missing columns; sync old data booking_id from tenant_booking_id after adding new column
 - [drizzle-kit-tty](drizzle-kit-tty.md) — drizzle-kit push requires interactive TTY for new tables; add SQL migration to lib/db/src/migrator.ts instead
