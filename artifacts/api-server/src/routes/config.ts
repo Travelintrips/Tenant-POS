@@ -12,6 +12,9 @@ const resolvedAnonKey = isProduction
   ? (process.env["SUPABASE_ANON_KEY"] ?? null)
   : (process.env["SUPABASE_ANON_KEY_DEV"] ?? process.env["SUPABASE_ANON_KEY"] ?? null);
 
+// Endpoint ini sengaja publik (tanpa autentikasi) karena hanya mengembalikan
+// konfigurasi klien Supabase yang bersifat publik (anon key = public key,
+// bukan service role key). Jangan pernah mengembalikan service role key di sini.
 router.get("/config", (_req, res) => {
   res.json({
     supabaseUrl: resolvedUrl,
