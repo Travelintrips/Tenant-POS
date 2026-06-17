@@ -1,6 +1,10 @@
 #!/bin/bash
 set -e
 
+# Pastikan PATH menyertakan pnpm dan node (diperlukan saat workflow
+# dimulai tanpa PATH lengkap dari nix shell).
+export PATH="/nix/store/61lr9izijvg30pcribjdxgjxvh3bysp4-pnpm-10.26.1/bin:/nix/store/jfar9wnj6kvr0gr6klh1gk7vgckkfr5j-nodejs-20.20.0/bin:${PATH}"
+
 # Pastikan NODE_ENV=development secara eksplisit agar tidak ada ambiguitas
 # antara development dan production environment.
 export NODE_ENV=development
