@@ -48,3 +48,9 @@ Thumbs.db
 .cache/
 .local/
 .replit
+
+# Secrets — JANGAN commit file ini ke git
+.env
+.env.local
+.env.*.local
+secrets.sh
