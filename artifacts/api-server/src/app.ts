@@ -126,6 +126,19 @@ app.get("/api/healthz", (_req, res) => {
 
 app.use("/api", router);
 
+// ─── Serve admin portal static files (production only) ───────────────────
+// Di development, Vite proxy menangani routing antar API dan frontend.
+// Di production, Express serve file statis dari build admin portal,
+// dengan fallback ke index.html untuk semua route non-API (SPA behavior).
+// Ini yang memungkinkan /bayar/:token dan halaman lain bisa diakses langsung.
+if (isProduction) {
+  const frontendDist = path.join(process.cwd(), "artifacts/admin-portal/dist/public");
+  app.use(express.static(frontendDist, { maxAge: "1d", etag: true }));
+  app.get("*", (_req, res) => {
+    res.sendFile(path.join(frontendDist, "index.html"));
+  });
+}
+
 // ─── Global error handler ──────────────────────────────────────────────────
 // Tangani error yang tidak ter-catch di route handlers. Di production, hanya
 // pesan generik yang dikembalikan ke client — stack trace TIDAK bocor.
