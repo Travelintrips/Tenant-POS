@@ -43,6 +43,13 @@ function validateProductionEnv(): void {
     errors.push("SESSION_SECRET harus diset ke nilai aman di production.");
   }
 
+  if (process.env["ENABLE_DEV_LOGIN"] === "true") {
+    warnings.push(
+      "ENABLE_DEV_LOGIN=true aktif di production. " +
+      "Dev-login membypass autentikasi normal — hapus atau set ke 'false' kecuali untuk testing sementara yang terkontrol."
+    );
+  }
+
   for (const w of warnings) {
     logger.warn(`[startup] ⚠️  ${w}`);
   }

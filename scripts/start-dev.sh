@@ -1,6 +1,10 @@
 #!/bin/bash
 set -e
 
+# Pastikan NODE_ENV=development secara eksplisit agar tidak ada ambiguitas
+# antara development dan production environment.
+export NODE_ENV=development
+
 # Cek apakah port 8080 sudah aktif (gunakan TCP, bukan HTTP status)
 if (echo >/dev/tcp/localhost/8080) 2>/dev/null; then
   echo "[start-dev] API server sudah berjalan di port 8080, lewati."
