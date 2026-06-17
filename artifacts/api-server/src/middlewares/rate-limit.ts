@@ -140,3 +140,32 @@ export const otpVerifyRateLimiter = makeLoggingRateLimiter({
   max: 10,
   windowMs: 15 * 60 * 1000,
 });
+
+/**
+ * 5 pendaftaran / 10 menit per IP — self-registration calon tenant (publik)
+ * Melindungi endpoint POST /api/calon-tenant/daftar dari spam.
+ */
+export const registrationRateLimiter = rateLimit({
+  windowMs: 10 * 60 * 1000,
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req: Request) => ipKeyGenerator(getIp(req)),
+  handler: (req: Request, res: Response) => {
+    logger.warn(
+      {
+        path: req.path,
+        ip: getIp(req),
+        userAgent: req.headers["user-agent"],
+      },
+      "[rate-limit] registrasi calon tenant: limit terlampaui",
+    );
+    res.status(429).json({
+      success: false,
+      message: "Terlalu banyak percobaan pendaftaran. Silakan coba lagi beberapa menit lagi.",
+    });
+  },
+  skip: (_req: Request) =>
+    process.env.RATE_LIMIT_DISABLED === "true" ||
+    process.env.NODE_ENV === "test",
+});

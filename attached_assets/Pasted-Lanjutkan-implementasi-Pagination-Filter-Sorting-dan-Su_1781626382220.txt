@@ -1,0 +1,197 @@
+Lanjutkan implementasi Pagination, Filter, Sorting, dan Summary Dashboard untuk halaman Draf Perjanjian Tenant.
+
+Sebelum coding:
+
+1. Baca seluruh implementasi:
+
+   * routes/draft-agreements.ts
+   * halaman admin draf-perjanjian.tsx
+   * query hooks terkait
+   * tabel tenant_draft_agreements
+2. Audit endpoint GET saat ini agar tidak merusak kompatibilitas frontend yang sudah berjalan.
+
+=====================================
+FASE 1 — Backend Pagination & Filter
+====================================
+
+Upgrade endpoint:
+
+GET /api/draft-agreements
+
+Tambahkan query parameter:
+
+?page=1
+?limit=20
+?status=pending
+?siteId=1
+?source=self_register
+?search=nama
+?dateFrom=2026-01-01
+?dateTo=2026-12-31
+?sortBy=created_at
+?sortDir=desc
+
+Filter yang wajib didukung:
+
+* status
+* site_id
+* source
+* tanggal
+* keyword search
+
+Keyword search harus mencari ke:
+
+* nama calon tenant
+* nama brand
+* email
+* whatsapp
+
+Response baru:
+
+{
+"success": true,
+"data": [...],
+"pagination": {
+"page": 1,
+"limit": 20,
+"total": 125,
+"totalPages": 7,
+"hasNext": true,
+"hasPrev": false
+}
+}
+
+Gunakan SQL yang efisien.
+Hindari query N+1.
+
+=====================================
+FASE 2 — Summary Cards
+======================
+
+Tambahkan endpoint:
+
+GET /api/draft-agreements/summary
+
+Response:
+
+{
+"pending": 25,
+"approved": 12,
+"rejected": 3,
+"total": 40,
+"today": 4,
+"thisMonth": 18
+}
+
+Harus menggunakan query agregasi.
+Jangan loop data di memory.
+
+=====================================
+FASE 3 — Frontend Filter Bar
+============================
+
+Tambahkan filter:
+
+* Status
+* Site
+* Source
+* Tanggal Dari
+* Tanggal Sampai
+* Search
+
+Perubahan filter harus otomatis refetch data.
+
+Tambahkan tombol:
+
+* Reset Filter
+* Refresh
+
+Gunakan query string agar URL bisa dibagikan.
+
+Contoh:
+
+/draf-perjanjian?status=pending&page=2
+
+=====================================
+FASE 4 — Pagination UI
+======================
+
+Tambahkan:
+
+* Previous
+* Next
+* Nomor halaman
+* Page size:
+  10
+  20
+  50
+  100
+
+Saat pindah halaman:
+
+* posisi scroll tetap baik
+* tidak reload penuh
+
+=====================================
+FASE 5 — Sorting
+================
+
+Kolom yang dapat diurutkan:
+
+* Tanggal dibuat
+* Nama tenant
+* Brand
+* Status
+
+Klik header:
+asc → desc → default
+
+Sorting dilakukan di backend.
+
+=====================================
+FASE 6 — Performance Audit
+==========================
+
+Pastikan:
+
+* Tidak ada query berulang
+* Tidak ada memory leak
+* Tidak ada infinite refetch
+* Tidak ada warning React
+* Tidak ada error console
+
+=====================================
+FASE 7 — Testing
+================
+
+Lakukan test:
+
+1. Tanpa login → 401
+2. Admin → 200
+3. Owner → 200
+4. Cashier → sesuai permission read-only yang berlaku
+5. Filter status bekerja
+6. Filter tanggal bekerja
+7. Search bekerja
+8. Pagination bekerja
+9. Sorting bekerja
+10. Summary card sesuai database
+11. TypeScript = 0 error
+12. Build API = sukses
+13. Build Admin Portal = sukses
+
+=====================================
+LAPORAN AKHIR
+=============
+
+Berikan laporan:
+
+* File yang diubah
+* Endpoint yang ditambah
+* Query SQL yang dioptimalkan
+* Hasil test
+* Screenshot halaman
+* Jumlah data yang diuji
+* Bug yang ditemukan
+* Bug yang diperbaiki
+* Sisa temuan jika ada

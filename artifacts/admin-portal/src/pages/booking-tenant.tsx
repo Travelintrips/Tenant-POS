@@ -21,7 +21,11 @@ import { Separator } from "@/components/ui/separator";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, Pencil, AlertTriangle, Clock, Search, Upload, FileText, ExternalLink, X, Building2, Dumbbell } from "lucide-react";
+import { Plus, Pencil, AlertTriangle, Clock, Search, Upload, FileText, ExternalLink, X, Building2, Dumbbell, Trash2 } from "lucide-react";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { useSite } from "@/contexts/site-context";
 
 const SITE_TYPE_CONFIG: Record<string, { label: string; color: string; bg: string; border: string; icon: React.ReactNode }> = {
@@ -296,6 +300,8 @@ export default function BookingTenant() {
     queryFn: fetchTenants,
   });
 
+  const [deleteTarget, setDeleteTarget] = useState<BookingWithTenant | null>(null);
+
   const createMutation = useMutation({
     mutationFn: createBooking,
     onSuccess: () => {
@@ -305,6 +311,27 @@ export default function BookingTenant() {
       setDialogOpen(false);
     },
     onError: (e: Error) => toast({ title: "Gagal", description: e.message, variant: "destructive" }),
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: async (id: number) => {
+      const res = await apiFetch(`${BASE}/api/bookings/${id}`, { method: "DELETE", credentials: "include" });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error((err as { error?: string }).error ?? "Gagal menghapus kontrak");
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["/api/bookings"] });
+      void queryClient.invalidateQueries({ queryKey: ["/api/tenant-pos"] });
+      toast({ title: "Berhasil", description: "Kontrak berhasil dihapus." });
+      setDeleteTarget(null);
+    },
+    onError: (e: Error) => {
+      toast({ title: "Gagal Menghapus", description: e.message, variant: "destructive" });
+      setDeleteTarget(null);
+    },
   });
 
   const updateMutation = useMutation({
@@ -681,9 +708,22 @@ export default function BookingTenant() {
                             </span>
                           </TableCell>
                           <TableCell className="text-right">
-                            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEdit(booking)}>
-                              <Pencil className="h-4 w-4" />
-                            </Button>
+                            <div className="flex items-center justify-end gap-1">
+                              <Button variant="ghost" size="icon" className="h-8 w-8" title="Edit kontrak" onClick={() => openEdit(booking)}>
+                                <Pencil className="h-4 w-4" />
+                              </Button>
+                              {booking.contractStatus !== "active" && booking.contractStatus !== "expiring_soon" && (
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-8 w-8 text-destructive hover:text-destructive hover:bg-destructive/10"
+                                  title="Hapus kontrak"
+                                  onClick={() => setDeleteTarget(booking)}
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </Button>
+                              )}
+                            </div>
                           </TableCell>
                         </TableRow>
                       );
@@ -693,6 +733,36 @@ export default function BookingTenant() {
           </div>
         </CardContent>
       </Card>
+
+      {/* AlertDialog: Konfirmasi Hapus Kontrak */}
+      <AlertDialog open={!!deleteTarget} onOpenChange={(o) => { if (!o) setDeleteTarget(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2 text-destructive">
+              <Trash2 className="h-4 w-4" />
+              Hapus Kontrak?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              Apakah Anda yakin ingin menghapus kontrak{" "}
+              <strong className="text-foreground font-mono">
+                {deleteTarget?.contractNumber || deleteTarget?.orderNumber || `#${deleteTarget?.id}`}
+              </strong>{" "}
+              milik <strong className="text-foreground">{deleteTarget?.tenantName}</strong>?
+              Tindakan ini <strong>tidak dapat dibatalkan</strong>.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleteMutation.isPending}>Batal</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={deleteMutation.isPending}
+              onClick={() => deleteTarget && deleteMutation.mutate(deleteTarget.id)}
+            >
+              {deleteMutation.isPending ? "Menghapus..." : "Ya, Hapus"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Dialog Form Kontrak */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>

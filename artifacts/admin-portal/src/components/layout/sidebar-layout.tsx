@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useRef, useEffect } from "react";
 import { Link, useLocation } from "wouter";
 import {
   Sidebar,
@@ -14,7 +14,7 @@ import {
   SidebarInset,
   SidebarTrigger
 } from "@/components/ui/sidebar";
-import { Building2, Store, CalendarRange, Calculator, BarChart3, LogOut, FileText, Shield, ChevronDown, GitCompare, Dumbbell, MapPin, Check, Layers, ClipboardCheck, LayoutGrid, Users, Bell, AlertTriangle, Clock, LayoutDashboard, Settings, MessageCircle, BookTemplate, ClipboardList, FileSpreadsheet, Landmark } from "lucide-react";
+import { Building2, Store, CalendarRange, Calculator, BarChart3, LogOut, FileText, Shield, ChevronDown, GitCompare, Dumbbell, MapPin, Check, Layers, ClipboardCheck, LayoutGrid, Users, Bell, AlertTriangle, Clock, LayoutDashboard, Settings, MessageCircle, BookTemplate, ClipboardList, FileSpreadsheet, Landmark, Database, FileSignature, BookOpen } from "lucide-react";
 import { Separator } from "@/components/ui/separator";
 import { useAuth, useLogout, ROLE_LABELS, type UserRole } from "@/hooks/use-auth";
 import { Button } from "@/components/ui/button";
@@ -31,6 +31,7 @@ import { useSite, type MallSite, ALL_SITES_SENTINEL } from "@/contexts/site-cont
 import { useQuery } from "@tanstack/react-query";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { useToast } from "@/hooks/use-toast";
 
 const ROLE_COLORS: Record<UserRole, string> = {
   owner:       "bg-purple-100 text-purple-800",
@@ -95,6 +96,7 @@ export function SidebarLayout({ children }: { children: React.ReactNode }) {
   const { data: user } = useAuth();
   const logout = useLogout();
   const { activeSite, sites, setActiveSite } = useSite();
+  const { toast } = useToast();
 
   const role = user?.role as UserRole | undefined;
   const can = (...roles: UserRole[]) => !!role && roles.includes(role);
@@ -110,6 +112,36 @@ export function SidebarLayout({ children }: { children: React.ReactNode }) {
     refetchInterval: 30_000,
     enabled: can("owner", "admin", "finance"),
   });
+
+  // ── Polling: jumlah calon tenant pending (self-register) ──────────────────
+  type PendingRegistrationData = { success: boolean; pendingCount: number; latestCreatedAt: string | null };
+  const prevPendingRegistrationCount = useRef<number | undefined>(undefined);
+
+  const { data: pendingRegistrationData } = useQuery<PendingRegistrationData>({
+    queryKey: ["pending-registration-count"],
+    queryFn: async () => {
+      const res = await fetch("/api/calon-tenant/pending-count");
+      if (!res.ok) throw new Error("Gagal mengambil data pending registrasi");
+      return res.json();
+    },
+    refetchInterval: 30_000,
+    enabled: can("owner", "admin"),
+  });
+
+  const pendingRegistrationCount = pendingRegistrationData?.pendingCount ?? 0;
+
+  useEffect(() => {
+    if (pendingRegistrationData === undefined) return;
+    const prev = prevPendingRegistrationCount.current;
+    if (prev !== undefined && pendingRegistrationCount > prev) {
+      const tambah = pendingRegistrationCount - prev;
+      toast({
+        title: "Ada pendaftar tenant baru",
+        description: `${tambah} pendaftaran baru menunggu ditinjau di Draf Perjanjian.`,
+      });
+    }
+    prevPendingRegistrationCount.current = pendingRegistrationCount;
+  }, [pendingRegistrationCount, pendingRegistrationData]);
 
   type UpcomingItem = {
     id: number;
@@ -260,6 +292,27 @@ export function SidebarLayout({ children }: { children: React.ReactNode }) {
                     </SidebarMenuButton>
                   </SidebarMenuItem>
                 )}
+                {can("owner", "admin") && (
+                  <SidebarMenuItem>
+                    <SidebarMenuButton
+                      asChild
+                      isActive={location === "/draf-perjanjian"}
+                      data-testid="nav-draf-perjanjian"
+                    >
+                      <Link href="/draf-perjanjian" className="flex items-center justify-between w-full">
+                        <span className="flex items-center">
+                          <FileSignature className="mr-2 h-4 w-4" />
+                          <span>Draf Perjanjian</span>
+                        </span>
+                        {pendingRegistrationCount > 0 && (
+                          <Badge className="ml-auto h-5 min-w-5 text-[10px] bg-blue-500 hover:bg-blue-500 text-white px-1.5 border-0">
+                            {pendingRegistrationCount}
+                          </Badge>
+                        )}
+                      </Link>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                )}
                 {can("owner", "admin", "finance", "cashier") && (
                   <SidebarMenuItem>
                     <SidebarMenuButton
@@ -352,6 +405,32 @@ export function SidebarLayout({ children }: { children: React.ReactNode }) {
                     </Link>
                   </SidebarMenuButton>
                 </SidebarMenuItem>
+                <SidebarMenuItem>
+                  <SidebarMenuButton
+                    asChild
+                    isActive={location === "/buku-jurnal"}
+                    data-testid="nav-buku-jurnal"
+                  >
+                    <Link href="/buku-jurnal">
+                      <BookOpen className="mr-2 h-4 w-4" />
+                      <span>Buku Jurnal</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+                {can("owner", "admin", "finance") && (
+                  <SidebarMenuItem>
+                    <SidebarMenuButton
+                      asChild
+                      isActive={location === "/kelola-coa"}
+                      data-testid="nav-kelola-coa"
+                    >
+                      <Link href="/kelola-coa">
+                        <Layers className="mr-2 h-4 w-4" />
+                        <span>Kelola CoA</span>
+                      </Link>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                )}
                 {can("owner", "admin", "finance") && (
                   <SidebarMenuItem>
                     <SidebarMenuButton
@@ -414,6 +493,20 @@ export function SidebarLayout({ children }: { children: React.ReactNode }) {
                       <Link href="/users">
                         <Users className="mr-2 h-4 w-4" />
                         <span>Manajemen User</span>
+                      </Link>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                )}
+                {can("owner") && (
+                  <SidebarMenuItem>
+                    <SidebarMenuButton
+                      asChild
+                      isActive={location === "/db-monitoring"}
+                      data-testid="nav-db-monitoring"
+                    >
+                      <Link href="/db-monitoring">
+                        <Database className="mr-2 h-4 w-4" />
+                        <span>Monitoring DB</span>
                       </Link>
                     </SidebarMenuButton>
                   </SidebarMenuItem>

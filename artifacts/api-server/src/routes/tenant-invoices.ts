@@ -903,4 +903,48 @@ router.post("/tenant-invoices/:id/payment", async (req, res) => {
   }
 });
 
+// ─── DELETE /api/tenant-invoices/:id ─────────────────────────────────────────
+router.delete("/tenant-invoices/:id", requireAnyRole("owner", "admin"), async (req, res) => {
+  const id = Number(req.params.id);
+  if (isNaN(id)) { res.status(400).json({ error: "ID tidak valid" }); return; }
+
+  try {
+    const [existing] = await db
+      .select()
+      .from(tenantInvoicesTable)
+      .where(eq(tenantInvoicesTable.id, id));
+
+    if (!existing) { res.status(404).json({ error: "Invoice tidak ditemukan" }); return; }
+
+    if (existing.status === "paid") {
+      res.status(409).json({ error: "Invoice yang sudah lunas tidak dapat dihapus" });
+      return;
+    }
+
+    const relatedPayments = await db
+      .select()
+      .from(tenantPaymentsTable)
+      .where(eq(tenantPaymentsTable.invoiceId, id));
+
+    if (relatedPayments.length > 0) {
+      res.status(409).json({ error: "Invoice yang sudah memiliki pembayaran tidak dapat dihapus" });
+      return;
+    }
+
+    await db.delete(tenantInvoicesTable).where(eq(tenantInvoicesTable.id, id));
+
+    logAudit(req, {
+      action: "delete_invoice",
+      entityType: "invoice",
+      entityId: id,
+      beforeData: existing,
+    });
+
+    res.json({ success: true, message: "Invoice berhasil dihapus" });
+  } catch (err) {
+    req.log.error(err, "Failed to delete invoice");
+    res.status(500).json({ error: "Gagal menghapus invoice" });
+  }
+});
+
 export default router;

@@ -383,9 +383,229 @@ export async function sendReconciliationReminder(params: ReconciliationReminderP
   return sendMessage(params.phone, message);
 }
 
+export interface BookingConfirmationParams {
+  ownerName: string;
+  businessName: string;
+  orderNumber: string;
+  contractNumber?: string | null;
+  unitCode: string;
+  floor?: string | null;
+  startDate: string;
+  endDate: string;
+  durationMonths?: number | null;
+  rentAmount: string | number;
+  totalAmount?: string | number | null;
+  dueDate?: string | null;
+  phone: string;
+}
+
+/**
+ * Kirim konfirmasi booking/kontrak resmi ke tenant
+ */
+export async function sendBookingConfirmation(params: BookingConfirmationParams): Promise<WaResult> {
+  const fmtDate = (d: string) => {
+    const dt = new Date(d);
+    return isNaN(dt.getTime()) ? d : dt.toLocaleDateString("id-ID", { day: "numeric", month: "long", year: "numeric" });
+  };
+
+  const contractLine = params.contractNumber
+    ? `• No. Kontrak    : *${params.contractNumber}*\n`
+    : `• No. Order      : *${params.orderNumber}*\n`;
+
+  const floorLine = params.floor ? ` · ${params.floor}` : "";
+  const durationLine = params.durationMonths
+    ? `• Durasi Sewa    : *${params.durationMonths} bulan*\n`
+    : "";
+
+  const totalLine = params.totalAmount
+    ? `• Total Tagihan  : ${formatRupiah(params.totalAmount)}\n`
+    : "";
+
+  const dueLine = params.dueDate
+    ? `• Tagihan Pertama: *${fmtDate(params.dueDate)}*\n`
+    : "";
+
+  const message =
+    `🎉 *Kontrak Sewa Resmi Dibuat*\n` +
+    `━━━━━━━━━━━━━━━━━━━━━\n\n` +
+    `Yth. Bapak/Ibu *${params.ownerName}*,\n\n` +
+    `Selamat! Kontrak sewa untuk usaha Anda telah resmi dibuat dengan rincian sebagai berikut:\n\n` +
+    contractLine +
+    `• Nama Usaha     : *${params.businessName}*\n` +
+    `• Unit / Lokasi  : *${params.unitCode}*${floorLine}\n` +
+    `• Periode Sewa   : ${fmtDate(params.startDate)} s/d ${fmtDate(params.endDate)}\n` +
+    durationLine +
+    `• Harga Sewa     : *${formatRupiah(params.rentAmount)}/bulan*\n` +
+    totalLine +
+    dueLine +
+    `\nMohon simpan pesan ini sebagai bukti konfirmasi kontrak Anda.\n\n` +
+    `Jika ada pertanyaan terkait kontrak, silakan hubungi tim manajemen kami.\n\n` +
+    `Terima kasih atas kepercayaan Anda. 🙏\n` +
+    `_Manajemen CST_`;
+
+  return sendMessage(params.phone, message);
+}
+
+export interface ContractActivatedParams {
+  ownerName: string;
+  businessName: string;
+  contractNumber?: string | null;
+  orderNumber: string;
+  unitCode: string;
+  floor?: string | null;
+  startDate: string;
+  endDate: string;
+  phone: string;
+}
+
+/**
+ * Kirim notifikasi kontrak resmi aktif ke tenant
+ */
+export async function sendContractActivated(params: ContractActivatedParams): Promise<WaResult> {
+  const fmtDate = (d: string) => {
+    const dt = new Date(d);
+    return isNaN(dt.getTime()) ? d : dt.toLocaleDateString("id-ID", { day: "numeric", month: "long", year: "numeric" });
+  };
+  const refLine = params.contractNumber
+    ? `• No. Kontrak  : *${params.contractNumber}*\n`
+    : `• No. Order    : *${params.orderNumber}*\n`;
+  const floorLine = params.floor ? ` · ${params.floor}` : "";
+  const message =
+    `✅ *Kontrak Sewa Resmi Aktif*\n` +
+    `━━━━━━━━━━━━━━━━━━━━━\n\n` +
+    `Yth. Bapak/Ibu *${params.ownerName}*,\n\n` +
+    `Kontrak sewa Anda kini telah berstatus *AKTIF*:\n\n` +
+    refLine +
+    `• Nama Usaha   : *${params.businessName}*\n` +
+    `• Unit         : *${params.unitCode}*${floorLine}\n` +
+    `• Periode      : ${fmtDate(params.startDate)} s/d ${fmtDate(params.endDate)}\n\n` +
+    `Selamat beroperasi! Jika ada pertanyaan, silakan hubungi tim manajemen kami.\n\n` +
+    `Terima kasih. 🙏\n` +
+    `_Manajemen CST_`;
+  return sendMessage(params.phone, message);
+}
+
+export interface ContractExpiringSoonParams {
+  ownerName: string;
+  businessName: string;
+  contractNumber?: string | null;
+  orderNumber: string;
+  unitCode: string;
+  endDate: string;
+  daysLeft: number;
+  phone: string;
+}
+
+/**
+ * Kirim pengingat kontrak akan berakhir dalam 30 hari
+ */
+export async function sendContractExpiringSoon(params: ContractExpiringSoonParams): Promise<WaResult> {
+  const fmtDate = (d: string) => {
+    const dt = new Date(d);
+    return isNaN(dt.getTime()) ? d : dt.toLocaleDateString("id-ID", { day: "numeric", month: "long", year: "numeric" });
+  };
+  const refLine = params.contractNumber
+    ? `• No. Kontrak  : *${params.contractNumber}*\n`
+    : `• No. Order    : *${params.orderNumber}*\n`;
+  const message =
+    `⚠️ *Kontrak Sewa Akan Segera Berakhir*\n` +
+    `━━━━━━━━━━━━━━━━━━━━━\n\n` +
+    `Yth. Bapak/Ibu *${params.ownerName}*,\n\n` +
+    `Kami menginformasikan bahwa kontrak sewa Anda akan berakhir dalam *${params.daysLeft} hari* lagi.\n\n` +
+    refLine +
+    `• Nama Usaha   : *${params.businessName}*\n` +
+    `• Unit         : *${params.unitCode}*\n` +
+    `• Berakhir     : *${fmtDate(params.endDate)}*\n\n` +
+    `Mohon segera hubungi tim manajemen kami jika Anda ingin memperpanjang kontrak sewa.\n\n` +
+    `Terima kasih. 🙏\n` +
+    `_Manajemen CST_`;
+  return sendMessage(params.phone, message);
+}
+
+export interface ContractTerminatedParams {
+  ownerName: string;
+  businessName: string;
+  contractNumber?: string | null;
+  orderNumber: string;
+  unitCode: string;
+  reason?: string | null;
+  phone: string;
+}
+
+/**
+ * Kirim notifikasi kontrak diterminasi ke tenant
+ */
+export async function sendContractTerminated(params: ContractTerminatedParams): Promise<WaResult> {
+  const refLine = params.contractNumber
+    ? `• No. Kontrak  : *${params.contractNumber}*\n`
+    : `• No. Order    : *${params.orderNumber}*\n`;
+  const reasonLine = params.reason
+    ? `• Alasan       : ${params.reason}\n`
+    : "";
+  const message =
+    `🔴 *Kontrak Sewa Diakhiri*\n` +
+    `━━━━━━━━━━━━━━━━━━━━━\n\n` +
+    `Yth. Bapak/Ibu *${params.ownerName}*,\n\n` +
+    `Kami menginformasikan bahwa kontrak sewa Anda telah resmi *diakhiri (terminasi)*:\n\n` +
+    refLine +
+    `• Nama Usaha   : *${params.businessName}*\n` +
+    `• Unit         : *${params.unitCode}*\n` +
+    reasonLine +
+    `\nUntuk informasi lebih lanjut terkait proses pengakhiran kontrak, silakan hubungi tim manajemen kami.\n\n` +
+    `Terima kasih atas kepercayaan Anda selama ini. 🙏\n` +
+    `_Manajemen CST_`;
+  return sendMessage(params.phone, message);
+}
+
 /**
  * Kirim pengingat tagihan overdue ke tenant
  */
+/**
+ * Kirim reminder ke calon tenant yang pendaftarannya masih pending (bulk reminder)
+ */
+export async function sendCalonTenantReminder(phone: string, brandOrName?: string): Promise<WaResult> {
+  const nameLine = brandOrName ? `Halo *${brandOrName}*,` : "Halo,";
+  const message =
+    `🔔 *Pengingat Pendaftaran Tenant*\n` +
+    `━━━━━━━━━━━━━━━━━━━━━\n\n` +
+    `${nameLine}\n\n` +
+    `Pendaftaran tenant Anda saat ini masih *menunggu proses* dari tim kami.\n\n` +
+    `Mohon pastikan dokumen/perjanjian Anda telah dilengkapi. Jika membutuhkan bantuan atau ada pertanyaan, tim kami siap membantu.\n\n` +
+    `Terima kasih atas kesabaran Anda. 🙏\n` +
+    `_Manajemen CST_`;
+  return sendMessage(phone, message);
+}
+
+/**
+ * Kirim notifikasi ke calon tenant saat pendaftaran disetujui admin
+ */
+export async function sendCalonTenantApproved(phone: string, brandName?: string): Promise<WaResult> {
+  const nameLine = brandName ? ` atas nama *${brandName}*` : "";
+  const message =
+    `✅ *Pendaftaran Tenant Disetujui*\n` +
+    `━━━━━━━━━━━━━━━━━━━━━\n\n` +
+    `Selamat! Pendaftaran tenant Anda${nameLine} telah *disetujui* oleh tim kami.\n\n` +
+    `Tim kami akan segera menghubungi Anda untuk proses berikutnya.\n\n` +
+    `Terima kasih atas kepercayaan Anda. 🙏\n` +
+    `_Manajemen CST_`;
+  return sendMessage(phone, message);
+}
+
+/**
+ * Kirim notifikasi ke calon tenant saat pendaftaran ditolak admin
+ */
+export async function sendCalonTenantRejected(phone: string, brandName?: string): Promise<WaResult> {
+  const nameLine = brandName ? ` atas nama *${brandName}*` : "";
+  const message =
+    `❌ *Pendaftaran Tenant Tidak Dapat Diproses*\n` +
+    `━━━━━━━━━━━━━━━━━━━━━\n\n` +
+    `Mohon maaf, pendaftaran tenant Anda${nameLine} belum dapat kami lanjutkan saat ini.\n\n` +
+    `Untuk informasi lebih lanjut, silakan hubungi tim manajemen kami.\n\n` +
+    `Terima kasih. 🙏\n` +
+    `_Manajemen CST_`;
+  return sendMessage(phone, message);
+}
+
 export async function sendOverdueReminder(params: OverdueReminderParams): Promise<WaResult> {
   const message =
     `⚠️ *Tagihan Melewati Jatuh Tempo — ${params.businessName}*\n` +
