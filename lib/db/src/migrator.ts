@@ -1705,7 +1705,7 @@ VALUES
   (60, 'SC-KTN-01', 'food_booth',     'AREA KANTIN', 'Main', '12', 0, 0, 3, 2, 'available', 2),
   (61, 'SC-KTN-02', 'beverage_booth', 'AREA KANTIN', 'Main', '10', 3, 0, 3, 2, 'available', 2),
   (62, 'SC-KTN-03', 'food_booth',     'AREA KANTIN', 'Main',  '8', 6, 0, 2, 2, 'available', 2)
-ON CONFLICT (id) DO NOTHING;
+ON CONFLICT DO NOTHING;
 
 -- Update unit_type dan area_kantin untuk unit kantin yang sudah ada
 UPDATE mall_units SET unit_type='food_booth',     area_kantin='AREA KANTIN' WHERE id=127;
