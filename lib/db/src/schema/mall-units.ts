@@ -1,5 +1,4 @@
 import { pgTable, serial, integer, text, numeric, timestamp } from "drizzle-orm/pg-core";
-import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import { mallSitesTable } from "./mall-sites";
 
@@ -31,17 +30,29 @@ export const mallUnitsTable = pgTable("mall_units", {
 
 export const UNIT_CODE_REGEX = /^[A-Z0-9]+(-[A-Z0-9]+)*$/;
 
-export const insertMallUnitSchema = createInsertSchema(mallUnitsTable)
-  .omit({ id: true, createdAt: true, updatedAt: true })
-  .extend({
-    unitCode: z
-      .string()
-      .min(2, "Kode unit minimal 2 karakter")
-      .max(30, "Kode unit maksimal 30 karakter")
-      .regex(
-        UNIT_CODE_REGEX,
-        "Kode unit hanya boleh huruf kapital, angka, dan tanda hubung (-). Tidak boleh diawali/diakhiri tanda hubung atau menggunakan tanda hubung berurutan.",
-      ),
-  });
+export const insertMallUnitSchema = z.object({
+  siteId: z.number().int().nullable().optional(),
+  unitCode: z
+    .string()
+    .min(2, "Kode unit minimal 2 karakter")
+    .max(30, "Kode unit maksimal 30 karakter")
+    .regex(
+      UNIT_CODE_REGEX,
+      "Kode unit hanya boleh huruf kapital, angka, dan tanda hubung (-). Tidak boleh diawali/diakhiri tanda hubung atau menggunakan tanda hubung berurutan.",
+    ),
+  floor: z.string().default("Main"),
+  zone: z.string().nullable().optional(),
+  areaKantin: z.string().nullable().optional(),
+  unitType: z.string().default("other"),
+  sizeM2: z.string().nullable().optional(),
+  defaultRentAmount: z.string().optional().default("0"),
+  status: z.string().default("available"),
+  positionX: z.number().int().default(0),
+  positionY: z.number().int().default(0),
+  width: z.number().int().default(2),
+  height: z.number().int().default(2),
+  notes: z.string().nullable().optional(),
+});
+
 export type InsertMallUnit = z.infer<typeof insertMallUnitSchema>;
 export type MallUnit = typeof mallUnitsTable.$inferSelect;

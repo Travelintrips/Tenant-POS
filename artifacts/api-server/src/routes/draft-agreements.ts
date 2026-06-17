@@ -179,7 +179,7 @@ router.get("/draft-agreements", async (req: Request, res: Response) => {
       FROM tenant_draft_agreements
       ${whereClause}
     `);
-    const total = Number((countResult as { rows: { total: number }[] }).rows[0]?.total ?? 0);
+    const total = Number((countResult as unknown as { rows: { total: number }[] }).rows[0]?.total ?? 0);
     const totalPages = Math.max(1, Math.ceil(total / limit));
 
     // — DATA query —
