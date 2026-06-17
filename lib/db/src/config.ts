@@ -9,27 +9,16 @@ function resolveDbUrl(): string {
       (() => { throw new Error("SUPABASE_PG_URL_PROD harus diset di production"); })()
     );
   }
+  // Development: prioritaskan Supabase jika tersedia, fallback ke local DB
   return (
-    process.env["DATABASE_URL"] ??
     process.env["SUPABASE_PG_URL"] ??
     process.env["SUPABASE_DATABASE_URL"] ??
+    process.env["DATABASE_URL"] ??
     (() => { throw new Error("DATABASE_URL atau SUPABASE_PG_URL harus diset"); })()
   );
 }
 
 const rawUrl = resolveDbUrl().trim();
-const rawUrl = (isProduction
-  ? (
-      process.env["SUPABASE_PG_URL_PROD"] ??
-      (() => { throw new Error("SUPABASE_PG_URL_PROD harus diset di production"); })()
-    )
-  : (
-      process.env["DATABASE_URL"] ??
-      process.env["SUPABASE_PG_URL"] ??
-      process.env["SUPABASE_DATABASE_URL"] ??
-      (() => { throw new Error("DATABASE_URL atau SUPABASE_PG_URL harus diset"); })()
-    )
-).trim();
 
 const isSupabase = rawUrl.includes("supabase") || rawUrl.includes("pooler");
 
