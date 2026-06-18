@@ -14,29 +14,33 @@ function validateProductionEnv(): void {
   const pgUrlProd = process.env["SUPABASE_PG_URL_PROD"];
   const pgUrlFallback = process.env["SUPABASE_PG_URL"];
 
-  if (!pgUrlProd) {
+  const effectivePgUrl = pgUrlProd ?? pgUrlFallback;
+
+  if (!effectivePgUrl) {
+    // Tidak ada URL DB sama sekali — tolak start
     errors.push(
-      "SUPABASE_PG_URL_PROD tidak diset di production. " +
-      "Server menolak start untuk mencegah koneksi ke database development."
+      "Tidak ada DB URL yang tersedia (SUPABASE_PG_URL_PROD maupun SUPABASE_PG_URL tidak diset). " +
+      "Server tidak dapat terhubung ke database."
     );
   } else {
-    const devProjectId = "xssrfshdrtdfupgqwfdw";
-    if (pgUrlProd.includes(devProjectId)) {
-      errors.push(
-        `SUPABASE_PG_URL_PROD mengandung project ID development (${devProjectId}). ` +
-        "Pastikan SUPABASE_PG_URL_PROD mengarah ke database production yang berbeda."
+    if (!pgUrlProd) {
+      // SUPABASE_PG_URL_PROD tidak diset, tapi SUPABASE_PG_URL ada — izinkan dengan peringatan
+      warnings.push(
+        "SUPABASE_PG_URL_PROD tidak diset. Server menggunakan SUPABASE_PG_URL sebagai fallback. " +
+        "Pertimbangkan untuk set SUPABASE_PG_URL_PROD agar production dan development terpisah."
       );
+    } else {
+      const devProjectId = "xssrfshdrtdfupgqwfdw";
+      if (pgUrlProd.includes(devProjectId)) {
+        errors.push(
+          `SUPABASE_PG_URL_PROD mengandung project ID development (${devProjectId}). ` +
+          "Pastikan SUPABASE_PG_URL_PROD mengarah ke database production yang berbeda."
+        );
+      }
+      if (pgUrlProd.trimEnd() !== pgUrlProd) {
+        warnings.push("SUPABASE_PG_URL_PROD memiliki trailing whitespace — bisa menyebabkan koneksi gagal.");
+      }
     }
-    if (pgUrlProd.trimEnd() !== pgUrlProd) {
-      warnings.push("SUPABASE_PG_URL_PROD memiliki trailing whitespace — bisa menyebabkan koneksi gagal.");
-    }
-  }
-
-  if (pgUrlFallback && pgUrlProd && pgUrlFallback.trim() === pgUrlProd.trim()) {
-    warnings.push(
-      "SUPABASE_PG_URL_PROD dan SUPABASE_PG_URL memiliki nilai yang sama. " +
-      "Pastikan production dan development tidak menggunakan database yang sama."
-    );
   }
 
   if (!process.env["SESSION_SECRET"] || process.env["SESSION_SECRET"] === "fallback-dev-secret") {
