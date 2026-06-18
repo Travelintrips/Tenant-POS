@@ -138,7 +138,8 @@ const frontendIndex = path.join(frontendDist, "index.html");
 if (fs.existsSync(frontendDist)) {
   logger.info({ frontendDist }, "[app] Serving admin portal static files");
   app.use(express.static(frontendDist, { maxAge: "1d", etag: true }));
-  app.get("*", (_req, res) => {
+  // Express 5 + path-to-regexp v8: wildcard harus pakai "/{*path}", bukan "*"
+  app.get("/{*path}", (_req, res) => {
     res.sendFile(frontendIndex);
   });
 } else {
