@@ -176,34 +176,34 @@ router.get("/tenant-invoices/ppn-report", async (req, res) => {
       ? sql`AND site_id = ${req.siteId}`
       : sql``;
 
-    // Summary per bulan
+    // Summary per bulan — dikelompokkan berdasarkan tanggal penerbitan invoice (created_at)
     const rows = await db.execute(sql`
       SELECT
-        TO_CHAR(COALESCE(period_start, created_at::date), 'YYYY-MM') AS bulan,
-        COUNT(*)::int                                                  AS jumlah_invoice,
-        SUM(subtotal::numeric)                                         AS total_subtotal,
-        SUM(tax_amount::numeric)                                       AS total_ppn,
-        SUM(total_amount::numeric)                                     AS total_tagihan,
-        SUM(paid_amount::numeric)                                      AS total_terbayar
+        TO_CHAR(created_at::date, 'YYYY-MM') AS bulan,
+        COUNT(*)::int                         AS jumlah_invoice,
+        SUM(subtotal::numeric)                AS total_subtotal,
+        SUM(tax_amount::numeric)              AS total_ppn,
+        SUM(total_amount::numeric)            AS total_tagihan,
+        SUM(paid_amount::numeric)             AS total_terbayar
       FROM tenant_invoices
       WHERE status NOT IN ('cancelled', 'draft')
-        AND COALESCE(period_start, created_at::date) BETWEEN ${fromDate}::date AND ${toDate}::date
+        AND created_at::date BETWEEN ${fromDate}::date AND ${toDate}::date
         ${siteFilter}
-      GROUP BY TO_CHAR(COALESCE(period_start, created_at::date), 'YYYY-MM')
+      GROUP BY TO_CHAR(created_at::date, 'YYYY-MM')
       ORDER BY bulan ASC
     `);
 
     // Grand total
     const totals = await db.execute(sql`
       SELECT
-        COUNT(*)::int            AS jumlah_invoice,
-        SUM(subtotal::numeric)   AS total_subtotal,
-        SUM(tax_amount::numeric) AS total_ppn,
+        COUNT(*)::int              AS jumlah_invoice,
+        SUM(subtotal::numeric)     AS total_subtotal,
+        SUM(tax_amount::numeric)   AS total_ppn,
         SUM(total_amount::numeric) AS total_tagihan,
         SUM(paid_amount::numeric)  AS total_terbayar
       FROM tenant_invoices
       WHERE status NOT IN ('cancelled', 'draft')
-        AND COALESCE(period_start, created_at::date) BETWEEN ${fromDate}::date AND ${toDate}::date
+        AND created_at::date BETWEEN ${fromDate}::date AND ${toDate}::date
         ${siteFilter}
     `);
 
