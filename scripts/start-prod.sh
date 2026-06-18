@@ -1,5 +1,6 @@
 #!/bin/bash
 set -e
-
-echo "[start-prod] Memulai server production (API + frontend) di port 8080..."
-exec NODE_ENV=production PORT=8080 node --enable-source-maps artifacts/api-server/dist/index.mjs
+# Script production: jalankan API server yang sudah di-build dengan node langsung.
+# Tidak membutuhkan pnpm — hanya node yang diperlukan di container production.
+cd /home/runner/workspace
+exec node --enable-source-maps artifacts/api-server/dist/index.mjs

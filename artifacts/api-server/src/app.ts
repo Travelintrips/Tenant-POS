@@ -4,6 +4,7 @@ import cors from "cors";
 import helmet from "helmet";
 import pinoHttp from "pino-http";
 import path from "path";
+import fs from "fs";
 import passport from "./lib/auth";
 import router from "./routes";
 import { logger } from "./lib/logger";
@@ -126,13 +127,15 @@ app.get("/api/healthz", (_req, res) => {
 
 app.use("/api", router);
 
-// ─── Serve admin portal static files (production only) ───────────────────
+// ─── Serve admin portal static files ─────────────────────────────────────
 // Di development, Vite proxy menangani routing antar API dan frontend.
-// Di production, Express serve file statis dari build admin portal,
+// Di production (termasuk NODE_ENV=development di container Replit), Express
+// serve file statis dari build admin portal jika folder dist ada,
 // dengan fallback ke index.html untuk semua route non-API (SPA behavior).
 // Ini yang memungkinkan /bayar/:token dan halaman lain bisa diakses langsung.
-if (isProduction) {
-  const frontendDist = path.join(process.cwd(), "artifacts/admin-portal/dist/public");
+const frontendDist = path.join(process.cwd(), "artifacts/admin-portal/dist/public");
+if (fs.existsSync(frontendDist)) {
+  logger.info({ frontendDist }, "[app] Serving admin portal static files");
   app.use(express.static(frontendDist, { maxAge: "1d", etag: true }));
   app.get("*", (_req, res) => {
     res.sendFile(path.join(frontendDist, "index.html"));
