@@ -98,4 +98,16 @@ async function start() {
   });
 }
 
+// Safety net: cegah Worker thread (tesseract.js, pdf-parse) crash seluruh process
+process.on("unhandledRejection", (reason) => {
+  logger.warn({ reason }, "[process] unhandledRejection ditangkap — diabaikan agar server tidak crash");
+});
+process.on("uncaughtException", (err) => {
+  if ((err as NodeJS.ErrnoException).code === "ERR_WORKER_UNHANDLED_ERROR") {
+    logger.warn({ err: err.message }, "[process] Worker error diabaikan");
+    return;
+  }
+  logger.error({ err }, "[process] uncaughtException — server tetap jalan");
+});
+
 start();
