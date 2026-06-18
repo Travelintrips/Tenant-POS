@@ -542,7 +542,7 @@ function buildInvoiceHtml(inv: Invoice, cfg: MallInvoiceConfig): string {
   </table>
   <div class="totals">
     <div class="total-row"><span>Subtotal</span><span>${formatRupiah(inv.subtotal)}</span></div>
-    ${Number(inv.taxAmount) > 0 ? `<div class="total-row"><span>Pajak</span><span>${formatRupiah(inv.taxAmount)}</span></div>` : ""}
+    ${Number(inv.taxAmount) > 0 ? `<div class="total-row" style="color:#2563eb"><span>PPN 11% <span style="font-weight:normal;font-size:10px">(Pajak Pertambahan Nilai)</span></span><span>+ ${formatRupiah(inv.taxAmount)}</span></div>` : ""}
     <div class="total-grand"><span>Total</span><span>${formatRupiah(inv.totalAmount)}</span></div>
     <div class="total-row" style="color:#059669;padding-top:6px"><span>Terbayar</span><span>${formatRupiah(inv.paidAmount)}</span></div>
     ${Number(inv.outstandingAmount) > 0 ? `<div class="outstanding"><span>Sisa Tagihan</span><span>${formatRupiah(inv.outstandingAmount)}</span></div>` : ""}
@@ -653,7 +653,6 @@ type CreateForm = {
   otherChargeAmount: string;
   discountAmount: string;
   penaltyAmount: string;
-  taxAmount: string;
   notes: string;
   status: InvoiceStatus;
 };
@@ -663,7 +662,7 @@ const EMPTY_FORM: CreateForm = {
   unitCode: "", periodStart: "", periodEnd: "", dueDate: "",
   rentAmount: "", serviceChargeAmount: "", electricityChargeAmount: "",
   waterChargeAmount: "", otherChargeAmount: "",
-  discountAmount: "0", penaltyAmount: "0", taxAmount: "0",
+  discountAmount: "0", penaltyAmount: "0",
   notes: "", status: "unpaid",
 };
 
@@ -1009,7 +1008,6 @@ export default function TenantInvoices() {
       otherChargeAmount: createForm.otherChargeAmount || "0",
       discountAmount: createForm.discountAmount || "0",
       penaltyAmount: createForm.penaltyAmount || "0",
-      taxAmount: createForm.taxAmount || "0",
       notes: createForm.notes || null,
       status: createForm.status,
     });
@@ -1636,10 +1634,22 @@ export default function TenantInvoices() {
                 <Field label="Denda">
                   <Input type="number" min="0" value={createForm.penaltyAmount} onChange={e => setCreateForm(f => ({ ...f, penaltyAmount: e.target.value }))} placeholder="0" />
                 </Field>
-                <Field label="Pajak">
-                  <Input type="number" min="0" value={createForm.taxAmount} onChange={e => setCreateForm(f => ({ ...f, taxAmount: e.target.value }))} placeholder="0" />
-                </Field>
               </div>
+
+              {/* PPN Preview */}
+              {(() => {
+                const sub = (Number(createForm.rentAmount||0)+Number(createForm.serviceChargeAmount||0)+Number(createForm.electricityChargeAmount||0)+Number(createForm.waterChargeAmount||0)+Number(createForm.otherChargeAmount||0))-Number(createForm.discountAmount||0)+Number(createForm.penaltyAmount||0);
+                const ppn = Math.round(sub * 0.11);
+                const total = sub + ppn;
+                return sub > 0 ? (
+                  <div className="rounded-md border bg-blue-50 border-blue-100 p-3 text-sm space-y-1">
+                    <p className="text-xs font-semibold text-blue-700 uppercase tracking-wide mb-1.5">Ringkasan Tagihan</p>
+                    <div className="flex justify-between text-muted-foreground"><span>Subtotal</span><span>{formatRupiah(String(sub))}</span></div>
+                    <div className="flex justify-between text-blue-600"><span>PPN 11% (Pajak Pertambahan Nilai)</span><span>+ {formatRupiah(String(ppn))}</span></div>
+                    <div className="flex justify-between font-bold text-base border-t border-blue-200 pt-1 mt-1"><span>Total</span><span>{formatRupiah(String(total))}</span></div>
+                  </div>
+                ) : null;
+              })()}
 
               <Field label="Catatan">
                 <Textarea value={createForm.notes} onChange={e => setCreateForm(f => ({ ...f, notes: e.target.value }))} rows={2} placeholder="Catatan tambahan (opsional)" />
@@ -1812,9 +1822,13 @@ export default function TenantInvoices() {
                       <span>Denda</span><span>+ {formatRupiah(detailData.penaltyAmount)}</span>
                     </div>
                   )}
+                  <Separator />
+                  <div className="flex justify-between text-muted-foreground">
+                    <span>Subtotal</span><span>{formatRupiah(detailData.subtotal)}</span>
+                  </div>
                   {Number(detailData.taxAmount) > 0 && (
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">Pajak</span><span>{formatRupiah(detailData.taxAmount)}</span>
+                    <div className="flex justify-between text-blue-600">
+                      <span>PPN 11% (Pajak Pertambahan Nilai)</span><span>+ {formatRupiah(detailData.taxAmount)}</span>
                     </div>
                   )}
                   <Separator />
