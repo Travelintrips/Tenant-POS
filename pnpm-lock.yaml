@@ -433,6 +433,9 @@ importers:
       '@supabase/supabase-js':
         specifier: ^2.107.0
         version: 2.107.0
+      '@types/pdf-parse':
+        specifier: ^1.1.5
+        version: 1.1.5
       '@workspace/api-zod':
         specifier: workspace:*
         version: link:../../lib/api-zod
@@ -2088,6 +2091,9 @@ packages:
 
   '@types/passport@1.0.17':
     resolution: {integrity: sha512-aciLyx+wDwT2t2/kJGJR2AEeBz0nJU4WuRX04Wu9Dqc5lSUtwu0WERPHYsLhF9PtseiAMPBGNUOtFjxZ56prsg==}
+
+  '@types/pdf-parse@1.1.5':
+    resolution: {integrity: sha512-kBfrSXsloMnUJOKi25s3+hRmkycHfLK6A09eRGqF/N8BkQoPUmaCr+q8Cli5FnfohEz/rsv82zAiPz/LXtOGhA==}
 
   '@types/pg@8.20.0':
     resolution: {integrity: sha512-bEPFOaMAHTEP1EzpvHTbmwR8UsFyHSKsRisLIHVMXnpNefSbGA1bD6CVy+qKjGSqmZqNqBDV2azOBo8TgkcVow==}
@@ -6018,6 +6024,10 @@ snapshots:
   '@types/passport@1.0.17':
     dependencies:
       '@types/express': 5.0.6
+
+  '@types/pdf-parse@1.1.5':
+    dependencies:
+      '@types/node': 25.6.2
 
   '@types/pg@8.20.0':
     dependencies:
