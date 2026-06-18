@@ -134,11 +134,18 @@ app.use("/api", router);
 // dengan fallback ke index.html untuk semua route non-API (SPA behavior).
 // Ini yang memungkinkan /bayar/:token dan halaman lain bisa diakses langsung.
 const frontendDist = path.join(process.cwd(), "artifacts/admin-portal/dist/public");
+const frontendIndex = path.join(frontendDist, "index.html");
 if (fs.existsSync(frontendDist)) {
   logger.info({ frontendDist }, "[app] Serving admin portal static files");
   app.use(express.static(frontendDist, { maxAge: "1d", etag: true }));
   app.get("*", (_req, res) => {
-    res.sendFile(path.join(frontendDist, "index.html"));
+    res.sendFile(frontendIndex);
+  });
+} else {
+  // Fallback: GET / selalu 200 agar Cloud Run health check lulus
+  // meski frontend belum di-build (misal saat pertama deploy).
+  app.get("/", (_req, res) => {
+    res.status(200).json({ status: "ok", service: "Mall Admin API" });
   });
 }
 
