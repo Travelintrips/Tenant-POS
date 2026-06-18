@@ -1,3 +1,4 @@
+import * as XLSX from "xlsx";
 import { apiFetch as apiFetchBase } from "@/lib/api";
 import { useState, useMemo, useRef } from "react";
 import {
@@ -25,7 +26,7 @@ import {
   Plus, FileText, Printer, CreditCard, X, Search, Zap, AlertCircle,
   CheckCircle2, Clock, Ban, CircleDashed, MessageCircle, Send, Link2, Loader2,
   Copy, WifiOff, CheckCheck, Download, Layers, ChevronDown, ChevronRight, Eye, Trash2,
-  BarChart2, FileDown,
+  BarChart2, FileDown, FileSpreadsheet,
 } from "lucide-react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -2363,37 +2364,118 @@ export default function TenantInvoices() {
               {ppnLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
               Tampilkan
             </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-9 gap-1 border-emerald-300 text-emerald-700 hover:bg-emerald-50 ml-auto"
-              disabled={!ppnReport || ppnReport.rows.length === 0}
-              onClick={() => {
-                if (!ppnReport) return;
-                const header = ["Bulan","Jumlah Invoice","Subtotal","PPN 11%","Total Tagihan","Total Terbayar"];
-                const rows = ppnReport.rows.map(r => [
-                  r.bulan,
-                  r.jumlah_invoice,
-                  r.total_subtotal,
-                  r.total_ppn,
-                  r.total_tagihan,
-                  r.total_terbayar,
-                ]);
-                const t = ppnReport.totals;
-                rows.push(["TOTAL", t.jumlah_invoice ?? "", t.total_subtotal ?? "", t.total_ppn ?? "", t.total_tagihan ?? "", t.total_terbayar ?? ""]);
-                const csv = [header, ...rows].map(r => r.join(",")).join("\n");
-                const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement("a");
-                a.href = url;
-                a.download = `laporan-ppn-${ppnFrom}-sd-${ppnTo}.csv`;
-                a.click();
-                URL.revokeObjectURL(url);
-              }}
-            >
-              <FileDown className="h-4 w-4" />
-              Ekspor CSV
-            </Button>
+            <div className="ml-auto flex gap-2">
+              {/* ── Ekspor CSV ── */}
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-9 gap-1 border-slate-300 text-slate-700 hover:bg-slate-50"
+                disabled={!ppnReport || ppnReport.rows.length === 0}
+                onClick={() => {
+                  if (!ppnReport) return;
+                  const header = ["Bulan","Jumlah Invoice","Subtotal (DPP)","PPN 11%","Total Tagihan","Total Terbayar"];
+                  const dataRows = ppnReport.rows.map(r => [
+                    r.bulan,
+                    r.jumlah_invoice,
+                    r.total_subtotal,
+                    r.total_ppn,
+                    r.total_tagihan,
+                    r.total_terbayar,
+                  ]);
+                  const t = ppnReport.totals;
+                  dataRows.push(["TOTAL", t.jumlah_invoice ?? "", t.total_subtotal ?? "", t.total_ppn ?? "", t.total_tagihan ?? "", t.total_terbayar ?? ""]);
+                  const csv = [header, ...dataRows].map(r => r.join(",")).join("\n");
+                  const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement("a");
+                  a.href = url;
+                  a.download = `laporan-ppn-${ppnFrom}-sd-${ppnTo}.csv`;
+                  a.click();
+                  URL.revokeObjectURL(url);
+                }}
+              >
+                <FileDown className="h-4 w-4" />
+                Ekspor CSV
+              </Button>
+
+              {/* ── Ekspor Excel ── */}
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-9 gap-1 border-green-500 text-green-700 hover:bg-green-50"
+                disabled={!ppnReport || ppnReport.rows.length === 0}
+                onClick={() => {
+                  if (!ppnReport) return;
+                  const wb = XLSX.utils.book_new();
+
+                  // ── baris judul ──
+                  const judul = [
+                    [`LAPORAN REKAPITULASI PPN 11%`],
+                    [`Periode: ${ppnFrom} s/d ${ppnTo}`],
+                    [`Dicetak: ${new Date().toLocaleDateString("id-ID", { dateStyle: "long" })}`],
+                    [],
+                  ];
+
+                  // ── header kolom ──
+                  const header = [["Bulan","Jumlah Invoice","Subtotal (DPP)","PPN 11%","Total Tagihan","Total Terbayar"]];
+
+                  // ── baris data ──
+                  const dataRows = ppnReport.rows.map(r => [
+                    r.bulan,
+                    Number(r.jumlah_invoice),
+                    Number(r.total_subtotal),
+                    Number(r.total_ppn),
+                    Number(r.total_tagihan),
+                    Number(r.total_terbayar),
+                  ]);
+
+                  // ── baris total ──
+                  const t = ppnReport.totals;
+                  const totalRow = [
+                    "TOTAL",
+                    Number(t.jumlah_invoice ?? 0),
+                    Number(t.total_subtotal ?? 0),
+                    Number(t.total_ppn ?? 0),
+                    Number(t.total_tagihan ?? 0),
+                    Number(t.total_terbayar ?? 0),
+                  ];
+
+                  const wsData = [...judul, ...header, ...dataRows, totalRow];
+                  const ws = XLSX.utils.aoa_to_sheet(wsData);
+
+                  // ── lebar kolom ──
+                  ws["!cols"] = [
+                    { wch: 12 }, { wch: 16 }, { wch: 20 },
+                    { wch: 20 }, { wch: 20 }, { wch: 20 },
+                  ];
+
+                  // ── merge judul (baris 1) ──
+                  ws["!merges"] = [
+                    { s: { r: 0, c: 0 }, e: { r: 0, c: 5 } },
+                    { s: { r: 1, c: 0 }, e: { r: 1, c: 5 } },
+                    { s: { r: 2, c: 0 }, e: { r: 2, c: 5 } },
+                  ];
+
+                  // ── format angka ribuan untuk kolom numerik (C–F) ──
+                  const startDataRow = judul.length + header.length; // 0-indexed
+                  const endRow = startDataRow + dataRows.length; // termasuk baris total
+                  for (let row = startDataRow; row <= endRow; row++) {
+                    for (let col = 2; col <= 5; col++) {
+                      const cellRef = XLSX.utils.encode_cell({ r: row, c: col });
+                      if (ws[cellRef]) {
+                        ws[cellRef].z = '#,##0';
+                      }
+                    }
+                  }
+
+                  XLSX.utils.book_append_sheet(wb, ws, "Laporan PPN");
+                  XLSX.writeFile(wb, `laporan-ppn-${ppnFrom}-sd-${ppnTo}.xlsx`);
+                }}
+              >
+                <FileSpreadsheet className="h-4 w-4" />
+                Ekspor Excel
+              </Button>
+            </div>
           </div>
 
           {/* Tabel laporan */}
