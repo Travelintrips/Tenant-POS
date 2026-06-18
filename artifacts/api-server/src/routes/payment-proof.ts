@@ -11,6 +11,7 @@ import { sendPaymentReceived, sendAdminPaymentAlert } from "../lib/whatsapp";
 import { uploadRateLimiter } from "../middlewares/rate-limit";
 import { uploadToStorage } from "../lib/supabase-storage";
 import { getBaseUrl } from "../lib/app-url";
+import { extractAmountFromFile } from "../lib/ocr-service";
 
 /** Ambil semua nomor WA owner/admin yang aktif dari DB, fallback ke env */
 async function getOwnerPhones(): Promise<Array<{ name: string; phone: string }>> {
@@ -89,6 +90,57 @@ function runMulter(
     });
 }
 
+// ─── POST /api/pay/:token/scan-proof ─────────────────────────────────────────
+// Public — OCR scan bukti pembayaran, kembalikan extractedAmount (non-blocking)
+const uploadScan = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    if (PROOF_ALLOWED_MIME.has(file.mimetype)) cb(null, true);
+    else cb(new Error("Format tidak diizinkan"));
+  },
+});
+
+router.post("/pay/:token/scan-proof", uploadRateLimiter, async (req, res) => {
+  const { token } = req.params;
+  if (!token) { res.status(400).json({ error: "Token tidak valid" }); return; }
+
+  try {
+    await runMulter(uploadScan, "proof")(req, res);
+  } catch {
+    res.status(400).json({ error: "Upload gagal" });
+    return;
+  }
+
+  if (!req.file) {
+    res.status(400).json({ error: "File tidak ditemukan" });
+    return;
+  }
+
+  // Jalankan OCR non-blocking — timeout 30 detik agar tidak hang
+  try {
+    const timeoutMs = 30_000;
+    const ocrPromise = extractAmountFromFile(req.file.buffer, req.file.mimetype);
+    const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), timeoutMs));
+
+    const result = await Promise.race([ocrPromise, timeoutPromise]);
+
+    if (!result) {
+      res.json({ success: true, extractedAmount: null, confidence: 0, rawText: "" });
+      return;
+    }
+
+    res.json({
+      success: true,
+      extractedAmount: result.extractedAmount,
+      confidence: result.confidence,
+      rawText: result.rawText.slice(0, 500),
+    });
+  } catch {
+    res.json({ success: true, extractedAmount: null, confidence: 0, rawText: "" });
+  }
+});
+
 // ─── GET /api/pay/:token ──────────────────────────────────────────────────────
 // Public — ambil info invoice berdasarkan token
 router.get("/pay/:token", async (req, res) => {
@@ -144,6 +196,9 @@ const proofBodySchema = z.object({
   paymentMethod: z.enum(["tunai", "transfer", "qris", "edc", "other"]).default("transfer"),
   referenceNumber: z.string().optional().nullable(),
   notes: z.string().optional().nullable(),
+  ocrExtractedAmount: z.union([z.string(), z.number()]).transform((v) => Number(v) || null).optional().nullable(),
+  ocrRawText: z.string().optional().nullable(),
+  ocrConfidence: z.union([z.string(), z.number()]).transform((v) => Number(v) || null).optional().nullable(),
 });
 
 router.post("/pay/:token/proof", uploadRateLimiter, async (req, res) => {
@@ -168,7 +223,7 @@ router.post("/pay/:token/proof", uploadRateLimiter, async (req, res) => {
     return;
   }
 
-  const { amount, paymentMethod, referenceNumber, notes } = parsed.data;
+  const { amount, paymentMethod, referenceNumber, notes, ocrExtractedAmount, ocrRawText, ocrConfidence } = parsed.data;
 
   if (amount <= 0) {
     res.status(400).json({ error: "Jumlah pembayaran harus lebih dari 0" });
@@ -244,6 +299,9 @@ router.post("/pay/:token/proof", uploadRateLimiter, async (req, res) => {
         proofImageUrl: proofUrl,
         notes: notes ?? null,
         approvalStatus: "pending_review",
+        ...(ocrExtractedAmount != null ? { ocrExtractedAmount: String(ocrExtractedAmount) } : {}),
+        ...(ocrRawText ? { ocrRawText } : {}),
+        ...(ocrConfidence != null ? { ocrConfidence: String(ocrConfidence) } : {}),
       })
       .returning();
 

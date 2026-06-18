@@ -100,6 +100,8 @@ async function buildAll() {
       "puppeteer",
       "puppeteer-core",
       "electron",
+      "tesseract.js",
+      "pdf-parse",
     ],
     sourcemap: "linked",
     plugins: [

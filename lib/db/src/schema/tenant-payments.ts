@@ -40,6 +40,9 @@ export const tenantPaymentsTable = pgTable("tenant_payments", {
   rejectionReason: text("rejection_reason"),
   approvedBy: text("approved_by"),
   approvedAt: timestamp("approved_at", { withTimezone: true }),
+  ocrExtractedAmount: numeric("ocr_extracted_amount"),
+  ocrRawText: text("ocr_raw_text"),
+  ocrConfidence: numeric("ocr_confidence"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });

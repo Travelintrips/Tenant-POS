@@ -1,7 +1,7 @@
 import { useState, useRef } from "react";
 import { useParams } from "wouter";
 import { useQuery } from "@tanstack/react-query";
-import { Building2, Upload, CheckCircle, XCircle, FileImage, Loader2 } from "lucide-react";
+import { Building2, Upload, CheckCircle, XCircle, FileImage, Loader2, Sparkles, Info } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/select";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
 
 function formatRupiah(val: string | number | null | undefined) {
   if (val == null || val === "") return "Rp 0";
@@ -43,6 +44,12 @@ interface InvoiceInfo {
   alreadyPaid: boolean;
 }
 
+interface ScanResult {
+  extractedAmount: number | null;
+  confidence: number;
+  rawText: string;
+}
+
 export default function PaymentProofUpload() {
   const params = useParams<{ token: string }>();
   const token = params.token;
@@ -58,6 +65,11 @@ export default function PaymentProofUpload() {
   const [submitSuccess, setSubmitSuccess] = useState<{ receiptNumber: string } | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
+  // OCR state
+  const [scanning, setScanning] = useState(false);
+  const [scanResult, setScanResult] = useState<ScanResult | null>(null);
+  const [ocrFilled, setOcrFilled] = useState(false);
+
   const { data: invoice, isLoading, error } = useQuery<InvoiceInfo>({
     queryKey: ["pay-invoice", token],
     queryFn: async () => {
@@ -72,13 +84,40 @@ export default function PaymentProofUpload() {
     retry: false,
   });
 
+  async function scanProof(file: File) {
+    setScanning(true);
+    setScanResult(null);
+    setOcrFilled(false);
+    try {
+      const form = new FormData();
+      form.append("proof", file);
+      const res = await fetch(`/api/pay/${token}/scan-proof`, { method: "POST", body: form });
+      if (!res.ok) return;
+      const data: ScanResult = await res.json();
+      setScanResult(data);
+      if (data.extractedAmount && data.extractedAmount > 0) {
+        setAmount(String(data.extractedAmount));
+        setOcrFilled(true);
+      }
+    } catch {
+      // gagal scan → tidak apa-apa, user bisa isi manual
+    } finally {
+      setScanning(false);
+    }
+  }
+
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0] ?? null;
     setProofFile(file);
+    setScanResult(null);
+    setOcrFilled(false);
     if (file && file.type.startsWith("image/")) {
       setProofPreview(URL.createObjectURL(file));
     } else {
       setProofPreview(null);
+    }
+    if (file) {
+      scanProof(file);
     }
   }
 
@@ -104,6 +143,10 @@ export default function PaymentProofUpload() {
       if (referenceNumber) form.append("referenceNumber", referenceNumber);
       if (notes) form.append("notes", notes);
       form.append("proof", proofFile);
+      // Kirim data OCR untuk logging
+      if (scanResult?.extractedAmount) form.append("ocrExtractedAmount", String(scanResult.extractedAmount));
+      if (scanResult?.rawText) form.append("ocrRawText", scanResult.rawText.slice(0, 500));
+      if (scanResult?.confidence) form.append("ocrConfidence", String(scanResult.confidence));
 
       const res = await fetch(`/api/pay/${token}/proof`, {
         method: "POST",
@@ -242,48 +285,8 @@ export default function PaymentProofUpload() {
           </CardHeader>
           <CardContent>
             <form onSubmit={handleSubmit} className="space-y-4">
-              <div className="space-y-1.5">
-                <Label htmlFor="amount">Jumlah Dibayar <span className="text-destructive">*</span></Label>
-                <div className="relative">
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">Rp</span>
-                  <Input
-                    id="amount"
-                    type="number"
-                    min="1"
-                    placeholder="0"
-                    className="pl-10"
-                    value={amount}
-                    onChange={(e) => setAmount(e.target.value)}
-                    required
-                  />
-                </div>
-              </div>
 
-              <div className="space-y-1.5">
-                <Label>Metode Pembayaran <span className="text-destructive">*</span></Label>
-                <Select value={paymentMethod} onValueChange={setPaymentMethod}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="transfer">Transfer Bank</SelectItem>
-                    <SelectItem value="qris">QRIS</SelectItem>
-                    <SelectItem value="tunai">Tunai</SelectItem>
-                    <SelectItem value="edc">EDC/Debit</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="space-y-1.5">
-                <Label htmlFor="reference">Nomor Referensi / Bukti Transfer</Label>
-                <Input
-                  id="reference"
-                  placeholder="Contoh: 123456789"
-                  value={referenceNumber}
-                  onChange={(e) => setReferenceNumber(e.target.value)}
-                />
-              </div>
-
+              {/* File Upload — di atas agar OCR berjalan sebelum user isi amount */}
               <div className="space-y-1.5">
                 <Label htmlFor="proof">
                   Foto/Bukti Pembayaran <span className="text-destructive">*</span>
@@ -315,9 +318,83 @@ export default function PaymentProofUpload() {
                   className="hidden"
                   onChange={handleFileChange}
                 />
-                {proofFile && (
+                {proofFile && !proofPreview && (
                   <p className="text-xs text-muted-foreground">{proofFile.name}</p>
                 )}
+
+                {/* OCR scanning indicator */}
+                {scanning && (
+                  <div className="flex items-center gap-2 text-xs text-blue-600 bg-blue-50 rounded-md px-3 py-2 mt-1">
+                    <Loader2 className="h-3.5 w-3.5 animate-spin flex-shrink-0" />
+                    <span>Mendeteksi nominal dari bukti transfer...</span>
+                  </div>
+                )}
+              </div>
+
+              {/* Jumlah Dibayar — dengan label OCR jika auto-fill */}
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="amount">Jumlah Dibayar <span className="text-destructive">*</span></Label>
+                  {ocrFilled && scanResult?.extractedAmount && !scanning && (
+                    <Badge variant="outline" className="text-[10px] px-2 py-0.5 bg-green-50 text-green-700 border-green-200 flex items-center gap-1">
+                      <Sparkles className="h-3 w-3" />
+                      Terdeteksi otomatis
+                    </Badge>
+                  )}
+                </div>
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">Rp</span>
+                  <Input
+                    id="amount"
+                    type="number"
+                    min="1"
+                    placeholder="0"
+                    className={`pl-10 ${ocrFilled && !scanning ? "border-green-400 focus:border-green-500" : ""}`}
+                    value={amount}
+                    onChange={(e) => {
+                      setAmount(e.target.value);
+                      setOcrFilled(false); // user edit manual → hapus badge
+                    }}
+                    required
+                  />
+                </div>
+                {ocrFilled && scanResult?.extractedAmount && !scanning && (
+                  <p className="text-xs text-green-600 flex items-center gap-1">
+                    <Info className="h-3 w-3" />
+                    Nominal terdeteksi dari bukti transfer. Pastikan sudah sesuai sebelum mengirim.
+                  </p>
+                )}
+                {!scanning && proofFile && !ocrFilled && scanResult && !scanResult.extractedAmount && (
+                  <p className="text-xs text-muted-foreground flex items-center gap-1">
+                    <Info className="h-3 w-3" />
+                    Nominal tidak terdeteksi otomatis. Silakan isi manual.
+                  </p>
+                )}
+              </div>
+
+              <div className="space-y-1.5">
+                <Label>Metode Pembayaran <span className="text-destructive">*</span></Label>
+                <Select value={paymentMethod} onValueChange={setPaymentMethod}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="transfer">Transfer Bank</SelectItem>
+                    <SelectItem value="qris">QRIS</SelectItem>
+                    <SelectItem value="tunai">Tunai</SelectItem>
+                    <SelectItem value="edc">EDC/Debit</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="reference">Nomor Referensi / Bukti Transfer</Label>
+                <Input
+                  id="reference"
+                  placeholder="Contoh: 123456789"
+                  value={referenceNumber}
+                  onChange={(e) => setReferenceNumber(e.target.value)}
+                />
               </div>
 
               <div className="space-y-1.5">
@@ -337,11 +414,16 @@ export default function PaymentProofUpload() {
                 </Alert>
               )}
 
-              <Button type="submit" className="w-full" disabled={submitting}>
+              <Button type="submit" className="w-full" disabled={submitting || scanning}>
                 {submitting ? (
                   <>
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                     Mengirim...
+                  </>
+                ) : scanning ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Mendeteksi nominal...
                   </>
                 ) : (
                   <>

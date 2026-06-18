@@ -1934,6 +1934,14 @@ CREATE TABLE IF NOT EXISTS finance_payment_events (
 );
     `.trim(),
   },
+  {
+    name: "0043_tenant_payments_ocr_columns",
+    sql: `
+ALTER TABLE tenant_payments ADD COLUMN IF NOT EXISTS ocr_extracted_amount numeric;
+ALTER TABLE tenant_payments ADD COLUMN IF NOT EXISTS ocr_raw_text text;
+ALTER TABLE tenant_payments ADD COLUMN IF NOT EXISTS ocr_confidence numeric;
+    `.trim(),
+  },
 ];
 
 const MIGRATIONS_TABLE = "schema_migrations";
