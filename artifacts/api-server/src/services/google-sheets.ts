@@ -1,6 +1,20 @@
-import { google } from "googleapis";
+type GoogleType = typeof import("googleapis");
+
+let _google: GoogleType["google"] | null = null;
+
+function getGoogleLib(): GoogleType["google"] {
+  if (!_google) {
+    // Lazy-load googleapis hanya saat pertama dibutuhkan.
+    // Ini mencegah require('googleapis') gagal saat bundle dimuat di production
+    // jika symlink pnpm belum terbentuk saat startup.
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    _google = (require("googleapis") as GoogleType).google;
+  }
+  return _google;
+}
 
 function getAuth() {
+  const google = getGoogleLib();
   const raw = process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
   if (!raw) throw new Error("GOOGLE_SERVICE_ACCOUNT_JSON tidak ditemukan di environment.");
   let creds: Record<string, unknown>;
@@ -32,6 +46,7 @@ export async function writeToSheet(opts: {
   headers: string[];
   rows: (string | number | null)[][];
 }): Promise<void> {
+  const google = getGoogleLib();
   const auth = getAuth();
   const sheets = google.sheets({ version: "v4", auth });
 
@@ -112,6 +127,7 @@ export async function readFromSheet(opts: {
   spreadsheetId: string;
   range: string;
 }): Promise<string[][]> {
+  const google = getGoogleLib();
   const auth = getAuth();
   const sheets = google.sheets({ version: "v4", auth });
   const res = await sheets.spreadsheets.values.get({
