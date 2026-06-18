@@ -158,6 +158,67 @@ const invoiceSelect = {
   phone: tenantsTable.phone,
 } as const;
 
+// ─── GET /api/tenant-invoices/ppn-report ─────────────────────────────────────
+router.get("/tenant-invoices/ppn-report", async (req, res) => {
+  try {
+    const { from, to } = req.query; // format: YYYY-MM
+
+    const fromMonth = from ? String(from) : new Date().toISOString().slice(0, 7);
+    const toMonth   = to   ? String(to)   : fromMonth;
+
+    // Konversi YYYY-MM ke range tanggal
+    const fromDate = `${fromMonth}-01`;
+    const [toYear, toMon] = toMonth.split("-").map(Number);
+    const lastDay = new Date(toYear, toMon, 0).getDate();
+    const toDate  = `${toMonth}-${String(lastDay).padStart(2, "0")}`;
+
+    const siteFilter = req.siteId > 0
+      ? sql`AND site_id = ${req.siteId}`
+      : sql``;
+
+    // Summary per bulan
+    const rows = await db.execute(sql`
+      SELECT
+        TO_CHAR(COALESCE(period_start, created_at::date), 'YYYY-MM') AS bulan,
+        COUNT(*)::int                                                  AS jumlah_invoice,
+        SUM(subtotal::numeric)                                         AS total_subtotal,
+        SUM(tax_amount::numeric)                                       AS total_ppn,
+        SUM(total_amount::numeric)                                     AS total_tagihan,
+        SUM(paid_amount::numeric)                                      AS total_terbayar
+      FROM tenant_invoices
+      WHERE status NOT IN ('cancelled', 'draft')
+        AND COALESCE(period_start, created_at::date) BETWEEN ${fromDate}::date AND ${toDate}::date
+        ${siteFilter}
+      GROUP BY TO_CHAR(COALESCE(period_start, created_at::date), 'YYYY-MM')
+      ORDER BY bulan ASC
+    `);
+
+    // Grand total
+    const totals = await db.execute(sql`
+      SELECT
+        COUNT(*)::int            AS jumlah_invoice,
+        SUM(subtotal::numeric)   AS total_subtotal,
+        SUM(tax_amount::numeric) AS total_ppn,
+        SUM(total_amount::numeric) AS total_tagihan,
+        SUM(paid_amount::numeric)  AS total_terbayar
+      FROM tenant_invoices
+      WHERE status NOT IN ('cancelled', 'draft')
+        AND COALESCE(period_start, created_at::date) BETWEEN ${fromDate}::date AND ${toDate}::date
+        ${siteFilter}
+    `);
+
+    res.json({
+      from: fromMonth,
+      to: toMonth,
+      rows: rows.rows,
+      totals: totals.rows[0] ?? {},
+    });
+  } catch (err) {
+    req.log.error(err, "Failed to get PPN report");
+    res.status(500).json({ error: "Gagal mengambil laporan PPN" });
+  }
+});
+
 // ─── GET /api/tenant-invoices/upcoming ───────────────────────────────────────
 // Invoice yang akan jatuh tempo dalam 7 hari ke depan + yang sudah overdue
 router.get("/tenant-invoices/upcoming", async (req, res) => {
