@@ -138,15 +138,20 @@ const frontendIndex = path.join(frontendDist, "index.html");
 if (fs.existsSync(frontendDist)) {
   logger.info({ frontendDist }, "[app] Serving admin portal static files");
   app.use(express.static(frontendDist, { maxAge: "1d", etag: true }));
-  // Express 5 + path-to-regexp v8: wildcard harus pakai "/{*path}", bukan "*"
-  app.get("/{*path}", (_req, res) => {
+  // SPA fallback: app.use() tanpa path — tidak melalui path-to-regexp sama sekali.
+  // Semua request yang lolos dari static + /api handler diarahkan ke index.html.
+  app.use((_req, res) => {
     res.sendFile(frontendIndex);
   });
 } else {
   // Fallback: GET / selalu 200 agar Cloud Run health check lulus
   // meski frontend belum di-build (misal saat pertama deploy).
-  app.get("/", (_req, res) => {
-    res.status(200).json({ status: "ok", service: "Mall Admin API" });
+  app.use((_req, res, next) => {
+    if (_req.path === "/" && _req.method === "GET") {
+      res.status(200).json({ status: "ok", service: "Mall Admin API" });
+    } else {
+      next();
+    }
   });
 }
 
