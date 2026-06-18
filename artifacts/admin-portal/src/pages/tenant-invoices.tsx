@@ -25,6 +25,7 @@ import {
   Plus, FileText, Printer, CreditCard, X, Search, Zap, AlertCircle,
   CheckCircle2, Clock, Ban, CircleDashed, MessageCircle, Send, Link2, Loader2,
   Copy, WifiOff, CheckCheck, Download, Layers, ChevronDown, ChevronRight, Eye, Trash2,
+  BarChart2, FileDown,
 } from "lucide-react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -725,6 +726,13 @@ export default function TenantInvoices() {
   const [paymentLinkDialog, setPaymentLinkDialog] = useState<{ link: string; error?: string; mode: "manual" | "wa-failed" } | null>(null);
   const [linkCopied, setLinkCopied] = useState(false);
 
+  // ─── Laporan PPN state ───────────────────────────────────────────────────────
+  const now = new Date();
+  const curMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  const [ppnOpen, setPpnOpen] = useState(false);
+  const [ppnFrom, setPpnFrom] = useState(curMonth);
+  const [ppnTo,   setPpnTo]   = useState(curMonth);
+
   // ─── Bulk invoice state ──────────────────────────────────────────────────────
   const [bulkOpen, setBulkOpen] = useState(false);
   const [bulkCommon, setBulkCommon] = useState({
@@ -761,6 +769,22 @@ export default function TenantInvoices() {
   const { data: bookings } = useQuery<Booking[]>({
     queryKey: ["/api/bookings"],
     queryFn: () => apiFetch<Booking[]>(`${BASE}/api/bookings`),
+  });
+
+  type PpnReportRow = {
+    bulan: string;
+    jumlah_invoice: number;
+    total_subtotal: string;
+    total_ppn: string;
+    total_tagihan: string;
+    total_terbayar: string;
+  };
+  type PpnReport = { from: string; to: string; rows: PpnReportRow[]; totals: Partial<PpnReportRow> };
+
+  const { data: ppnReport, isFetching: ppnLoading, refetch: refetchPpn } = useQuery<PpnReport>({
+    queryKey: ["/api/tenant-invoices/ppn-report", ppnFrom, ppnTo],
+    queryFn: () => apiFetch<PpnReport>(`${BASE}/api/tenant-invoices/ppn-report?from=${ppnFrom}&to=${ppnTo}`),
+    enabled: ppnOpen,
   });
 
   const { data: detailData, isLoading: detailLoading } = useQuery<Invoice>({
@@ -1238,6 +1262,14 @@ export default function TenantInvoices() {
           <Button variant="outline" onClick={() => { setGenerateForm({ bookingId: "", notes: "" }); setGenerateOpen(true); }} className="gap-2">
             <Zap className="h-4 w-4" />
             Generate dari Booking
+          </Button>
+          <Button
+            variant="outline"
+            className="gap-2 border-emerald-300 text-emerald-700 hover:bg-emerald-50"
+            onClick={() => setPpnOpen(true)}
+          >
+            <BarChart2 className="h-4 w-4" />
+            Laporan PPN
           </Button>
           <Button
             variant="outline"
@@ -2286,6 +2318,136 @@ export default function TenantInvoices() {
               </div>
             </form>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* ══════════════ Dialog Laporan PPN ══════════════ */}
+      <Dialog open={ppnOpen} onOpenChange={setPpnOpen}>
+        <DialogContent className="max-w-3xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <BarChart2 className="h-5 w-5 text-emerald-600" />
+              Laporan Rekapitulasi PPN 11%
+            </DialogTitle>
+          </DialogHeader>
+
+          {/* Filter periode */}
+          <div className="flex flex-wrap items-end gap-3 pb-2">
+            <div>
+              <Label className="text-xs mb-1 block text-muted-foreground">Dari Bulan</Label>
+              <Input
+                type="month"
+                value={ppnFrom}
+                max={ppnTo}
+                onChange={(e) => setPpnFrom(e.target.value)}
+                className="h-9 w-40"
+              />
+            </div>
+            <div>
+              <Label className="text-xs mb-1 block text-muted-foreground">Sampai Bulan</Label>
+              <Input
+                type="month"
+                value={ppnTo}
+                min={ppnFrom}
+                onChange={(e) => setPpnTo(e.target.value)}
+                className="h-9 w-40"
+              />
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-9 gap-1"
+              onClick={() => void refetchPpn()}
+              disabled={ppnLoading}
+            >
+              {ppnLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
+              Tampilkan
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-9 gap-1 border-emerald-300 text-emerald-700 hover:bg-emerald-50 ml-auto"
+              disabled={!ppnReport || ppnReport.rows.length === 0}
+              onClick={() => {
+                if (!ppnReport) return;
+                const header = ["Bulan","Jumlah Invoice","Subtotal","PPN 11%","Total Tagihan","Total Terbayar"];
+                const rows = ppnReport.rows.map(r => [
+                  r.bulan,
+                  r.jumlah_invoice,
+                  r.total_subtotal,
+                  r.total_ppn,
+                  r.total_tagihan,
+                  r.total_terbayar,
+                ]);
+                const t = ppnReport.totals;
+                rows.push(["TOTAL", t.jumlah_invoice ?? "", t.total_subtotal ?? "", t.total_ppn ?? "", t.total_tagihan ?? "", t.total_terbayar ?? ""]);
+                const csv = [header, ...rows].map(r => r.join(",")).join("\n");
+                const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement("a");
+                a.href = url;
+                a.download = `laporan-ppn-${ppnFrom}-sd-${ppnTo}.csv`;
+                a.click();
+                URL.revokeObjectURL(url);
+              }}
+            >
+              <FileDown className="h-4 w-4" />
+              Ekspor CSV
+            </Button>
+          </div>
+
+          {/* Tabel laporan */}
+          {ppnLoading ? (
+            <div className="py-8 flex justify-center"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>
+          ) : !ppnReport ? (
+            <p className="text-sm text-muted-foreground text-center py-8">Pilih rentang bulan dan klik Tampilkan.</p>
+          ) : ppnReport.rows.length === 0 ? (
+            <p className="text-sm text-muted-foreground text-center py-8">Tidak ada invoice pada periode ini.</p>
+          ) : (
+            <div className="rounded-md border overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow className="bg-muted/40">
+                    <TableHead className="w-28">Bulan</TableHead>
+                    <TableHead className="text-right">Jumlah Invoice</TableHead>
+                    <TableHead className="text-right">Subtotal (DPP)</TableHead>
+                    <TableHead className="text-right text-emerald-700">PPN 11%</TableHead>
+                    <TableHead className="text-right">Total Tagihan</TableHead>
+                    <TableHead className="text-right">Total Terbayar</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {ppnReport.rows.map((r) => (
+                    <TableRow key={r.bulan}>
+                      <TableCell className="font-medium">{r.bulan}</TableCell>
+                      <TableCell className="text-right">{r.jumlah_invoice}</TableCell>
+                      <TableCell className="text-right">{formatRupiah(r.total_subtotal)}</TableCell>
+                      <TableCell className="text-right font-medium text-emerald-700">{formatRupiah(r.total_ppn)}</TableCell>
+                      <TableCell className="text-right">{formatRupiah(r.total_tagihan)}</TableCell>
+                      <TableCell className="text-right">{formatRupiah(r.total_terbayar)}</TableCell>
+                    </TableRow>
+                  ))}
+                  {/* Baris grand total */}
+                  <TableRow className="bg-muted/60 font-bold border-t-2">
+                    <TableCell>TOTAL</TableCell>
+                    <TableCell className="text-right">{ppnReport.totals.jumlah_invoice ?? 0}</TableCell>
+                    <TableCell className="text-right">{formatRupiah(ppnReport.totals.total_subtotal ?? "0")}</TableCell>
+                    <TableCell className="text-right text-emerald-700">{formatRupiah(ppnReport.totals.total_ppn ?? "0")}</TableCell>
+                    <TableCell className="text-right">{formatRupiah(ppnReport.totals.total_tagihan ?? "0")}</TableCell>
+                    <TableCell className="text-right">{formatRupiah(ppnReport.totals.total_terbayar ?? "0")}</TableCell>
+                  </TableRow>
+                </TableBody>
+              </Table>
+            </div>
+          )}
+
+          <DialogFooter>
+            <p className="text-xs text-muted-foreground flex-1">
+              * Invoice dengan status <strong>Draft</strong> dan <strong>Dibatalkan</strong> tidak dihitung.
+              PPN dihitung otomatis 11% dari subtotal (DPP).
+            </p>
+            <Button variant="outline" onClick={() => setPpnOpen(false)}>Tutup</Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>
