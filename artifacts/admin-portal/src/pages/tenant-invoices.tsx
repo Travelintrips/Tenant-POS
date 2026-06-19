@@ -1,6 +1,7 @@
 import * as XLSX from "xlsx";
 import { apiFetch as apiFetchBase } from "@/lib/api";
 import { useState, useMemo, useRef } from "react";
+import { PaymentHistoryModal } from "@/components/payment-history-modal";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
@@ -723,6 +724,9 @@ export default function TenantInvoices() {
 
   const [detailOpen, setDetailOpen] = useState(false);
   const [detailTarget, setDetailTarget] = useState<Invoice | null>(null);
+
+  const [payHistoryOpen, setPayHistoryOpen] = useState(false);
+  const [payHistoryInvoice, setPayHistoryInvoice] = useState<Invoice | null>(null);
 
   const [cancelTarget, setCancelTarget] = useState<Invoice | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Invoice | null>(null);
