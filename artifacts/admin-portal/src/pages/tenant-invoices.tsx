@@ -994,6 +994,18 @@ export default function TenantInvoices() {
     onError: (e: Error) => toast({ title: "Gagal Blast Link", description: e.message, variant: "destructive" }),
   });
 
+  const recalcMutation = useMutation({
+    mutationFn: (id: number) =>
+      apiPost<Invoice>(`${BASE}/api/tenant-invoices/${id}/recalculate`, {}),
+    onSuccess: (updated) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/tenant-invoices"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/tenant-invoices", String(updated.id)] });
+      setDetailData(updated);
+      toast({ title: "PPN Dihitung Ulang", description: `Invoice ${updated.invoiceNumber}: subtotal ${formatRupiah(updated.subtotal)} + PPN 11% ${formatRupiah(updated.taxAmount)} = ${formatRupiah(updated.totalAmount)}` });
+    },
+    onError: (e: Error) => toast({ title: "Gagal Hitung Ulang", description: e.message, variant: "destructive" }),
+  });
+
   // ─── Derived ────────────────────────────────────────────────────────────────
 
   const summary = useMemo(() => {
@@ -1963,6 +1975,17 @@ export default function TenantInvoices() {
               >
                 <MessageCircle className="h-4 w-4" />
                 {waSendMutation.isPending ? "Mengirim..." : detailData.status === "overdue" ? "Kirim Pengingat WA" : "Kirim Notif WA"}
+              </Button>
+            )}
+            {detailData && detailData.status !== "cancelled" && Number(detailData.taxAmount) === 0 && Number(detailData.subtotal) > 0 && (
+              <Button
+                variant="outline"
+                className="gap-2 text-amber-700 border-amber-300 hover:bg-amber-50 hover:text-amber-800"
+                disabled={recalcMutation.isPending}
+                onClick={() => recalcMutation.mutate(detailData.id)}
+              >
+                {recalcMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
+                {recalcMutation.isPending ? "Menghitung..." : "Terapkan PPN 11%"}
               </Button>
             )}
             {detailData && detailData.status !== "paid" && detailData.status !== "cancelled" && (

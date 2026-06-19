@@ -666,6 +666,66 @@ router.patch("/tenant-invoices/:id", async (req, res) => {
   }
 });
 
+// ─── POST /api/tenant-invoices/:id/recalculate ───────────────────────────────
+// Hitung ulang tax_amount, total_amount, outstanding_amount berdasarkan
+// subtotal yang sudah tersimpan. Berguna untuk invoice lama yang dibuat
+// sebelum PPN 11% diimplementasikan (tax_amount = 0).
+router.post("/tenant-invoices/:id/recalculate", async (req, res) => {
+  const id = Number(req.params.id);
+  if (isNaN(id)) { res.status(400).json({ error: "ID tidak valid" }); return; }
+
+  try {
+    const [inv] = await db
+      .select()
+      .from(tenantInvoicesTable)
+      .where(eq(tenantInvoicesTable.id, id));
+
+    if (!inv) { res.status(404).json({ error: "Invoice tidak ditemukan" }); return; }
+    if (inv.status === "cancelled") {
+      res.status(409).json({ error: "Invoice yang dibatalkan tidak dapat dihitung ulang" });
+      return;
+    }
+
+    const subtotalNum = Number(inv.subtotal);
+    const paidNum     = Number(inv.paidAmount);
+    const taxAmt      = Math.round(subtotalNum * PPN_RATE);
+    const totalNum    = subtotalNum + taxAmt;
+    const outstanding = Math.max(totalNum - paidNum, 0);
+    const status      = resolveStatus(totalNum, paidNum, inv.dueDate);
+
+    const [updated] = await db
+      .update(tenantInvoicesTable)
+      .set({
+        taxAmount:         String(taxAmt),
+        totalAmount:       String(totalNum),
+        outstandingAmount: String(outstanding),
+        status,
+        updatedAt:         new Date(),
+      })
+      .where(eq(tenantInvoicesTable.id, id))
+      .returning();
+
+    const [withTenant] = await db
+      .select(invoiceSelect)
+      .from(tenantInvoicesTable)
+      .leftJoin(tenantsTable, eq(tenantInvoicesTable.tenantId, tenantsTable.id))
+      .where(eq(tenantInvoicesTable.id, updated.id));
+
+    logAudit(req, {
+      action:     "recalculate_invoice",
+      entityType: "invoice",
+      entityId:   id,
+      afterData:  withTenant,
+    });
+
+    sseBroker.publish("invoice_updated", { invoiceId: id });
+    res.json(withTenant);
+  } catch (err) {
+    req.log.error(err, "Failed to recalculate invoice");
+    res.status(500).json({ error: "Gagal menghitung ulang invoice" });
+  }
+});
+
 // ─── POST /api/tenant-invoices/generate-from-booking/:bookingId ───────────────
 router.post("/tenant-invoices/generate-from-booking/:bookingId", async (req, res) => {
   const bookingId = Number(req.params.bookingId);
