@@ -3,6 +3,8 @@
 - [scripts workspace resolution](scripts-workspace-resolution.md) — scripts pkg needs `paths` in tsconfig to resolve `@workspace/*` libs; symlinks not created by pnpm for scripts
 - [invalid hook call fix](invalid-hook-call.md) — avoid generated lib hooks (useListTenants etc); use `useQuery` directly in admin-portal pages
 - [DB active connection](db-connection-priority.md) — SUPABASE_PG_URL in 'development' env (xssrfshdrtdfupgqwfdw) is active; if auth fails: check Supabase pause status, kill API by PID then restart_workflow
+- [supabase-production-data](supabase-site2-data.md) — production Supabase nzdweipzckfszczzqtuw: site 1=13 tenant, site 2=5 tenant; data di project lama xssrfshdrtdfupgqwfdw tidak relevan lagi
+- [DB active connection](db-connection-priority.md) — semua env kini pakai SUPABASE_PG_URL_PROD (nzdweipzckfszczzqtuw) sebagai prioritas utama; config.ts: SUPABASE_PG_URL_PROD → SUPABASE_PG_URL → DATABASE_URL (tidak ada lagi perbedaan dev/prod di resolveDbUrl)
 - [config-ts-keep-function-style](config-ts-merge-conflict.md) — lib/db/src/config.ts terus kena syntax error karena nested ternary; ALWAYS use function `resolveDbUrl()` style (no nested ternary), ALWAYS overwrite penuh dengan write tool
 - [schema-column-fix](schema-column-fix.md) — 3 tables needed ALTER TABLE to add missing columns; sync old data booking_id from tenant_booking_id after adding new column
 - [drizzle-kit-tty](drizzle-kit-tty.md) — drizzle-kit push requires interactive TTY for new tables; add SQL migration to lib/db/src/migrator.ts instead
