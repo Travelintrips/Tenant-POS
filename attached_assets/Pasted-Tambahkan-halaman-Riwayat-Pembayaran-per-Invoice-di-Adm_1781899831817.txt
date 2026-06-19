@@ -1,0 +1,89 @@
+Tambahkan halaman "Riwayat Pembayaran per Invoice" di Admin Portal tenant.
+
+=====================================
+🎯 OBJECTIVE
+============
+
+Admin dapat melihat semua pembayaran yang sudah dicatat di tenant_payments (ledger) per invoice.
+
+=====================================
+📡 API
+======
+
+* Endpoint: GET /api/payments?invoiceId=X
+
+* Response:
+  {
+  "success": true,
+  "ledgerId": "...",
+  "invoiceStatus": "partial",
+  "paidAmount": 500000,
+  "remaining": 600000,
+  "remainingBalanceAfter": 600000,
+  "receiptId": "PAY-20260619-0001"
+  }
+
+* Pagination: limit + offset
+
+* Filter: dateFrom, dateTo, sourceType (pos/ocr/bank/manual)
+
+=====================================
+🖥️ FRONTEND COMPONENTS
+=======================
+
+1. Modal atau halaman baru:
+
+   * Header: "Riwayat Pembayaran Invoice {invoiceNumber}"
+   * Filter bar:
+
+     * Tanggal dari / sampai
+     * Sumber pembayaran
+   * Tabel:
+
+     * No Ledger
+     * Nominal Bayar
+     * Sisa Bayar / Remaining
+     * Status Invoice (partial / paid)
+     * Receipt ID (link ke receipt HTML)
+     * SourceType (POS / OCR / Bank / Manual)
+     * Tanggal Bayar
+     * Nama Kasir
+   * Pagination footer
+
+2. Tombol di tab Tagihan / detail invoice:
+
+   * "Lihat Riwayat Pembayaran"
+   * Membuka modal / halaman
+
+=====================================
+💡 UX
+=====
+
+* Jika belum ada pembayaran → tampilkan "Belum ada pembayaran"
+* Data di tabel otomatis refresh saat modal dibuka
+* Klik Receipt ID → buka PDF receipt / halaman receipt
+* Highlight pembayaran overdue / partial
+
+=====================================
+🧪 TEST CASES
+=============
+
+1. Invoice dengan 0 payment → modal muncul, tabel kosong
+2. Invoice dengan 1–5 payment → data muncul sesuai API
+3. Filter by date → hanya tampil sesuai range
+4. Filter by sourceType → POS / OCR / Bank / Manual
+5. Pagination → limit + offset bekerja
+6. Receipt link → membuka file receipt
+7. Partial payment → remaining dan status muncul benar
+8. Full payment → status = PAID
+9. OCR payment → sourceType = OCR tampil
+10. No duplicate ledger → tiap ledger muncul sekali
+
+=====================================
+📦 OUTPUT
+=========
+
+* Frontend modal / halaman baru
+* Tombol trigger di detail invoice
+* Integrasi dengan API GET /api/payments?invoiceId=X
+* Pagination, filter, receipt link

@@ -1,10 +1,11 @@
 import { Router, type IRouter } from "express";
 import { db } from "@workspace/db";
 import { tenantPaymentsTable, tenantInvoicesTable, tenantsTable, paymentReceiptsTable } from "@workspace/db/schema";
-import { eq, sql, desc, and } from "drizzle-orm";
+import { eq, sql, desc, and, gte, lte } from "drizzle-orm";
 import { z } from "zod";
 import { logAudit } from "../lib/audit";
 import { LedgerError, recordPayment } from "../lib/payment-ledger";
+import { cashierShiftsTable } from "@workspace/db/schema";
 
 const router: IRouter = Router();
 
@@ -168,7 +169,7 @@ router.post("/payments", async (req, res) => {
 });
 
 // ─── GET /api/payments?invoiceId=X ────────────────────────────────────────────
-// Daftar semua entri ledger untuk satu invoice, diurutkan dari terbaru.
+// Daftar semua entri ledger untuk satu invoice, dengan pagination & filter.
 router.get("/payments", async (req, res) => {
   const invoiceId = parseInt(String(req.query.invoiceId ?? ""), 10);
   if (isNaN(invoiceId) || invoiceId <= 0) {
@@ -176,7 +177,33 @@ router.get("/payments", async (req, res) => {
     return;
   }
 
+  const limit = Math.min(Math.max(parseInt(String(req.query.limit ?? "20"), 10) || 20, 1), 100);
+  const offset = Math.max(parseInt(String(req.query.offset ?? "0"), 10) || 0, 0);
+  const sourceType = String(req.query.sourceType ?? "").trim() || null;
+  const dateFrom = String(req.query.dateFrom ?? "").trim() || null;
+  const dateTo = String(req.query.dateTo ?? "").trim() || null;
+
   try {
+    const conditions = [
+      eq(tenantPaymentsTable.invoiceId, invoiceId),
+      eq(tenantPaymentsTable.isVoided, false),
+    ] as ReturnType<typeof eq>[];
+
+    if (sourceType) conditions.push(eq(tenantPaymentsTable.sourceType, sourceType));
+    if (dateFrom) conditions.push(gte(tenantPaymentsTable.createdAt, new Date(dateFrom)));
+    if (dateTo) {
+      const to = new Date(dateTo);
+      to.setHours(23, 59, 59, 999);
+      conditions.push(lte(tenantPaymentsTable.createdAt, to));
+    }
+
+    const whereClause = and(...conditions);
+
+    const [countRow] = await db
+      .select({ total: sql<number>`count(*)::int` })
+      .from(tenantPaymentsTable)
+      .where(whereClause);
+
     const rows = await db
       .select({
         id: tenantPaymentsTable.id,
@@ -195,17 +222,25 @@ router.get("/payments", async (req, res) => {
         remainingBalanceAfter: tenantPaymentsTable.remainingBalanceAfter,
         proofUrl: tenantPaymentsTable.proofUrl,
         createdAt: tenantPaymentsTable.createdAt,
+        kasirName: cashierShiftsTable.cashierName,
       })
       .from(tenantPaymentsTable)
-      .where(
-        and(
-          eq(tenantPaymentsTable.invoiceId, invoiceId),
-          eq(tenantPaymentsTable.isVoided, false),
-        ),
-      )
-      .orderBy(desc(tenantPaymentsTable.createdAt));
+      .leftJoin(cashierShiftsTable, eq(tenantPaymentsTable.shiftId, cashierShiftsTable.id))
+      .where(whereClause)
+      .orderBy(desc(tenantPaymentsTable.createdAt))
+      .limit(limit)
+      .offset(offset);
 
-    res.json({ success: true, data: rows });
+    res.json({
+      success: true,
+      data: rows,
+      pagination: {
+        total: countRow?.total ?? 0,
+        limit,
+        offset,
+        hasMore: offset + rows.length < (countRow?.total ?? 0),
+      },
+    });
   } catch (err) {
     console.error("[GET /payments]", err);
     res.status(500).json({ error: "Gagal mengambil riwayat pembayaran" });
