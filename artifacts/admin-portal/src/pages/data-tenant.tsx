@@ -70,6 +70,7 @@ type Tenant = {
   defaultElectricityChargeAmount: string | null;
   defaultWaterChargeAmount: string | null;
   defaultOtherChargeAmount: string | null;
+  defaultTrashChargeAmount: string | null;
   contractStartDate: string | null;
   contractEndDate: string | null;
   createdAt: string;
@@ -118,6 +119,7 @@ type TenantForm = {
   defaultElectricityChargeAmount: string;
   defaultWaterChargeAmount: string;
   defaultOtherChargeAmount: string;
+  defaultTrashChargeAmount: string;
   contractStartDate: string | null;
   contractEndDate: string | null;
 };
@@ -138,6 +140,7 @@ const EMPTY_FORM: TenantForm = {
   defaultElectricityChargeAmount: "",
   defaultWaterChargeAmount: "",
   defaultOtherChargeAmount: "",
+  defaultTrashChargeAmount: "",
   contractStartDate: "",
   contractEndDate: "",
 };
@@ -385,6 +388,7 @@ export default function DataTenant() {
       defaultElectricityChargeAmount: tenant.defaultElectricityChargeAmount ?? "",
       defaultWaterChargeAmount: tenant.defaultWaterChargeAmount ?? "",
       defaultOtherChargeAmount: tenant.defaultOtherChargeAmount ?? "",
+      defaultTrashChargeAmount: tenant.defaultTrashChargeAmount ?? "",
       contractStartDate: tenant.contractStartDate ?? "",
       contractEndDate: tenant.contractEndDate ?? "",
     });
@@ -446,6 +450,7 @@ export default function DataTenant() {
       defaultElectricityChargeAmount: toNum(form.defaultElectricityChargeAmount),
       defaultWaterChargeAmount: toNum(form.defaultWaterChargeAmount),
       defaultOtherChargeAmount: toNum(form.defaultOtherChargeAmount),
+      defaultTrashChargeAmount: toNum(form.defaultTrashChargeAmount),
       contractStartDate: toDate(form.contractStartDate),
       contractEndDate: toDate(form.contractEndDate),
     };
@@ -1222,6 +1227,17 @@ export default function DataTenant() {
                       min="0"
                       value={form.defaultOtherChargeAmount}
                       onChange={(e) => setForm(f => ({ ...f, defaultOtherChargeAmount: e.target.value }))}
+                      placeholder="0"
+                    />
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <Label htmlFor="defaultTrashChargeAmount">Iuran Sampah / Kebersihan (Rp)</Label>
+                    <Input
+                      id="defaultTrashChargeAmount"
+                      type="number"
+                      min="0"
+                      value={form.defaultTrashChargeAmount}
+                      onChange={(e) => setForm(f => ({ ...f, defaultTrashChargeAmount: e.target.value }))}
                       placeholder="0"
                     />
                   </div>

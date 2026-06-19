@@ -48,6 +48,7 @@ type Invoice = {
   electricityChargeAmount: string;
   waterChargeAmount: string;
   otherChargeAmount: string;
+  trashChargeAmount: string;
   discountAmount: string;
   penaltyAmount: string;
   subtotal: string;
@@ -87,6 +88,7 @@ type Tenant = {
   defaultElectricityChargeAmount: string | null;
   defaultWaterChargeAmount: string | null;
   defaultOtherChargeAmount: string | null;
+  defaultTrashChargeAmount: string | null;
 };
 type Booking = {
   id: number;
@@ -462,6 +464,7 @@ function buildInvoiceHtml(inv: Invoice, cfg: MallInvoiceConfig): string {
     ["Biaya Listrik", inv.electricityChargeAmount],
     ["Biaya Air", inv.waterChargeAmount],
     ["Biaya Lain-lain", inv.otherChargeAmount],
+    ["Iuran Sampah / Kebersihan", inv.trashChargeAmount],
   ]
     .filter(([, v]) => Number(v) > 0)
     .map(([label, v]) =>
@@ -654,6 +657,7 @@ type CreateForm = {
   electricityChargeAmount: string;
   waterChargeAmount: string;
   otherChargeAmount: string;
+  trashChargeAmount: string;
   discountAmount: string;
   penaltyAmount: string;
   notes: string;
@@ -664,7 +668,7 @@ const EMPTY_FORM: CreateForm = {
   tenantId: "", bookingId: "",
   unitCode: "", periodStart: "", periodEnd: "", dueDate: "",
   rentAmount: "", serviceChargeAmount: "", electricityChargeAmount: "",
-  waterChargeAmount: "", otherChargeAmount: "",
+  waterChargeAmount: "", otherChargeAmount: "", trashChargeAmount: "",
   discountAmount: "0", penaltyAmount: "0",
   notes: "", status: "unpaid",
 };
@@ -742,7 +746,7 @@ export default function TenantInvoices() {
     periodStart: "", periodEnd: "", dueDate: "", status: "unpaid" as InvoiceStatus, notes: "",
   });
   const [bulkSelected, setBulkSelected] = useState<Set<number>>(new Set());
-  type BulkPrice = { unitCode: string; rentAmount: string; serviceChargeAmount: string; electricityChargeAmount: string; waterChargeAmount: string; otherChargeAmount: string; };
+  type BulkPrice = { unitCode: string; rentAmount: string; serviceChargeAmount: string; electricityChargeAmount: string; waterChargeAmount: string; otherChargeAmount: string; trashChargeAmount: string; };
   const [bulkPrices, setBulkPrices] = useState<Record<number, BulkPrice>>({});
   const [bulkExpanded, setBulkExpanded] = useState<number | null>(null);
   const [bulkResult, setBulkResult] = useState<{ succeeded: number; failed: number; results: { tenantId: number; invoiceNumber: string; success: boolean; error?: string }[] } | null>(null);
@@ -1061,6 +1065,7 @@ export default function TenantInvoices() {
       electricityChargeAmount: createForm.electricityChargeAmount || "0",
       waterChargeAmount: createForm.waterChargeAmount || "0",
       otherChargeAmount: createForm.otherChargeAmount || "0",
+      trashChargeAmount: createForm.trashChargeAmount || "0",
       discountAmount: createForm.discountAmount || "0",
       penaltyAmount: createForm.penaltyAmount || "0",
       notes: createForm.notes || null,
@@ -1128,7 +1133,7 @@ export default function TenantInvoices() {
 
   function openBulkDialog() {
     const allTenants = tenants ?? [];
-    const prices: Record<number, { unitCode: string; rentAmount: string; serviceChargeAmount: string; electricityChargeAmount: string; waterChargeAmount: string; otherChargeAmount: string }> = {};
+    const prices: Record<number, { unitCode: string; rentAmount: string; serviceChargeAmount: string; electricityChargeAmount: string; waterChargeAmount: string; otherChargeAmount: string; trashChargeAmount: string }> = {};
     for (const t of allTenants) {
       prices[t.id] = {
         unitCode: t.boothNumber ?? "",
@@ -1137,6 +1142,7 @@ export default function TenantInvoices() {
         electricityChargeAmount: t.defaultElectricityChargeAmount ?? "",
         waterChargeAmount: t.defaultWaterChargeAmount ?? "",
         otherChargeAmount: t.defaultOtherChargeAmount ?? "",
+        trashChargeAmount: t.defaultTrashChargeAmount ?? "",
       };
     }
     setBulkPrices(prices);
@@ -1167,6 +1173,7 @@ export default function TenantInvoices() {
         electricityChargeAmount: p.electricityChargeAmount || "0",
         waterChargeAmount: p.waterChargeAmount || "0",
         otherChargeAmount: p.otherChargeAmount || "0",
+        trashChargeAmount: p.trashChargeAmount || "0",
         discountAmount: "0",
         penaltyAmount: "0",
         taxAmount: "0",
@@ -1185,7 +1192,8 @@ export default function TenantInvoices() {
       Number(p.serviceChargeAmount || 0) +
       Number(p.electricityChargeAmount || 0) +
       Number(p.waterChargeAmount || 0) +
-      Number(p.otherChargeAmount || 0)
+      Number(p.otherChargeAmount || 0) +
+      Number(p.trashChargeAmount || 0)
     );
   }
 
@@ -1584,6 +1592,7 @@ export default function TenantInvoices() {
                         electricityChargeAmount: tenant?.defaultElectricityChargeAmount ?? f.electricityChargeAmount,
                         waterChargeAmount: tenant?.defaultWaterChargeAmount ?? f.waterChargeAmount,
                         otherChargeAmount: tenant?.defaultOtherChargeAmount ?? f.otherChargeAmount,
+                        trashChargeAmount: tenant?.defaultTrashChargeAmount ?? f.trashChargeAmount,
                       }));
                     }}
                   >
@@ -1616,6 +1625,7 @@ export default function TenantInvoices() {
                         electricityChargeAmount: bk?.electricityChargeAmount ? String(bk.electricityChargeAmount) : f.electricityChargeAmount,
                         waterChargeAmount: bk?.waterChargeAmount ? String(bk.waterChargeAmount) : f.waterChargeAmount,
                         otherChargeAmount: bk?.otherChargeAmount ? String(bk.otherChargeAmount) : f.otherChargeAmount,
+                        trashChargeAmount: f.trashChargeAmount,
                       }));
                     }}
                   >
@@ -1691,6 +1701,9 @@ export default function TenantInvoices() {
                 <Field label="Biaya Lain-lain">
                   <Input type="number" min="0" value={createForm.otherChargeAmount} onChange={e => setCreateForm(f => ({ ...f, otherChargeAmount: e.target.value }))} placeholder="0" />
                 </Field>
+                <Field label="Iuran Sampah / Kebersihan">
+                  <Input type="number" min="0" value={createForm.trashChargeAmount} onChange={e => setCreateForm(f => ({ ...f, trashChargeAmount: e.target.value }))} placeholder="0" />
+                </Field>
                 <Field label="Diskon">
                   <Input type="number" min="0" value={createForm.discountAmount} onChange={e => setCreateForm(f => ({ ...f, discountAmount: e.target.value }))} placeholder="0" />
                 </Field>
@@ -1701,7 +1714,7 @@ export default function TenantInvoices() {
 
               {/* PPN Preview */}
               {(() => {
-                const sub = (Number(createForm.rentAmount||0)+Number(createForm.serviceChargeAmount||0)+Number(createForm.electricityChargeAmount||0)+Number(createForm.waterChargeAmount||0)+Number(createForm.otherChargeAmount||0))-Number(createForm.discountAmount||0)+Number(createForm.penaltyAmount||0);
+                const sub = (Number(createForm.rentAmount||0)+Number(createForm.serviceChargeAmount||0)+Number(createForm.electricityChargeAmount||0)+Number(createForm.waterChargeAmount||0)+Number(createForm.otherChargeAmount||0)+Number(createForm.trashChargeAmount||0))-Number(createForm.discountAmount||0)+Number(createForm.penaltyAmount||0);
                 const ppn = Math.round(sub * 0.11);
                 const total = sub + ppn;
                 return sub > 0 ? (
@@ -1869,6 +1882,7 @@ export default function TenantInvoices() {
                     ["Biaya Listrik", detailData.electricityChargeAmount],
                     ["Biaya Air", detailData.waterChargeAmount],
                     ["Biaya Lain-lain", detailData.otherChargeAmount],
+                    ["Iuran Sampah / Kebersihan", detailData.trashChargeAmount],
                   ].filter(([, v]) => Number(v) > 0).map(([label, v]) => (
                     <div key={label} className="flex justify-between">
                       <span className="text-muted-foreground">{label}</span>
@@ -2257,7 +2271,7 @@ export default function TenantInvoices() {
                   {(tenants ?? []).map((t) => {
                     const isSelected = bulkSelected.has(t.id);
                     const isExpanded = bulkExpanded === t.id;
-                    const p = bulkPrices[t.id] ?? { unitCode: "", rentAmount: "", serviceChargeAmount: "", electricityChargeAmount: "", waterChargeAmount: "", otherChargeAmount: "" };
+                    const p = bulkPrices[t.id] ?? { unitCode: "", rentAmount: "", serviceChargeAmount: "", electricityChargeAmount: "", waterChargeAmount: "", otherChargeAmount: "", trashChargeAmount: "" };
                     const total = calcBulkTotal(t.id);
                     return (
                       <div key={t.id} className={`transition-colors ${isSelected ? "" : "opacity-50"}`}>
@@ -2307,6 +2321,7 @@ export default function TenantInvoices() {
                               { key: "electricityChargeAmount", label: "Biaya Listrik", type: "number", placeholder: "0" },
                               { key: "waterChargeAmount", label: "Biaya Air", type: "number", placeholder: "0" },
                               { key: "otherChargeAmount", label: "Lain-lain", type: "number", placeholder: "0" },
+                              { key: "trashChargeAmount", label: "Sampah/Kebersihan", type: "number", placeholder: "0" },
                             ].map(({ key, label, type, placeholder }) => (
                               <div key={key} className="flex flex-col gap-1">
                                 <Label className="text-xs">{label}</Label>

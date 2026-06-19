@@ -1942,6 +1942,13 @@ ALTER TABLE tenant_payments ADD COLUMN IF NOT EXISTS ocr_raw_text text;
 ALTER TABLE tenant_payments ADD COLUMN IF NOT EXISTS ocr_confidence numeric;
     `.trim(),
   },
+  {
+    name: "0044_tenant_trash_charge",
+    sql: `
+ALTER TABLE tenants ADD COLUMN IF NOT EXISTS default_trash_charge_amount numeric DEFAULT 0;
+ALTER TABLE tenant_invoices ADD COLUMN IF NOT EXISTS trash_charge_amount numeric NOT NULL DEFAULT 0;
+    `.trim(),
+  },
 ];
 
 const MIGRATIONS_TABLE = "schema_migrations";

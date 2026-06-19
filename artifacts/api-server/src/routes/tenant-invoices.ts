@@ -92,6 +92,7 @@ function calcAmounts(data: {
   electricityChargeAmount?: string | number | null;
   waterChargeAmount?: string | number | null;
   otherChargeAmount?: string | number | null;
+  trashChargeAmount?: string | number | null;
   discountAmount?: string | number | null;
   penaltyAmount?: string | number | null;
   paidAmount?: string | number | null;
@@ -101,11 +102,12 @@ function calcAmounts(data: {
   const elec = Number(data.electricityChargeAmount ?? 0);
   const water = Number(data.waterChargeAmount ?? 0);
   const other = Number(data.otherChargeAmount ?? 0);
+  const trash = Number(data.trashChargeAmount ?? 0);
   const discount = Number(data.discountAmount ?? 0);
   const penalty = Number(data.penaltyAmount ?? 0);
   const paid = Number(data.paidAmount ?? 0);
 
-  const subtotal = rent + service + elec + water + other - discount + penalty;
+  const subtotal = rent + service + elec + water + other + trash - discount + penalty;
   const taxAmt = Math.round(subtotal * PPN_RATE);
   const total = subtotal + taxAmt;
   const outstanding = Math.max(total - paid, 0);
@@ -141,6 +143,7 @@ const invoiceSelect = {
   electricityChargeAmount: tenantInvoicesTable.electricityChargeAmount,
   waterChargeAmount: tenantInvoicesTable.waterChargeAmount,
   otherChargeAmount: tenantInvoicesTable.otherChargeAmount,
+  trashChargeAmount: tenantInvoicesTable.trashChargeAmount,
   discountAmount: tenantInvoicesTable.discountAmount,
   penaltyAmount: tenantInvoicesTable.penaltyAmount,
   subtotal: tenantInvoicesTable.subtotal,
@@ -419,6 +422,7 @@ const bulkInvoiceItemSchema = z.object({
   electricityChargeAmount: z.union([z.string(), z.number()]).optional().nullable(),
   waterChargeAmount: z.union([z.string(), z.number()]).optional().nullable(),
   otherChargeAmount: z.union([z.string(), z.number()]).optional().nullable(),
+  trashChargeAmount: z.union([z.string(), z.number()]).optional().nullable(),
   discountAmount: z.union([z.string(), z.number()]).optional().nullable(),
   penaltyAmount: z.union([z.string(), z.number()]).optional().nullable(),
   taxAmount: z.union([z.string(), z.number()]).optional().nullable(),
@@ -479,6 +483,7 @@ router.post("/tenant-invoices/bulk", async (req, res) => {
         electricityChargeAmount: String(item.electricityChargeAmount ?? "0"),
         waterChargeAmount: String(item.waterChargeAmount ?? "0"),
         otherChargeAmount: String(item.otherChargeAmount ?? "0"),
+        trashChargeAmount: String(item.trashChargeAmount ?? "0"),
         discountAmount: String(item.discountAmount ?? "0"),
         penaltyAmount: String(item.penaltyAmount ?? "0"),
         taxAmount: calcedTax,
@@ -522,6 +527,7 @@ const createInvoiceSchema = z.object({
   electricityChargeAmount: z.union([z.string(), z.number()]).optional().nullable(),
   waterChargeAmount: z.union([z.string(), z.number()]).optional().nullable(),
   otherChargeAmount: z.union([z.string(), z.number()]).optional().nullable(),
+  trashChargeAmount: z.union([z.string(), z.number()]).optional().nullable(),
   discountAmount: z.union([z.string(), z.number()]).optional().nullable(),
   penaltyAmount: z.union([z.string(), z.number()]).optional().nullable(),
   taxAmount: z.union([z.string(), z.number()]).optional().nullable(),
@@ -561,6 +567,7 @@ router.post("/tenant-invoices", async (req, res) => {
       electricityChargeAmount: String(data.electricityChargeAmount ?? "0"),
       waterChargeAmount: String(data.waterChargeAmount ?? "0"),
       otherChargeAmount: String(data.otherChargeAmount ?? "0"),
+      trashChargeAmount: String(data.trashChargeAmount ?? "0"),
       discountAmount: String(data.discountAmount ?? "0"),
       penaltyAmount: String(data.penaltyAmount ?? "0"),
       taxAmount: calcedTax,
@@ -639,6 +646,7 @@ router.patch("/tenant-invoices/:id", async (req, res) => {
         electricityChargeAmount: String(merged.electricityChargeAmount ?? "0"),
         waterChargeAmount: String(merged.waterChargeAmount ?? "0"),
         otherChargeAmount: String(merged.otherChargeAmount ?? "0"),
+        trashChargeAmount: String(merged.trashChargeAmount ?? "0"),
         discountAmount: String(merged.discountAmount ?? "0"),
         penaltyAmount: String(merged.penaltyAmount ?? "0"),
         taxAmount: calcedTax,

@@ -24,6 +24,7 @@ export const tenantInvoicesTable = pgTable("tenant_invoices", {
   electricityChargeAmount: numeric("electricity_charge_amount").notNull().default("0"),
   waterChargeAmount: numeric("water_charge_amount").notNull().default("0"),
   otherChargeAmount: numeric("other_charge_amount").notNull().default("0"),
+  trashChargeAmount: numeric("trash_charge_amount").notNull().default("0"),
   discountAmount: numeric("discount_amount").notNull().default("0"),
   penaltyAmount: numeric("penalty_amount").notNull().default("0"),
   subtotal: numeric("subtotal").notNull().default("0"),

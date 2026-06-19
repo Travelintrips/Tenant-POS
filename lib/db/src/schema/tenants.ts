@@ -28,6 +28,7 @@ export const tenantsTable = pgTable("tenants", {
   defaultElectricityChargeAmount: numeric("default_electricity_charge_amount").default("0"),
   defaultWaterChargeAmount: numeric("default_water_charge_amount").default("0"),
   defaultOtherChargeAmount: numeric("default_other_charge_amount").default("0"),
+  defaultTrashChargeAmount: numeric("default_trash_charge_amount").default("0"),
   contractStartDate: date("contract_start_date"),
   contractEndDate: date("contract_end_date"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
