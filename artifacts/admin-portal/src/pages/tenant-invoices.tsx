@@ -17,6 +17,7 @@ import {
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from "@/components/ui/dialog";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -733,6 +734,7 @@ export default function TenantInvoices() {
   const [ppnOpen, setPpnOpen] = useState(false);
   const [ppnFrom, setPpnFrom] = useState(curMonth);
   const [ppnTo,   setPpnTo]   = useState(curMonth);
+  const [ppnTab,  setPpnTab]  = useState<"bulan" | "tenant">("bulan");
 
   // ─── Bulk invoice state ──────────────────────────────────────────────────────
   const [bulkOpen, setBulkOpen] = useState(false);
@@ -780,7 +782,23 @@ export default function TenantInvoices() {
     total_tagihan: string;
     total_terbayar: string;
   };
-  type PpnReport = { from: string; to: string; rows: PpnReportRow[]; totals: Partial<PpnReportRow> };
+  type PpnTenantRow = {
+    tenant_id: number;
+    nama_tenant: string;
+    nama_pemilik: string;
+    unit: string;
+    jumlah_invoice: number;
+    total_subtotal: string;
+    total_ppn: string;
+    total_tagihan: string;
+    total_terbayar: string;
+  };
+  type PpnReport = {
+    from: string; to: string;
+    rows: PpnReportRow[];
+    totals: Partial<PpnReportRow>;
+    byTenant: PpnTenantRow[];
+  };
 
   const { data: ppnReport, isFetching: ppnLoading, refetch: refetchPpn } = useQuery<PpnReport>({
     queryKey: ["/api/tenant-invoices/ppn-report", ppnFrom, ppnTo],
@@ -2364,169 +2382,200 @@ export default function TenantInvoices() {
               {ppnLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
               Tampilkan
             </Button>
-            <div className="ml-auto flex gap-2">
-              {/* ── Ekspor CSV ── */}
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-9 gap-1 border-slate-300 text-slate-700 hover:bg-slate-50"
-                disabled={!ppnReport || ppnReport.rows.length === 0}
-                onClick={() => {
-                  if (!ppnReport) return;
-                  const header = ["Bulan","Jumlah Invoice","Subtotal (DPP)","PPN 11%","Total Tagihan","Total Terbayar"];
-                  const dataRows = ppnReport.rows.map(r => [
-                    r.bulan,
-                    r.jumlah_invoice,
-                    r.total_subtotal,
-                    r.total_ppn,
-                    r.total_tagihan,
-                    r.total_terbayar,
-                  ]);
-                  const t = ppnReport.totals;
-                  dataRows.push(["TOTAL", t.jumlah_invoice ?? "", t.total_subtotal ?? "", t.total_ppn ?? "", t.total_tagihan ?? "", t.total_terbayar ?? ""]);
-                  const csv = [header, ...dataRows].map(r => r.join(",")).join("\n");
-                  const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
-                  const url = URL.createObjectURL(blob);
-                  const a = document.createElement("a");
-                  a.href = url;
-                  a.download = `laporan-ppn-${ppnFrom}-sd-${ppnTo}.csv`;
-                  a.click();
-                  URL.revokeObjectURL(url);
-                }}
-              >
-                <FileDown className="h-4 w-4" />
-                Ekspor CSV
-              </Button>
-
-              {/* ── Ekspor Excel ── */}
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-9 gap-1 border-green-500 text-green-700 hover:bg-green-50"
-                disabled={!ppnReport || ppnReport.rows.length === 0}
-                onClick={() => {
-                  if (!ppnReport) return;
-                  const wb = XLSX.utils.book_new();
-
-                  // ── baris judul ──
-                  const judul = [
-                    [`LAPORAN REKAPITULASI PPN 11%`],
-                    [`Periode: ${ppnFrom} s/d ${ppnTo}`],
-                    [`Dicetak: ${new Date().toLocaleDateString("id-ID", { dateStyle: "long" })}`],
-                    [],
-                  ];
-
-                  // ── header kolom ──
-                  const header = [["Bulan","Jumlah Invoice","Subtotal (DPP)","PPN 11%","Total Tagihan","Total Terbayar"]];
-
-                  // ── baris data ──
-                  const dataRows = ppnReport.rows.map(r => [
-                    r.bulan,
-                    Number(r.jumlah_invoice),
-                    Number(r.total_subtotal),
-                    Number(r.total_ppn),
-                    Number(r.total_tagihan),
-                    Number(r.total_terbayar),
-                  ]);
-
-                  // ── baris total ──
-                  const t = ppnReport.totals;
-                  const totalRow = [
-                    "TOTAL",
-                    Number(t.jumlah_invoice ?? 0),
-                    Number(t.total_subtotal ?? 0),
-                    Number(t.total_ppn ?? 0),
-                    Number(t.total_tagihan ?? 0),
-                    Number(t.total_terbayar ?? 0),
-                  ];
-
-                  const wsData = [...judul, ...header, ...dataRows, totalRow];
-                  const ws = XLSX.utils.aoa_to_sheet(wsData);
-
-                  // ── lebar kolom ──
-                  ws["!cols"] = [
-                    { wch: 12 }, { wch: 16 }, { wch: 20 },
-                    { wch: 20 }, { wch: 20 }, { wch: 20 },
-                  ];
-
-                  // ── merge judul (baris 1) ──
-                  ws["!merges"] = [
-                    { s: { r: 0, c: 0 }, e: { r: 0, c: 5 } },
-                    { s: { r: 1, c: 0 }, e: { r: 1, c: 5 } },
-                    { s: { r: 2, c: 0 }, e: { r: 2, c: 5 } },
-                  ];
-
-                  // ── format angka ribuan untuk kolom numerik (C–F) ──
-                  const startDataRow = judul.length + header.length; // 0-indexed
-                  const endRow = startDataRow + dataRows.length; // termasuk baris total
-                  for (let row = startDataRow; row <= endRow; row++) {
-                    for (let col = 2; col <= 5; col++) {
-                      const cellRef = XLSX.utils.encode_cell({ r: row, c: col });
-                      if (ws[cellRef]) {
-                        ws[cellRef].z = '#,##0';
-                      }
-                    }
-                  }
-
-                  XLSX.utils.book_append_sheet(wb, ws, "Laporan PPN");
-                  XLSX.writeFile(wb, `laporan-ppn-${ppnFrom}-sd-${ppnTo}.xlsx`);
-                }}
-              >
-                <FileSpreadsheet className="h-4 w-4" />
-                Ekspor Excel
-              </Button>
-            </div>
           </div>
 
-          {/* Tabel laporan */}
+          {/* ── Tabs Per Bulan / Per Tenant ── */}
           {ppnLoading ? (
             <div className="py-8 flex justify-center"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>
           ) : !ppnReport ? (
             <p className="text-sm text-muted-foreground text-center py-8">Pilih rentang bulan dan klik Tampilkan.</p>
-          ) : ppnReport.rows.length === 0 ? (
-            <p className="text-sm text-muted-foreground text-center py-8">Tidak ada invoice pada periode ini.</p>
           ) : (
-            <div className="rounded-md border overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow className="bg-muted/40">
-                    <TableHead className="w-28">Bulan</TableHead>
-                    <TableHead className="text-right">Jumlah Invoice</TableHead>
-                    <TableHead className="text-right">Subtotal (DPP)</TableHead>
-                    <TableHead className="text-right text-emerald-700">PPN 11%</TableHead>
-                    <TableHead className="text-right">Total Tagihan</TableHead>
-                    <TableHead className="text-right">Total Terbayar</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {ppnReport.rows.map((r) => (
-                    <TableRow key={r.bulan}>
-                      <TableCell className="font-medium">{r.bulan}</TableCell>
-                      <TableCell className="text-right">{r.jumlah_invoice}</TableCell>
-                      <TableCell className="text-right">{formatRupiah(r.total_subtotal)}</TableCell>
-                      <TableCell className="text-right font-medium text-emerald-700">{formatRupiah(r.total_ppn)}</TableCell>
-                      <TableCell className="text-right">{formatRupiah(r.total_tagihan)}</TableCell>
-                      <TableCell className="text-right">{formatRupiah(r.total_terbayar)}</TableCell>
-                    </TableRow>
-                  ))}
-                  {/* Baris grand total */}
-                  <TableRow className="bg-muted/60 font-bold border-t-2">
-                    <TableCell>TOTAL</TableCell>
-                    <TableCell className="text-right">{ppnReport.totals.jumlah_invoice ?? 0}</TableCell>
-                    <TableCell className="text-right">{formatRupiah(ppnReport.totals.total_subtotal ?? "0")}</TableCell>
-                    <TableCell className="text-right text-emerald-700">{formatRupiah(ppnReport.totals.total_ppn ?? "0")}</TableCell>
-                    <TableCell className="text-right">{formatRupiah(ppnReport.totals.total_tagihan ?? "0")}</TableCell>
-                    <TableCell className="text-right">{formatRupiah(ppnReport.totals.total_terbayar ?? "0")}</TableCell>
-                  </TableRow>
-                </TableBody>
-              </Table>
-            </div>
+            <Tabs value={ppnTab} onValueChange={(v) => setPpnTab(v as "bulan" | "tenant")}>
+              <TabsList className="w-full">
+                <TabsTrigger value="bulan" className="flex-1">📅 Per Bulan</TabsTrigger>
+                <TabsTrigger value="tenant" className="flex-1">🏪 Per Tenant ({ppnReport.byTenant.length})</TabsTrigger>
+              </TabsList>
+
+              {/* ══ Tab 1 — Per Bulan ══ */}
+              <TabsContent value="bulan" className="mt-3 space-y-3">
+                {ppnReport.rows.length === 0 ? (
+                  <p className="text-sm text-muted-foreground text-center py-6">Tidak ada invoice pada periode ini.</p>
+                ) : (
+                  <div className="rounded-md border overflow-x-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow className="bg-muted/40">
+                          <TableHead className="w-28">Bulan</TableHead>
+                          <TableHead className="text-right">Jml Invoice</TableHead>
+                          <TableHead className="text-right">Subtotal (DPP)</TableHead>
+                          <TableHead className="text-right text-emerald-700">PPN 11%</TableHead>
+                          <TableHead className="text-right">Total Tagihan</TableHead>
+                          <TableHead className="text-right">Total Terbayar</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {ppnReport.rows.map((r) => (
+                          <TableRow key={r.bulan}>
+                            <TableCell className="font-medium">{r.bulan}</TableCell>
+                            <TableCell className="text-right">{r.jumlah_invoice}</TableCell>
+                            <TableCell className="text-right">{formatRupiah(r.total_subtotal)}</TableCell>
+                            <TableCell className="text-right font-medium text-emerald-700">{formatRupiah(r.total_ppn)}</TableCell>
+                            <TableCell className="text-right">{formatRupiah(r.total_tagihan)}</TableCell>
+                            <TableCell className="text-right">{formatRupiah(r.total_terbayar)}</TableCell>
+                          </TableRow>
+                        ))}
+                        <TableRow className="bg-muted/60 font-bold border-t-2">
+                          <TableCell>TOTAL</TableCell>
+                          <TableCell className="text-right">{ppnReport.totals.jumlah_invoice ?? 0}</TableCell>
+                          <TableCell className="text-right">{formatRupiah(ppnReport.totals.total_subtotal ?? "0")}</TableCell>
+                          <TableCell className="text-right text-emerald-700">{formatRupiah(ppnReport.totals.total_ppn ?? "0")}</TableCell>
+                          <TableCell className="text-right">{formatRupiah(ppnReport.totals.total_tagihan ?? "0")}</TableCell>
+                          <TableCell className="text-right">{formatRupiah(ppnReport.totals.total_terbayar ?? "0")}</TableCell>
+                        </TableRow>
+                      </TableBody>
+                    </Table>
+                  </div>
+                )}
+                {/* Ekspor tab bulan */}
+                <div className="flex justify-end gap-2">
+                  <Button variant="outline" size="sm" className="h-8 gap-1 border-slate-300 text-slate-700"
+                    disabled={ppnReport.rows.length === 0}
+                    onClick={() => {
+                      const header = ["Bulan","Jumlah Invoice","Subtotal (DPP)","PPN 11%","Total Tagihan","Total Terbayar"];
+                      const dr = ppnReport.rows.map(r => [r.bulan, r.jumlah_invoice, r.total_subtotal, r.total_ppn, r.total_tagihan, r.total_terbayar]);
+                      const t = ppnReport.totals;
+                      dr.push(["TOTAL", t.jumlah_invoice ?? "", t.total_subtotal ?? "", t.total_ppn ?? "", t.total_tagihan ?? "", t.total_terbayar ?? ""]);
+                      const csv = [header, ...dr].map(r => r.join(",")).join("\n");
+                      const a = document.createElement("a");
+                      a.href = URL.createObjectURL(new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" }));
+                      a.download = `ppn-per-bulan-${ppnFrom}-sd-${ppnTo}.csv`;
+                      a.click();
+                    }}>
+                    <FileDown className="h-3.5 w-3.5" /> CSV
+                  </Button>
+                  <Button variant="outline" size="sm" className="h-8 gap-1 border-green-500 text-green-700"
+                    disabled={ppnReport.rows.length === 0}
+                    onClick={() => {
+                      const wb = XLSX.utils.book_new();
+                      const judul = [[`LAPORAN PPN 11% PER BULAN`],[`Periode: ${ppnFrom} s/d ${ppnTo}`],[`Dicetak: ${new Date().toLocaleDateString("id-ID",{dateStyle:"long"})}`],[]];
+                      const header = [["Bulan","Jumlah Invoice","Subtotal (DPP)","PPN 11%","Total Tagihan","Total Terbayar"]];
+                      const dr = ppnReport.rows.map(r => [r.bulan, Number(r.jumlah_invoice), Number(r.total_subtotal), Number(r.total_ppn), Number(r.total_tagihan), Number(r.total_terbayar)]);
+                      const t = ppnReport.totals;
+                      dr.push(["TOTAL", Number(t.jumlah_invoice??0), Number(t.total_subtotal??0), Number(t.total_ppn??0), Number(t.total_tagihan??0), Number(t.total_terbayar??0)]);
+                      const ws = XLSX.utils.aoa_to_sheet([...judul,...header,...dr]);
+                      ws["!cols"] = [{wch:12},{wch:15},{wch:20},{wch:20},{wch:20},{wch:20}];
+                      ws["!merges"] = [{s:{r:0,c:0},e:{r:0,c:5}},{s:{r:1,c:0},e:{r:1,c:5}},{s:{r:2,c:0},e:{r:2,c:5}}];
+                      const start = judul.length + header.length;
+                      for (let row = start; row < start + dr.length; row++) for (let col = 2; col <= 5; col++) { const ref = XLSX.utils.encode_cell({r:row,c:col}); if (ws[ref]) ws[ref].z = '#,##0'; }
+                      XLSX.utils.book_append_sheet(wb, ws, "Per Bulan");
+                      XLSX.writeFile(wb, `ppn-per-bulan-${ppnFrom}-sd-${ppnTo}.xlsx`);
+                    }}>
+                    <FileSpreadsheet className="h-3.5 w-3.5" /> Excel
+                  </Button>
+                </div>
+              </TabsContent>
+
+              {/* ══ Tab 2 — Per Tenant ══ */}
+              <TabsContent value="tenant" className="mt-3 space-y-3">
+                {ppnReport.byTenant.length === 0 ? (
+                  <p className="text-sm text-muted-foreground text-center py-6">Tidak ada invoice pada periode ini.</p>
+                ) : (
+                  <div className="rounded-md border overflow-x-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow className="bg-muted/40">
+                          <TableHead className="min-w-[160px]">Tenant</TableHead>
+                          <TableHead className="min-w-[100px]">Unit</TableHead>
+                          <TableHead className="text-right">Jml Invoice</TableHead>
+                          <TableHead className="text-right">Subtotal (DPP)</TableHead>
+                          <TableHead className="text-right text-emerald-700">PPN 11%</TableHead>
+                          <TableHead className="text-right">Total Tagihan</TableHead>
+                          <TableHead className="text-right">Terbayar</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {ppnReport.byTenant.map((r) => (
+                          <TableRow key={r.tenant_id}>
+                            <TableCell>
+                              <p className="font-medium leading-tight">{r.nama_tenant ?? "-"}</p>
+                              <p className="text-xs text-muted-foreground">{r.nama_pemilik ?? ""}</p>
+                            </TableCell>
+                            <TableCell className="text-sm">{r.unit}</TableCell>
+                            <TableCell className="text-right">{r.jumlah_invoice}</TableCell>
+                            <TableCell className="text-right">{formatRupiah(r.total_subtotal)}</TableCell>
+                            <TableCell className="text-right font-medium text-emerald-700">{formatRupiah(r.total_ppn)}</TableCell>
+                            <TableCell className="text-right">{formatRupiah(r.total_tagihan)}</TableCell>
+                            <TableCell className="text-right">{formatRupiah(r.total_terbayar)}</TableCell>
+                          </TableRow>
+                        ))}
+                        {/* Total baris */}
+                        <TableRow className="bg-muted/60 font-bold border-t-2">
+                          <TableCell colSpan={2}>TOTAL ({ppnReport.byTenant.length} tenant)</TableCell>
+                          <TableCell className="text-right">{ppnReport.totals.jumlah_invoice ?? 0}</TableCell>
+                          <TableCell className="text-right">{formatRupiah(ppnReport.totals.total_subtotal ?? "0")}</TableCell>
+                          <TableCell className="text-right text-emerald-700">{formatRupiah(ppnReport.totals.total_ppn ?? "0")}</TableCell>
+                          <TableCell className="text-right">{formatRupiah(ppnReport.totals.total_tagihan ?? "0")}</TableCell>
+                          <TableCell className="text-right">{formatRupiah(ppnReport.totals.total_terbayar ?? "0")}</TableCell>
+                        </TableRow>
+                      </TableBody>
+                    </Table>
+                  </div>
+                )}
+                {/* Ekspor tab tenant */}
+                <div className="flex justify-end gap-2">
+                  <Button variant="outline" size="sm" className="h-8 gap-1 border-slate-300 text-slate-700"
+                    disabled={ppnReport.byTenant.length === 0}
+                    onClick={() => {
+                      const header = ["Nama Tenant","Pemilik","Unit","Jml Invoice","Subtotal (DPP)","PPN 11%","Total Tagihan","Total Terbayar"];
+                      const dr = ppnReport.byTenant.map(r => [r.nama_tenant??"",r.nama_pemilik??"",r.unit,r.jumlah_invoice,r.total_subtotal,r.total_ppn,r.total_tagihan,r.total_terbayar]);
+                      const t = ppnReport.totals;
+                      dr.push([`TOTAL (${ppnReport.byTenant.length} tenant)`,"","",t.jumlah_invoice??"",t.total_subtotal??"",t.total_ppn??"",t.total_tagihan??"",t.total_terbayar??""]);
+                      const csv = [header,...dr].map(r=>r.join(",")).join("\n");
+                      const a = document.createElement("a");
+                      a.href = URL.createObjectURL(new Blob(["\uFEFF"+csv],{type:"text/csv;charset=utf-8;"}));
+                      a.download = `ppn-per-tenant-${ppnFrom}-sd-${ppnTo}.csv`;
+                      a.click();
+                    }}>
+                    <FileDown className="h-3.5 w-3.5" /> CSV
+                  </Button>
+                  <Button variant="outline" size="sm" className="h-8 gap-1 border-green-500 text-green-700"
+                    disabled={ppnReport.byTenant.length === 0}
+                    onClick={() => {
+                      const wb = XLSX.utils.book_new();
+                      const judul = [[`LAPORAN PPN 11% PER TENANT`],[`Periode: ${ppnFrom} s/d ${ppnTo}`],[`Dicetak: ${new Date().toLocaleDateString("id-ID",{dateStyle:"long"})}`],[]];
+                      const header = [["Nama Tenant","Pemilik","Unit","Jml Invoice","Subtotal (DPP)","PPN 11%","Total Tagihan","Total Terbayar"]];
+                      const dr = ppnReport.byTenant.map(r => [r.nama_tenant??"",r.nama_pemilik??"",r.unit,Number(r.jumlah_invoice),Number(r.total_subtotal),Number(r.total_ppn),Number(r.total_tagihan),Number(r.total_terbayar)]);
+                      const t = ppnReport.totals;
+                      dr.push([`TOTAL (${ppnReport.byTenant.length} tenant)`,"","",Number(t.jumlah_invoice??0),Number(t.total_subtotal??0),Number(t.total_ppn??0),Number(t.total_tagihan??0),Number(t.total_terbayar??0)]);
+                      const ws = XLSX.utils.aoa_to_sheet([...judul,...header,...dr]);
+                      ws["!cols"] = [{wch:22},{wch:18},{wch:10},{wch:12},{wch:20},{wch:20},{wch:20},{wch:18}];
+                      ws["!merges"] = [{s:{r:0,c:0},e:{r:0,c:7}},{s:{r:1,c:0},e:{r:1,c:7}},{s:{r:2,c:0},e:{r:2,c:7}}];
+                      const start = judul.length + header.length;
+                      for (let row = start; row < start + dr.length; row++) for (let col = 4; col <= 7; col++) { const ref = XLSX.utils.encode_cell({r:row,c:col}); if (ws[ref]) ws[ref].z = '#,##0'; }
+                      XLSX.utils.book_append_sheet(wb, ws, "Per Tenant");
+                      // sheet gabungan kedua tab
+                      const drB = ppnReport.rows.map(r => [r.bulan, Number(r.jumlah_invoice), Number(r.total_subtotal), Number(r.total_ppn), Number(r.total_tagihan), Number(r.total_terbayar)]);
+                      const judulB = [[`LAPORAN PPN 11% PER BULAN`],[`Periode: ${ppnFrom} s/d ${ppnTo}`],[`Dicetak: ${new Date().toLocaleDateString("id-ID",{dateStyle:"long"})}`],[]];
+                      const headerB = [["Bulan","Jumlah Invoice","Subtotal (DPP)","PPN 11%","Total Tagihan","Total Terbayar"]];
+                      const tb = ppnReport.totals;
+                      drB.push(["TOTAL",Number(tb.jumlah_invoice??0),Number(tb.total_subtotal??0),Number(tb.total_ppn??0),Number(tb.total_tagihan??0),Number(tb.total_terbayar??0)]);
+                      const wsB = XLSX.utils.aoa_to_sheet([...judulB,...headerB,...drB]);
+                      wsB["!cols"] = [{wch:12},{wch:15},{wch:20},{wch:20},{wch:20},{wch:20}];
+                      wsB["!merges"] = [{s:{r:0,c:0},e:{r:0,c:5}},{s:{r:1,c:0},e:{r:1,c:5}},{s:{r:2,c:0},e:{r:2,c:5}}];
+                      XLSX.utils.book_append_sheet(wb, wsB, "Per Bulan");
+                      XLSX.writeFile(wb, `ppn-lengkap-${ppnFrom}-sd-${ppnTo}.xlsx`);
+                    }}>
+                    <FileSpreadsheet className="h-3.5 w-3.5" /> Excel (+ Per Bulan)
+                  </Button>
+                </div>
+              </TabsContent>
+            </Tabs>
           )}
 
           <DialogFooter>
             <p className="text-xs text-muted-foreground flex-1">
-              * Invoice dengan status <strong>Draft</strong> dan <strong>Dibatalkan</strong> tidak dihitung.
-              PPN dihitung otomatis 11% dari subtotal (DPP).
+              * Invoice <strong>Draft</strong> &amp; <strong>Dibatalkan</strong> tidak dihitung.
+              PPN otomatis 11% dari subtotal (DPP).
             </p>
             <Button variant="outline" onClick={() => setPpnOpen(false)}>Tutup</Button>
           </DialogFooter>

@@ -172,9 +172,9 @@ router.get("/tenant-invoices/ppn-report", async (req, res) => {
     const lastDay = new Date(toYear, toMon, 0).getDate();
     const toDate  = `${toMonth}-${String(lastDay).padStart(2, "0")}`;
 
-    const siteFilter = req.siteId > 0
-      ? sql`AND site_id = ${req.siteId}`
-      : sql``;
+    // siteFilter tanpa alias (untuk query tunggal) dan dengan alias ti (untuk join)
+    const siteFilter   = req.siteId > 0 ? sql`AND site_id = ${req.siteId}`    : sql``;
+    const siteFilterTi = req.siteId > 0 ? sql`AND ti.site_id = ${req.siteId}` : sql``;
 
     // Summary per bulan — dikelompokkan berdasarkan tanggal penerbitan invoice (created_at)
     const rows = await db.execute(sql`
@@ -207,11 +207,33 @@ router.get("/tenant-invoices/ppn-report", async (req, res) => {
         ${siteFilter}
     `);
 
+    // Rekap per tenant — pakai alias ti.site_id agar tidak ambigu dengan tenants.site_id
+    const byTenant = await db.execute(sql`
+      SELECT
+        ti.tenant_id,
+        t.business_name                                  AS nama_tenant,
+        t.owner_name                                     AS nama_pemilik,
+        COALESCE(ti.unit_code, t.booth_number, '-')      AS unit,
+        COUNT(*)::int                                    AS jumlah_invoice,
+        SUM(ti.subtotal::numeric)                        AS total_subtotal,
+        SUM(ti.tax_amount::numeric)                      AS total_ppn,
+        SUM(ti.total_amount::numeric)                    AS total_tagihan,
+        SUM(ti.paid_amount::numeric)                     AS total_terbayar
+      FROM tenant_invoices ti
+      LEFT JOIN tenants t ON t.id = ti.tenant_id
+      WHERE ti.status NOT IN ('cancelled', 'draft')
+        AND ti.created_at::date BETWEEN ${fromDate}::date AND ${toDate}::date
+        ${siteFilterTi}
+      GROUP BY ti.tenant_id, t.business_name, t.owner_name, COALESCE(ti.unit_code, t.booth_number, '-')
+      ORDER BY SUM(ti.tax_amount::numeric) DESC
+    `);
+
     res.json({
       from: fromMonth,
       to: toMonth,
       rows: rows.rows,
       totals: totals.rows[0] ?? {},
+      byTenant: byTenant.rows,
     });
   } catch (err) {
     req.log.error(err, "Failed to get PPN report");
