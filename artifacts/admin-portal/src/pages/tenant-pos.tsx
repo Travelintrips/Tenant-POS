@@ -1363,6 +1363,60 @@ function DetailPanel({ item, onClose, onProses, onBayarInvoice, currentShiftId }
                 <CreditCard className="w-4 h-4 mr-2" />Bayar Sekarang (Booking)
               </Button>
             )}
+
+            {/* ── Tombol Bayar Invoice ── */}
+            {openInvoices.length > 0 && (
+              <div className="space-y-2">
+                <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  Invoice Belum Lunas ({openInvoices.length})
+                </p>
+                {openInvoices.slice(0, 3).map((inv) => {
+                  const invCfg = invoiceStatusConfig[inv.status] ?? invoiceStatusConfig.draft;
+                  return (
+                    <div key={inv.id} className={cn(
+                      "rounded-lg border p-2.5 space-y-2",
+                      inv.status === "overdue" ? "border-red-200 bg-red-50/40" : "border-slate-200 bg-white"
+                    )}>
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="font-mono text-[10px] text-slate-600 truncate">{inv.invoiceNumber}</p>
+                        <span className={cn("inline-flex items-center text-[10px] px-1.5 py-0.5 rounded-full border font-medium shrink-0", invCfg.badge)}>
+                          {invCfg.label}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="text-xs text-muted-foreground">
+                          Sisa: <span className={cn("font-bold", inv.status === "overdue" ? "text-red-600" : "text-amber-600")}>{formatRupiah(inv.outstandingAmount)}</span>
+                        </p>
+                        {inv.dueDate && (
+                          <p className={cn("text-[10px]", inv.status === "overdue" ? "text-red-600 font-semibold" : "text-muted-foreground")}>
+                            Jatuh: {formatTanggalID(inv.dueDate)}
+                          </p>
+                        )}
+                      </div>
+                      <Button
+                        size="sm"
+                        className={cn(
+                          "w-full h-7 text-xs",
+                          inv.status === "overdue" ? "bg-red-600 hover:bg-red-700 text-white" : ""
+                        )}
+                        onClick={() => onBayarInvoice(item, inv)}
+                      >
+                        <CreditCard className="w-3 h-3 mr-1.5" />
+                        Bayar · {formatRupiah(inv.outstandingAmount)}
+                      </Button>
+                    </div>
+                  );
+                })}
+                {openInvoices.length > 3 && (
+                  <button
+                    className="text-xs text-primary hover:underline w-full text-center py-1"
+                    onClick={() => setActiveTab("tagihan")}
+                  >
+                    +{openInvoices.length - 3} invoice lainnya — lihat tab Tagihan →
+                  </button>
+                )}
+              </div>
+            )}
           </div>
         ) : activeTab === "tagihan" ? (
           <div className="p-4 space-y-3">

@@ -1004,7 +1004,7 @@ export default function TenantInvoices() {
     onSuccess: (updated) => {
       queryClient.invalidateQueries({ queryKey: ["/api/tenant-invoices"] });
       queryClient.invalidateQueries({ queryKey: ["/api/tenant-invoices", String(updated.id)] });
-      setDetailData(updated);
+      queryClient.setQueryData(["/api/tenant-invoices", updated.id], updated);
       toast({ title: "PPN Dihitung Ulang", description: `Invoice ${updated.invoiceNumber}: subtotal ${formatRupiah(updated.subtotal)} + PPN 11% ${formatRupiah(updated.taxAmount)} = ${formatRupiah(updated.totalAmount)}` });
     },
     onError: (e: Error) => toast({ title: "Gagal Hitung Ulang", description: e.message, variant: "destructive" }),
