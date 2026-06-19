@@ -101,6 +101,8 @@ type PaymentMethodData = { data: PaymentMethodRow[] };
 type PaymentRecord = { id: number; receiptNumber: string; paymentDate: string; tenantId: number; bookingId: number; businessName: string; ownerName: string; boothNumber: string; areaName: string; floor: string; category: string; periodLabel: string; paymentMethod: string; amountPaid: number; discountAmount: number; penaltyAmount: number; refundAmount: number; netAmount: number; paymentStatus: string; notes: string; source: string; debitAccount: string; creditAccount: string };
 type RekapData = { data: PaymentRecord[]; pagination: { total: number; limit: number; offset: number }; tahun: number; bulan: number | null };
 type TenantItem = { id: number; businessName: string };
+type IuranSampahRow = { tenantId: number; businessName: string; ownerName: string; unitCode: string; jumlahInvoice: number; totalIuran: number; iuranTerbayar: number; iuranTertunggak: number; periodeAwal: string | null; periodeAkhir: string | null };
+type IuranSampahData = { data: IuranSampahRow[]; grand: { jumlahInvoice: number; totalIuran: number; iuranTerbayar: number; iuranTertunggak: number }; tahun: number; bulan: number | null };
 
 // ─── Filter state ─────────────────────────────────────────────────────────────
 
@@ -201,6 +203,17 @@ function useFloorsList() {
     queryKey: ["laporan-floors-list"],
     queryFn: () => apiFetch(`${API}/laporan/floors-list`, { credentials: "include" }).then((r) => r.json()),
     staleTime: 5 * 60 * 1000,
+  });
+}
+function useRekapIuranSampah(filter: FilterState, tahun: string) {
+  const params = new URLSearchParams({ tahun });
+  if (filter.bulan) params.set("bulan", filter.bulan);
+  if (filter.dari) params.set("dari", filter.dari);
+  if (filter.sampai) params.set("sampai", filter.sampai);
+  if (filter.tenantId) params.set("tenant_id", filter.tenantId);
+  return useQuery<IuranSampahData>({
+    queryKey: ["laporan-iuran-sampah", tahun, filter.bulan, filter.dari, filter.sampai, filter.tenantId],
+    queryFn: () => apiFetch(`${API}/laporan/rekap-iuran-sampah?${params}`, { credentials: "include" }).then((r) => r.json()),
   });
 }
 
@@ -413,6 +426,157 @@ function KPIExtended() {
 }
 
 // ─── Section: Aging Receivable ────────────────────────────────────────────────
+
+// ─── Section: Rekap Iuran Sampah / Kebersihan ─────────────────────────────────
+
+function IuranSampahSection({ filter, tahun }: { filter: FilterState; tahun: string }) {
+  const { data, isLoading, isError } = useRekapIuranSampah(filter, tahun);
+  const rows = data?.data ?? [];
+  const grand = data?.grand;
+
+  function handleExport() {
+    if (!rows.length) return;
+    const csv = toCsv(rows.map((r) => ({
+      businessName: r.businessName,
+      ownerName: r.ownerName,
+      unitCode: r.unitCode,
+      jumlahInvoice: r.jumlahInvoice,
+      totalIuran: r.totalIuran,
+      iuranTerbayar: r.iuranTerbayar,
+      iuranTertunggak: r.iuranTertunggak,
+      periodeAwal: r.periodeAwal ?? "",
+      periodeAkhir: r.periodeAkhir ?? "",
+    })), {
+      businessName: "Nama Tenant",
+      ownerName: "Nama Pemilik",
+      unitCode: "Unit",
+      jumlahInvoice: "Jml Invoice",
+      totalIuran: "Total Iuran (Rp)",
+      iuranTerbayar: "Terbayar (Rp)",
+      iuranTertunggak: "Tertunggak (Rp)",
+      periodeAwal: "Periode Awal",
+      periodeAkhir: "Periode Akhir",
+    });
+    downloadCsv(csv, `rekap-iuran-sampah-${tahun}.csv`);
+  }
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <div className="flex items-center justify-between">
+          <div>
+            <CardTitle className="text-base flex items-center gap-2">
+              <Receipt className="w-4 h-4 text-green-600" />
+              Rekap Iuran Sampah / Kebersihan
+            </CardTitle>
+            <CardDescription>Tagihan iuran sampah per tenant — Tahun {tahun}</CardDescription>
+          </div>
+          <button
+            onClick={handleExport}
+            disabled={!rows.length}
+            className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+          >
+            <Download className="w-3.5 h-3.5" /> Export CSV
+          </button>
+        </div>
+      </CardHeader>
+      <CardContent className="pt-0">
+        {/* KPI mini cards */}
+        {grand && (
+          <div className="grid grid-cols-3 gap-3 mb-4">
+            <div className="rounded-lg bg-slate-50 border border-slate-200 p-3">
+              <p className="text-[11px] text-slate-500 font-medium uppercase tracking-wide">Total Tagihan</p>
+              <p className="text-lg font-bold mt-0.5 tracking-tight text-slate-800">{fmtFull(grand.totalIuran)}</p>
+              <p className="text-[11px] text-slate-400 mt-0.5">{grand.jumlahInvoice} invoice</p>
+            </div>
+            <div className="rounded-lg bg-emerald-50 border border-emerald-200 p-3">
+              <p className="text-[11px] text-emerald-600 font-medium uppercase tracking-wide">Terbayar</p>
+              <p className="text-lg font-bold mt-0.5 tracking-tight text-emerald-700">{fmtFull(grand.iuranTerbayar)}</p>
+              <p className="text-[11px] text-emerald-400 mt-0.5">
+                {grand.totalIuran > 0 ? Math.round((grand.iuranTerbayar / grand.totalIuran) * 100) : 0}% dari total
+              </p>
+            </div>
+            <div className="rounded-lg bg-red-50 border border-red-200 p-3">
+              <p className="text-[11px] text-red-600 font-medium uppercase tracking-wide">Tertunggak</p>
+              <p className="text-lg font-bold mt-0.5 tracking-tight text-red-600">{fmtFull(grand.iuranTertunggak)}</p>
+              <p className="text-[11px] text-red-400 mt-0.5">
+                {grand.totalIuran > 0 ? Math.round((grand.iuranTertunggak / grand.totalIuran) * 100) : 0}% dari total
+              </p>
+            </div>
+          </div>
+        )}
+
+        {isLoading && (
+          <div className="space-y-2">
+            {[1, 2, 3].map((i) => <div key={i} className="h-10 bg-slate-100 rounded animate-pulse" />)}
+          </div>
+        )}
+        {isError && (
+          <div className="flex items-center gap-2 text-sm text-red-500 py-4">
+            <AlertCircle className="w-4 h-4" /> Gagal memuat data iuran sampah
+          </div>
+        )}
+        {!isLoading && !isError && rows.length === 0 && (
+          <div className="text-center py-8 text-muted-foreground text-sm">
+            Belum ada data iuran sampah/kebersihan untuk periode ini
+          </div>
+        )}
+        {!isLoading && rows.length > 0 && (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm min-w-[680px]">
+              <thead>
+                <tr className="border-b border-slate-200">
+                  {["Nama Tenant", "Unit", "Jml Inv", "Total Iuran", "Terbayar", "Tertunggak"].map((h, i) => (
+                    <th key={h} className={cn(
+                      "px-3 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wide",
+                      i === 0 ? "text-left" : i === 1 ? "text-left" : "text-right"
+                    )}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {rows.map((r) => {
+                  const pctBayar = r.totalIuran > 0 ? Math.round((r.iuranTerbayar / r.totalIuran) * 100) : 0;
+                  return (
+                    <tr key={r.tenantId} className="hover:bg-slate-50/70 transition-colors">
+                      <td className="px-3 py-2.5">
+                        <p className="font-medium text-slate-800 truncate max-w-[200px]">{r.businessName}</p>
+                        <p className="text-xs text-slate-400 truncate">{r.ownerName}</p>
+                      </td>
+                      <td className="px-3 py-2.5 text-slate-600">{r.unitCode}</td>
+                      <td className="px-3 py-2.5 text-right text-slate-500 tabular-nums">{r.jumlahInvoice}</td>
+                      <td className="px-3 py-2.5 text-right tabular-nums font-medium text-slate-700">{fmtFull(r.totalIuran)}</td>
+                      <td className="px-3 py-2.5 text-right tabular-nums text-emerald-700">
+                        {fmtFull(r.iuranTerbayar)}
+                        <span className="ml-1 text-[10px] text-emerald-400">{pctBayar}%</span>
+                      </td>
+                      <td className="px-3 py-2.5 text-right tabular-nums">
+                        {r.iuranTertunggak > 0
+                          ? <span className="font-semibold text-red-600">{fmtFull(r.iuranTertunggak)}</span>
+                          : <span className="text-slate-400">—</span>
+                        }
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+              {grand && grand.totalIuran > 0 && (
+                <tfoot>
+                  <tr className="border-t-2 border-slate-300 bg-slate-50">
+                    <td colSpan={3} className="px-3 py-2.5 text-xs font-bold text-slate-600 uppercase">Total</td>
+                    <td className="px-3 py-2.5 text-right tabular-nums font-bold text-slate-800">{fmtFull(grand.totalIuran)}</td>
+                    <td className="px-3 py-2.5 text-right tabular-nums font-bold text-emerald-700">{fmtFull(grand.iuranTerbayar)}</td>
+                    <td className="px-3 py-2.5 text-right tabular-nums font-bold text-red-600">{fmtFull(grand.iuranTertunggak)}</td>
+                  </tr>
+                </tfoot>
+              )}
+            </table>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
 
 function AgingSection() {
   const { data, isLoading } = useAging();
@@ -1144,6 +1308,9 @@ export default function Laporan() {
           </CardContent>
         </Card>
       </div>
+
+      {/* ── Rekap Iuran Sampah / Kebersihan ── */}
+      <IuranSampahSection filter={filter} tahun={tahun} />
 
       {/* ── NEW: Aging Receivable ── */}
       <AgingSection />

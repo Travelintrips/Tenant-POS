@@ -846,5 +846,105 @@ router.get("/laporan/rekonsiliasi", async (req, res) => {
   });
 });
 
+/**
+ * GET /api/laporan/rekap-iuran-sampah?tahun=2026&bulan=&dari=&sampai=&tenant_id=
+ * Rekap iuran sampah/kebersihan per tenant dari tenant_invoices.
+ * Menampilkan total tagihan, terbayar, dan tertunggak per tenant.
+ */
+router.get("/laporan/rekap-iuran-sampah", async (req, res) => {
+  const { tahun: tahunRaw, bulan: bulanRaw, dari, sampai, tenant_id } = req.query;
+  const tahun = tahunRaw ? parseInt(String(tahunRaw), 10) : new Date().getFullYear();
+  const bulan = bulanRaw ? parseInt(String(bulanRaw), 10) : null;
+  const siteId = req.siteId;
+
+  if (isNaN(tahun)) {
+    return res.status(400).json({ error: "Parameter tahun tidak valid" });
+  }
+
+  let whereClause = sql`ti.status != 'cancelled' AND ti.trash_charge_amount > 0`;
+
+  if (siteId > 0) {
+    whereClause = sql`${whereClause} AND ti.site_id = ${siteId}`;
+  }
+
+  if (dari && sampai) {
+    whereClause = sql`${whereClause}
+      AND ti.period_start >= ${String(dari)}
+      AND ti.period_start <= ${String(sampai)}`;
+  } else {
+    whereClause = sql`${whereClause}
+      AND EXTRACT(YEAR FROM COALESCE(ti.period_start, ti.due_date)) = ${tahun}`;
+    if (bulan && !isNaN(bulan) && bulan >= 1 && bulan <= 12) {
+      whereClause = sql`${whereClause}
+        AND EXTRACT(MONTH FROM COALESCE(ti.period_start, ti.due_date)) = ${bulan}`;
+    }
+  }
+
+  if (tenant_id && !isNaN(parseInt(String(tenant_id), 10))) {
+    whereClause = sql`${whereClause} AND ti.tenant_id = ${parseInt(String(tenant_id), 10)}`;
+  }
+
+  try {
+    const rows = await db.execute(sql`
+      SELECT
+        te.id                                                                  AS tenant_id,
+        te.business_name,
+        te.owner_name,
+        COALESCE(ti.unit_code, tb.unit_code, te.booth_number)                 AS unit_code,
+        COUNT(*)::int                                                          AS jumlah_invoice,
+        SUM(ti.trash_charge_amount)::numeric                                   AS total_iuran,
+        SUM(CASE WHEN ti.status = 'paid'
+              THEN ti.trash_charge_amount ELSE 0 END)::numeric                 AS iuran_terbayar,
+        SUM(CASE WHEN ti.status NOT IN ('paid','cancelled')
+              THEN ti.trash_charge_amount ELSE 0 END)::numeric                 AS iuran_tertunggak,
+        MIN(ti.period_start)                                                   AS periode_awal,
+        MAX(ti.period_end)                                                     AS periode_akhir
+      FROM tenant_invoices ti
+      JOIN tenants te ON te.id = ti.tenant_id
+      LEFT JOIN tenant_bookings tb ON tb.id = ti.booking_id
+      WHERE ${whereClause}
+      GROUP BY te.id, te.business_name, te.owner_name,
+               COALESCE(ti.unit_code, tb.unit_code, te.booth_number)
+      ORDER BY SUM(ti.trash_charge_amount) DESC
+    `);
+
+    const data = ((rows as any).rows ?? rows) as any[];
+
+    const mapped = data.map((r: any) => ({
+      tenantId:       Number(r.tenant_id),
+      businessName:   r.business_name ?? "-",
+      ownerName:      r.owner_name ?? "-",
+      unitCode:       r.unit_code ?? "-",
+      jumlahInvoice:  Number(r.jumlah_invoice),
+      totalIuran:     Number(r.total_iuran ?? 0),
+      iuranTerbayar:  Number(r.iuran_terbayar ?? 0),
+      iuranTertunggak: Number(r.iuran_tertunggak ?? 0),
+      periodeAwal:    r.periode_awal ?? null,
+      periodeAkhir:   r.periode_akhir ?? null,
+    }));
+
+    const grand = mapped.reduce(
+      (acc, r) => ({
+        jumlahInvoice:  acc.jumlahInvoice + r.jumlahInvoice,
+        totalIuran:     acc.totalIuran + r.totalIuran,
+        iuranTerbayar:  acc.iuranTerbayar + r.iuranTerbayar,
+        iuranTertunggak: acc.iuranTertunggak + r.iuranTertunggak,
+      }),
+      { jumlahInvoice: 0, totalIuran: 0, iuranTerbayar: 0, iuranTertunggak: 0 },
+    );
+
+    return res.json({
+      data: mapped,
+      grand,
+      tahun,
+      bulan: bulan ?? null,
+    });
+  } catch (err) {
+    req.log.error(err, "Failed to get rekap iuran sampah");
+    res.status(500).json({ error: "Gagal mengambil rekap iuran sampah" });
+  }
+});
+
 export default router;
+
 
