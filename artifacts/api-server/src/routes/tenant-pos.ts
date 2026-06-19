@@ -10,7 +10,7 @@ import {
   cashierShiftsTable,
   paymentReceiptsTable,
 } from "@workspace/db/schema";
-import { eq, and, sql, desc } from "drizzle-orm";
+import { eq, and, sql, desc, gte, lte, ilike, or } from "drizzle-orm";
 import { z } from "zod";
 import { requireAnyRole } from "../middlewares/auth";
 import { logAudit } from "../lib/audit";
@@ -750,6 +750,87 @@ router.get("/tenant-pos/receipts/:paymentId", async (req, res) => {
     });
   } catch (err) {
     req.log.error(err, "Failed to get receipt");
+    res.status(500).json({ error: "Gagal mengambil data receipt" });
+  }
+});
+
+// ─── GET /api/tenant-pos/receipts (list with filters) ────────────────────────
+router.get("/tenant-pos/receipts", async (req, res) => {
+  const { dateFrom, dateTo, waStatus, search, siteId, limit = "50", offset = "0" } = req.query as Record<string, string>;
+
+  const conditions = [];
+
+  if (dateFrom) {
+    const d = new Date(dateFrom);
+    if (!isNaN(d.getTime())) conditions.push(gte(paymentReceiptsTable.createdAt, d));
+  }
+  if (dateTo) {
+    const d = new Date(dateTo);
+    if (!isNaN(d.getTime())) {
+      d.setHours(23, 59, 59, 999);
+      conditions.push(lte(paymentReceiptsTable.createdAt, d));
+    }
+  }
+  if (waStatus && ["sent", "skipped", "failed", "pending"].includes(waStatus)) {
+    conditions.push(eq(paymentReceiptsTable.waStatus, waStatus));
+  }
+  if (siteId && !isNaN(Number(siteId))) {
+    conditions.push(eq(paymentReceiptsTable.siteId, Number(siteId)));
+  }
+  if (search) {
+    conditions.push(
+      or(
+        ilike(paymentReceiptsTable.businessName, `%${search}%`),
+        ilike(paymentReceiptsTable.receiptNumber, `%${search}%`),
+        ilike(paymentReceiptsTable.invoiceNumber, `%${search}%`),
+        ilike(paymentReceiptsTable.kasirName, `%${search}%`),
+      )
+    );
+  }
+
+  const limitN = Math.min(Math.max(Number(limit) || 50, 1), 200);
+  const offsetN = Math.max(Number(offset) || 0, 0);
+
+  try {
+    const [rows, [{ total }]] = await Promise.all([
+      db
+        .select()
+        .from(paymentReceiptsTable)
+        .where(conditions.length ? and(...conditions) : undefined)
+        .orderBy(desc(paymentReceiptsTable.createdAt))
+        .limit(limitN)
+        .offset(offsetN),
+      db
+        .select({ total: sql<number>`count(*)::int` })
+        .from(paymentReceiptsTable)
+        .where(conditions.length ? and(...conditions) : undefined),
+    ]);
+
+    res.json({
+      total,
+      limit: limitN,
+      offset: offsetN,
+      items: rows.map((r) => ({
+        id: r.id,
+        paymentId: r.paymentId,
+        receiptNumber: r.receiptNumber,
+        fileUrl: r.fileUrl,
+        invoiceNumber: r.invoiceNumber,
+        businessName: r.businessName,
+        ownerName: r.ownerName,
+        unitCode: r.unitCode,
+        amountPaid: Number(r.amountPaid),
+        taxAmount: Number(r.taxAmount),
+        netAmount: Number(r.netAmount),
+        paymentMethod: r.paymentMethod,
+        kasirName: r.kasirName,
+        journalId: r.journalId,
+        waStatus: r.waStatus,
+        createdAt: r.createdAt,
+      })),
+    });
+  } catch (err) {
+    req.log.error(err, "Failed to list receipts");
     res.status(500).json({ error: "Gagal mengambil data receipt" });
   }
 });
