@@ -34,6 +34,7 @@ import {
 } from "../services/bank-matcher";
 import { writePaymentEvent, normalizePaymentMethod } from "../lib/payment-events";
 import { postAccountingJournal } from "../lib/accounting-journal";
+import { syncInvoiceFromPayments } from "../lib/payment-ledger";
 import { appContextMiddleware, type AppContext } from "../middlewares/app-context";
 
 const router: IRouter = Router();
@@ -1006,14 +1007,6 @@ router.post("/bank-reconciliation/:mutationId/approve", async (req, res) => {
 
       if (invoice && invoice.status !== "cancelled" && invoice.status !== "paid") {
         const mutAmount = parseFloat(String(mutation.amount));
-        const newPaidAmount = Number(invoice.paidAmount) + mutAmount;
-        const total = Number(invoice.totalAmount);
-        const outstanding = Math.max(total - newPaidAmount, 0);
-
-        let newStatus: string;
-        if (newPaidAmount >= total) newStatus = "paid";
-        else if (newPaidAmount > 0) newStatus = "partial";
-        else newStatus = invoice.dueDate && new Date(invoice.dueDate) < now ? "overdue" : "unpaid";
 
         const datePart = now.toISOString().slice(0, 10).replace(/-/g, "");
         const prefix = `REKON-PAY-${datePart}-`;
@@ -1034,9 +1027,13 @@ router.post("/bank-reconciliation/:mutationId/approve", async (req, res) => {
             tenantBookingId: invoice.bookingId ?? undefined,
             amount: String(mutAmount),
             paymentMethod: "transfer",
+            method: "transfer",
             paymentStatus: "PAID",
+            status: "PAID",
             approvalStatus: "approved",
             receiptNumber,
+            referenceId: `RECON-${mutationId}`,
+            sourceType: "bank_recon",
             paidAt: new Date(mutation.transactionDate),
             referenceNumber: mutation.providerOrderId ?? mutation.description?.slice(0, 100),
             notes: `Disetujui via rekonsiliasi bank. Mutasi ID: ${mutationId}`,
@@ -1045,14 +1042,7 @@ router.post("/bank-reconciliation/:mutationId/approve", async (req, res) => {
 
         newPaymentId = newPayment?.id ?? null;
 
-        await tx.update(tenantInvoicesTable)
-          .set({
-            paidAmount: String(newPaidAmount),
-            outstandingAmount: String(outstanding),
-            status: newStatus,
-            updatedAt: now,
-          })
-          .where(eq(tenantInvoicesTable.id, invoice.id));
+        await syncInvoiceFromPayments(tx, invoice.id, now);
 
         updateData.matchedPaymentId = newPaymentId ?? undefined;
       }

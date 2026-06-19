@@ -12,6 +12,7 @@ import { sseBroker } from "../lib/sse-broker";
 import { sendPaymentApproved, sendPaymentRejected } from "../lib/whatsapp";
 import { logAudit } from "../lib/audit";
 import { writePaymentEvent, normalizePaymentMethod } from "../lib/payment-events";
+import { syncInvoiceFromPayments } from "../lib/payment-ledger";
 
 const router: IRouter = Router();
 
@@ -146,27 +147,14 @@ router.post("/pending-payments/:id/approve", async (req, res) => {
         .where(eq(tenantPaymentsTable.id, id))
         .returning();
 
-      const newPaidAmount = Number(invoice.paidAmount) + Number(payment.amount);
-      const total = Number(invoice.totalAmount);
-      const outstanding = Math.max(total - newPaidAmount, 0);
-
-      let newStatus: string;
-      if (newPaidAmount >= total) newStatus = "paid";
-      else if (newPaidAmount > 0) newStatus = "partial";
-      else newStatus = invoice.dueDate && new Date(invoice.dueDate) < now ? "overdue" : "unpaid";
+      await syncInvoiceFromPayments(tx, invoice.id, now);
 
       const [updatedInvoice] = await tx
-        .update(tenantInvoicesTable)
-        .set({
-          paidAmount: String(newPaidAmount),
-          outstandingAmount: String(outstanding),
-          status: newStatus,
-          updatedAt: now,
-        })
-        .where(eq(tenantInvoicesTable.id, invoice.id))
-        .returning();
+        .select()
+        .from(tenantInvoicesTable)
+        .where(eq(tenantInvoicesTable.id, invoice.id));
 
-      return { payment: updatedPayment, invoice: updatedInvoice };
+      return { payment: updatedPayment, invoice: updatedInvoice! };
     });
 
     logAudit(req, {

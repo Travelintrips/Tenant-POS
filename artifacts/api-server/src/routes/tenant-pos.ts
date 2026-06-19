@@ -19,6 +19,7 @@ import { writePaymentEvent, normalizePaymentMethod } from "../lib/payment-events
 import { generateReceiptHtml, saveReceiptFile } from "../lib/pos-receipt";
 import { postPosPaymentJournal } from "../lib/pos-journal";
 import { sendPosPaymentSuccess } from "../lib/whatsapp";
+import { syncInvoiceFromPayments } from "../lib/payment-ledger";
 import { getBaseUrl } from "../lib/app-url";
 
 const router: IRouter = Router();
@@ -445,9 +446,14 @@ router.post("/tenant-pos/payments", paymentRateLimiter, async (req, res) => {
           discountAmount: String(discountAmount),
           penaltyAmount: String(penaltyAmount),
           paymentMethod,
+          method: paymentMethod,
           paymentStatus: "PAID",
+          status: "PAID",
+          approvalStatus: "approved",
           receiptNumber,
           referenceNumber: referenceNumber ?? null,
+          referenceId: `POS-${shiftId ?? "ns"}-${receiptNumber}`,
+          sourceType: "pos",
           proofUrl: proofUrl ?? null,
           shiftId: shiftId ?? null,
           notes: notes ?? null,
@@ -468,32 +474,8 @@ router.post("/tenant-pos/payments", paymentRateLimiter, async (req, res) => {
         .where(eq(tenantBookingsTable.id, bookingId))
         .returning();
 
-      if (invoiceId && preInsertInvoice) {
-        const [prevInvPaid] = await tx
-          .select({ total: sql<number>`coalesce(sum(amount::numeric), 0)::int` })
-          .from(tenantPaymentsTable)
-          .where(
-            and(
-              eq(tenantPaymentsTable.invoiceId, invoiceId),
-              eq(tenantPaymentsTable.isVoided, false)
-            )
-          );
-
-        // prevInvPaid already includes the newly inserted payment (same tx)
-        const invoicePaid = prevInvPaid?.total ?? 0;
-        const invTotal = Number(preInsertInvoice.totalAmount);
-        const invOutstanding = Math.max(invTotal - invoicePaid, 0);
-        const invStatus = invoicePaid >= invTotal ? "paid" : invoicePaid > 0 ? "partial" : "unpaid";
-
-        await tx
-          .update(tenantInvoicesTable)
-          .set({
-            paidAmount: String(invoicePaid),
-            outstandingAmount: String(invOutstanding),
-            status: invStatus,
-            updatedAt: new Date(),
-          })
-          .where(eq(tenantInvoicesTable.id, invoiceId));
+      if (invoiceId) {
+        await syncInvoiceFromPayments(tx, invoiceId);
       }
 
       if (shiftId && paymentMethod === "tunai") {

@@ -27,6 +27,7 @@ import systemStatusRouter from "./system-status";
 import settingsRouter from "./settings";
 import reconciliationRouter from "./reconciliation";
 import bankReconciliationRouter from "./bank-reconciliation";
+import paymentsRouter from "./payments";
 import { requireAuth, requireNonTenantUser } from "../middlewares/auth";
 import { siteContext } from "../middlewares/site-context";
 
@@ -68,6 +69,7 @@ router.use(mallUnitsRouter);
 router.use(auditLogsRouter);
 router.use(whatsappRouter);
 router.use(pendingPaymentsRouter);
+router.use(paymentsRouter);
 router.use(dashboardRouter);
 router.use(systemStatusRouter);
 router.use(settingsRouter);

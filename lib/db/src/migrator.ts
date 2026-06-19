@@ -2062,4 +2062,28 @@ CREATE TABLE IF NOT EXISTS "payment_receipts" (
   "created_at" timestamptz NOT NULL DEFAULT now()
 );
   `.trim(),
+},
+{
+  name: "0046_payment_ledger_columns",
+  sql: `
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='tenant_payments' AND column_name='reference_id') THEN
+    ALTER TABLE "tenant_payments" ADD COLUMN "reference_id" text;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='tenant_payments' AND column_name='source_type') THEN
+    ALTER TABLE "tenant_payments" ADD COLUMN "source_type" text;
+  END IF;
+END $$;
+
+DO $$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_indexes
+    WHERE tablename = 'tenant_payments' AND indexname = 'tenant_payments_reference_id_unique'
+  ) THEN
+    CREATE UNIQUE INDEX tenant_payments_reference_id_unique
+      ON "tenant_payments" ("reference_id")
+      WHERE reference_id IS NOT NULL;
+  END IF;
+END $$;
+  `.trim(),
 });
