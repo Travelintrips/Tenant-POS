@@ -1,22 +1,23 @@
 ---
-name: DB connection priority and split-brain warning
-description: lib/db reads SUPABASE_PG_URL before DATABASE_URL; psql $DATABASE_URL hits local Postgres, running API uses Supabase.
+name: DB connection priority and Supabase env split
+description: SUPABASE_PG_URL exists in both 'development' and 'production' Replit env scopes with different project refs; artifact workflow uses the 'development' scope.
 ---
 
 ## Rule
 `lib/db/src/config.ts` prioritises `SUPABASE_PG_URL` → `SUPABASE_DATABASE_URL` → `DATABASE_URL`.
-The running API server therefore uses Supabase when `SUPABASE_PG_URL` is set in the environment.
 
-**Why:** `SUPABASE_PG_URL` (pooler, port 6543) is reachable from the Replit sandbox at runtime and is the primary production-like database. `DATABASE_URL` points to the local Replit Postgres, which is only used as a fallback when Supabase env vars are absent.
+**Current active credentials (June 2026):**
+- `development` env: project ref `xssrfshdrtdfupgqwfdw` (original Supabase project, was paused, resumed) — this is what the artifact API server uses
+- `production` env: was pointing to `nzdweipzckfszczzqtuw` (user's new project) — deleted to avoid conflict; if deploying to production, re-add under production scope
+- Secret (global): may differ; artifact workflows inherit from the `development` scoped env var, NOT the secret, when both exist
 
-**Split-brain risk (RESOLVED):** `lib/db/seed.ts` and `lib/db/drizzle.config.ts` previously defaulted to `DATABASE_URL` (local). Both now use the Supabase-first priority chain. All DB connection points now resolve to Supabase when env vars are set.
+**Why Supabase was paused:** Free tier auto-pauses after sustained inactivity. Resume from Supabase dashboard → Settings → General.
 
-**Fixed files (June 2026):**
-- `lib/db/seed.ts` — uses `SUPABASE_PG_URL ?? SUPABASE_DATABASE_URL ?? DATABASE_URL` + SSL `{rejectUnauthorized:false}` for Supabase
-- `lib/db/drizzle.config.ts` — uses `SUPABASE_PG_URL || SUPABASE_DATABASE_URL || SUPABASE_DATABASE_URL_DEV || DATABASE_URL`
+**Why artifact workflow env is sticky:** Artifact workflows (`artifacts/api-server: API Server`) are launched by Replit's workflow runner which injects env at launch time. Killing port 8080 and auto-restarting does NOT guarantee a fresh env injection. To force a fresh env: use `restart_workflow` tool or kill the process by PID directly, then call `restart_workflow`.
 
 **How to apply:**
-- Only two files create a raw Pool: `lib/db/src/index.ts` (main) and `lib/db/seed.ts`. Both now use Supabase-first.
-- To check what data the running API sees, use the API itself (curl /api/tenants) rather than psql.
-- To seed Supabase data, use API endpoints or `scripts/src/seed-demo.ts` (it uses `@workspace/db` which is Supabase-first).
-- drizzle-kit push may hang on the pooler — use the migrator script instead.
+- If DB auth fails → first check if Supabase project is paused; resume from dashboard
+- If secret was recently changed and API still fails → kill API process by PID (`ps aux | grep dist/index.mjs`), then `restart_workflow artifacts/api-server: API Server`
+- Do NOT create a 'shared' scoped SUPABASE_PG_URL if 'development' or 'production' scoped ones already exist (Replit blocks it)
+- To check what data the running API sees, use the API itself (curl /api/tenants) rather than psql
+- drizzle-kit push may hang on the pooler — use the migrator script instead
