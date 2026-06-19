@@ -84,6 +84,8 @@ async function insertInvoiceSafe(
   throw new Error(`Gagal generate invoice number setelah ${maxRetries + 1} percobaan`);
 }
 
+const PPN_RATE = 0.11; // 11%
+
 function calcAmounts(data: {
   rentAmount?: string | number | null;
   serviceChargeAmount?: string | number | null;
@@ -92,7 +94,6 @@ function calcAmounts(data: {
   otherChargeAmount?: string | number | null;
   discountAmount?: string | number | null;
   penaltyAmount?: string | number | null;
-  taxAmount?: string | number | null;
   paidAmount?: string | number | null;
 }) {
   const rent = Number(data.rentAmount ?? 0);
@@ -102,15 +103,16 @@ function calcAmounts(data: {
   const other = Number(data.otherChargeAmount ?? 0);
   const discount = Number(data.discountAmount ?? 0);
   const penalty = Number(data.penaltyAmount ?? 0);
-  const tax = Number(data.taxAmount ?? 0);
   const paid = Number(data.paidAmount ?? 0);
 
   const subtotal = rent + service + elec + water + other - discount + penalty;
-  const total = subtotal + tax;
+  const taxAmt = Math.round(subtotal * PPN_RATE);
+  const total = subtotal + taxAmt;
   const outstanding = Math.max(total - paid, 0);
 
   return {
     subtotal: String(subtotal),
+    taxAmount: String(taxAmt),
     totalAmount: String(total),
     outstandingAmount: String(outstanding),
   };
@@ -462,7 +464,7 @@ router.post("/tenant-invoices/bulk", async (req, res) => {
         }
       }
 
-      const { subtotal, totalAmount, outstandingAmount } = calcAmounts(item);
+      const { subtotal, taxAmount: calcedTax, totalAmount, outstandingAmount } = calcAmounts(item);
       const status = item.status ?? resolveStatus(Number(totalAmount), 0, item.dueDate ?? null);
 
       const invoice = await insertInvoiceSafe({
@@ -479,7 +481,7 @@ router.post("/tenant-invoices/bulk", async (req, res) => {
         otherChargeAmount: String(item.otherChargeAmount ?? "0"),
         discountAmount: String(item.discountAmount ?? "0"),
         penaltyAmount: String(item.penaltyAmount ?? "0"),
-        taxAmount: String(item.taxAmount ?? "0"),
+        taxAmount: calcedTax,
         subtotal,
         totalAmount,
         paidAmount: "0",
@@ -536,7 +538,7 @@ router.post("/tenant-invoices", async (req, res) => {
   }
 
   const data = parsed.data;
-  const { subtotal, totalAmount, outstandingAmount } = calcAmounts(data);
+  const { subtotal, taxAmount: calcedTax, totalAmount, outstandingAmount } = calcAmounts(data);
 
   const status = data.status ?? resolveStatus(
     Number(totalAmount),
@@ -561,7 +563,7 @@ router.post("/tenant-invoices", async (req, res) => {
       otherChargeAmount: String(data.otherChargeAmount ?? "0"),
       discountAmount: String(data.discountAmount ?? "0"),
       penaltyAmount: String(data.penaltyAmount ?? "0"),
-      taxAmount: String(data.taxAmount ?? "0"),
+      taxAmount: calcedTax,
       subtotal,
       totalAmount,
       paidAmount: "0",
@@ -614,7 +616,7 @@ router.patch("/tenant-invoices/:id", async (req, res) => {
     }
 
     const merged = { ...existing, ...parsed.data };
-    const { subtotal, totalAmount, outstandingAmount } = calcAmounts({
+    const { subtotal, taxAmount: calcedTax, totalAmount, outstandingAmount } = calcAmounts({
       ...merged,
       paidAmount: existing.paidAmount,
     });
@@ -639,7 +641,7 @@ router.patch("/tenant-invoices/:id", async (req, res) => {
         otherChargeAmount: String(merged.otherChargeAmount ?? "0"),
         discountAmount: String(merged.discountAmount ?? "0"),
         penaltyAmount: String(merged.penaltyAmount ?? "0"),
-        taxAmount: String(merged.taxAmount ?? "0"),
+        taxAmount: calcedTax,
         subtotal,
         totalAmount,
         outstandingAmount,
@@ -756,7 +758,13 @@ router.post("/tenant-invoices/generate-from-booking/:bookingId", async (req, res
     const service = Number(booking.serviceChargeAmount ?? 0);
     const elec = Number(booking.electricityChargeAmount ?? 0);
     const water = Number(booking.waterChargeAmount ?? 0);
-    const subtotalVal = rent + service + elec + water;
+
+    const { subtotal: subtotalStr, taxAmount: calcedTax, totalAmount: totalStr, outstandingAmount: outstandingStr } = calcAmounts({
+      rentAmount: rent,
+      serviceChargeAmount: service,
+      electricityChargeAmount: elec,
+      waterChargeAmount: water,
+    });
 
     // Gunakan insertInvoiceSafe agar tidak 500 jika ada race condition pada invoice number
     const invoice = await insertInvoiceSafe({
@@ -775,11 +783,11 @@ router.post("/tenant-invoices/generate-from-booking/:bookingId", async (req, res
       otherChargeAmount: "0",
       discountAmount: "0",
       penaltyAmount: "0",
-      taxAmount: "0",
-      subtotal: String(subtotalVal),
-      totalAmount: String(subtotalVal),
+      taxAmount: calcedTax,
+      subtotal: subtotalStr,
+      totalAmount: totalStr,
       paidAmount: "0",
-      outstandingAmount: String(subtotalVal),
+      outstandingAmount: outstandingStr,
       status: new Date(dueDateStr) < now ? "overdue" : "unpaid",
       notes: (req.body as Record<string, unknown>).notes as string ?? null,
     });
