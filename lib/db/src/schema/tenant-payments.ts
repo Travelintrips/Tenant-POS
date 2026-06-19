@@ -45,6 +45,7 @@ export const tenantPaymentsTable = pgTable("tenant_payments", {
   ocrConfidence: numeric("ocr_confidence"),
   referenceId: text("reference_id"),
   sourceType: text("source_type"),
+  remainingBalanceAfter: numeric("remaining_balance_after"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });

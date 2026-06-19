@@ -42,6 +42,7 @@ export interface LedgerResult {
   paidAmount: number;
   remaining: number;
   receiptNumber: string;
+  remainingBalanceAfter: number;
 }
 
 // ── Core: sync invoice from all approved payments (idempotent) ────────────────
@@ -194,7 +195,7 @@ export async function recordPayment(
   // 2. Overpayment guard
   await validateNoOverpayment(tx, params.invoiceId, params.amount);
 
-  // 3. Insert payment record
+  // 3. Insert payment record (without remaining_balance_after first)
   const [payment] = await tx
     .insert(tenantPaymentsTable)
     .values({
@@ -228,11 +229,18 @@ export async function recordPayment(
   // 4. Sync invoice balances
   const ledger = await syncInvoiceFromPayments(tx, params.invoiceId, now);
 
+  // 5. Backfill remaining_balance_after on the new payment row
+  await tx
+    .update(tenantPaymentsTable)
+    .set({ remainingBalanceAfter: String(ledger.outstanding) })
+    .where(eq(tenantPaymentsTable.id, payment.id));
+
   return {
     ledgerEntryId: payment.id,
     invoiceStatus: ledger.status,
     paidAmount: ledger.paidAmount,
     remaining: ledger.outstanding,
+    remainingBalanceAfter: ledger.outstanding,
     receiptNumber: params.receiptNumber,
   };
 }
@@ -279,6 +287,12 @@ export async function approveExistingPayment(
 
   // Sync invoice
   const ledger = await syncInvoiceFromPayments(tx, invoiceId, now);
+
+  // Backfill remaining_balance_after after sync
+  await tx
+    .update(tenantPaymentsTable)
+    .set({ remainingBalanceAfter: String(ledger.outstanding) })
+    .where(eq(tenantPaymentsTable.id, paymentId));
 
   return {
     invoiceStatus: ledger.status,

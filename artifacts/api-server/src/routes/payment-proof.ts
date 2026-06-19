@@ -299,6 +299,7 @@ router.post("/pay/:token/proof", uploadRateLimiter, async (req, res) => {
         proofImageUrl: proofUrl,
         notes: notes ?? null,
         approvalStatus: "pending_review",
+        sourceType: "ocr",
         ...(ocrExtractedAmount != null ? { ocrExtractedAmount: String(ocrExtractedAmount) } : {}),
         ...(ocrRawText ? { ocrRawText } : {}),
         ...(ocrConfidence != null ? { ocrConfidence: String(ocrConfidence) } : {}),

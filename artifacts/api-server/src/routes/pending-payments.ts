@@ -4,6 +4,7 @@ import {
   tenantPaymentsTable,
   tenantInvoicesTable,
   tenantsTable,
+  paymentReceiptsTable,
 } from "@workspace/db/schema";
 import { eq, and, inArray, desc } from "drizzle-orm";
 import { z } from "zod";
@@ -159,6 +160,41 @@ router.post("/pending-payments/:id/approve", async (req, res) => {
       paymentId: id,
       invoiceId: result.invoice.id,
     });
+
+    // Generate receipt entry for the approved OCR/manual payment (fire-and-forget)
+    void (async () => {
+      try {
+        const p = result.payment;
+        const inv = result.invoice;
+        const tenantRow = p.tenantId
+          ? await db
+              .select({ ownerName: tenantsTable.ownerName, businessName: tenantsTable.businessName })
+              .from(tenantsTable)
+              .where(eq(tenantsTable.id, p.tenantId))
+              .then((r) => r[0])
+          : null;
+
+        await db.insert(paymentReceiptsTable).values({
+          paymentId: p.id,
+          invoiceId: inv.id,
+          tenantId: p.tenantId ?? 0,
+          siteId: p.siteId ?? null,
+          receiptNumber: p.receiptNumber ?? `RCT-${p.id}`,
+          fileUrl: "",
+          invoiceNumber: inv.invoiceNumber,
+          businessName: tenantRow?.businessName ?? null,
+          ownerName: tenantRow?.ownerName ?? null,
+          amountPaid: String(p.amount),
+          taxAmount: "0",
+          netAmount: String(p.amount),
+          paymentMethod: p.paymentMethod ?? null,
+          kasirName: req.user?.name ?? "Admin",
+          waStatus: "skipped",
+        }).onConflictDoNothing();
+      } catch {
+        // Non-critical — pembayaran sudah berhasil
+      }
+    })();
 
     writePaymentEvent({
       sourceApp: "tenant_management",

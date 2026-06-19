@@ -2096,4 +2096,14 @@ DO $$ BEGIN
   END IF;
 END $$;
   `.trim(),
+},
+{
+  name: "0048_payment_ledger_remaining_balance",
+  sql: `
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='tenant_payments' AND column_name='remaining_balance_after') THEN
+    ALTER TABLE "tenant_payments" ADD COLUMN "remaining_balance_after" numeric;
+  END IF;
+END $$;
+  `.trim(),
 });

@@ -1,7 +1,7 @@
 import { Router, type IRouter } from "express";
 import { db } from "@workspace/db";
-import { tenantPaymentsTable, tenantInvoicesTable, tenantsTable } from "@workspace/db/schema";
-import { eq, sql } from "drizzle-orm";
+import { tenantPaymentsTable, tenantInvoicesTable, tenantsTable, paymentReceiptsTable } from "@workspace/db/schema";
+import { eq, sql, desc, and } from "drizzle-orm";
 import { z } from "zod";
 import { logAudit } from "../lib/audit";
 import { LedgerError, recordPayment } from "../lib/payment-ledger";
@@ -100,11 +100,55 @@ router.post("/payments", async (req, res) => {
       },
     });
 
+    // Generate receipt entry — fire-and-forget (non-blocking)
+    void (async () => {
+      try {
+        const [inv] = await db
+          .select({
+            invoiceNumber: tenantInvoicesTable.invoiceNumber,
+            tenantId: tenantInvoicesTable.tenantId,
+            siteId: tenantInvoicesTable.siteId,
+          })
+          .from(tenantInvoicesTable)
+          .where(eq(tenantInvoicesTable.id, invoiceId));
+
+        const tenantRow = inv?.tenantId
+          ? await db
+              .select({ ownerName: tenantsTable.ownerName, businessName: tenantsTable.businessName })
+              .from(tenantsTable)
+              .where(eq(tenantsTable.id, inv.tenantId))
+              .then((r) => r[0])
+          : null;
+
+        await db.insert(paymentReceiptsTable).values({
+          paymentId: result.ledgerEntryId,
+          invoiceId,
+          tenantId: inv?.tenantId ?? 0,
+          siteId: inv?.siteId ?? null,
+          receiptNumber: result.receiptNumber,
+          fileUrl: "",
+          invoiceNumber: inv?.invoiceNumber ?? null,
+          businessName: tenantRow?.businessName ?? null,
+          ownerName: tenantRow?.ownerName ?? null,
+          amountPaid: String(amount),
+          taxAmount: "0",
+          netAmount: String(amount),
+          paymentMethod,
+          kasirName: req.user?.name ?? "Admin",
+          waStatus: "skipped",
+        }).onConflictDoNothing();
+      } catch {
+        // Non-critical
+      }
+    })();
+
     res.status(201).json({
+      success: true,
       ledgerId: result.ledgerEntryId,
       invoiceStatus: result.invoiceStatus,
       paidAmount: result.paidAmount,
       remaining: result.remaining,
+      remainingBalanceAfter: result.remainingBalanceAfter,
       receiptId: result.receiptNumber,
     });
   } catch (err) {
@@ -120,6 +164,51 @@ router.post("/payments", async (req, res) => {
     }
     console.error("[POST /payments]", err);
     res.status(500).json({ error: "Gagal mencatat pembayaran" });
+  }
+});
+
+// ─── GET /api/payments?invoiceId=X ────────────────────────────────────────────
+// Daftar semua entri ledger untuk satu invoice, diurutkan dari terbaru.
+router.get("/payments", async (req, res) => {
+  const invoiceId = parseInt(String(req.query.invoiceId ?? ""), 10);
+  if (isNaN(invoiceId) || invoiceId <= 0) {
+    res.status(400).json({ error: "Parameter invoiceId wajib diisi" });
+    return;
+  }
+
+  try {
+    const rows = await db
+      .select({
+        id: tenantPaymentsTable.id,
+        invoiceId: tenantPaymentsTable.invoiceId,
+        tenantId: tenantPaymentsTable.tenantId,
+        amount: tenantPaymentsTable.amount,
+        paymentMethod: tenantPaymentsTable.paymentMethod,
+        sourceType: tenantPaymentsTable.sourceType,
+        approvalStatus: tenantPaymentsTable.approvalStatus,
+        receiptNumber: tenantPaymentsTable.receiptNumber,
+        referenceId: tenantPaymentsTable.referenceId,
+        referenceNumber: tenantPaymentsTable.referenceNumber,
+        notes: tenantPaymentsTable.notes,
+        paidAt: tenantPaymentsTable.paidAt,
+        isVoided: tenantPaymentsTable.isVoided,
+        remainingBalanceAfter: tenantPaymentsTable.remainingBalanceAfter,
+        proofUrl: tenantPaymentsTable.proofUrl,
+        createdAt: tenantPaymentsTable.createdAt,
+      })
+      .from(tenantPaymentsTable)
+      .where(
+        and(
+          eq(tenantPaymentsTable.invoiceId, invoiceId),
+          eq(tenantPaymentsTable.isVoided, false),
+        ),
+      )
+      .orderBy(desc(tenantPaymentsTable.createdAt));
+
+    res.json({ success: true, data: rows });
+  } catch (err) {
+    console.error("[GET /payments]", err);
+    res.status(500).json({ error: "Gagal mengambil riwayat pembayaran" });
   }
 });
 
