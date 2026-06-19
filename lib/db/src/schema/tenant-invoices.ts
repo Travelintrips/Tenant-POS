@@ -29,6 +29,7 @@ export const tenantInvoicesTable = pgTable("tenant_invoices", {
   penaltyAmount: numeric("penalty_amount").notNull().default("0"),
   subtotal: numeric("subtotal").notNull().default("0"),
   taxAmount: numeric("tax_amount").notNull().default("0"),
+  ppnAmount: numeric("ppn_amount").notNull().default("0"),
   totalAmount: numeric("total_amount").notNull().default("0"),
   paidAmount: numeric("paid_amount").notNull().default("0"),
   outstandingAmount: numeric("outstanding_amount").notNull().default("0"),

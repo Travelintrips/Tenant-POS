@@ -2086,4 +2086,14 @@ DO $$ BEGIN
   END IF;
 END $$;
   `.trim(),
+},
+{
+  name: "0047_invoice_ppn_amount",
+  sql: `
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='tenant_invoices' AND column_name='ppn_amount') THEN
+    ALTER TABLE "tenant_invoices" ADD COLUMN "ppn_amount" numeric NOT NULL DEFAULT '0';
+  END IF;
+END $$;
+  `.trim(),
 });

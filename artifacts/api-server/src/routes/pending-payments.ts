@@ -12,7 +12,7 @@ import { sseBroker } from "../lib/sse-broker";
 import { sendPaymentApproved, sendPaymentRejected } from "../lib/whatsapp";
 import { logAudit } from "../lib/audit";
 import { writePaymentEvent, normalizePaymentMethod } from "../lib/payment-events";
-import { syncInvoiceFromPayments } from "../lib/payment-ledger";
+import { approveExistingPayment, LedgerError } from "../lib/payment-ledger";
 
 const router: IRouter = Router();
 
@@ -133,28 +133,19 @@ router.post("/pending-payments/:id/approve", async (req, res) => {
       const approvedBy = req.user?.name ?? req.user?.email ?? "Admin";
       const now = new Date();
 
-      const [updatedPayment] = await tx
-        .update(tenantPaymentsTable)
-        .set({
-          approvalStatus: "approved",
-          approvedBy,
-          approvedAt: now,
-          paidAt: now,
-          paymentStatus: "PAID",
-          status: "PAID",
-          updatedAt: now,
-        })
-        .where(eq(tenantPaymentsTable.id, id))
-        .returning();
+      const ledger = await approveExistingPayment(tx, payment.id, invoice.id, approvedBy, now);
 
-      await syncInvoiceFromPayments(tx, invoice.id, now);
+      const [updatedPayment] = await tx
+        .select()
+        .from(tenantPaymentsTable)
+        .where(eq(tenantPaymentsTable.id, id));
 
       const [updatedInvoice] = await tx
         .select()
         .from(tenantInvoicesTable)
         .where(eq(tenantInvoicesTable.id, invoice.id));
 
-      return { payment: updatedPayment, invoice: updatedInvoice! };
+      return { payment: updatedPayment!, invoice: updatedInvoice!, ledger };
     });
 
     logAudit(req, {
@@ -210,6 +201,11 @@ router.post("/pending-payments/:id/approve", async (req, res) => {
 
     res.json({ success: true, payment: result.payment, invoice: result.invoice });
   } catch (err) {
+    if (err instanceof LedgerError) {
+      const httpCode = err.code === "OVERPAYMENT" ? 400 : 409;
+      res.status(httpCode).json({ error: err.message, code: err.code });
+      return;
+    }
     const e = err as Error & { status?: number };
     if (e.status) {
       res.status(e.status).json({ error: e.message });

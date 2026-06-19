@@ -4,7 +4,7 @@ import { tenantPaymentsTable, tenantInvoicesTable, tenantsTable } from "@workspa
 import { eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import { logAudit } from "../lib/audit";
-import { LedgerError, findDuplicatePayment, validateNoOverpayment, syncInvoiceFromPayments } from "../lib/payment-ledger";
+import { LedgerError, recordPayment } from "../lib/payment-ledger";
 
 const router: IRouter = Router();
 
@@ -13,7 +13,7 @@ const createPaymentSchema = z.object({
   amount: z.number().positive("Jumlah harus lebih dari 0"),
   paymentMethod: z.enum(["tunai", "transfer", "qris", "edc", "other"]).default("tunai"),
   referenceId: z.string().min(1).optional(),
-  sourceType: z.enum(["pos", "bank_recon", "manual", "upload"]).default("manual"),
+  sourceType: z.enum(["pos", "ocr", "bank", "manual"]).default("manual"),
   referenceNumber: z.string().optional().nullable(),
   notes: z.string().optional().nullable(),
   shiftId: z.number().int().positive().optional().nullable(),
@@ -35,30 +35,15 @@ router.post("/payments", async (req, res) => {
     referenceNumber, notes, shiftId, paidAt,
   } = parsed.data;
 
-  // Idempotency check
-  if (referenceId) {
-    const existingId = await findDuplicatePayment(referenceId);
-    if (existingId != null) {
-      res.status(409).json({
-        error: "Pembayaran duplikat. referenceId sudah pernah diproses.",
-        paymentId: existingId,
-        referenceId,
-      });
-      return;
-    }
-  }
-
   try {
     const result = await db.transaction(async (tx) => {
       const [invoice] = await tx
         .select({
           id: tenantInvoicesTable.id,
-          invoiceNumber: tenantInvoicesTable.invoiceNumber,
           tenantId: tenantInvoicesTable.tenantId,
           bookingId: tenantInvoicesTable.bookingId,
           siteId: tenantInvoicesTable.siteId,
           status: tenantInvoicesTable.status,
-          totalAmount: tenantInvoicesTable.totalAmount,
         })
         .from(tenantInvoicesTable)
         .where(eq(tenantInvoicesTable.id, invoiceId))
@@ -74,8 +59,6 @@ router.post("/payments", async (req, res) => {
         throw Object.assign(new Error("Invoice sudah lunas"), { status: 409 });
       }
 
-      await validateNoOverpayment(tx, invoiceId, amount);
-
       const datePart = new Date().toISOString().slice(0, 10).replace(/-/g, "");
       const prefix = `PAY-${datePart}-`;
       const [countRow] = await tx
@@ -85,45 +68,29 @@ router.post("/payments", async (req, res) => {
       const seq = ((countRow?.count ?? 0) + 1).toString().padStart(4, "0");
       const receiptNumber = `${prefix}${seq}`;
 
-      const [payment] = await tx
-        .insert(tenantPaymentsTable)
-        .values({
-          invoiceId,
-          tenantId: invoice.tenantId ?? undefined,
-          bookingId: invoice.bookingId ?? undefined,
-          tenantBookingId: invoice.bookingId ?? undefined,
-          siteId: invoice.siteId ?? undefined,
-          amount: String(amount),
-          discountAmount: "0",
-          penaltyAmount: "0",
-          paymentMethod,
-          method: paymentMethod,
-          paymentStatus: "PAID",
-          status: "PAID",
-          approvalStatus: "approved",
-          receiptNumber,
-          referenceNumber: referenceNumber ?? null,
-          referenceId: referenceId ?? null,
-          sourceType,
-          shiftId: shiftId ?? null,
-          notes: notes ?? null,
-          paidAt: paidAt ? new Date(paidAt) : new Date(),
-          isVoided: false,
-          refundAmount: "0",
-        })
-        .returning();
-
-      const ledger = await syncInvoiceFromPayments(tx, invoiceId);
-
-      return { payment, invoiceStatus: ledger.status, paidAmount: ledger.paidAmount, outstanding: ledger.outstanding };
+      return await recordPayment(tx, {
+        invoiceId,
+        amount,
+        paymentMethod,
+        sourceType,
+        receiptNumber,
+        referenceId: referenceId ?? null,
+        referenceNumber: referenceNumber ?? null,
+        notes: notes ?? null,
+        shiftId: shiftId ?? null,
+        paidAt: paidAt ? new Date(paidAt) : null,
+        tenantId: invoice.tenantId ?? null,
+        bookingId: invoice.bookingId ?? null,
+        siteId: invoice.siteId ?? null,
+      });
     });
 
     logAudit(req, {
       action: "create_payment",
       entityType: "tenant_payments",
-      entityId: result.payment.id,
+      entityId: result.ledgerEntryId,
       afterData: {
-        paymentId: result.payment.id,
+        paymentId: result.ledgerEntryId,
         invoiceId,
         amount,
         paymentMethod,
@@ -134,14 +101,11 @@ router.post("/payments", async (req, res) => {
     });
 
     res.status(201).json({
-      success: true,
-      payment: result.payment,
-      invoice: {
-        id: invoiceId,
-        status: result.invoiceStatus,
-        paidAmount: result.paidAmount,
-        outstanding: result.outstanding,
-      },
+      ledgerId: result.ledgerEntryId,
+      invoiceStatus: result.invoiceStatus,
+      paidAmount: result.paidAmount,
+      remaining: result.remaining,
+      receiptId: result.receiptNumber,
     });
   } catch (err) {
     if (err instanceof LedgerError) {

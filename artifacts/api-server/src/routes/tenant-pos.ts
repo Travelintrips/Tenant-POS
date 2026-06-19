@@ -19,7 +19,7 @@ import { writePaymentEvent, normalizePaymentMethod } from "../lib/payment-events
 import { generateReceiptHtml, saveReceiptFile } from "../lib/pos-receipt";
 import { postPosPaymentJournal } from "../lib/pos-journal";
 import { sendPosPaymentSuccess } from "../lib/whatsapp";
-import { syncInvoiceFromPayments } from "../lib/payment-ledger";
+import { recordPayment, LedgerError } from "../lib/payment-ledger";
 import { getBaseUrl } from "../lib/app-url";
 
 const router: IRouter = Router();
@@ -433,35 +433,66 @@ router.post("/tenant-pos/payments", paymentRateLimiter, async (req, res) => {
       const receiptNumber = await generateReceiptNumber();
       const paidAt = paymentDate ? new Date(paymentDate) : new Date();
 
-      const [payment] = await tx
-        .insert(tenantPaymentsTable)
-        .values({
-          ...(req.siteId > 0 ? { siteId: req.siteId } : {}),
-          siteId: req.siteId > 0 ? req.siteId : undefined,
-          bookingId,
-          tenantBookingId: bookingId,
-          tenantId,
-          invoiceId: invoiceId ?? null,
-          amount: String(amountPaid),
-          discountAmount: String(discountAmount),
-          penaltyAmount: String(penaltyAmount),
+      // For invoice ledger: clamp to effectiveBill so overpayment is prevented
+      // (excess = kembalian/change, tracked separately)
+      const appliedAmount = invoiceId ? Math.min(amountPaid, Math.max(effectiveBill, 0)) : amountPaid;
+      const posReferenceId = `POS-${shiftId ?? "ns"}-${receiptNumber}`;
+
+      let payment: { id: number; receiptNumber: string } & Record<string, unknown>;
+
+      if (invoiceId) {
+        // Route all invoice payments through PaymentLedgerService
+        const ledger = await recordPayment(tx, {
+          invoiceId,
+          amount: appliedAmount,
           paymentMethod,
-          method: paymentMethod,
-          paymentStatus: "PAID",
-          status: "PAID",
-          approvalStatus: "approved",
-          receiptNumber,
-          referenceNumber: referenceNumber ?? null,
-          referenceId: `POS-${shiftId ?? "ns"}-${receiptNumber}`,
           sourceType: "pos",
+          receiptNumber,
+          referenceId: posReferenceId,
+          referenceNumber: referenceNumber ?? null,
+          discountAmount,
+          penaltyAmount,
           proofUrl: proofUrl ?? null,
           shiftId: shiftId ?? null,
           notes: notes ?? null,
           paidAt,
-          isVoided: false,
-          refundAmount: "0",
-        })
-        .returning();
+          tenantId,
+          bookingId,
+          siteId: req.siteId > 0 ? req.siteId : null,
+        });
+        payment = { id: ledger.ledgerEntryId, receiptNumber };
+      } else {
+        // No invoice — direct booking-only payment (out of scope for ledger engine)
+        const [inserted] = await tx
+          .insert(tenantPaymentsTable)
+          .values({
+            siteId: req.siteId > 0 ? req.siteId : undefined,
+            bookingId,
+            tenantBookingId: bookingId,
+            tenantId,
+            invoiceId: null,
+            amount: String(amountPaid),
+            discountAmount: String(discountAmount),
+            penaltyAmount: String(penaltyAmount),
+            paymentMethod,
+            method: paymentMethod,
+            paymentStatus: "PAID",
+            status: "PAID",
+            approvalStatus: "approved",
+            receiptNumber,
+            referenceNumber: referenceNumber ?? null,
+            referenceId: posReferenceId,
+            sourceType: "pos",
+            proofUrl: proofUrl ?? null,
+            shiftId: shiftId ?? null,
+            notes: notes ?? null,
+            paidAt,
+            isVoided: false,
+            refundAmount: "0",
+          })
+          .returning();
+        payment = inserted;
+      }
 
       const [updatedBooking] = await tx
         .update(tenantBookingsTable)
@@ -473,10 +504,6 @@ router.post("/tenant-pos/payments", paymentRateLimiter, async (req, res) => {
         })
         .where(eq(tenantBookingsTable.id, bookingId))
         .returning();
-
-      if (invoiceId) {
-        await syncInvoiceFromPayments(tx, invoiceId);
-      }
 
       if (shiftId && paymentMethod === "tunai") {
         const [shift] = await tx
@@ -689,6 +716,11 @@ router.post("/tenant-pos/payments", paymentRateLimiter, async (req, res) => {
       change: result.change,
     });
   } catch (err) {
+    if (err instanceof LedgerError) {
+      const httpCode = err.code === "OVERPAYMENT" ? 400 : 409;
+      res.status(httpCode).json({ error: err.message, code: err.code });
+      return;
+    }
     const e = err as Error & { status?: number };
     if (e.status) {
       res.status(e.status).json({ error: e.message });

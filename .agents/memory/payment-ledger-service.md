@@ -1,34 +1,35 @@
 ---
 name: Payment Ledger Service
-description: PaymentLedgerService design — syncInvoiceFromPayments, idempotency, overpayment guard, source_type tagging
+description: Desain PaymentLedgerService — recordPayment (central orchestration), approveExistingPayment (OCR flip), overpayment guard, idempotency
 ---
 
 # Payment Ledger Service
 
 ## Rule
-Always use `syncInvoiceFromPayments(tx, invoiceId)` from `artifacts/api-server/src/lib/payment-ledger.ts` to update invoice paid_amount — never do `+= amount` manually.
+Semua update `paid_amount` invoice HARUS melalui:
+- `recordPayment(tx, params)` — untuk insert payment baru (POS+invoice, bank recon, unified endpoint)
+- `approveExistingPayment(tx, paymentId, invoiceId, approvedBy, now)` — untuk flip OCR pending_review → approved
 
-**Why:** The aggregate approach is idempotent and always converges to the correct state regardless of call order or retries. The old `+= amount` pattern is fragile — concurrent requests, retries, or out-of-order approval can leave paid_amount out of sync.
+Jangan gunakan `+= amount` manual atau panggil `syncInvoiceFromPayments` langsung kecuali di dalam dua fungsi di atas.
 
-## How to apply
-- Import: `import { syncInvoiceFromPayments, findDuplicatePayment, validateNoOverpayment, LedgerError } from "../lib/payment-ledger";`
-- Call AFTER inserting the payment record (within same tx), so the aggregate includes the new payment
-- `findDuplicatePayment(referenceId)` returns existing paymentId or null — call BEFORE opening tx to avoid holding lock during network check
-- `validateNoOverpayment(tx, invoiceId, amount)` throws `LedgerError("OVERPAYMENT", msg)` — call inside tx, before insert
-- Catch `LedgerError`: code "OVERPAYMENT" → 400, code "DUPLICATE" → 409
+**Why:** `recordPayment` menjamin idempotency (cek duplicate referenceId), anti-overpayment (validateNoOverpayment), insert, dan sync invoice dalam satu alur terpadu. `approveExistingPayment` menjamin overpayment dicek sebelum flip status OCR.
 
-## Column conventions
-- `reference_id TEXT` — system-generated idempotency key, partial unique index (WHERE reference_id IS NOT NULL)
-  - POS: `POS-{shiftId ?? "ns"}-{receiptNumber}`
-  - Bank recon: `RECON-{mutationId}`
-  - Manual/unified: caller-supplied or null
-- `source_type TEXT` — which flow created the payment: "pos" | "bank_recon" | "manual" | "upload"
+## source_type enum (canonical)
+`"pos" | "ocr" | "bank" | "manual"` — BUKAN "bank_recon" atau "upload".
 
-## syncInvoiceFromPayments filter
-Aggregates: `approvalStatus = 'approved' AND is_voided = false`
-- POS payments: approvalStatus defaults to "approved" (set explicitly in insert)
-- OCR payments: approvalStatus starts as "pending_review", flipped to "approved" at approval → sync called after flip
-- Bank recon: approvalStatus set to "approved" in insert → sync called after insert
+## LedgerError handling
+Semua route yang memanggil recordPayment/approveExistingPayment harus catch `LedgerError`:
+- `OVERPAYMENT` → HTTP 400
+- `DUPLICATE` → HTTP 409
 
-## Unified endpoint
-`POST /api/payments` at `artifacts/api-server/src/routes/payments.ts` — mounted after requireAuth+requireNonTenantUser in routes/index.ts. Accepts invoiceId, amount, paymentMethod, referenceId (optional), sourceType.
+## POST /api/payments response format
+`{ ledgerId, invoiceStatus, paidAmount, remaining, receiptId }` — bukan `{ success, payment, invoice }`.
+
+## POS kembalian (change) handling
+POS menyimpan `appliedAmount = Math.min(amountPaid, Math.max(effectiveBill, 0))` ke invoice via recordPayment.
+`change = amountPaid - appliedAmount` dikembalikan ke frontend. Booking tetap diupdate dengan `amountPaid` penuh.
+
+## Schema columns
+- `tenant_payments.reference_id` — partial unique index WHERE NOT NULL (migration 0046)
+- `tenant_payments.source_type` — enum text (migration 0046)
+- `tenant_invoices.ppn_amount` — numeric DEFAULT 0 (migration 0047)
