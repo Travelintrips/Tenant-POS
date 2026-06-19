@@ -3,7 +3,7 @@ set -e
 
 # Pastikan PATH menyertakan pnpm dan node (diperlukan saat workflow
 # dimulai tanpa PATH lengkap dari nix shell).
-export PATH="/nix/store/61lr9izijvg30pcribjdxgjxvh3bysp4-pnpm-10.26.1/bin:/nix/store/jfar9wnj6kvr0gr6klh1gk7vgckkfr5j-nodejs-20.20.0/bin:${PATH}"
+export PATH="/nix/store/61lr9izijvg30pcribjdxgjxvh3bysp4-pnpm-10.26.1/bin:/nix/store/1lagpgadaybvs1n2312gysg2phjk89y8-nodejs-20.20.0-wrapped/bin:${PATH}"
 
 # Pastikan NODE_ENV=development secara eksplisit
 export NODE_ENV=development
