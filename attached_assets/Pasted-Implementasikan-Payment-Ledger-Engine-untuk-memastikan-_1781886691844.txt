@@ -1,0 +1,163 @@
+Implementasikan Payment Ledger Engine untuk memastikan semua pembayaran invoice (POS, OCR, manual) terintegrasi secara konsisten, mendukung partial payment, dan mencegah duplikasi pembayaran.
+
+=====================================
+🎯 OBJECTIVE
+============
+
+Bangun sistem ledger pembayaran sebagai SINGLE SOURCE OF TRUTH untuk semua transaksi invoice.
+
+Semua pembayaran (POS, OCR, bank, manual) wajib masuk ke ledger ini.
+
+=====================================
+🧠 CORE RULES
+=============
+
+1. Satu invoice bisa memiliki banyak pembayaran (partial payment)
+2. Total pembayaran tidak boleh melebihi total invoice (anti overpayment)
+3. Status invoice harus otomatis:
+
+   * unpaid
+   * partial
+   * paid
+   * overdue
+4. Semua pembayaran harus masuk ke payment_ledger (bukan langsung update invoice saja)
+
+=====================================
+🗄️ DATABASE STRUCTURE
+======================
+
+Tabel baru: payment_ledger
+
+Fields:
+
+* id
+* invoice_id
+* tenant_id
+* amount_paid
+* payment_method (pos / ocr / bank / manual)
+* reference_id (receipt_id / OCR id / transaction id)
+* created_at
+* created_by
+* remaining_balance_after
+
+Update invoices table:
+
+* subtotal
+* ppn_amount
+* total_amount
+* paid_amount
+* remaining_amount
+* status
+
+=====================================
+🔁 PAYMENT FLOW LOGIC
+=====================
+
+Saat pembayaran terjadi:
+
+1. Ambil invoice berdasarkan invoice_id
+
+2. Hitung:
+   remaining = total_amount - paid_amount
+
+3. Validasi:
+   IF amount_paid > remaining:
+   → reject (400: Overpayment not allowed)
+
+4. Insert ke payment_ledger
+
+5. Update invoice:
+   paid_amount += amount_paid
+   remaining_amount = total - paid_amount
+
+6. Update status:
+   IF remaining == 0 → PAID
+   IF paid > 0 AND remaining > 0 → PARTIAL
+   IF paid == 0 → UNPAID
+
+=====================================
+📅 TANGGAL PEMBAYARAN
+=====================
+
+Gunakan:
+
+* payment_ledger.created_at sebagai tanggal resmi pembayaran
+
+=====================================
+📲 INTEGRASI SYSTEM
+===================
+
+Harus terhubung ke:
+
+1. POS Payment
+   → setiap transaksi kasir masuk ke ledger
+
+2. OCR Payment Proof
+   → extractedAmount masuk ledger sebagai OCR method
+
+3. Manual Admin Payment
+   → tetap masuk ledger
+
+4. Bank Reconciliation
+   → match ke ledger, bukan langsung invoice
+
+=====================================
+🧾 RECEIPT SYSTEM INTEGRATION
+=============================
+
+Setiap entry ledger:
+
+* generate receipt otomatis
+* link receipt ke ledger_id
+* simpan receipt history
+
+=====================================
+⚠️ ANTI BUG RULES
+=================
+
+* Tidak boleh ada double insert payment untuk reference_id yang sama
+* Harus idempotent:
+  IF reference_id sudah ada → reject 409
+* Semua update invoice harus atomic transaction
+
+=====================================
+📊 RESPONSE FORMAT API
+
+POST /api/payments
+
+Response:
+{
+success: true,
+ledgerId: "...",
+invoiceStatus: "partial",
+paidAmount: 500000,
+remaining: 600000,
+receiptId: "RCT-xxxx"
+}
+
+=====================================
+🧪 TEST CASES
+=============
+
+1. Payment full → status PAID
+2. Payment partial → status PARTIAL
+3. Multiple partial payments → accumulate correctly
+4. Overpayment → rejected 400
+5. Duplicate reference_id → 409 conflict
+6. OCR payment → auto ledger entry
+7. POS payment → auto ledger entry
+8. Bank reconciliation match → updates ledger only
+9. Receipt always generated per payment
+
+=====================================
+📦 OUTPUT REQUIRED
+==================
+
+* Migration SQL
+* payment_ledger service
+* updated invoice service
+* updated POS payment flow
+* updated OCR payment flow
+* anti duplicate middleware
+* API response update
+* test scenarios
