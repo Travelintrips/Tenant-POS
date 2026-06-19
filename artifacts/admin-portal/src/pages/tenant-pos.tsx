@@ -80,6 +80,21 @@ type PaymentResponse = {
   change: number;
 };
 
+type ReceiptInfo = {
+  id: number;
+  paymentId: number;
+  receiptNumber: string;
+  fileUrl: string;
+  invoiceNumber: string | null;
+  businessName: string | null;
+  amountPaid: number;
+  taxAmount: number;
+  netAmount: number;
+  journalId: string | null;
+  waStatus: string;
+  createdAt: string;
+};
+
 type PaymentHistoryItem = {
   id: number;
   receiptNumber: string | null;
@@ -1609,8 +1624,35 @@ function ModalPembayaran({ item, invoice, shiftId, cashierName, onClose, onSucce
   }
 
   // ── Sukses screen ──
+  const receiptQuery = useQuery<ReceiptInfo>({
+    queryKey: ["pos-receipt", result?.payment?.id],
+    queryFn: async () => {
+      const r = await apiFetch(`${BASE}/api/tenant-pos/receipts/${result!.payment.id}`, { credentials: "include" });
+      if (!r.ok) throw new Error("Belum tersedia");
+      return r.json() as Promise<ReceiptInfo>;
+    },
+    enabled: !!result?.payment?.id,
+    retry: 5,
+    retryDelay: 1500,
+    refetchInterval: (query) => {
+      const data = query.state.data;
+      if (!data) return 1500;
+      if (data.waStatus === "pending") return 2000;
+      return false;
+    },
+  });
+
   if (result) {
     const change = result.change ?? 0;
+    const receipt = receiptQuery.data;
+    const waStatusLabel: Record<string, { label: string; cls: string }> = {
+      sent:    { label: "WA Terkirim ✓", cls: "text-emerald-600" },
+      skipped: { label: "WA tidak dikonfigurasi", cls: "text-slate-400" },
+      failed:  { label: "WA gagal dikirim", cls: "text-red-500" },
+      pending: { label: "Mengirim WA…", cls: "text-amber-500" },
+    };
+    const waSt = waStatusLabel[receipt?.waStatus ?? "pending"] ?? waStatusLabel.pending;
+
     return (
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
         <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm mx-4 p-8 flex flex-col items-center text-center">
@@ -1622,6 +1664,7 @@ function ModalPembayaran({ item, invoice, shiftId, cashierName, onClose, onSucce
           <p className="text-2xl font-bold text-emerald-600 mt-2">{formatRupiah(nominalNum)}</p>
           <p className="text-xs text-slate-400 mt-1">via {metodeLabel}</p>
           <p className="text-xs font-mono bg-slate-100 px-3 py-1 rounded-full text-slate-600 my-3">{result.receiptNumber}</p>
+
           {change > 0 && (
             <div className="w-full rounded-lg bg-blue-50 border border-blue-200 px-4 py-2.5 mb-3">
               <p className="text-sm font-semibold text-blue-800">Kembalian</p>
@@ -1631,6 +1674,40 @@ function ModalPembayaran({ item, invoice, shiftId, cashierName, onClose, onSucce
           {result.remainingAmount > 0 && change === 0 && (
             <p className="text-sm text-amber-600 font-medium mb-3">Sisa tagihan: {formatRupiah(result.remainingAmount)}</p>
           )}
+
+          {/* Receipt & Journal status */}
+          <div className="w-full rounded-lg border border-slate-100 bg-slate-50 px-4 py-3 mb-3 text-left space-y-1.5">
+            <div className="flex items-center justify-between text-xs">
+              <span className="text-slate-500 flex items-center gap-1"><FileText className="w-3 h-3" /> Receipt PDF</span>
+              {receiptQuery.isLoading ? (
+                <span className="text-amber-500 animate-pulse">Generating…</span>
+              ) : receipt?.fileUrl ? (
+                <a
+                  href={receipt.fileUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-primary hover:underline font-medium"
+                >
+                  Lihat / Unduh →
+                </a>
+              ) : (
+                <span className="text-slate-400">Belum tersedia</span>
+              )}
+            </div>
+            <div className="flex items-center justify-between text-xs">
+              <span className="text-slate-500">Jurnal Akuntansi</span>
+              {receipt?.journalId ? (
+                <span className="font-mono text-emerald-600 text-[10px]">{receipt.journalId} ✓</span>
+              ) : (
+                <span className="text-amber-500 animate-pulse text-[10px]">Memproses…</span>
+              )}
+            </div>
+            <div className="flex items-center justify-between text-xs">
+              <span className="text-slate-500">Notifikasi WA</span>
+              <span className={cn("font-medium text-[11px]", waSt.cls)}>{waSt.label}</span>
+            </div>
+          </div>
+
           <div className="flex gap-3 w-full mt-2">
             <Button variant="outline" className="flex-1" onClick={onClose}>Tutup</Button>
             <Button className="flex-1 bg-emerald-600 hover:bg-emerald-700" onClick={() => {

@@ -2035,3 +2035,31 @@ export async function runUsersIdTextMigration(): Promise<void> {
     await client.end();
   }
 }
+
+MIGRATIONS.push({
+  name: "0045_payment_receipts",
+  sql: `
+CREATE TABLE IF NOT EXISTS "payment_receipts" (
+  "id" serial PRIMARY KEY NOT NULL,
+  "payment_id" integer NOT NULL,
+  "invoice_id" integer,
+  "tenant_id" integer NOT NULL,
+  "site_id" integer REFERENCES "mall_sites"("id"),
+  "receipt_number" text NOT NULL UNIQUE,
+  "file_url" text NOT NULL,
+  "invoice_number" text,
+  "business_name" text,
+  "owner_name" text,
+  "unit_code" text,
+  "amount_paid" numeric NOT NULL DEFAULT '0',
+  "tax_amount" numeric NOT NULL DEFAULT '0',
+  "net_amount" numeric NOT NULL DEFAULT '0',
+  "payment_method" text,
+  "kasir_name" text,
+  "journal_id" text,
+  "wa_status" text NOT NULL DEFAULT 'pending',
+  "wa_error" text,
+  "created_at" timestamptz NOT NULL DEFAULT now()
+);
+  `.trim(),
+});
