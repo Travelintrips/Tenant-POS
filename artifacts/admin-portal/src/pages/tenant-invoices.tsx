@@ -662,6 +662,7 @@ type CreateForm = {
   penaltyAmount: string;
   notes: string;
   status: InvoiceStatus;
+  usePpn: boolean;
 };
 
 const EMPTY_FORM: CreateForm = {
@@ -671,6 +672,7 @@ const EMPTY_FORM: CreateForm = {
   waterChargeAmount: "", otherChargeAmount: "", trashChargeAmount: "",
   discountAmount: "0", penaltyAmount: "0",
   notes: "", status: "unpaid",
+  usePpn: true,
 };
 
 function Field({ label, required, children }: { label: string; required?: boolean; children: React.ReactNode }) {
@@ -1265,16 +1267,22 @@ export default function TenantInvoices() {
           <Button
             variant="outline"
             className="gap-2"
-            disabled={filteredInvoices.length === 0}
             onClick={() => {
-              const now = new Date();
-              const stamp = `${now.getFullYear()}${String(now.getMonth()+1).padStart(2,"0")}${String(now.getDate()).padStart(2,"0")}`;
-              exportInvoicesToCSV(filteredInvoices, `invoice-tenant-${stamp}.csv`);
+              const params = new URLSearchParams();
+              if (filterStatus !== "all") params.set("status", filterStatus);
+              if (filterTenant !== "all") params.set("tenant_id", filterTenant);
+              const url = `/api/tenant-invoices/export${params.toString() ? "?" + params.toString() : ""}`;
+              const a = document.createElement("a");
+              a.href = url;
+              a.download = "";
+              document.body.appendChild(a);
+              a.click();
+              document.body.removeChild(a);
             }}
-            title={filteredInvoices.length === 0 ? "Tidak ada data untuk diekspor" : `Ekspor ${filteredInvoices.length} invoice ke CSV`}
+            title="Ekspor semua invoice sesuai filter aktif ke CSV (lengkap dengan kolom PPN)"
           >
             <Download className="h-4 w-4" />
-            Ekspor CSV ({filteredInvoices.length})
+            Ekspor CSV
           </Button>
           <Button
             variant="outline"
@@ -1712,17 +1720,38 @@ export default function TenantInvoices() {
                 </Field>
               </div>
 
+              {/* Toggle PPN */}
+              <div className={`flex items-center justify-between rounded-lg border p-3 ${createForm.usePpn ? "border-blue-200 bg-blue-50/60" : "border-slate-200 bg-slate-50"}`}>
+                <div>
+                  <p className="text-sm font-medium">Gunakan PPN 11%</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    {createForm.usePpn ? "PPN Pajak Pertambahan Nilai 11% akan ditambahkan ke total tagihan" : "Tidak ada PPN — total tagihan = subtotal saja"}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={createForm.usePpn}
+                  onClick={() => setCreateForm(f => ({ ...f, usePpn: !f.usePpn }))}
+                  className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors focus:outline-none ${createForm.usePpn ? "bg-blue-600" : "bg-slate-300"}`}
+                >
+                  <span className={`inline-block h-5 w-5 rounded-full bg-white shadow transform transition-transform ${createForm.usePpn ? "translate-x-5" : "translate-x-0"}`} />
+                </button>
+              </div>
+
               {/* PPN Preview */}
               {(() => {
                 const sub = (Number(createForm.rentAmount||0)+Number(createForm.serviceChargeAmount||0)+Number(createForm.electricityChargeAmount||0)+Number(createForm.waterChargeAmount||0)+Number(createForm.otherChargeAmount||0)+Number(createForm.trashChargeAmount||0))-Number(createForm.discountAmount||0)+Number(createForm.penaltyAmount||0);
-                const ppn = Math.round(sub * 0.11);
+                const ppn = createForm.usePpn ? Math.round(sub * 0.11) : 0;
                 const total = sub + ppn;
                 return sub > 0 ? (
-                  <div className="rounded-md border bg-blue-50 border-blue-100 p-3 text-sm space-y-1">
-                    <p className="text-xs font-semibold text-blue-700 uppercase tracking-wide mb-1.5">Ringkasan Tagihan</p>
+                  <div className={`rounded-md border p-3 text-sm space-y-1 ${createForm.usePpn ? "bg-blue-50 border-blue-100" : "bg-slate-50 border-slate-200"}`}>
+                    <p className={`text-xs font-semibold uppercase tracking-wide mb-1.5 ${createForm.usePpn ? "text-blue-700" : "text-slate-600"}`}>Ringkasan Tagihan</p>
                     <div className="flex justify-between text-muted-foreground"><span>Subtotal</span><span>{formatRupiah(String(sub))}</span></div>
-                    <div className="flex justify-between text-blue-600"><span>PPN 11% (Pajak Pertambahan Nilai)</span><span>+ {formatRupiah(String(ppn))}</span></div>
-                    <div className="flex justify-between font-bold text-base border-t border-blue-200 pt-1 mt-1"><span>Total</span><span>{formatRupiah(String(total))}</span></div>
+                    {createForm.usePpn && (
+                      <div className="flex justify-between text-blue-600"><span>PPN 11% (Pajak Pertambahan Nilai)</span><span>+ {formatRupiah(String(ppn))}</span></div>
+                    )}
+                    <div className={`flex justify-between font-bold text-base border-t pt-1 mt-1 ${createForm.usePpn ? "border-blue-200" : "border-slate-200"}`}><span>Total</span><span>{formatRupiah(String(total))}</span></div>
                   </div>
                 ) : null;
               })()}

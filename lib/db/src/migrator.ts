@@ -1949,6 +1949,12 @@ ALTER TABLE tenants ADD COLUMN IF NOT EXISTS default_trash_charge_amount numeric
 ALTER TABLE tenant_invoices ADD COLUMN IF NOT EXISTS trash_charge_amount numeric NOT NULL DEFAULT 0;
     `.trim(),
   },
+  {
+    name: "0045_invoice_use_ppn",
+    sql: `
+ALTER TABLE tenant_invoices ADD COLUMN IF NOT EXISTS use_ppn boolean NOT NULL DEFAULT true;
+    `.trim(),
+  },
 ];
 
 const MIGRATIONS_TABLE = "schema_migrations";
