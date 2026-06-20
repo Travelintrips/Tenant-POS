@@ -303,6 +303,52 @@ router.get("/tenant-pos/bookings/:bookingId/payments", async (req, res) => {
   }
 });
 
+// ─── GET /api/tenant-pos/tenants/:tenantId/payments ──────────────────────────
+router.get("/tenant-pos/tenants/:tenantId/payments", async (req, res) => {
+  const tenantId = Number(req.params.tenantId);
+  if (isNaN(tenantId)) {
+    res.status(400).json({ error: "ID tidak valid" });
+    return;
+  }
+  try {
+    const payments = await db
+      .select()
+      .from(tenantPaymentsTable)
+      .where(eq(tenantPaymentsTable.tenantId, tenantId))
+      .orderBy(desc(tenantPaymentsTable.paidAt));
+
+    res.json(
+      payments.map((p) => ({
+        id: p.id,
+        receiptNumber: p.receiptNumber,
+        amountPaid: Number(p.amount),
+        discountAmount: Number(p.discountAmount ?? 0),
+        penaltyAmount: Number(p.penaltyAmount ?? 0),
+        paymentMethod: p.paymentMethod,
+        paymentStatus: p.paymentStatus,
+        paymentDate: p.paidAt,
+        notes: p.notes,
+        createdAt: p.createdAt,
+        isVoided: p.isVoided,
+        voidReason: p.voidReason,
+        voidedAt: p.voidedAt,
+        voidedBy: p.voidedBy,
+        referenceNumber: p.referenceNumber,
+        invoiceId: p.invoiceId,
+        bookingId: p.bookingId,
+        shiftId: p.shiftId,
+        refundAmount: Number(p.refundAmount ?? 0),
+        refundReason: p.refundReason,
+        refundStatus: p.refundStatus,
+        isManual: p.bookingId === null,
+      }))
+    );
+  } catch (err) {
+    req.log.error(err, "Failed to get tenant payment history");
+    res.status(500).json({ error: "Gagal mengambil riwayat pembayaran" });
+  }
+});
+
 // ─── GET /api/tenant-pos/recent-payments ─────────────────────────────────────
 router.get("/tenant-pos/recent-payments", async (req, res) => {
   try {

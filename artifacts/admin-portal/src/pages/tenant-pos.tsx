@@ -112,10 +112,12 @@ type PaymentHistoryItem = {
   voidedBy: string | null;
   referenceNumber: string | null;
   invoiceId: number | null;
+  bookingId: number | null;
   shiftId: number | null;
   refundAmount: number;
   refundReason: string | null;
   refundStatus: string | null;
+  isManual: boolean;
 };
 
 type ReceiptData = {
@@ -282,6 +284,15 @@ function usePaymentHistory(bookingId: number | null) {
     queryFn: () =>
       apiFetch(`${BASE}/api/tenant-pos/bookings/${bookingId}/payments`, { credentials: "include" }).then((r) => r.json()),
     enabled: bookingId !== null,
+  });
+}
+
+function useTenantAllPayments(tenantId: number | null) {
+  return useQuery<PaymentHistoryItem[]>({
+    queryKey: ["tenant-all-payments", tenantId],
+    queryFn: () =>
+      apiFetch(`${BASE}/api/tenant-pos/tenants/${tenantId}/payments`, { credentials: "include" }).then((r) => r.json()),
+    enabled: tenantId !== null,
   });
 }
 
@@ -574,6 +585,7 @@ function VoidPaymentDialog({ payment, onClose }: {
     },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["payment-history"] });
+      void queryClient.invalidateQueries({ queryKey: ["tenant-all-payments"] });
       void queryClient.invalidateQueries({ queryKey: ["tenant-pos-floor-plan"] });
       void queryClient.invalidateQueries({ queryKey: ["tenant-pos-overview"] });
       void queryClient.invalidateQueries({ queryKey: ["tenant-invoices-pos"] });
@@ -657,6 +669,7 @@ function RefundPaymentDialog({ payment, onClose }: {
     },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["payment-history"] });
+      void queryClient.invalidateQueries({ queryKey: ["tenant-all-payments"] });
       toast({ title: "Refund Dicatat", description: "Data refund berhasil disimpan." });
       onClose(true);
     },
@@ -1160,7 +1173,7 @@ function DetailPanel({ item, onClose, onProses, onBayarInvoice, currentShiftId }
   const user = useAuth().data;
   const canVoidRefund = !!user && ["owner", "admin", "finance"].includes(user.role);
   const canEditLogo = !!user && ["owner", "admin"].includes(user.role);
-  const paymentHistory = usePaymentHistory(item?.bookingId ?? null);
+  const paymentHistory = useTenantAllPayments(item?.tenantId ?? null);
   const tenantInvoices = useTenantInvoices(item?.tenantId ?? null);
   const [receiptPaymentId, setReceiptPaymentId] = useState<number | null>(null);
   const [voidTarget, setVoidTarget] = useState<PaymentHistoryItem | null>(null);
@@ -1232,12 +1245,16 @@ function DetailPanel({ item, onClose, onProses, onBayarInvoice, currentShiftId }
         setVoidTarget(null);
         if (voided) {
           void queryClient.invalidateQueries({ queryKey: ["payment-history", item.bookingId] });
+          void queryClient.invalidateQueries({ queryKey: ["tenant-all-payments", item.tenantId] });
           void queryClient.invalidateQueries({ queryKey: ["tenant-invoices-pos", item.tenantId] });
         }
       }} />
       <RefundPaymentDialog payment={refundTarget} onClose={(refunded) => {
         setRefundTarget(null);
-        if (refunded) void queryClient.invalidateQueries({ queryKey: ["payment-history", item.bookingId] });
+        if (refunded) {
+          void queryClient.invalidateQueries({ queryKey: ["payment-history", item.bookingId] });
+          void queryClient.invalidateQueries({ queryKey: ["tenant-all-payments", item.tenantId] });
+        }
       }} />
 
       {showBayarManual && (
@@ -1249,7 +1266,7 @@ function DetailPanel({ item, onClose, onProses, onBayarInvoice, currentShiftId }
             setShowBayarManual(false);
             void queryClient.invalidateQueries({ queryKey: ["tenant-pos-floor-plan"] });
             void queryClient.invalidateQueries({ queryKey: ["tenant-pos-overview"] });
-            void queryClient.invalidateQueries({ queryKey: ["payment-history", item.bookingId] });
+            void queryClient.invalidateQueries({ queryKey: ["tenant-all-payments", item.tenantId] });
             void queryClient.invalidateQueries({ queryKey: ["pos-current-shift"] });
           }}
         />
@@ -1289,7 +1306,7 @@ function DetailPanel({ item, onClose, onProses, onBayarInvoice, currentShiftId }
                 activeTab === tab ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-slate-700"
               )}
             >
-              {tab === "info" ? "Info" : tab === "tagihan" ? `Tagihan${openInvoices.length > 0 ? ` (${openInvoices.length})` : ""}` : "Riwayat"}
+              {tab === "info" ? "Info" : tab === "tagihan" ? `Tagihan${openInvoices.length > 0 ? ` (${openInvoices.length})` : ""}` : `Riwayat${Array.isArray(paymentHistory.data) && paymentHistory.data.length > 0 ? ` (${paymentHistory.data.length})` : ""}`}
             </button>
           ))}
         </div>
@@ -1513,7 +1530,10 @@ function DetailPanel({ item, onClose, onProses, onBayarInvoice, currentShiftId }
                 return (
                   <div key={p.id} className={cn("rounded-lg border px-3 py-2.5 text-xs space-y-1.5", isVoided ? "bg-red-50/50 border-red-200 opacity-70" : "bg-muted/20")}>
                     <div className="flex items-center justify-between gap-2">
-                      <span className="font-mono text-[10px] text-muted-foreground truncate">{p.receiptNumber ?? `#${p.id}`}</span>
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <span className="font-mono text-[10px] text-muted-foreground truncate">{p.receiptNumber ?? `#${p.id}`}</span>
+                        {p.isManual && <span className="inline-flex items-center text-[9px] px-1 py-0.5 rounded border font-semibold bg-violet-100 text-violet-700 border-violet-300 shrink-0">Manual</span>}
+                      </div>
                       <div className="flex items-center gap-1 shrink-0">
                         {isVoided && <span className="inline-flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded-full border font-bold bg-red-100 text-red-700 border-red-300"><Ban className="w-2.5 h-2.5" />VOID</span>}
                         {hasRefund && <span className="inline-flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded-full border font-medium bg-blue-100 text-blue-700 border-blue-300"><RefreshCw className="w-2.5 h-2.5" />Refund</span>}
@@ -1823,6 +1843,7 @@ function ModalPembayaran({ item, invoice, shiftId, cashierName, onClose, onSucce
       void queryClient.invalidateQueries({ queryKey: ["tenant-pos-floor-plan"] });
       void queryClient.invalidateQueries({ queryKey: ["tenant-pos-overview"] });
       void queryClient.invalidateQueries({ queryKey: ["payment-history", item.bookingId] });
+      void queryClient.invalidateQueries({ queryKey: ["tenant-all-payments", item.tenantId] });
       void queryClient.invalidateQueries({ queryKey: ["tenant-invoices-pos", item.tenantId] });
       void queryClient.invalidateQueries({ queryKey: ["pos-current-shift"] });
       toast({ title: "Pembayaran Berhasil", description: `Kuitansi ${data.receiptNumber} · ${formatRupiah(nominalNum)} tersimpan.` });
