@@ -146,6 +146,7 @@ const invoiceSelect = {
   trashChargeAmount: tenantInvoicesTable.trashChargeAmount,
   discountAmount: tenantInvoicesTable.discountAmount,
   penaltyAmount: tenantInvoicesTable.penaltyAmount,
+  usePpn: tenantInvoicesTable.usePpn,
   subtotal: tenantInvoicesTable.subtotal,
   taxAmount: tenantInvoicesTable.taxAmount,
   totalAmount: tenantInvoicesTable.totalAmount,

@@ -27,7 +27,7 @@ import {
   Plus, FileText, Printer, CreditCard, X, Search, Zap, AlertCircle,
   CheckCircle2, Clock, Ban, CircleDashed, MessageCircle, Send, Link2, Loader2,
   Copy, WifiOff, CheckCheck, Download, Layers, ChevronDown, ChevronRight, Eye, Trash2,
-  BarChart2, FileDown, FileSpreadsheet,
+  BarChart2, FileDown, FileSpreadsheet, Pencil,
 } from "lucide-react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -51,6 +51,7 @@ type Invoice = {
   trashChargeAmount: string;
   discountAmount: string;
   penaltyAmount: string;
+  usePpn: boolean;
   subtotal: string;
   taxAmount: string;
   totalAmount: string;
@@ -675,6 +676,47 @@ const EMPTY_FORM: CreateForm = {
   usePpn: true,
 };
 
+// ─── Edit Invoice Form ─────────────────────────────────────────────────────────
+
+type EditForm = {
+  unitCode: string;
+  periodStart: string;
+  periodEnd: string;
+  dueDate: string;
+  rentAmount: string;
+  serviceChargeAmount: string;
+  electricityChargeAmount: string;
+  waterChargeAmount: string;
+  otherChargeAmount: string;
+  trashChargeAmount: string;
+  discountAmount: string;
+  penaltyAmount: string;
+  notes: string;
+  status: InvoiceStatus;
+  usePpn: boolean;
+};
+
+function invoiceToEditForm(inv: Invoice): EditForm {
+  const toDate = (s: string | null | undefined) => s ? s.slice(0, 10) : "";
+  return {
+    unitCode: inv.unitCode ?? "",
+    periodStart: toDate(inv.periodStart),
+    periodEnd: toDate(inv.periodEnd),
+    dueDate: toDate(inv.dueDate),
+    rentAmount: inv.rentAmount,
+    serviceChargeAmount: inv.serviceChargeAmount,
+    electricityChargeAmount: inv.electricityChargeAmount,
+    waterChargeAmount: inv.waterChargeAmount,
+    otherChargeAmount: inv.otherChargeAmount,
+    trashChargeAmount: inv.trashChargeAmount,
+    discountAmount: inv.discountAmount,
+    penaltyAmount: inv.penaltyAmount,
+    notes: inv.notes ?? "",
+    status: inv.status,
+    usePpn: inv.usePpn !== false,
+  };
+}
+
 function Field({ label, required, children }: { label: string; required?: boolean; children: React.ReactNode }) {
   return (
     <div className="flex flex-col gap-1.5">
@@ -725,6 +767,10 @@ export default function TenantInvoices() {
 
   const [detailOpen, setDetailOpen] = useState(false);
   const [detailTarget, setDetailTarget] = useState<Invoice | null>(null);
+
+  const [editOpen, setEditOpen] = useState(false);
+  const [editTarget, setEditTarget] = useState<Invoice | null>(null);
+  const [editForm, setEditForm] = useState<EditForm | null>(null);
 
   const [cancelTarget, setCancelTarget] = useState<Invoice | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Invoice | null>(null);
@@ -920,6 +966,20 @@ export default function TenantInvoices() {
     },
   });
 
+  const patchMutation = useMutation({
+    mutationFn: ({ id, data }: { id: number; data: object }) =>
+      apiPatch<Invoice>(`${BASE}/api/tenant-invoices/${id}`, data),
+    onSuccess: (updated) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/tenant-invoices"] });
+      queryClient.setQueryData(["/api/tenant-invoices", updated.id], updated);
+      toast({ title: "Invoice Diperbarui", description: `${updated.invoiceNumber} berhasil disimpan.` });
+      setEditOpen(false);
+      setEditTarget(null);
+      setEditForm(null);
+    },
+    onError: (e: Error) => toast({ title: "Gagal Menyimpan", description: e.message, variant: "destructive" }),
+  });
+
   const waSendMutation = useMutation({
     mutationFn: ({ id, type }: { id: number; type: "send" | "overdue-reminder" }) =>
       apiPost<{ ok: boolean; skipped?: boolean; message: string }>(`${BASE}/api/whatsapp/invoice/${id}/${type}`, {}),
@@ -1111,6 +1171,38 @@ export default function TenantInvoices() {
   function openDetail(inv: Invoice) {
     setDetailTarget(inv);
     setDetailOpen(true);
+  }
+
+  function openEdit(inv: Invoice) {
+    setEditTarget(inv);
+    setEditForm(invoiceToEditForm(inv));
+    setDetailOpen(false);
+    setEditOpen(true);
+  }
+
+  function handleEditSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!editTarget || !editForm) return;
+    patchMutation.mutate({
+      id: editTarget.id,
+      data: {
+        unitCode: editForm.unitCode || null,
+        periodStart: editForm.periodStart || null,
+        periodEnd: editForm.periodEnd || null,
+        dueDate: editForm.dueDate || null,
+        rentAmount: editForm.rentAmount || "0",
+        serviceChargeAmount: editForm.serviceChargeAmount || "0",
+        electricityChargeAmount: editForm.electricityChargeAmount || "0",
+        waterChargeAmount: editForm.waterChargeAmount || "0",
+        otherChargeAmount: editForm.otherChargeAmount || "0",
+        trashChargeAmount: editForm.trashChargeAmount || "0",
+        discountAmount: editForm.discountAmount || "0",
+        penaltyAmount: editForm.penaltyAmount || "0",
+        usePpn: editForm.usePpn,
+        status: editForm.status,
+        notes: editForm.notes || null,
+      },
+    });
   }
 
   const BULAN_ID = ["Januari","Februari","Maret","April","Mei","Juni","Juli","Agustus","September","Oktober","November","Desember"];
@@ -2031,12 +2123,155 @@ export default function TenantInvoices() {
                 {recalcMutation.isPending ? "Menghitung..." : "Terapkan PPN 11%"}
               </Button>
             )}
+            {detailData && detailData.status !== "cancelled" && (
+              <Button
+                variant="outline"
+                className="gap-2 text-violet-700 border-violet-200 hover:bg-violet-50 hover:text-violet-800"
+                onClick={() => openEdit(detailData)}
+              >
+                <Pencil className="h-4 w-4" />
+                Edit Invoice
+              </Button>
+            )}
             {detailData && detailData.status !== "paid" && detailData.status !== "cancelled" && (
               <Button onClick={() => { setDetailOpen(false); openPayment(detailData); }} className="gap-2">
                 <CreditCard className="h-4 w-4" />
                 Input Pembayaran
               </Button>
             )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ─── Dialog: Edit Invoice ─────────────────────────────────────────────── */}
+      <Dialog open={editOpen} onOpenChange={(o) => { if (!o) { setEditOpen(false); setEditTarget(null); setEditForm(null); } }}>
+        <DialogContent className="max-w-2xl max-h-[90vh] flex flex-col">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Pencil className="h-5 w-5 text-violet-600" />
+              Edit Invoice{editTarget ? ` — ${editTarget.invoiceNumber}` : ""}
+            </DialogTitle>
+          </DialogHeader>
+          {editForm && (
+            <ScrollArea className="flex-1 pr-1">
+              <form id="edit-invoice-form" onSubmit={handleEditSubmit} className="flex flex-col gap-4 py-1">
+                {/* Info invoice */}
+                {editTarget && (
+                  <div className="rounded-lg border bg-muted/30 px-3 py-2.5 text-sm flex flex-wrap gap-4">
+                    <div><p className="text-xs text-muted-foreground">Tenant</p><p className="font-medium">{editTarget.tenantName ?? "-"}</p></div>
+                    <div><p className="text-xs text-muted-foreground">Invoice</p><p className="font-mono text-xs font-bold text-primary">{editTarget.invoiceNumber}</p></div>
+                    <div><p className="text-xs text-muted-foreground">Terbayar</p><p className="font-medium text-green-600">{formatRupiah(editTarget.paidAmount)}</p></div>
+                  </div>
+                )}
+
+                {/* Kode Unit & Periode */}
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                  <Field label="Kode Unit / Booth">
+                    <Input value={editForm.unitCode} onChange={e => setEditForm(f => f ? { ...f, unitCode: e.target.value } : f)} placeholder="A-01" />
+                  </Field>
+                  <Field label="Periode Mulai">
+                    <Input type="date" value={editForm.periodStart} onChange={e => setEditForm(f => f ? { ...f, periodStart: e.target.value } : f)} />
+                  </Field>
+                  <Field label="Periode Selesai">
+                    <Input type="date" value={editForm.periodEnd} onChange={e => setEditForm(f => f ? { ...f, periodEnd: e.target.value } : f)} />
+                  </Field>
+                </div>
+
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <Field label="Jatuh Tempo">
+                    <Input type="date" value={editForm.dueDate} onChange={e => setEditForm(f => f ? { ...f, dueDate: e.target.value } : f)} />
+                  </Field>
+                  <Field label="Status">
+                    <Select value={editForm.status} onValueChange={(v) => setEditForm(f => f ? { ...f, status: v as InvoiceStatus } : f)}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="draft">Draft</SelectItem>
+                        <SelectItem value="unpaid">Belum Bayar</SelectItem>
+                        <SelectItem value="paid">Lunas</SelectItem>
+                        <SelectItem value="overdue">Jatuh Tempo</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </Field>
+                </div>
+
+                {/* Komponen Biaya */}
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+                  <Field label="Harga Sewa (Rp)">
+                    <Input type="number" min="0" value={editForm.rentAmount} onChange={e => setEditForm(f => f ? { ...f, rentAmount: e.target.value } : f)} placeholder="0" />
+                  </Field>
+                  <Field label="Service Charge (Rp)">
+                    <Input type="number" min="0" value={editForm.serviceChargeAmount} onChange={e => setEditForm(f => f ? { ...f, serviceChargeAmount: e.target.value } : f)} placeholder="0" />
+                  </Field>
+                  <Field label="Listrik (Rp)">
+                    <Input type="number" min="0" value={editForm.electricityChargeAmount} onChange={e => setEditForm(f => f ? { ...f, electricityChargeAmount: e.target.value } : f)} placeholder="0" />
+                  </Field>
+                  <Field label="Air (Rp)">
+                    <Input type="number" min="0" value={editForm.waterChargeAmount} onChange={e => setEditForm(f => f ? { ...f, waterChargeAmount: e.target.value } : f)} placeholder="0" />
+                  </Field>
+                  <Field label="Lain-lain (Rp)">
+                    <Input type="number" min="0" value={editForm.otherChargeAmount} onChange={e => setEditForm(f => f ? { ...f, otherChargeAmount: e.target.value } : f)} placeholder="0" />
+                  </Field>
+                  <Field label="Sampah / Kebersihan (Rp)">
+                    <Input type="number" min="0" value={editForm.trashChargeAmount} onChange={e => setEditForm(f => f ? { ...f, trashChargeAmount: e.target.value } : f)} placeholder="0" />
+                  </Field>
+                  <Field label="Diskon (Rp)">
+                    <Input type="number" min="0" value={editForm.discountAmount} onChange={e => setEditForm(f => f ? { ...f, discountAmount: e.target.value } : f)} placeholder="0" />
+                  </Field>
+                  <Field label="Denda (Rp)">
+                    <Input type="number" min="0" value={editForm.penaltyAmount} onChange={e => setEditForm(f => f ? { ...f, penaltyAmount: e.target.value } : f)} placeholder="0" />
+                  </Field>
+                </div>
+
+                {/* Toggle PPN */}
+                <div className={`flex items-center justify-between rounded-lg border p-3 ${editForm.usePpn ? "border-blue-200 bg-blue-50/60" : "border-slate-200 bg-slate-50"}`}>
+                  <div>
+                    <p className="text-sm font-medium">Gunakan PPN 11%</p>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      {editForm.usePpn ? "PPN 11% ditambahkan ke subtotal" : "Tidak ada PPN — total = subtotal saja"}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={editForm.usePpn}
+                    onClick={() => setEditForm(f => f ? { ...f, usePpn: !f.usePpn } : f)}
+                    className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors focus:outline-none ${editForm.usePpn ? "bg-blue-600" : "bg-slate-300"}`}
+                  >
+                    <span className={`inline-block h-5 w-5 rounded-full bg-white shadow transform transition-transform ${editForm.usePpn ? "translate-x-5" : "translate-x-0"}`} />
+                  </button>
+                </div>
+
+                {/* Preview Ringkasan */}
+                {(() => {
+                  const sub = (Number(editForm.rentAmount||0)+Number(editForm.serviceChargeAmount||0)+Number(editForm.electricityChargeAmount||0)+Number(editForm.waterChargeAmount||0)+Number(editForm.otherChargeAmount||0)+Number(editForm.trashChargeAmount||0))-Number(editForm.discountAmount||0)+Number(editForm.penaltyAmount||0);
+                  if (sub <= 0) return null;
+                  const ppn = editForm.usePpn ? Math.round(sub * 0.11) : 0;
+                  const total = sub + ppn;
+                  return (
+                    <div className={`rounded-md border p-3 text-sm space-y-1 ${editForm.usePpn ? "bg-blue-50 border-blue-100" : "bg-slate-50 border-slate-200"}`}>
+                      <p className={`text-xs font-semibold uppercase tracking-wide mb-1.5 ${editForm.usePpn ? "text-blue-700" : "text-slate-600"}`}>Ringkasan Tagihan</p>
+                      <div className="flex justify-between text-muted-foreground"><span>Subtotal</span><span>{formatRupiah(String(sub))}</span></div>
+                      {editForm.usePpn && (
+                        <div className="flex justify-between text-blue-600"><span>PPN 11%</span><span>+ {formatRupiah(String(ppn))}</span></div>
+                      )}
+                      <div className={`flex justify-between font-bold text-base border-t pt-1 mt-1 ${editForm.usePpn ? "border-blue-200" : "border-slate-200"}`}><span>Total</span><span>{formatRupiah(String(total))}</span></div>
+                    </div>
+                  );
+                })()}
+
+                <Field label="Catatan">
+                  <Textarea value={editForm.notes} onChange={e => setEditForm(f => f ? { ...f, notes: e.target.value } : f)} rows={2} placeholder="Catatan tambahan (opsional)" />
+                </Field>
+              </form>
+            </ScrollArea>
+          )}
+          <DialogFooter className="pt-2">
+            <Button variant="outline" disabled={patchMutation.isPending} onClick={() => { setEditOpen(false); setEditTarget(null); setEditForm(null); }}>
+              Batal
+            </Button>
+            <Button type="submit" form="edit-invoice-form" disabled={patchMutation.isPending} className="gap-2 bg-violet-600 hover:bg-violet-700">
+              {patchMutation.isPending ? <><Loader2 className="h-4 w-4 animate-spin" />Menyimpan...</> : <><Pencil className="h-4 w-4" />Simpan Perubahan</>}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
