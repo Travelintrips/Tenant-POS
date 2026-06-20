@@ -628,7 +628,7 @@ router.post("/tenant-pos/payments", paymentRateLimiter, async (req, res) => {
             paidAt: new Date(paidAt),
             journalId: journalResult.journalId,
           });
-          const saved = saveReceiptFile(result.receiptNumber, receiptHtml);
+          const saved = await saveReceiptFile(result.receiptNumber, receiptHtml);
           receiptUrl = saved.fileUrl;
         } catch (receiptErr) {
           logger.error({ err: receiptErr, paymentId }, "[pos] Gagal generate receipt — dilanjutkan");

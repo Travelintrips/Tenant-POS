@@ -1,5 +1,4 @@
-import fs from "fs";
-import path from "path";
+import { uploadToStorage } from "./supabase-storage";
 
 export interface PosReceiptData {
   receiptNumber: string;
@@ -177,21 +176,21 @@ export interface SaveReceiptResult {
   filePath: string;
 }
 
-export function saveReceiptFile(
+export async function saveReceiptFile(
   receiptNumber: string,
   html: string,
-): SaveReceiptResult {
-  const receiptsDir = path.join(process.cwd(), "uploads", "receipts");
-  if (!fs.existsSync(receiptsDir)) {
-    fs.mkdirSync(receiptsDir, { recursive: true });
-  }
-
+): Promise<SaveReceiptResult> {
   const safeName = receiptNumber.replace(/[^a-zA-Z0-9\-_]/g, "-");
   const fileName = `${safeName}.html`;
-  const filePath = path.join(receiptsDir, fileName);
+  const buffer = Buffer.from(html, "utf-8");
 
-  fs.writeFileSync(filePath, html, "utf-8");
+  const fileUrl = await uploadToStorage(
+    "receipts",
+    fileName,
+    buffer,
+    "text/html",
+    true,
+  );
 
-  const fileUrl = `/uploads/receipts/${fileName}`;
-  return { fileUrl, filePath };
+  return { fileUrl, filePath: fileName };
 }
