@@ -1179,13 +1179,14 @@ function DetailPanel({ item, onClose, onProses, onBayarInvoice, currentShiftId }
   const [voidTarget, setVoidTarget] = useState<PaymentHistoryItem | null>(null);
   const [refundTarget, setRefundTarget] = useState<PaymentHistoryItem | null>(null);
   const [activeTab, setActiveTab] = useState<"info" | "tagihan" | "riwayat">("info");
+  const [riwayatFilter, setRiwayatFilter] = useState<"semua" | "invoice" | "manual">("semua");
   const [showBayarManual, setShowBayarManual] = useState(false);
   const [imgError, setImgError] = useState(false);
   const queryClient = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
 
-  React.useEffect(() => { setImgError(false); }, [item?.tenantId]);
+  React.useEffect(() => { setImgError(false); setRiwayatFilter("semua"); }, [item?.tenantId]);
 
   const uploadLogoMutation = useMutation({
     mutationFn: async (file: File) => {
@@ -1521,10 +1522,41 @@ function DetailPanel({ item, onClose, onProses, onBayarInvoice, currentShiftId }
         ) : (
           /* Riwayat Tab */
           <div className="p-4 space-y-2">
+            {/* Filter bar */}
+            {Array.isArray(paymentHistory.data) && paymentHistory.data.length > 0 && (() => {
+              const totalManual = paymentHistory.data.filter(p => p.isManual).length;
+              const totalInvoice = paymentHistory.data.filter(p => !p.isManual).length;
+              return (
+                <div className="flex gap-1 mb-3 bg-muted/40 rounded-lg p-1">
+                  {([
+                    { key: "semua", label: `Semua (${paymentHistory.data.length})` },
+                    { key: "invoice", label: `Invoice (${totalInvoice})` },
+                    { key: "manual", label: `Manual (${totalManual})` },
+                  ] as const).map(({ key, label }) => (
+                    <button
+                      key={key}
+                      onClick={() => setRiwayatFilter(key)}
+                      className={cn(
+                        "flex-1 py-1 text-[10px] font-semibold rounded-md transition-colors",
+                        riwayatFilter === key
+                          ? "bg-white shadow-sm text-primary border border-border"
+                          : "text-muted-foreground hover:text-slate-700"
+                      )}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              );
+            })()}
             {paymentHistory.isLoading ? (
               <div className="space-y-2">{[1, 2, 3].map(i => <Skeleton key={i} className="h-16 w-full rounded-lg" />)}</div>
-            ) : Array.isArray(paymentHistory.data) && paymentHistory.data.length > 0 ? (
-              paymentHistory.data.map((p) => {
+            ) : (() => {
+              const allData = Array.isArray(paymentHistory.data) ? paymentHistory.data : [];
+              const filtered = riwayatFilter === "semua" ? allData
+                : riwayatFilter === "manual" ? allData.filter(p => p.isManual)
+                : allData.filter(p => !p.isManual);
+              return filtered.length > 0 ? filtered.map((p) => {
                 const isVoided = p.isVoided;
                 const hasRefund = p.refundStatus === "processed";
                 return (
@@ -1567,12 +1599,13 @@ function DetailPanel({ item, onClose, onProses, onBayarInvoice, currentShiftId }
                     </div>
                   </div>
                 );
-              })
-            ) : (
-              <div className="rounded-lg border border-dashed p-4 text-center text-muted-foreground text-xs">
-                <Receipt className="w-6 h-6 mx-auto mb-1.5 opacity-30" />Belum ada riwayat pembayaran.
-              </div>
-            )}
+              }) : (
+                <div className="rounded-lg border border-dashed p-4 text-center text-muted-foreground text-xs">
+                  <Receipt className="w-6 h-6 mx-auto mb-1.5 opacity-30" />
+                  {riwayatFilter === "semua" ? "Belum ada riwayat pembayaran." : riwayatFilter === "manual" ? "Tidak ada pembayaran manual." : "Tidak ada pembayaran via invoice."}
+                </div>
+              );
+            })()}
           </div>
         )}
       </div>
