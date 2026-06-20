@@ -1,6 +1,7 @@
 import * as XLSX from "xlsx";
 import { apiFetch as apiFetchBase } from "@/lib/api";
 import { useState, useMemo, useRef } from "react";
+import { PaymentHistoryModal } from "@/components/payment-history-modal";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
@@ -28,6 +29,7 @@ import {
   CheckCircle2, Clock, Ban, CircleDashed, MessageCircle, Send, Link2, Loader2,
   Copy, WifiOff, CheckCheck, Download, Layers, ChevronDown, ChevronRight, Eye, Trash2,
   BarChart2, FileDown, FileSpreadsheet, Pencil,
+  BarChart2, FileDown, FileSpreadsheet, History,
 } from "lucide-react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -771,6 +773,8 @@ export default function TenantInvoices() {
   const [editOpen, setEditOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<Invoice | null>(null);
   const [editForm, setEditForm] = useState<EditForm | null>(null);
+  const [payHistoryOpen, setPayHistoryOpen] = useState(false);
+  const [payHistoryInvoice, setPayHistoryInvoice] = useState<Invoice | null>(null);
 
   const [cancelTarget, setCancelTarget] = useState<Invoice | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Invoice | null>(null);
@@ -1962,6 +1966,12 @@ export default function TenantInvoices() {
       </Dialog>
 
       {/* ─── Dialog: Detail Invoice ───────────────────────────────────────────── */}
+      <PaymentHistoryModal
+        open={payHistoryOpen}
+        onClose={() => setPayHistoryOpen(false)}
+        invoice={payHistoryInvoice}
+      />
+
       <Dialog open={detailOpen} onOpenChange={setDetailOpen}>
         <DialogContent className="max-w-xl">
           <DialogHeader>
@@ -2074,6 +2084,19 @@ export default function TenantInvoices() {
             </ScrollArea>
           ) : null}
           <DialogFooter className="flex-wrap gap-2">
+            <Button
+              variant="outline"
+              className="gap-2 text-violet-700 border-violet-200 hover:bg-violet-50 hover:text-violet-800"
+              onClick={() => {
+                if (detailData) {
+                  setPayHistoryInvoice(detailData);
+                  setPayHistoryOpen(true);
+                }
+              }}
+            >
+              <History className="h-4 w-4" />
+              Riwayat Pembayaran
+            </Button>
             <Button variant="outline" onClick={() => { if (detailData) void viewOrPrintInvoice(detailData, "view"); }} className="gap-2 text-indigo-700 border-indigo-200 hover:bg-indigo-50 hover:text-indigo-800">
               <Eye className="h-4 w-4" />
               Lihat Invoice

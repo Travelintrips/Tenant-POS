@@ -4,6 +4,7 @@ import {
   tenantPaymentsTable,
   tenantInvoicesTable,
   tenantsTable,
+  paymentReceiptsTable,
 } from "@workspace/db/schema";
 import { eq, and, inArray, desc } from "drizzle-orm";
 import { z } from "zod";
@@ -12,6 +13,7 @@ import { sseBroker } from "../lib/sse-broker";
 import { sendPaymentApproved, sendPaymentRejected } from "../lib/whatsapp";
 import { logAudit } from "../lib/audit";
 import { writePaymentEvent, normalizePaymentMethod } from "../lib/payment-events";
+import { approveExistingPayment, LedgerError } from "../lib/payment-ledger";
 
 const router: IRouter = Router();
 
@@ -132,41 +134,19 @@ router.post("/pending-payments/:id/approve", async (req, res) => {
       const approvedBy = req.user?.name ?? req.user?.email ?? "Admin";
       const now = new Date();
 
+      const ledger = await approveExistingPayment(tx, payment.id, invoice.id, approvedBy, now);
+
       const [updatedPayment] = await tx
-        .update(tenantPaymentsTable)
-        .set({
-          approvalStatus: "approved",
-          approvedBy,
-          approvedAt: now,
-          paidAt: now,
-          paymentStatus: "PAID",
-          status: "PAID",
-          updatedAt: now,
-        })
-        .where(eq(tenantPaymentsTable.id, id))
-        .returning();
-
-      const newPaidAmount = Number(invoice.paidAmount) + Number(payment.amount);
-      const total = Number(invoice.totalAmount);
-      const outstanding = Math.max(total - newPaidAmount, 0);
-
-      let newStatus: string;
-      if (newPaidAmount >= total) newStatus = "paid";
-      else if (newPaidAmount > 0) newStatus = "partial";
-      else newStatus = invoice.dueDate && new Date(invoice.dueDate) < now ? "overdue" : "unpaid";
+        .select()
+        .from(tenantPaymentsTable)
+        .where(eq(tenantPaymentsTable.id, id));
 
       const [updatedInvoice] = await tx
-        .update(tenantInvoicesTable)
-        .set({
-          paidAmount: String(newPaidAmount),
-          outstandingAmount: String(outstanding),
-          status: newStatus,
-          updatedAt: now,
-        })
-        .where(eq(tenantInvoicesTable.id, invoice.id))
-        .returning();
+        .select()
+        .from(tenantInvoicesTable)
+        .where(eq(tenantInvoicesTable.id, invoice.id));
 
-      return { payment: updatedPayment, invoice: updatedInvoice };
+      return { payment: updatedPayment!, invoice: updatedInvoice!, ledger };
     });
 
     logAudit(req, {
@@ -180,6 +160,41 @@ router.post("/pending-payments/:id/approve", async (req, res) => {
       paymentId: id,
       invoiceId: result.invoice.id,
     });
+
+    // Generate receipt entry for the approved OCR/manual payment (fire-and-forget)
+    void (async () => {
+      try {
+        const p = result.payment;
+        const inv = result.invoice;
+        const tenantRow = p.tenantId
+          ? await db
+              .select({ ownerName: tenantsTable.ownerName, businessName: tenantsTable.businessName })
+              .from(tenantsTable)
+              .where(eq(tenantsTable.id, p.tenantId))
+              .then((r) => r[0])
+          : null;
+
+        await db.insert(paymentReceiptsTable).values({
+          paymentId: p.id,
+          invoiceId: inv.id,
+          tenantId: p.tenantId ?? 0,
+          siteId: p.siteId ?? null,
+          receiptNumber: p.receiptNumber ?? `RCT-${p.id}`,
+          fileUrl: "",
+          invoiceNumber: inv.invoiceNumber,
+          businessName: tenantRow?.businessName ?? null,
+          ownerName: tenantRow?.ownerName ?? null,
+          amountPaid: String(p.amount),
+          taxAmount: "0",
+          netAmount: String(p.amount),
+          paymentMethod: p.paymentMethod ?? null,
+          kasirName: req.user?.name ?? "Admin",
+          waStatus: "skipped",
+        }).onConflictDoNothing();
+      } catch {
+        // Non-critical — pembayaran sudah berhasil
+      }
+    })();
 
     writePaymentEvent({
       sourceApp: "tenant_management",
@@ -222,6 +237,11 @@ router.post("/pending-payments/:id/approve", async (req, res) => {
 
     res.json({ success: true, payment: result.payment, invoice: result.invoice });
   } catch (err) {
+    if (err instanceof LedgerError) {
+      const httpCode = err.code === "OVERPAYMENT" ? 400 : 409;
+      res.status(httpCode).json({ error: err.message, code: err.code });
+      return;
+    }
     const e = err as Error & { status?: number };
     if (e.status) {
       res.status(e.status).json({ error: e.message });

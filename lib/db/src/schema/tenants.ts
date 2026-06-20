@@ -36,5 +36,5 @@ export const tenantsTable = pgTable("tenants", {
 });
 
 export const insertTenantSchema = createInsertSchema(tenantsTable).omit({ id: true, createdAt: true, updatedAt: true });
-export type InsertTenant = z.infer<typeof insertTenantSchema>;
+export type InsertTenant = typeof tenantsTable.$inferInsert;
 export type Tenant = typeof tenantsTable.$inferSelect;

@@ -606,6 +606,53 @@ export async function sendCalonTenantRejected(phone: string, brandName?: string)
   return sendMessage(phone, message);
 }
 
+export interface PosPaymentSuccessParams {
+  ownerName: string;
+  businessName: string;
+  invoiceNumber?: string | null;
+  amountPaid: string | number;
+  paymentMethod: string;
+  receiptNumber: string;
+  receiptUrl?: string | null;
+  phone: string;
+}
+
+/**
+ * Kirim notifikasi pembayaran POS berhasil ke tenant — termasuk link receipt
+ */
+export async function sendPosPaymentSuccess(params: PosPaymentSuccessParams): Promise<WaResult> {
+  const methodLabel: Record<string, string> = {
+    transfer: "Transfer Bank",
+    tunai: "Tunai / Cash",
+    qris: "QRIS",
+    edc: "EDC / Debit",
+    other: "Lainnya",
+  };
+
+  const invoiceLine = params.invoiceNumber
+    ? `• No. Invoice  : *${params.invoiceNumber}*\n`
+    : "";
+
+  const receiptLine = params.receiptUrl
+    ? `\n🧾 *Receipt / Kuitansi:*\n${params.receiptUrl}\n`
+    : "";
+
+  const message =
+    `✅ *Pembayaran Diterima — ${params.businessName}*\n` +
+    `━━━━━━━━━━━━━━━━━━━━━\n\n` +
+    `Yth. Bapak/Ibu *${params.ownerName}*,\n\n` +
+    `Pembayaran Anda telah kami terima dengan rincian:\n\n` +
+    invoiceLine +
+    `• No. Kuitansi : *${params.receiptNumber}*\n` +
+    `• Jumlah         : *${formatRupiah(params.amountPaid)}*\n` +
+    `• Metode         : ${methodLabel[params.paymentMethod] ?? params.paymentMethod}\n` +
+    receiptLine +
+    `\nTerima kasih atas pembayaran Anda yang tepat waktu. 🙏\n` +
+    `_Manajemen CST_`;
+
+  return sendMessage(params.phone, message);
+}
+
 export async function sendOverdueReminder(params: OverdueReminderParams): Promise<WaResult> {
   const message =
     `⚠️ *Tagihan Melewati Jatuh Tempo — ${params.businessName}*\n` +

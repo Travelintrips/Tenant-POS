@@ -25,5 +25,5 @@ export const insertMallSiteSchema = createInsertSchema(mallSitesTable).omit({
   updatedAt: true,
 });
 
-export type InsertMallSite = z.infer<typeof insertMallSiteSchema>;
+export type InsertMallSite = typeof mallSitesTable.$inferInsert;
 export type MallSite = typeof mallSitesTable.$inferSelect;

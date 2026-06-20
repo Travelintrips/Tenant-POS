@@ -20,5 +20,5 @@ export const cashierShiftsTable = pgTable("cashier_shifts", {
 });
 
 export const insertCashierShiftSchema = createInsertSchema(cashierShiftsTable).omit({ id: true, createdAt: true, updatedAt: true });
-export type InsertCashierShift = z.infer<typeof insertCashierShiftSchema>;
+export type InsertCashierShift = typeof cashierShiftsTable.$inferInsert;
 export type CashierShift = typeof cashierShiftsTable.$inferSelect;

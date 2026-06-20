@@ -1,0 +1,118 @@
+Tambahkan fitur "Receipt Generator + WhatsApp Notification + Accounting Journal Auto Posting" setelah pembayaran invoice di POS Tenant.
+
+=====================================
+🎯 FLOW BARU SETELAH PAYMENT
+============================
+
+Saat kasir klik "Bayar Invoice":
+
+1. Sistem memproses pembayaran
+2. Setelah sukses:
+
+   * generate receipt PDF
+   * kirim WhatsApp ke tenant
+   * simpan audit log
+   * create accounting journal otomatis
+
+=====================================
+🧾 RECEIPT GENERATOR
+====================
+
+Generate PDF berisi:
+
+* No invoice
+* Nama tenant
+* Unit
+* Detail pembayaran
+* Subtotal
+* PPN 11%
+* Total
+* Tanggal pembayaran
+* Nama kasir
+
+Simpan ke:
+
+* /storage/receipts/
+
+Return:
+{
+receiptUrl: "...",
+receiptNumber: "RCT-xxxx"
+}
+
+=====================================
+📲 WHATSAPP NOTIFICATION
+========================
+
+Kirim pesan otomatis:
+
+"Pembayaran Anda telah diterima"
+
+Include:
+
+* Invoice number
+* Nominal
+* Receipt link
+
+Gunakan Fonnte / WA gateway yang sudah ada.
+
+=====================================
+📊 ACCOUNTING JOURNAL AUTO POST
+
+Saat payment success:
+
+Create journal entry:
+
+Debit:
+
+* Cash/Bank
+
+Credit:
+
+* Revenue
+* PPN Output (11%)
+
+Pastikan:
+
+* idempotent (tidak double posting)
+* link ke invoice_id
+
+=====================================
+🗄️ DATABASE UPDATE
+
+Tambah tabel jika belum ada:
+
+payment_receipts:
+
+* id
+* invoice_id
+* receipt_number
+* file_url
+* created_at
+
+=====================================
+🔐 RULES
+
+* Payment HARUS atomic (success → semua proses jalan)
+* Jika WA gagal → payment tetap sukses
+* Jika receipt gagal → log error tapi jangan rollback payment
+* Journal wajib sukses (critical)
+
+=====================================
+🧪 TEST CASE
+
+1. Payment sukses → receipt muncul
+2. WA terkirim
+3. Journal masuk
+4. Invoice status updated
+5. Retry payment tidak double journal
+6. Partial payment handled correctly
+
+=====================================
+📦 OUTPUT
+
+* Backend changes
+* Frontend integration
+* PDF generator implementation
+* WhatsApp service integration
+* Accounting journal integration

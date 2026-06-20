@@ -80,6 +80,21 @@ type PaymentResponse = {
   change: number;
 };
 
+type ReceiptInfo = {
+  id: number;
+  paymentId: number;
+  receiptNumber: string;
+  fileUrl: string;
+  invoiceNumber: string | null;
+  businessName: string | null;
+  amountPaid: number;
+  taxAmount: number;
+  netAmount: number;
+  journalId: string | null;
+  waStatus: string;
+  createdAt: string;
+};
+
 type PaymentHistoryItem = {
   id: number;
   receiptNumber: string | null;
@@ -97,10 +112,12 @@ type PaymentHistoryItem = {
   voidedBy: string | null;
   referenceNumber: string | null;
   invoiceId: number | null;
+  bookingId: number | null;
   shiftId: number | null;
   refundAmount: number;
   refundReason: string | null;
   refundStatus: string | null;
+  isManual: boolean;
 };
 
 type ReceiptData = {
@@ -267,6 +284,15 @@ function usePaymentHistory(bookingId: number | null) {
     queryFn: () =>
       apiFetch(`${BASE}/api/tenant-pos/bookings/${bookingId}/payments`, { credentials: "include" }).then((r) => r.json()),
     enabled: bookingId !== null,
+  });
+}
+
+function useTenantAllPayments(tenantId: number | null) {
+  return useQuery<PaymentHistoryItem[]>({
+    queryKey: ["tenant-all-payments", tenantId],
+    queryFn: () =>
+      apiFetch(`${BASE}/api/tenant-pos/tenants/${tenantId}/payments`, { credentials: "include" }).then((r) => r.json()),
+    enabled: tenantId !== null,
   });
 }
 
@@ -559,6 +585,7 @@ function VoidPaymentDialog({ payment, onClose }: {
     },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["payment-history"] });
+      void queryClient.invalidateQueries({ queryKey: ["tenant-all-payments"] });
       void queryClient.invalidateQueries({ queryKey: ["tenant-pos-floor-plan"] });
       void queryClient.invalidateQueries({ queryKey: ["tenant-pos-overview"] });
       void queryClient.invalidateQueries({ queryKey: ["tenant-invoices-pos"] });
@@ -642,6 +669,7 @@ function RefundPaymentDialog({ payment, onClose }: {
     },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["payment-history"] });
+      void queryClient.invalidateQueries({ queryKey: ["tenant-all-payments"] });
       toast({ title: "Refund Dicatat", description: "Data refund berhasil disimpan." });
       onClose(true);
     },
@@ -1145,18 +1173,20 @@ function DetailPanel({ item, onClose, onProses, onBayarInvoice, currentShiftId }
   const user = useAuth().data;
   const canVoidRefund = !!user && ["owner", "admin", "finance"].includes(user.role);
   const canEditLogo = !!user && ["owner", "admin"].includes(user.role);
-  const paymentHistory = usePaymentHistory(item?.bookingId ?? null);
+  const paymentHistory = useTenantAllPayments(item?.tenantId ?? null);
   const tenantInvoices = useTenantInvoices(item?.tenantId ?? null);
   const [receiptPaymentId, setReceiptPaymentId] = useState<number | null>(null);
   const [voidTarget, setVoidTarget] = useState<PaymentHistoryItem | null>(null);
   const [refundTarget, setRefundTarget] = useState<PaymentHistoryItem | null>(null);
   const [activeTab, setActiveTab] = useState<"info" | "tagihan" | "riwayat">("info");
+  const [riwayatFilter, setRiwayatFilter] = useState<"semua" | "invoice" | "manual">("semua");
+  const [showBayarManual, setShowBayarManual] = useState(false);
   const [imgError, setImgError] = useState(false);
   const queryClient = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
 
-  React.useEffect(() => { setImgError(false); }, [item?.tenantId]);
+  React.useEffect(() => { setImgError(false); setRiwayatFilter("semua"); }, [item?.tenantId]);
 
   const uploadLogoMutation = useMutation({
     mutationFn: async (file: File) => {
@@ -1216,13 +1246,32 @@ function DetailPanel({ item, onClose, onProses, onBayarInvoice, currentShiftId }
         setVoidTarget(null);
         if (voided) {
           void queryClient.invalidateQueries({ queryKey: ["payment-history", item.bookingId] });
+          void queryClient.invalidateQueries({ queryKey: ["tenant-all-payments", item.tenantId] });
           void queryClient.invalidateQueries({ queryKey: ["tenant-invoices-pos", item.tenantId] });
         }
       }} />
       <RefundPaymentDialog payment={refundTarget} onClose={(refunded) => {
         setRefundTarget(null);
-        if (refunded) void queryClient.invalidateQueries({ queryKey: ["payment-history", item.bookingId] });
+        if (refunded) {
+          void queryClient.invalidateQueries({ queryKey: ["payment-history", item.bookingId] });
+          void queryClient.invalidateQueries({ queryKey: ["tenant-all-payments", item.tenantId] });
+        }
       }} />
+
+      {showBayarManual && (
+        <ModalBayarManual
+          item={item}
+          currentShiftId={currentShiftId}
+          onClose={() => setShowBayarManual(false)}
+          onSuccess={() => {
+            setShowBayarManual(false);
+            void queryClient.invalidateQueries({ queryKey: ["tenant-pos-floor-plan"] });
+            void queryClient.invalidateQueries({ queryKey: ["tenant-pos-overview"] });
+            void queryClient.invalidateQueries({ queryKey: ["tenant-all-payments", item.tenantId] });
+            void queryClient.invalidateQueries({ queryKey: ["pos-current-shift"] });
+          }}
+        />
+      )}
 
       {/* Header */}
       <div className="px-4 pt-4 pb-3 border-b bg-slate-50/60 shrink-0">
@@ -1258,7 +1307,7 @@ function DetailPanel({ item, onClose, onProses, onBayarInvoice, currentShiftId }
                 activeTab === tab ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-slate-700"
               )}
             >
-              {tab === "info" ? "Info" : tab === "tagihan" ? `Tagihan${openInvoices.length > 0 ? ` (${openInvoices.length})` : ""}` : "Riwayat"}
+              {tab === "info" ? "Info" : tab === "tagihan" ? `Tagihan${openInvoices.length > 0 ? ` (${openInvoices.length})` : ""}` : `Riwayat${Array.isArray(paymentHistory.data) && paymentHistory.data.length > 0 ? ` (${paymentHistory.data.length})` : ""}`}
             </button>
           ))}
         </div>
@@ -1343,6 +1392,19 @@ function DetailPanel({ item, onClose, onProses, onBayarInvoice, currentShiftId }
                 {item.areaName && <DetailRow label="Area / Zona" value={item.areaName} />}
               </div>
             </div>
+
+            {/* ── Tombol Bayar Manual ── */}
+            {!isVacant && (
+              <Button
+                className="w-full gap-2 bg-emerald-600 hover:bg-emerald-700 text-white"
+                size="sm"
+                onClick={() => setShowBayarManual(true)}
+              >
+                <Banknote className="w-4 h-4" />
+                Bayar (Tunai / Transfer)
+              </Button>
+            )}
+
             {item.bookingId && (
               <div>
                 <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">Tagihan Booking</p>
@@ -1460,16 +1522,50 @@ function DetailPanel({ item, onClose, onProses, onBayarInvoice, currentShiftId }
         ) : (
           /* Riwayat Tab */
           <div className="p-4 space-y-2">
+            {/* Filter bar */}
+            {Array.isArray(paymentHistory.data) && paymentHistory.data.length > 0 && (() => {
+              const totalManual = paymentHistory.data.filter(p => p.isManual).length;
+              const totalInvoice = paymentHistory.data.filter(p => !p.isManual).length;
+              return (
+                <div className="flex gap-1 mb-3 bg-muted/40 rounded-lg p-1">
+                  {([
+                    { key: "semua", label: `Semua (${paymentHistory.data.length})` },
+                    { key: "invoice", label: `Invoice (${totalInvoice})` },
+                    { key: "manual", label: `Manual (${totalManual})` },
+                  ] as const).map(({ key, label }) => (
+                    <button
+                      key={key}
+                      onClick={() => setRiwayatFilter(key)}
+                      className={cn(
+                        "flex-1 py-1 text-[10px] font-semibold rounded-md transition-colors",
+                        riwayatFilter === key
+                          ? "bg-white shadow-sm text-primary border border-border"
+                          : "text-muted-foreground hover:text-slate-700"
+                      )}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              );
+            })()}
             {paymentHistory.isLoading ? (
               <div className="space-y-2">{[1, 2, 3].map(i => <Skeleton key={i} className="h-16 w-full rounded-lg" />)}</div>
-            ) : Array.isArray(paymentHistory.data) && paymentHistory.data.length > 0 ? (
-              paymentHistory.data.map((p) => {
+            ) : (() => {
+              const allData = Array.isArray(paymentHistory.data) ? paymentHistory.data : [];
+              const filtered = riwayatFilter === "semua" ? allData
+                : riwayatFilter === "manual" ? allData.filter(p => p.isManual)
+                : allData.filter(p => !p.isManual);
+              return filtered.length > 0 ? filtered.map((p) => {
                 const isVoided = p.isVoided;
                 const hasRefund = p.refundStatus === "processed";
                 return (
                   <div key={p.id} className={cn("rounded-lg border px-3 py-2.5 text-xs space-y-1.5", isVoided ? "bg-red-50/50 border-red-200 opacity-70" : "bg-muted/20")}>
                     <div className="flex items-center justify-between gap-2">
-                      <span className="font-mono text-[10px] text-muted-foreground truncate">{p.receiptNumber ?? `#${p.id}`}</span>
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <span className="font-mono text-[10px] text-muted-foreground truncate">{p.receiptNumber ?? `#${p.id}`}</span>
+                        {p.isManual && <span className="inline-flex items-center text-[9px] px-1 py-0.5 rounded border font-semibold bg-violet-100 text-violet-700 border-violet-300 shrink-0">Manual</span>}
+                      </div>
                       <div className="flex items-center gap-1 shrink-0">
                         {isVoided && <span className="inline-flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded-full border font-bold bg-red-100 text-red-700 border-red-300"><Ban className="w-2.5 h-2.5" />VOID</span>}
                         {hasRefund && <span className="inline-flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded-full border font-medium bg-blue-100 text-blue-700 border-blue-300"><RefreshCw className="w-2.5 h-2.5" />Refund</span>}
@@ -1503,16 +1599,205 @@ function DetailPanel({ item, onClose, onProses, onBayarInvoice, currentShiftId }
                     </div>
                   </div>
                 );
-              })
-            ) : (
-              <div className="rounded-lg border border-dashed p-4 text-center text-muted-foreground text-xs">
-                <Receipt className="w-6 h-6 mx-auto mb-1.5 opacity-30" />Belum ada riwayat pembayaran.
-              </div>
-            )}
+              }) : (
+                <div className="rounded-lg border border-dashed p-4 text-center text-muted-foreground text-xs">
+                  <Receipt className="w-6 h-6 mx-auto mb-1.5 opacity-30" />
+                  {riwayatFilter === "semua" ? "Belum ada riwayat pembayaran." : riwayatFilter === "manual" ? "Tidak ada pembayaran manual." : "Tidak ada pembayaran via invoice."}
+                </div>
+              );
+            })()}
           </div>
         )}
       </div>
     </div>
+  );
+}
+
+// ─── Modal Bayar Manual ───────────────────────────────────────────────────────
+
+function ModalBayarManual({ item, currentShiftId, onClose, onSuccess }: {
+  item: FloorPlanItem;
+  currentShiftId: number | null;
+  onClose: () => void;
+  onSuccess: () => void;
+}) {
+  const { toast } = useToast();
+  const [nominal, setNominal] = useState("");
+  const [metode, setMetode] = useState<MetodeBayar>("tunai");
+  const [tanggalBayar, setTanggalBayar] = useState(todayString());
+  const [referenceNumber, setReferenceNumber] = useState("");
+  const [catatan, setCatatan] = useState("");
+  const [result, setResult] = useState<{ receiptNumber: string; paidAmount: number } | null>(null);
+
+  const nominalNum = parseInt(nominal.replace(/\D/g, "")) || 0;
+  const isValid = nominalNum > 0 && !!metode;
+  const needsReference = metode === "transfer" || metode === "qris" || metode === "edc";
+
+  const mutation = useMutation<{ receiptNumber: string; paidAmount: number }, Error>({
+    mutationFn: async () => {
+      const r = await apiFetch(`${BASE}/api/tenant-pos/manual-payment`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          tenantId: item.tenantId,
+          amountPaid: nominalNum,
+          paymentMethod: metode,
+          paymentDate: tanggalBayar,
+          referenceNumber: referenceNumber || undefined,
+          notes: catatan || undefined,
+          shiftId: currentShiftId ?? undefined,
+        }),
+      });
+      const data = await r.json() as { error?: string; receiptNumber?: string; paidAmount?: number };
+      if (!r.ok) throw new Error(data.error ?? "Gagal memproses pembayaran");
+      return { receiptNumber: data.receiptNumber!, paidAmount: data.paidAmount! };
+    },
+    onSuccess: (data) => {
+      setResult(data);
+      toast({ title: "Pembayaran Berhasil", description: `Kuitansi ${data.receiptNumber} · ${formatRupiah(nominalNum)} tersimpan.` });
+    },
+    onError: (e) => {
+      toast({ title: "Pembayaran Gagal", description: e.message, variant: "destructive" });
+    },
+  });
+
+  const METODE_OPTIONS_MANUAL: { value: MetodeBayar; label: string; icon: React.ReactNode }[] = [
+    { value: "tunai",    label: "Tunai / Cash",  icon: <Banknote className="w-4 h-4" /> },
+    { value: "transfer", label: "Transfer Bank", icon: <WalletCards className="w-4 h-4" /> },
+    { value: "qris",     label: "QRIS",          icon: <Smartphone className="w-4 h-4" /> },
+    { value: "edc",      label: "EDC / Debit",   icon: <CreditCard className="w-4 h-4" /> },
+  ];
+
+  if (result) {
+    return (
+      <Dialog open onOpenChange={() => { onSuccess(); }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-emerald-700">
+              <CheckCircle2 className="w-5 h-5" /> Pembayaran Berhasil
+            </DialogTitle>
+          </DialogHeader>
+          <div className="py-4 space-y-3 text-sm">
+            <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-4 text-center space-y-1">
+              <p className="text-xs text-muted-foreground">No. Kuitansi</p>
+              <p className="font-mono font-bold text-emerald-800 text-base">{result.receiptNumber}</p>
+            </div>
+            <div className="bg-muted/40 rounded-lg divide-y divide-border/60 px-3">
+              <div className="flex justify-between py-2"><span className="text-muted-foreground">Tenant</span><span className="font-medium">{item.businessName}</span></div>
+              <div className="flex justify-between py-2"><span className="text-muted-foreground">Jumlah</span><span className="font-bold text-emerald-700">{formatRupiah(nominalNum)}</span></div>
+              <div className="flex justify-between py-2"><span className="text-muted-foreground">Metode</span><span className="font-medium">{METODE_OPTIONS_MANUAL.find(m => m.value === metode)?.label ?? metode}</span></div>
+            </div>
+            <p className="text-xs text-muted-foreground text-center">Receipt dikirim ke WhatsApp tenant (jika ada nomor)</p>
+          </div>
+          <Button className="w-full" onClick={() => onSuccess()}>Selesai</Button>
+        </DialogContent>
+      </Dialog>
+    );
+  }
+
+  return (
+    <Dialog open onOpenChange={onClose}>
+      <DialogContent className="max-w-sm">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Banknote className="w-5 h-5 text-emerald-600" /> Bayar Manual
+          </DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4 py-2">
+          {/* Info tenant */}
+          <div className="bg-muted/40 rounded-lg px-3 py-2.5 text-sm space-y-1">
+            <p className="font-semibold">{item.businessName}</p>
+            <p className="text-muted-foreground text-xs">{item.ownerName} · Booth {item.boothNumber}</p>
+          </div>
+
+          {/* Nominal */}
+          <div className="space-y-1.5">
+            <Label htmlFor="mp-nominal">Nominal Pembayaran <span className="text-red-500">*</span></Label>
+            <Input
+              id="mp-nominal"
+              placeholder="Rp 0"
+              value={nominal ? `Rp ${parseInt(nominal.replace(/\D/g, "") || "0").toLocaleString("id-ID")}` : ""}
+              onChange={(e) => setNominal(e.target.value.replace(/\D/g, ""))}
+              inputMode="numeric"
+              disabled={mutation.isPending}
+            />
+          </div>
+
+          {/* Metode */}
+          <div className="space-y-1.5">
+            <Label>Metode Pembayaran <span className="text-red-500">*</span></Label>
+            <div className="grid grid-cols-2 gap-2">
+              {METODE_OPTIONS_MANUAL.map((m) => (
+                <button
+                  key={m.value}
+                  type="button"
+                  onClick={() => setMetode(m.value)}
+                  disabled={mutation.isPending}
+                  className={cn(
+                    "flex items-center gap-2 px-3 py-2.5 rounded-lg border text-sm font-medium transition-all",
+                    metode === m.value
+                      ? "border-emerald-500 bg-emerald-50 text-emerald-700 ring-1 ring-emerald-500"
+                      : "border-border hover:border-slate-400 text-muted-foreground"
+                  )}
+                >
+                  {m.icon}{m.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Referensi (jika transfer/qris/edc) */}
+          {needsReference && (
+            <div className="space-y-1.5">
+              <Label htmlFor="mp-ref">No. Referensi / Bukti Transfer</Label>
+              <Input
+                id="mp-ref"
+                placeholder="Nomor transaksi / referensi..."
+                value={referenceNumber}
+                onChange={(e) => setReferenceNumber(e.target.value)}
+                disabled={mutation.isPending}
+              />
+            </div>
+          )}
+
+          {/* Tanggal */}
+          <div className="space-y-1.5">
+            <Label htmlFor="mp-tanggal">Tanggal Pembayaran</Label>
+            <Input
+              id="mp-tanggal"
+              type="date"
+              value={tanggalBayar}
+              onChange={(e) => setTanggalBayar(e.target.value)}
+              disabled={mutation.isPending}
+            />
+          </div>
+
+          {/* Catatan */}
+          <div className="space-y-1.5">
+            <Label htmlFor="mp-catatan">Catatan (opsional)</Label>
+            <Input
+              id="mp-catatan"
+              placeholder="Keterangan pembayaran..."
+              value={catatan}
+              onChange={(e) => setCatatan(e.target.value)}
+              disabled={mutation.isPending}
+            />
+          </div>
+        </div>
+        <DialogFooter className="gap-2">
+          <Button variant="outline" onClick={onClose} disabled={mutation.isPending}>Batal</Button>
+          <Button
+            className="bg-emerald-600 hover:bg-emerald-700 text-white"
+            onClick={() => mutation.mutate()}
+            disabled={!isValid || mutation.isPending}
+          >
+            {mutation.isPending ? <RefreshCw className="w-4 h-4 mr-2 animate-spin" /> : <CreditCard className="w-4 h-4 mr-2" />}
+            {mutation.isPending ? "Memproses..." : `Bayar ${nominalNum > 0 ? formatRupiah(nominalNum) : ""}`}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -1591,6 +1876,7 @@ function ModalPembayaran({ item, invoice, shiftId, cashierName, onClose, onSucce
       void queryClient.invalidateQueries({ queryKey: ["tenant-pos-floor-plan"] });
       void queryClient.invalidateQueries({ queryKey: ["tenant-pos-overview"] });
       void queryClient.invalidateQueries({ queryKey: ["payment-history", item.bookingId] });
+      void queryClient.invalidateQueries({ queryKey: ["tenant-all-payments", item.tenantId] });
       void queryClient.invalidateQueries({ queryKey: ["tenant-invoices-pos", item.tenantId] });
       void queryClient.invalidateQueries({ queryKey: ["pos-current-shift"] });
       toast({ title: "Pembayaran Berhasil", description: `Kuitansi ${data.receiptNumber} · ${formatRupiah(nominalNum)} tersimpan.` });
@@ -1609,8 +1895,35 @@ function ModalPembayaran({ item, invoice, shiftId, cashierName, onClose, onSucce
   }
 
   // ── Sukses screen ──
+  const receiptQuery = useQuery<ReceiptInfo>({
+    queryKey: ["pos-receipt", result?.payment?.id],
+    queryFn: async () => {
+      const r = await apiFetch(`${BASE}/api/tenant-pos/receipts/${result!.payment.id}`, { credentials: "include" });
+      if (!r.ok) throw new Error("Belum tersedia");
+      return r.json() as Promise<ReceiptInfo>;
+    },
+    enabled: !!result?.payment?.id,
+    retry: 5,
+    retryDelay: 1500,
+    refetchInterval: (query) => {
+      const data = query.state.data;
+      if (!data) return 1500;
+      if (data.waStatus === "pending") return 2000;
+      return false;
+    },
+  });
+
   if (result) {
     const change = result.change ?? 0;
+    const receipt = receiptQuery.data;
+    const waStatusLabel: Record<string, { label: string; cls: string }> = {
+      sent:    { label: "WA Terkirim ✓", cls: "text-emerald-600" },
+      skipped: { label: "WA tidak dikonfigurasi", cls: "text-slate-400" },
+      failed:  { label: "WA gagal dikirim", cls: "text-red-500" },
+      pending: { label: "Mengirim WA…", cls: "text-amber-500" },
+    };
+    const waSt = waStatusLabel[receipt?.waStatus ?? "pending"] ?? waStatusLabel.pending;
+
     return (
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
         <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm mx-4 p-8 flex flex-col items-center text-center">
@@ -1622,6 +1935,7 @@ function ModalPembayaran({ item, invoice, shiftId, cashierName, onClose, onSucce
           <p className="text-2xl font-bold text-emerald-600 mt-2">{formatRupiah(nominalNum)}</p>
           <p className="text-xs text-slate-400 mt-1">via {metodeLabel}</p>
           <p className="text-xs font-mono bg-slate-100 px-3 py-1 rounded-full text-slate-600 my-3">{result.receiptNumber}</p>
+
           {change > 0 && (
             <div className="w-full rounded-lg bg-blue-50 border border-blue-200 px-4 py-2.5 mb-3">
               <p className="text-sm font-semibold text-blue-800">Kembalian</p>
@@ -1631,6 +1945,40 @@ function ModalPembayaran({ item, invoice, shiftId, cashierName, onClose, onSucce
           {result.remainingAmount > 0 && change === 0 && (
             <p className="text-sm text-amber-600 font-medium mb-3">Sisa tagihan: {formatRupiah(result.remainingAmount)}</p>
           )}
+
+          {/* Receipt & Journal status */}
+          <div className="w-full rounded-lg border border-slate-100 bg-slate-50 px-4 py-3 mb-3 text-left space-y-1.5">
+            <div className="flex items-center justify-between text-xs">
+              <span className="text-slate-500 flex items-center gap-1"><FileText className="w-3 h-3" /> Receipt PDF</span>
+              {receiptQuery.isLoading ? (
+                <span className="text-amber-500 animate-pulse">Generating…</span>
+              ) : receipt?.fileUrl ? (
+                <a
+                  href={receipt.fileUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-primary hover:underline font-medium"
+                >
+                  Lihat / Unduh →
+                </a>
+              ) : (
+                <span className="text-slate-400">Belum tersedia</span>
+              )}
+            </div>
+            <div className="flex items-center justify-between text-xs">
+              <span className="text-slate-500">Jurnal Akuntansi</span>
+              {receipt?.journalId ? (
+                <span className="font-mono text-emerald-600 text-[10px]">{receipt.journalId} ✓</span>
+              ) : (
+                <span className="text-amber-500 animate-pulse text-[10px]">Memproses…</span>
+              )}
+            </div>
+            <div className="flex items-center justify-between text-xs">
+              <span className="text-slate-500">Notifikasi WA</span>
+              <span className={cn("font-medium text-[11px]", waSt.cls)}>{waSt.label}</span>
+            </div>
+          </div>
+
           <div className="flex gap-3 w-full mt-2">
             <Button variant="outline" className="flex-1" onClick={onClose}>Tutup</Button>
             <Button className="flex-1 bg-emerald-600 hover:bg-emerald-700" onClick={() => {
@@ -2336,6 +2684,282 @@ function ModalTambahTenant({
   );
 }
 
+// ─── Receipt History Modal ────────────────────────────────────────────────────
+
+type ReceiptListItem = ReceiptInfo & {
+  ownerName: string | null;
+  unitCode: string | null;
+  paymentMethod: string | null;
+  kasirName: string | null;
+};
+
+type ReceiptListResponse = {
+  total: number;
+  limit: number;
+  offset: number;
+  items: ReceiptListItem[];
+};
+
+function ReceiptHistoryModal({ onClose }: { onClose: () => void }) {
+  const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
+  const { sites } = useSite();
+
+  const [dateFrom, setDateFrom] = useState(() => {
+    const d = new Date();
+    d.setDate(d.getDate() - 30);
+    return d.toISOString().slice(0, 10);
+  });
+  const [dateTo, setDateTo] = useState(() => new Date().toISOString().slice(0, 10));
+  const [waStatusFilter, setWaStatusFilter] = useState("");
+  const [search, setSearch] = useState("");
+  const [siteFilter, setSiteFilter] = useState("");
+  const [page, setPage] = useState(0);
+  const PAGE_SIZE = 50;
+
+  const params = useMemo(() => {
+    const p = new URLSearchParams();
+    if (dateFrom) p.set("dateFrom", dateFrom);
+    if (dateTo) p.set("dateTo", dateTo);
+    if (waStatusFilter) p.set("waStatus", waStatusFilter);
+    if (search.trim()) p.set("search", search.trim());
+    if (siteFilter) p.set("siteId", siteFilter);
+    p.set("limit", String(PAGE_SIZE));
+    p.set("offset", String(page * PAGE_SIZE));
+    return p.toString();
+  }, [dateFrom, dateTo, waStatusFilter, search, siteFilter, page]);
+
+  const query = useQuery<ReceiptListResponse>({
+    queryKey: ["receipt-history", params],
+    queryFn: async () => {
+      const r = await apiFetch(`${BASE}/api/tenant-pos/receipts?${params}`, { credentials: "include" });
+      if (!r.ok) throw new Error("Gagal mengambil data");
+      return r.json() as Promise<ReceiptListResponse>;
+    },
+    staleTime: 10_000,
+  });
+
+  const items = query.data?.items ?? [];
+  const total = query.data?.total ?? 0;
+  const totalPages = Math.ceil(total / PAGE_SIZE);
+
+  const waChip: Record<string, { label: string; cls: string }> = {
+    sent:    { label: "Terkirim", cls: "bg-emerald-100 text-emerald-700" },
+    skipped: { label: "Skip",     cls: "bg-slate-100 text-slate-500" },
+    failed:  { label: "Gagal",    cls: "bg-red-100 text-red-600" },
+    pending: { label: "Pending",  cls: "bg-amber-100 text-amber-700" },
+  };
+
+  const methodLabel: Record<string, string> = {
+    cash: "Tunai", transfer: "Transfer", qris: "QRIS",
+    debit: "Debit", credit: "Kredit",
+  };
+
+  function handleSearch(e: React.FormEvent) {
+    e.preventDefault();
+    setPage(0);
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/40 backdrop-blur-sm overflow-y-auto pt-6 pb-12">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-5xl mx-4 flex flex-col max-h-[90vh]">
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 py-4 border-b shrink-0">
+          <div>
+            <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2">
+              <Receipt className="w-5 h-5 text-primary" /> Riwayat Receipt
+            </h2>
+            <p className="text-xs text-muted-foreground mt-0.5">Semua kuitansi digital yang digenerate setelah pembayaran</p>
+          </div>
+          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-slate-100 transition-colors">
+            <X className="w-5 h-5 text-slate-500" />
+          </button>
+        </div>
+
+        {/* Filters */}
+        <form onSubmit={handleSearch} className="px-6 py-3 border-b bg-slate-50/60 shrink-0 flex flex-wrap gap-3 items-end">
+          <div className="flex flex-col gap-1">
+            <label className="text-[11px] font-medium text-slate-500 uppercase tracking-wide">Dari Tanggal</label>
+            <input type="date" value={dateFrom} onChange={(e) => { setDateFrom(e.target.value); setPage(0); }}
+              className="h-8 text-sm px-2.5 rounded-md border border-input bg-white focus:outline-none focus:ring-1 focus:ring-primary" />
+          </div>
+          <div className="flex flex-col gap-1">
+            <label className="text-[11px] font-medium text-slate-500 uppercase tracking-wide">Sampai Tanggal</label>
+            <input type="date" value={dateTo} onChange={(e) => { setDateTo(e.target.value); setPage(0); }}
+              className="h-8 text-sm px-2.5 rounded-md border border-input bg-white focus:outline-none focus:ring-1 focus:ring-primary" />
+          </div>
+          {sites.length > 1 && (
+            <div className="flex flex-col gap-1">
+              <label className="text-[11px] font-medium text-slate-500 uppercase tracking-wide">Lokasi</label>
+              <select value={siteFilter} onChange={(e) => { setSiteFilter(e.target.value); setPage(0); }}
+                className="h-8 text-sm px-2.5 rounded-md border border-input bg-white focus:outline-none focus:ring-1 focus:ring-primary">
+                <option value="">Semua Lokasi</option>
+                {sites.map((s) => <option key={s.id} value={String(s.id)}>{s.name}</option>)}
+              </select>
+            </div>
+          )}
+          <div className="flex flex-col gap-1">
+            <label className="text-[11px] font-medium text-slate-500 uppercase tracking-wide">Status WA</label>
+            <select value={waStatusFilter} onChange={(e) => { setWaStatusFilter(e.target.value); setPage(0); }}
+              className="h-8 text-sm px-2.5 rounded-md border border-input bg-white focus:outline-none focus:ring-1 focus:ring-primary">
+              <option value="">Semua Status</option>
+              <option value="sent">Terkirim</option>
+              <option value="pending">Pending</option>
+              <option value="failed">Gagal</option>
+              <option value="skipped">Skip</option>
+            </select>
+          </div>
+          <div className="flex flex-col gap-1 flex-1 min-w-[180px]">
+            <label className="text-[11px] font-medium text-slate-500 uppercase tracking-wide">Cari</label>
+            <div className="flex gap-1.5">
+              <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Nama tenant, no. kuitansi, kasir…"
+                className="h-8 text-sm px-2.5 rounded-md border border-input bg-white flex-1 focus:outline-none focus:ring-1 focus:ring-primary" />
+              <Button type="submit" size="sm" variant="outline" className="h-8 px-3">
+                <Search className="w-3.5 h-3.5" />
+              </Button>
+            </div>
+          </div>
+        </form>
+
+        {/* Table */}
+        <div className="flex-1 overflow-y-auto">
+          {query.isLoading ? (
+            <div className="p-8 text-center text-muted-foreground">
+              <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2 opacity-40" />
+              Memuat data…
+            </div>
+          ) : query.isError ? (
+            <div className="p-8 text-center text-destructive">
+              <AlertCircle className="w-6 h-6 mx-auto mb-2 opacity-60" />
+              Gagal memuat data receipt
+            </div>
+          ) : items.length === 0 ? (
+            <div className="p-12 text-center text-muted-foreground">
+              <Receipt className="w-10 h-10 mx-auto mb-3 opacity-20" />
+              <p className="font-medium text-sm">Tidak ada receipt ditemukan</p>
+              <p className="text-xs mt-1">Coba ubah filter tanggal atau pencarian</p>
+            </div>
+          ) : (
+            <table className="w-full text-sm">
+              <thead className="sticky top-0 bg-slate-50 border-b z-10">
+                <tr>
+                  <th className="text-left text-xs font-semibold text-slate-500 px-4 py-2.5">No. Kuitansi</th>
+                  <th className="text-left text-xs font-semibold text-slate-500 px-3 py-2.5">Tenant / Unit</th>
+                  <th className="text-left text-xs font-semibold text-slate-500 px-3 py-2.5">Invoice</th>
+                  <th className="text-right text-xs font-semibold text-slate-500 px-3 py-2.5">Nominal</th>
+                  <th className="text-right text-xs font-semibold text-slate-500 px-3 py-2.5">PPN 11%</th>
+                  <th className="text-left text-xs font-semibold text-slate-500 px-3 py-2.5">Metode</th>
+                  <th className="text-left text-xs font-semibold text-slate-500 px-3 py-2.5">Jurnal</th>
+                  <th className="text-left text-xs font-semibold text-slate-500 px-3 py-2.5">WA</th>
+                  <th className="text-left text-xs font-semibold text-slate-500 px-3 py-2.5">Kasir</th>
+                  <th className="text-left text-xs font-semibold text-slate-500 px-3 py-2.5">Tanggal</th>
+                  <th className="text-left text-xs font-semibold text-slate-500 px-3 py-2.5"></th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-50">
+                {items.map((item) => {
+                  const wa = waChip[item.waStatus] ?? waChip.pending;
+                  const dt = new Date(item.createdAt);
+                  return (
+                    <tr key={item.id} className="hover:bg-slate-50/70 transition-colors">
+                      <td className="px-4 py-2.5">
+                        <span className="font-mono text-[11px] text-slate-600">{item.receiptNumber}</span>
+                      </td>
+                      <td className="px-3 py-2.5">
+                        <p className="font-medium text-slate-800 text-xs leading-tight">{item.businessName ?? "—"}</p>
+                        {item.unitCode && <p className="text-[10px] text-slate-400">{item.unitCode}</p>}
+                      </td>
+                      <td className="px-3 py-2.5">
+                        <span className="text-[11px] text-slate-500 font-mono">{item.invoiceNumber ?? "—"}</span>
+                      </td>
+                      <td className="px-3 py-2.5 text-right">
+                        <span className="font-semibold text-slate-900 text-xs">{formatRupiah(item.amountPaid)}</span>
+                      </td>
+                      <td className="px-3 py-2.5 text-right">
+                        <span className="text-[11px] text-slate-500">{formatRupiah(item.taxAmount)}</span>
+                      </td>
+                      <td className="px-3 py-2.5">
+                        <span className="text-[11px] text-slate-600">{methodLabel[item.paymentMethod ?? ""] ?? item.paymentMethod ?? "—"}</span>
+                      </td>
+                      <td className="px-3 py-2.5">
+                        {item.journalId ? (
+                          <span className="font-mono text-[10px] text-emerald-600">{item.journalId}</span>
+                        ) : (
+                          <span className="text-[10px] text-slate-400">—</span>
+                        )}
+                      </td>
+                      <td className="px-3 py-2.5">
+                        <span className={cn("inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium", wa.cls)}>
+                          {wa.label}
+                        </span>
+                      </td>
+                      <td className="px-3 py-2.5">
+                        <span className="text-[11px] text-slate-500">{item.kasirName ?? "—"}</span>
+                      </td>
+                      <td className="px-3 py-2.5">
+                        <div className="text-[11px] text-slate-500">
+                          <p>{dt.toLocaleDateString("id-ID", { day: "2-digit", month: "short", year: "numeric" })}</p>
+                          <p className="text-[10px] text-slate-400">{dt.toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" })}</p>
+                        </div>
+                      </td>
+                      <td className="px-3 py-2.5">
+                        {item.fileUrl && (
+                          <a href={item.fileUrl} target="_blank" rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 text-[11px] text-primary hover:underline font-medium whitespace-nowrap">
+                            <FileText className="w-3 h-3" /> Lihat
+                          </a>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
+        </div>
+
+        {/* Pagination footer */}
+        {total > PAGE_SIZE && (
+          <div className="px-6 py-3 border-t bg-slate-50/60 shrink-0 flex items-center justify-between">
+            <p className="text-xs text-muted-foreground">
+              {total} receipt · halaman {page + 1} dari {totalPages}
+            </p>
+            <div className="flex gap-2">
+              <Button variant="outline" size="sm" className="text-xs h-7" disabled={page === 0} onClick={() => setPage((p) => p - 1)}>
+                ← Sebelumnya
+              </Button>
+              <Button variant="outline" size="sm" className="text-xs h-7" disabled={page >= totalPages - 1} onClick={() => setPage((p) => p + 1)}>
+                Selanjutnya →
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {/* Total summary footer */}
+        {!query.isLoading && items.length > 0 && (
+          <div className="px-6 py-2.5 border-t bg-primary/5 shrink-0 flex items-center gap-6">
+            <div className="flex items-center gap-2 text-xs">
+              <span className="text-muted-foreground">Total nominal (halaman ini):</span>
+              <span className="font-bold text-slate-900">{formatRupiah(items.reduce((s, i) => s + i.amountPaid, 0))}</span>
+            </div>
+            <div className="flex items-center gap-2 text-xs">
+              <span className="text-muted-foreground">PPN:</span>
+              <span className="font-semibold text-slate-700">{formatRupiah(items.reduce((s, i) => s + i.taxAmount, 0))}</span>
+            </div>
+            <div className="flex items-center gap-2 text-xs ml-auto">
+              <span className={cn("inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium",
+                items.filter(i => i.waStatus === "sent").length === items.length
+                  ? "bg-emerald-100 text-emerald-700"
+                  : "bg-slate-100 text-slate-600")}>
+                {items.filter(i => i.waStatus === "sent").length}/{items.length} WA terkirim
+              </span>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function TenantPos() {
@@ -2347,6 +2971,7 @@ export default function TenantPos() {
   const [showOpenShift, setShowOpenShift] = useState(false);
   const [showCloseShift, setShowCloseShift] = useState(false);
   const [showDailyReport, setShowDailyReport] = useState(false);
+  const [showReceiptHistory, setShowReceiptHistory] = useState(false);
   const [showTambahTenant, setShowTambahTenant] = useState(false);
   const [filters, setFilters] = useState<FilterState>({ search: "", status: "", area: "" });
 
@@ -2383,6 +3008,9 @@ export default function TenantPos() {
           <p className="text-muted-foreground mt-0.5 text-sm">Klik unit pada denah untuk melihat detail dan memproses pembayaran</p>
         </div>
         <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" className="text-xs" onClick={() => setShowReceiptHistory(true)}>
+            <History className="w-3.5 h-3.5 mr-1.5" />Riwayat Receipt
+          </Button>
           <Button variant="outline" size="sm" className="text-xs" onClick={() => setShowDailyReport(true)}>
             <FileText className="w-3.5 h-3.5 mr-1.5" />Laporan
           </Button>
@@ -2553,6 +3181,9 @@ export default function TenantPos() {
 
       {/* Daily Report */}
       {showDailyReport && <DailyReportModal onClose={() => setShowDailyReport(false)} />}
+
+      {/* Receipt History */}
+      {showReceiptHistory && <ReceiptHistoryModal onClose={() => setShowReceiptHistory(false)} />}
 
       {/* Tambah Tenant */}
       <ModalTambahTenant

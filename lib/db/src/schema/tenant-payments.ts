@@ -43,6 +43,9 @@ export const tenantPaymentsTable = pgTable("tenant_payments", {
   ocrExtractedAmount: numeric("ocr_extracted_amount"),
   ocrRawText: text("ocr_raw_text"),
   ocrConfidence: numeric("ocr_confidence"),
+  referenceId: text("reference_id"),
+  sourceType: text("source_type"),
+  remainingBalanceAfter: numeric("remaining_balance_after"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
@@ -57,5 +60,5 @@ export const tenantBookingPaymentsRelations = relations(tenantBookingsTable, ({ 
 }));
 
 export const insertTenantPaymentSchema = createInsertSchema(tenantPaymentsTable).omit({ id: true, createdAt: true, updatedAt: true });
-export type InsertTenantPayment = z.infer<typeof insertTenantPaymentSchema>;
+export type InsertTenantPayment = typeof tenantPaymentsTable.$inferInsert;
 export type TenantPayment = typeof tenantPaymentsTable.$inferSelect;

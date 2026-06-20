@@ -1,0 +1,196 @@
+import { uploadToStorage } from "./supabase-storage";
+
+export interface PosReceiptData {
+  receiptNumber: string;
+  invoiceNumber?: string | null;
+  businessName: string;
+  ownerName: string;
+  unitCode?: string | null;
+  periodLabel?: string | null;
+  amountPaid: number;
+  netAmount: number;
+  taxAmount: number;
+  discountAmount: number;
+  penaltyAmount: number;
+  paymentMethod: string;
+  kasirName: string;
+  paidAt: Date;
+  mallName?: string;
+  mallTagline?: string;
+  journalId?: string | null;
+}
+
+function formatRp(v: number): string {
+  return new Intl.NumberFormat("id-ID", {
+    style: "currency",
+    currency: "IDR",
+    minimumFractionDigits: 0,
+  }).format(v);
+}
+
+function formatTanggal(d: Date): string {
+  return d.toLocaleDateString("id-ID", { day: "2-digit", month: "long", year: "numeric" });
+}
+
+function formatJam(d: Date): string {
+  return d.toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+}
+
+const METODE_LABEL: Record<string, string> = {
+  tunai: "Tunai / Cash",
+  transfer: "Transfer Bank",
+  qris: "QRIS",
+  edc: "EDC / Debit",
+  other: "Lainnya",
+};
+
+export function generateReceiptHtml(data: PosReceiptData): string {
+  const mallName = data.mallName || "Mall Admin";
+  const tagline = data.mallTagline || "Sistem Manajemen Tenant";
+  const tanggal = formatTanggal(data.paidAt);
+  const jam = formatJam(data.paidAt);
+  const metodeLabel = METODE_LABEL[data.paymentMethod] ?? data.paymentMethod;
+
+  const diskonRow =
+    data.discountAmount > 0
+      ? `<div class="row"><span class="label">Diskon</span><span class="value" style="color:#16a34a;">- ${formatRp(data.discountAmount)}</span></div>`
+      : "";
+
+  const dendaRow =
+    data.penaltyAmount > 0
+      ? `<div class="row"><span class="label">Denda</span><span class="value" style="color:#dc2626;">+ ${formatRp(data.penaltyAmount)}</span></div>`
+      : "";
+
+  const invoiceRow = data.invoiceNumber
+    ? `<div class="row"><span class="label">No. Invoice</span><span class="value">${data.invoiceNumber}</span></div>`
+    : "";
+
+  const unitRow = data.unitCode
+    ? `<div class="row"><span class="label">Unit</span><span class="value">${data.unitCode}</span></div>`
+    : "";
+
+  const periodeRow = data.periodLabel
+    ? `<div class="row"><span class="label">Periode</span><span class="value">${data.periodLabel}</span></div>`
+    : "";
+
+  const journalRow = data.journalId
+    ? `<div class="row" style="margin-top:4px;"><span class="label" style="font-size:9px;">Jurnal ID</span><span class="value" style="font-size:9px;font-family:monospace;">${data.journalId}</span></div>`
+    : "";
+
+  return `<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <title>Receipt — ${data.receiptNumber}</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: 'Courier New', Courier, monospace; font-size: 12px; color: #111; background: #fff; }
+    .page { width: 80mm; margin: 0 auto; padding: 8mm 6mm 12mm; }
+    .center { text-align: center; }
+    .bold { font-weight: bold; }
+    .large { font-size: 15px; }
+    .xlarge { font-size: 18px; }
+    .small { font-size: 10px; }
+    .muted { color: #555; }
+    .divider { border: none; border-top: 1px dashed #999; margin: 6px 0; }
+    .divider-solid { border: none; border-top: 2px solid #111; margin: 6px 0; }
+    .row { display: flex; justify-content: space-between; align-items: flex-start; margin: 3px 0; }
+    .row .label { color: #555; flex-shrink: 0; max-width: 50%; }
+    .row .value { text-align: right; font-weight: 500; word-break: break-all; max-width: 55%; }
+    .total-row { display: flex; justify-content: space-between; font-size: 14px; font-weight: bold; margin: 4px 0; }
+    .tax-row { display: flex; justify-content: space-between; font-size: 11px; margin: 3px 0; color: #555; }
+    .section-title { font-size: 10px; font-weight: bold; letter-spacing: 1px; text-transform: uppercase; color: #555; margin: 8px 0 4px; }
+    .badge { display: inline-block; padding: 2px 10px; border: 1.5px solid #16a34a; border-radius: 2px; font-size: 11px; font-weight: bold; letter-spacing: 1px; color: #16a34a; }
+    .footer { margin-top: 12px; text-align: center; color: #555; font-size: 10px; line-height: 1.7; }
+    .footer .terimakasih { font-size: 12px; font-weight: bold; color: #111; margin-bottom: 3px; }
+    @media print { body { margin: 0; } .page { padding: 4mm 4mm 8mm; } @page { size: 80mm auto; margin: 0; } }
+  </style>
+</head>
+<body>
+<div class="page">
+  <div class="center" style="margin-bottom:8px;">
+    <div class="xlarge bold">${mallName.toUpperCase()}</div>
+    <div class="small muted">${tagline}</div>
+  </div>
+
+  <hr class="divider-solid" />
+
+  <div class="center" style="margin: 6px 0;">
+    <div class="bold large">RECEIPT PEMBAYARAN</div>
+    <div class="small muted" style="letter-spacing:1.5px;">${data.receiptNumber}</div>
+  </div>
+
+  <hr class="divider" />
+
+  <div class="section-title">Informasi Transaksi</div>
+  <div class="row"><span class="label">Tanggal</span><span class="value">${tanggal}</span></div>
+  <div class="row"><span class="label">Jam</span><span class="value">${jam}</span></div>
+  <div class="row"><span class="label">Kasir</span><span class="value">${data.kasirName}</span></div>
+  ${invoiceRow}
+
+  <hr class="divider" />
+
+  <div class="section-title">Data Tenant</div>
+  <div class="row"><span class="label">Nama Usaha</span><span class="value">${data.businessName}</span></div>
+  <div class="row"><span class="label">Pemilik</span><span class="value">${data.ownerName}</span></div>
+  ${unitRow}
+  ${periodeRow}
+
+  <hr class="divider" />
+
+  <div class="section-title">Rincian Pembayaran</div>
+  <div class="row"><span class="label">Subtotal</span><span class="value">${formatRp(data.netAmount)}</span></div>
+  <div class="row"><span class="label">PPN 11%</span><span class="value">${formatRp(data.taxAmount)}</span></div>
+  ${diskonRow}
+  ${dendaRow}
+  <div class="row"><span class="label">Metode</span><span class="value">${metodeLabel}</span></div>
+
+  <hr class="divider-solid" />
+
+  <div class="total-row">
+    <span>TOTAL DIBAYAR</span>
+    <span>${formatRp(data.amountPaid)}</span>
+  </div>
+
+  <hr class="divider-solid" />
+
+  <div class="center" style="margin-top: 8px;">
+    <span class="badge">✓ LUNAS</span>
+  </div>
+
+  ${journalRow}
+
+  <div class="footer" style="margin-top: 14px;">
+    <div class="terimakasih">Terima Kasih</div>
+    <div>Receipt ini merupakan bukti pembayaran sah</div>
+    <div>Simpan untuk keperluan administrasi</div>
+    <div style="margin-top:6px;">Dicetak: ${tanggal} ${jam}</div>
+  </div>
+</div>
+</body>
+</html>`;
+}
+
+export interface SaveReceiptResult {
+  fileUrl: string;
+  filePath: string;
+}
+
+export async function saveReceiptFile(
+  receiptNumber: string,
+  html: string,
+): Promise<SaveReceiptResult> {
+  const safeName = receiptNumber.replace(/[^a-zA-Z0-9\-_]/g, "-");
+  const fileName = `${safeName}.html`;
+  const buffer = Buffer.from(html, "utf-8");
+
+  const fileUrl = await uploadToStorage(
+    "receipts",
+    fileName,
+    buffer,
+    "text/html",
+    true,
+  );
+
+  return { fileUrl, filePath: fileName };
+}

@@ -34,6 +34,7 @@ import {
 } from "../services/bank-matcher";
 import { writePaymentEvent, normalizePaymentMethod } from "../lib/payment-events";
 import { postAccountingJournal } from "../lib/accounting-journal";
+import { recordPayment, LedgerError } from "../lib/payment-ledger";
 import { appContextMiddleware, type AppContext } from "../middlewares/app-context";
 
 const router: IRouter = Router();
@@ -893,6 +894,7 @@ router.post("/bank-reconciliation/:mutationId/approve", async (req, res) => {
   const { matchId } = parsed.data;
   const ctx = appCtx(req);
 
+  try {
   const [[match], [mutation]] = await Promise.all([
     db.select().from(bankReconciliationMatchesTable)
       .where(and(
@@ -1006,14 +1008,6 @@ router.post("/bank-reconciliation/:mutationId/approve", async (req, res) => {
 
       if (invoice && invoice.status !== "cancelled" && invoice.status !== "paid") {
         const mutAmount = parseFloat(String(mutation.amount));
-        const newPaidAmount = Number(invoice.paidAmount) + mutAmount;
-        const total = Number(invoice.totalAmount);
-        const outstanding = Math.max(total - newPaidAmount, 0);
-
-        let newStatus: string;
-        if (newPaidAmount >= total) newStatus = "paid";
-        else if (newPaidAmount > 0) newStatus = "partial";
-        else newStatus = invoice.dueDate && new Date(invoice.dueDate) < now ? "overdue" : "unpaid";
 
         const datePart = now.toISOString().slice(0, 10).replace(/-/g, "");
         const prefix = `REKON-PAY-${datePart}-`;
@@ -1024,35 +1018,22 @@ router.post("/bank-reconciliation/:mutationId/approve", async (req, res) => {
         const seq = ((countRow?.count ?? 0) + 1).toString().padStart(4, "0");
         const receiptNumber = `${prefix}${seq}`;
 
-        const [newPayment] = await tx
-          .insert(tenantPaymentsTable)
-          .values({
-            siteId: mutation.siteId ?? undefined,
-            invoiceId: invoice.id,
-            tenantId: invoice.tenantId ?? undefined,
-            bookingId: invoice.bookingId ?? undefined,
-            tenantBookingId: invoice.bookingId ?? undefined,
-            amount: String(mutAmount),
-            paymentMethod: "transfer",
-            paymentStatus: "PAID",
-            approvalStatus: "approved",
-            receiptNumber,
-            paidAt: new Date(mutation.transactionDate),
-            referenceNumber: mutation.providerOrderId ?? mutation.description?.slice(0, 100),
-            notes: `Disetujui via rekonsiliasi bank. Mutasi ID: ${mutationId}`,
-          })
-          .returning({ id: tenantPaymentsTable.id });
+        const ledger = await recordPayment(tx, {
+          invoiceId: invoice.id,
+          amount: mutAmount,
+          paymentMethod: "transfer",
+          sourceType: "bank",
+          receiptNumber,
+          referenceId: `RECON-${mutationId}`,
+          siteId: mutation.siteId ?? null,
+          tenantId: invoice.tenantId ?? null,
+          bookingId: invoice.bookingId ?? null,
+          paidAt: new Date(mutation.transactionDate),
+          referenceNumber: mutation.providerOrderId ?? mutation.description?.slice(0, 100) ?? null,
+          notes: `Disetujui via rekonsiliasi bank. Mutasi ID: ${mutationId}`,
+        });
 
-        newPaymentId = newPayment?.id ?? null;
-
-        await tx.update(tenantInvoicesTable)
-          .set({
-            paidAmount: String(newPaidAmount),
-            outstandingAmount: String(outstanding),
-            status: newStatus,
-            updatedAt: now,
-          })
-          .where(eq(tenantInvoicesTable.id, invoice.id));
+        newPaymentId = ledger.ledgerEntryId;
 
         updateData.matchedPaymentId = newPaymentId ?? undefined;
       }
@@ -1162,6 +1143,20 @@ router.post("/bank-reconciliation/:mutationId/approve", async (req, res) => {
   });
 
   res.json({ success: true, newPaymentId, journalId, alreadyPosted });
+  } catch (err) {
+    if (err instanceof LedgerError) {
+      const httpCode = err.code === "OVERPAYMENT" ? 400 : 409;
+      res.status(httpCode).json({ error: err.message, code: err.code });
+      return;
+    }
+    const e = err as Error & { status?: number };
+    if (e.status) {
+      res.status(e.status).json({ error: e.message });
+    } else {
+      console.error("[bank-recon approve]", err);
+      res.status(500).json({ error: "Gagal memproses rekonsiliasi" });
+    }
+  }
 });
 
 // ── POST /bank-reconciliation/:mutationId/reject ─────────────────────────────

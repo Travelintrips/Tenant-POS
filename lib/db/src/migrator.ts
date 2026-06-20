@@ -2041,3 +2041,75 @@ export async function runUsersIdTextMigration(): Promise<void> {
     await client.end();
   }
 }
+
+MIGRATIONS.push({
+  name: "0045_payment_receipts",
+  sql: `
+CREATE TABLE IF NOT EXISTS "payment_receipts" (
+  "id" serial PRIMARY KEY NOT NULL,
+  "payment_id" integer NOT NULL,
+  "invoice_id" integer,
+  "tenant_id" integer NOT NULL,
+  "site_id" integer REFERENCES "mall_sites"("id"),
+  "receipt_number" text NOT NULL UNIQUE,
+  "file_url" text NOT NULL,
+  "invoice_number" text,
+  "business_name" text,
+  "owner_name" text,
+  "unit_code" text,
+  "amount_paid" numeric NOT NULL DEFAULT '0',
+  "tax_amount" numeric NOT NULL DEFAULT '0',
+  "net_amount" numeric NOT NULL DEFAULT '0',
+  "payment_method" text,
+  "kasir_name" text,
+  "journal_id" text,
+  "wa_status" text NOT NULL DEFAULT 'pending',
+  "wa_error" text,
+  "created_at" timestamptz NOT NULL DEFAULT now()
+);
+  `.trim(),
+},
+{
+  name: "0046_payment_ledger_columns",
+  sql: `
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='tenant_payments' AND column_name='reference_id') THEN
+    ALTER TABLE "tenant_payments" ADD COLUMN "reference_id" text;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='tenant_payments' AND column_name='source_type') THEN
+    ALTER TABLE "tenant_payments" ADD COLUMN "source_type" text;
+  END IF;
+END $$;
+
+DO $$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_indexes
+    WHERE tablename = 'tenant_payments' AND indexname = 'tenant_payments_reference_id_unique'
+  ) THEN
+    CREATE UNIQUE INDEX tenant_payments_reference_id_unique
+      ON "tenant_payments" ("reference_id")
+      WHERE reference_id IS NOT NULL;
+  END IF;
+END $$;
+  `.trim(),
+},
+{
+  name: "0047_invoice_ppn_amount",
+  sql: `
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='tenant_invoices' AND column_name='ppn_amount') THEN
+    ALTER TABLE "tenant_invoices" ADD COLUMN "ppn_amount" numeric NOT NULL DEFAULT '0';
+  END IF;
+END $$;
+  `.trim(),
+},
+{
+  name: "0048_payment_ledger_remaining_balance",
+  sql: `
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='tenant_payments' AND column_name='remaining_balance_after') THEN
+    ALTER TABLE "tenant_payments" ADD COLUMN "remaining_balance_after" numeric;
+  END IF;
+END $$;
+  `.trim(),
+});
