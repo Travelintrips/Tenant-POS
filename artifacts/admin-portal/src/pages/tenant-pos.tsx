@@ -1166,6 +1166,7 @@ function DetailPanel({ item, onClose, onProses, onBayarInvoice, currentShiftId }
   const [voidTarget, setVoidTarget] = useState<PaymentHistoryItem | null>(null);
   const [refundTarget, setRefundTarget] = useState<PaymentHistoryItem | null>(null);
   const [activeTab, setActiveTab] = useState<"info" | "tagihan" | "riwayat">("info");
+  const [showBayarManual, setShowBayarManual] = useState(false);
   const [imgError, setImgError] = useState(false);
   const queryClient = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -1238,6 +1239,21 @@ function DetailPanel({ item, onClose, onProses, onBayarInvoice, currentShiftId }
         setRefundTarget(null);
         if (refunded) void queryClient.invalidateQueries({ queryKey: ["payment-history", item.bookingId] });
       }} />
+
+      {showBayarManual && (
+        <ModalBayarManual
+          item={item}
+          currentShiftId={currentShiftId}
+          onClose={() => setShowBayarManual(false)}
+          onSuccess={() => {
+            setShowBayarManual(false);
+            void queryClient.invalidateQueries({ queryKey: ["tenant-pos-floor-plan"] });
+            void queryClient.invalidateQueries({ queryKey: ["tenant-pos-overview"] });
+            void queryClient.invalidateQueries({ queryKey: ["payment-history", item.bookingId] });
+            void queryClient.invalidateQueries({ queryKey: ["pos-current-shift"] });
+          }}
+        />
+      )}
 
       {/* Header */}
       <div className="px-4 pt-4 pb-3 border-b bg-slate-50/60 shrink-0">
@@ -1358,6 +1374,19 @@ function DetailPanel({ item, onClose, onProses, onBayarInvoice, currentShiftId }
                 {item.areaName && <DetailRow label="Area / Zona" value={item.areaName} />}
               </div>
             </div>
+
+            {/* ── Tombol Bayar Manual ── */}
+            {!isVacant && (
+              <Button
+                className="w-full gap-2 bg-emerald-600 hover:bg-emerald-700 text-white"
+                size="sm"
+                onClick={() => setShowBayarManual(true)}
+              >
+                <Banknote className="w-4 h-4" />
+                Bayar (Tunai / Transfer)
+              </Button>
+            )}
+
             {item.bookingId && (
               <div>
                 <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">Tagihan Booking</p>
@@ -1528,6 +1557,194 @@ function DetailPanel({ item, onClose, onProses, onBayarInvoice, currentShiftId }
         )}
       </div>
     </div>
+  );
+}
+
+// ─── Modal Bayar Manual ───────────────────────────────────────────────────────
+
+function ModalBayarManual({ item, currentShiftId, onClose, onSuccess }: {
+  item: FloorPlanItem;
+  currentShiftId: number | null;
+  onClose: () => void;
+  onSuccess: () => void;
+}) {
+  const { toast } = useToast();
+  const [nominal, setNominal] = useState("");
+  const [metode, setMetode] = useState<MetodeBayar>("tunai");
+  const [tanggalBayar, setTanggalBayar] = useState(todayString());
+  const [referenceNumber, setReferenceNumber] = useState("");
+  const [catatan, setCatatan] = useState("");
+  const [result, setResult] = useState<{ receiptNumber: string; paidAmount: number } | null>(null);
+
+  const nominalNum = parseInt(nominal.replace(/\D/g, "")) || 0;
+  const isValid = nominalNum > 0 && !!metode;
+  const needsReference = metode === "transfer" || metode === "qris" || metode === "edc";
+
+  const mutation = useMutation<{ receiptNumber: string; paidAmount: number }, Error>({
+    mutationFn: async () => {
+      const r = await apiFetch(`${BASE}/api/tenant-pos/manual-payment`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          tenantId: item.tenantId,
+          amountPaid: nominalNum,
+          paymentMethod: metode,
+          paymentDate: tanggalBayar,
+          referenceNumber: referenceNumber || undefined,
+          notes: catatan || undefined,
+          shiftId: currentShiftId ?? undefined,
+        }),
+      });
+      const data = await r.json() as { error?: string; receiptNumber?: string; paidAmount?: number };
+      if (!r.ok) throw new Error(data.error ?? "Gagal memproses pembayaran");
+      return { receiptNumber: data.receiptNumber!, paidAmount: data.paidAmount! };
+    },
+    onSuccess: (data) => {
+      setResult(data);
+      toast({ title: "Pembayaran Berhasil", description: `Kuitansi ${data.receiptNumber} · ${formatRupiah(nominalNum)} tersimpan.` });
+    },
+    onError: (e) => {
+      toast({ title: "Pembayaran Gagal", description: e.message, variant: "destructive" });
+    },
+  });
+
+  const METODE_OPTIONS_MANUAL: { value: MetodeBayar; label: string; icon: React.ReactNode }[] = [
+    { value: "tunai",    label: "Tunai / Cash",  icon: <Banknote className="w-4 h-4" /> },
+    { value: "transfer", label: "Transfer Bank", icon: <WalletCards className="w-4 h-4" /> },
+    { value: "qris",     label: "QRIS",          icon: <Smartphone className="w-4 h-4" /> },
+    { value: "edc",      label: "EDC / Debit",   icon: <CreditCard className="w-4 h-4" /> },
+  ];
+
+  if (result) {
+    return (
+      <Dialog open onOpenChange={() => { onSuccess(); }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-emerald-700">
+              <CheckCircle2 className="w-5 h-5" /> Pembayaran Berhasil
+            </DialogTitle>
+          </DialogHeader>
+          <div className="py-4 space-y-3 text-sm">
+            <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-4 text-center space-y-1">
+              <p className="text-xs text-muted-foreground">No. Kuitansi</p>
+              <p className="font-mono font-bold text-emerald-800 text-base">{result.receiptNumber}</p>
+            </div>
+            <div className="bg-muted/40 rounded-lg divide-y divide-border/60 px-3">
+              <div className="flex justify-between py-2"><span className="text-muted-foreground">Tenant</span><span className="font-medium">{item.businessName}</span></div>
+              <div className="flex justify-between py-2"><span className="text-muted-foreground">Jumlah</span><span className="font-bold text-emerald-700">{formatRupiah(nominalNum)}</span></div>
+              <div className="flex justify-between py-2"><span className="text-muted-foreground">Metode</span><span className="font-medium">{METODE_OPTIONS_MANUAL.find(m => m.value === metode)?.label ?? metode}</span></div>
+            </div>
+            <p className="text-xs text-muted-foreground text-center">Receipt dikirim ke WhatsApp tenant (jika ada nomor)</p>
+          </div>
+          <Button className="w-full" onClick={() => onSuccess()}>Selesai</Button>
+        </DialogContent>
+      </Dialog>
+    );
+  }
+
+  return (
+    <Dialog open onOpenChange={onClose}>
+      <DialogContent className="max-w-sm">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Banknote className="w-5 h-5 text-emerald-600" /> Bayar Manual
+          </DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4 py-2">
+          {/* Info tenant */}
+          <div className="bg-muted/40 rounded-lg px-3 py-2.5 text-sm space-y-1">
+            <p className="font-semibold">{item.businessName}</p>
+            <p className="text-muted-foreground text-xs">{item.ownerName} · Booth {item.boothNumber}</p>
+          </div>
+
+          {/* Nominal */}
+          <div className="space-y-1.5">
+            <Label htmlFor="mp-nominal">Nominal Pembayaran <span className="text-red-500">*</span></Label>
+            <Input
+              id="mp-nominal"
+              placeholder="Rp 0"
+              value={nominal ? `Rp ${parseInt(nominal.replace(/\D/g, "") || "0").toLocaleString("id-ID")}` : ""}
+              onChange={(e) => setNominal(e.target.value.replace(/\D/g, ""))}
+              inputMode="numeric"
+              disabled={mutation.isPending}
+            />
+          </div>
+
+          {/* Metode */}
+          <div className="space-y-1.5">
+            <Label>Metode Pembayaran <span className="text-red-500">*</span></Label>
+            <div className="grid grid-cols-2 gap-2">
+              {METODE_OPTIONS_MANUAL.map((m) => (
+                <button
+                  key={m.value}
+                  type="button"
+                  onClick={() => setMetode(m.value)}
+                  disabled={mutation.isPending}
+                  className={cn(
+                    "flex items-center gap-2 px-3 py-2.5 rounded-lg border text-sm font-medium transition-all",
+                    metode === m.value
+                      ? "border-emerald-500 bg-emerald-50 text-emerald-700 ring-1 ring-emerald-500"
+                      : "border-border hover:border-slate-400 text-muted-foreground"
+                  )}
+                >
+                  {m.icon}{m.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Referensi (jika transfer/qris/edc) */}
+          {needsReference && (
+            <div className="space-y-1.5">
+              <Label htmlFor="mp-ref">No. Referensi / Bukti Transfer</Label>
+              <Input
+                id="mp-ref"
+                placeholder="Nomor transaksi / referensi..."
+                value={referenceNumber}
+                onChange={(e) => setReferenceNumber(e.target.value)}
+                disabled={mutation.isPending}
+              />
+            </div>
+          )}
+
+          {/* Tanggal */}
+          <div className="space-y-1.5">
+            <Label htmlFor="mp-tanggal">Tanggal Pembayaran</Label>
+            <Input
+              id="mp-tanggal"
+              type="date"
+              value={tanggalBayar}
+              onChange={(e) => setTanggalBayar(e.target.value)}
+              disabled={mutation.isPending}
+            />
+          </div>
+
+          {/* Catatan */}
+          <div className="space-y-1.5">
+            <Label htmlFor="mp-catatan">Catatan (opsional)</Label>
+            <Input
+              id="mp-catatan"
+              placeholder="Keterangan pembayaran..."
+              value={catatan}
+              onChange={(e) => setCatatan(e.target.value)}
+              disabled={mutation.isPending}
+            />
+          </div>
+        </div>
+        <DialogFooter className="gap-2">
+          <Button variant="outline" onClick={onClose} disabled={mutation.isPending}>Batal</Button>
+          <Button
+            className="bg-emerald-600 hover:bg-emerald-700 text-white"
+            onClick={() => mutation.mutate()}
+            disabled={!isValid || mutation.isPending}
+          >
+            {mutation.isPending ? <RefreshCw className="w-4 h-4 mr-2 animate-spin" /> : <CreditCard className="w-4 h-4 mr-2" />}
+            {mutation.isPending ? "Memproses..." : `Bayar ${nominalNum > 0 ? formatRupiah(nominalNum) : ""}`}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
