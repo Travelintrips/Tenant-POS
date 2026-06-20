@@ -2112,4 +2112,28 @@ DO $$ BEGIN
   END IF;
 END $$;
   `.trim(),
+},
+{
+  name: "0049_operational_expenses",
+  sql: `
+CREATE TABLE IF NOT EXISTS "operational_expenses" (
+  "id" serial PRIMARY KEY,
+  "site_id" integer REFERENCES "mall_sites"("id"),
+  "tenant_id" integer REFERENCES "tenants"("id"),
+  "category" text NOT NULL DEFAULT 'lain-lain',
+  "description" text,
+  "amount" numeric NOT NULL,
+  "payment_method" text NOT NULL DEFAULT 'cash',
+  "paid_at" timestamptz NOT NULL DEFAULT now(),
+  "created_by" integer,
+  "receipt_url" text,
+  "notes" text,
+  "created_at" timestamptz NOT NULL DEFAULT now(),
+  "updated_at" timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS "oe_site_id_idx" ON "operational_expenses"("site_id");
+CREATE INDEX IF NOT EXISTS "oe_tenant_id_idx" ON "operational_expenses"("tenant_id");
+CREATE INDEX IF NOT EXISTS "oe_category_idx" ON "operational_expenses"("category");
+CREATE INDEX IF NOT EXISTS "oe_paid_at_idx" ON "operational_expenses"("paid_at");
+  `.trim(),
 });
