@@ -28,8 +28,7 @@ import {
   Plus, FileText, Printer, CreditCard, X, Search, Zap, AlertCircle,
   CheckCircle2, Clock, Ban, CircleDashed, MessageCircle, Send, Link2, Loader2,
   Copy, WifiOff, CheckCheck, Download, Layers, ChevronDown, ChevronRight, Eye, Trash2,
-  BarChart2, FileDown, FileSpreadsheet, Pencil,
-  BarChart2, FileDown, FileSpreadsheet, History,
+  BarChart2, FileDown, FileSpreadsheet, Pencil, History,
 } from "lucide-react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
