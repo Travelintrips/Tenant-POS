@@ -28,7 +28,7 @@ export const mallUnitsTable = pgTable("mall_units", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
-export const UNIT_CODE_REGEX = /^[A-Z0-9]+(-[A-Z0-9]+)*$/;
+export const UNIT_CODE_REGEX = /^[A-Za-z0-9]+(-[A-Za-z0-9]+)*$/;
 
 export const insertMallUnitSchema = z.object({
   siteId: z.number().int().nullable().optional(),

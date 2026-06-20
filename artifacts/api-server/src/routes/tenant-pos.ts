@@ -438,7 +438,15 @@ router.post("/tenant-pos/payments", paymentRateLimiter, async (req, res) => {
       const appliedAmount = invoiceId ? Math.min(amountPaid, Math.max(effectiveBill, 0)) : amountPaid;
       const posReferenceId = `POS-${shiftId ?? "ns"}-${receiptNumber}`;
 
-      let payment: { id: number; receiptNumber: string } & Record<string, unknown>;
+      let payment: {
+        id: number;
+        receiptNumber: string | null;
+        paymentMethod?: string | null;
+        siteId?: number | null;
+        invoiceId?: number | null;
+        paidAt?: Date | string | null;
+        [key: string]: unknown;
+      };
 
       if (invoiceId) {
         // Route all invoice payments through PaymentLedgerService
@@ -460,7 +468,7 @@ router.post("/tenant-pos/payments", paymentRateLimiter, async (req, res) => {
           bookingId,
           siteId: req.siteId > 0 ? req.siteId : null,
         });
-        payment = { id: ledger.ledgerEntryId, receiptNumber };
+        payment = { id: ledger.ledgerEntryId, receiptNumber, paymentMethod };
       } else {
         // No invoice — direct booking-only payment (out of scope for ledger engine)
         const [inserted] = await tx

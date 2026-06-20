@@ -1,5 +1,4 @@
 import { pgTable, serial, integer, text, numeric, timestamp, date } from "drizzle-orm/pg-core";
-import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import { mallSitesTable } from "./mall-sites";
 
@@ -35,6 +34,31 @@ export const tenantsTable = pgTable("tenants", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
-export const insertTenantSchema = createInsertSchema(tenantsTable).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertTenantSchema = z.object({
+  siteId: z.number().int().nullable().optional(),
+  companyId: z.number().int().nullable().optional(),
+  userId: z.number().int().nullable().optional(),
+  businessName: z.string().min(1),
+  ownerName: z.string().min(1),
+  phone: z.string().nullable().optional(),
+  email: z.string().nullable().optional(),
+  businessCategory: z.string().nullable().optional(),
+  category: z.string().nullable().optional(),
+  boothNumber: z.string().nullable().optional(),
+  areaName: z.string().optional().default(""),
+  logoUrl: z.string().nullable().optional(),
+  address: z.string().nullable().optional(),
+  status: z.string().optional().default("active"),
+  notes: z.string().nullable().optional(),
+  defaultRentAmount: z.string().optional().default("0"),
+  defaultServiceChargeAmount: z.string().optional().default("0"),
+  defaultElectricityChargeAmount: z.string().optional().default("0"),
+  defaultWaterChargeAmount: z.string().optional().default("0"),
+  defaultOtherChargeAmount: z.string().optional().default("0"),
+  defaultTrashChargeAmount: z.string().optional().default("0"),
+  contractStartDate: z.string().nullable().optional(),
+  contractEndDate: z.string().nullable().optional(),
+});
+
 export type InsertTenant = z.infer<typeof insertTenantSchema>;
 export type Tenant = typeof tenantsTable.$inferSelect;

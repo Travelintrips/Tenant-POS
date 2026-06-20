@@ -941,7 +941,7 @@ router.get("/laporan/rekap-iuran-sampah", async (req, res) => {
     });
   } catch (err) {
     req.log.error(err, "Failed to get rekap iuran sampah");
-    res.status(500).json({ error: "Gagal mengambil rekap iuran sampah" });
+    return res.status(500).json({ error: "Gagal mengambil rekap iuran sampah" });
   }
 });
 
