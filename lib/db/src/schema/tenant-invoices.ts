@@ -49,5 +49,5 @@ export const tenantInvoicesRelations = relations(tenantInvoicesTable, ({ one }) 
 }));
 
 export const insertTenantInvoiceSchema = createInsertSchema(tenantInvoicesTable).omit({ id: true, createdAt: true, updatedAt: true });
-export type InsertTenantInvoice = z.infer<typeof insertTenantInvoiceSchema>;
+export type InsertTenantInvoice = typeof tenantInvoicesTable.$inferInsert;
 export type TenantInvoice = typeof tenantInvoicesTable.$inferSelect;

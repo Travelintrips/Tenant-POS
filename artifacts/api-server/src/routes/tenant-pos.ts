@@ -311,10 +311,11 @@ router.get("/tenant-pos/tenants/:tenantId/payments", async (req, res) => {
     return;
   }
   try {
+    const siteFilter = req.siteId > 0 ? eq(tenantPaymentsTable.siteId, req.siteId) : undefined;
     const payments = await db
       .select()
       .from(tenantPaymentsTable)
-      .where(eq(tenantPaymentsTable.tenantId, tenantId))
+      .where(and(eq(tenantPaymentsTable.tenantId, tenantId), siteFilter))
       .orderBy(desc(tenantPaymentsTable.paidAt));
 
     res.json(
@@ -537,7 +538,7 @@ router.post("/tenant-pos/payments", paymentRateLimiter, async (req, res) => {
             refundAmount: "0",
           })
           .returning();
-        payment = inserted;
+        payment = inserted as typeof payment;
       }
 
       const [updatedBooking] = await tx
@@ -610,8 +611,8 @@ router.post("/tenant-pos/payments", paymentRateLimiter, async (req, res) => {
       sourceId: result.payment.id,
       ownerTenantId: tenantId ?? null,
       tenantId: tenantId ?? null,
-      siteId: result.payment.siteId ?? null,
-      invoiceId: result.payment.invoiceId ?? null,
+      siteId: (result.payment.siteId as number | null) ?? null,
+      invoiceId: (result.payment.invoiceId as number | null) ?? null,
       amount: amountPaid,
       direction: "IN",
       paymentMethod: normalizePaymentMethod(paymentMethod),
@@ -628,10 +629,10 @@ router.post("/tenant-pos/payments", paymentRateLimiter, async (req, res) => {
 
     // ── Post-payment: Journal → Receipt → WhatsApp (fire-and-forget, non-blocking) ──
     const paymentId = result.payment.id;
-    const siteId = result.payment.siteId ?? null;
+    const siteId = (result.payment.siteId as number | null) ?? null;
     const kasirName = getSessionUser(req)?.name ?? "Kasir";
     const invoiceNumber = result.preInsertInvoice?.invoiceNumber ?? null;
-    const paidAt = result.payment.paidAt ?? new Date();
+    const paidAt = (result.payment.paidAt as Date | null) ?? new Date();
 
     // Fetch tenant info for WA + receipt (do this async)
     void (async () => {

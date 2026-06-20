@@ -60,5 +60,5 @@ export const tenantBookingPaymentsRelations = relations(tenantBookingsTable, ({ 
 }));
 
 export const insertTenantPaymentSchema = createInsertSchema(tenantPaymentsTable).omit({ id: true, createdAt: true, updatedAt: true });
-export type InsertTenantPayment = z.infer<typeof insertTenantPaymentSchema>;
+export type InsertTenantPayment = typeof tenantPaymentsTable.$inferInsert;
 export type TenantPayment = typeof tenantPaymentsTable.$inferSelect;
