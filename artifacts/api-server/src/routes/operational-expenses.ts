@@ -22,6 +22,68 @@ const expenseSchema = z.object({
   notes: z.string().max(1000).optional().nullable(),
 });
 
+// ─── GET /api/operational-expenses/monthly-summary ────────────────────────────
+router.get("/operational-expenses/monthly-summary", async (req, res) => {
+  const year = parseInt(String(req.query.year ?? new Date().getFullYear()), 10);
+  const ctxSiteId = (req as unknown as { siteId?: number }).siteId;
+
+  try {
+    const rows = await db.execute(sql`
+      SELECT
+        TO_CHAR(paid_at, 'YYYY-MM') AS month_key,
+        TO_CHAR(paid_at, 'Mon YY')  AS month_label,
+        category,
+        COALESCE(SUM(amount), 0)::bigint AS total
+      FROM operational_expenses
+      WHERE EXTRACT(YEAR FROM paid_at) = ${year}
+        ${ctxSiteId ? sql`AND site_id = ${ctxSiteId}` : sql``}
+      GROUP BY month_key, month_label, category
+      ORDER BY month_key
+    `);
+
+    // Build a map: monthKey -> { monthLabel, listrik, internet, perbaikan, lain-lain }
+    type MonthRow = { month_key: string; month_label: string; category: string; total: string };
+    const map = new Map<string, { label: string; listrik: number; internet: number; perbaikan: number; "lain-lain": number }>();
+
+    for (const r of rows.rows as MonthRow[]) {
+      if (!map.has(r.month_key)) {
+        map.set(r.month_key, { label: r.month_label, listrik: 0, internet: 0, perbaikan: 0, "lain-lain": 0 });
+      }
+      const entry = map.get(r.month_key)!;
+      const cat = r.category as keyof typeof entry;
+      if (cat in entry && cat !== "label") {
+        (entry as Record<string, number>)[cat] = Number(r.total);
+      }
+    }
+
+    // Fill all 12 months even if no data
+    const months = [];
+    for (let m = 1; m <= 12; m++) {
+      const key = `${year}-${String(m).padStart(2, "0")}`;
+      const label = new Date(year, m - 1, 1).toLocaleDateString("id-ID", { month: "short" });
+      const entry = map.get(key) ?? { label, listrik: 0, internet: 0, perbaikan: 0, "lain-lain": 0 };
+      const total = entry.listrik + entry.internet + entry.perbaikan + entry["lain-lain"];
+      months.push({ month: label, listrik: entry.listrik, internet: entry.internet, perbaikan: entry.perbaikan, lainLain: entry["lain-lain"], total });
+    }
+
+    // Category totals for the year
+    const categoryTotals = months.reduce(
+      (acc, m) => ({
+        listrik: acc.listrik + m.listrik,
+        internet: acc.internet + m.internet,
+        perbaikan: acc.perbaikan + m.perbaikan,
+        lainLain: acc.lainLain + m.lainLain,
+      }),
+      { listrik: 0, internet: 0, perbaikan: 0, lainLain: 0 },
+    );
+
+    res.json({ success: true, year, months, categoryTotals });
+  } catch (err) {
+    console.error("[GET /operational-expenses/monthly-summary]", err);
+    res.status(500).json({ error: "Gagal mengambil ringkasan bulanan" });
+  }
+});
+
 // ─── GET /api/operational-expenses ────────────────────────────────────────────
 router.get("/operational-expenses", async (req, res) => {
   const siteId = req.query.siteId ? parseInt(String(req.query.siteId), 10) : null;

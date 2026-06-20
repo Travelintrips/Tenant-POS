@@ -1,9 +1,12 @@
 import { useState, useRef, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell,
+} from "recharts";
+import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -25,7 +28,7 @@ import { useToast } from "@/hooks/use-toast";
 import {
   Plus, TrendingDown, Filter, Pencil, Trash2, ExternalLink,
   Loader2, AlertCircle, Receipt, Zap, Wifi, Wrench, MoreHorizontal,
-  Upload, ImageIcon, CheckCircle2, X, ScanLine,
+  Upload, ImageIcon, CheckCircle2, X, ScanLine, BarChart2, ChevronLeft, ChevronRight,
 } from "lucide-react";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -115,6 +118,37 @@ async function apiFetch<T>(url: string, opts?: RequestInit): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+type MonthData = {
+  month: string;
+  listrik: number;
+  internet: number;
+  perbaikan: number;
+  lainLain: number;
+  total: number;
+};
+
+type MonthlySummary = {
+  success: boolean;
+  year: number;
+  months: MonthData[];
+  categoryTotals: { listrik: number; internet: number; perbaikan: number; lainLain: number };
+};
+
+// ─── Chart colors ─────────────────────────────────────────────────────────────
+
+const CAT_COLOR: Record<string, string> = {
+  listrik: "#f59e0b",
+  internet: "#3b82f6",
+  perbaikan: "#f97316",
+  lainLain: "#94a3b8",
+};
+
+function fmtShort(v: number) {
+  if (v >= 1_000_000) return `${(v / 1_000_000).toFixed(1)}jt`;
+  if (v >= 1_000) return `${(v / 1_000).toFixed(0)}rb`;
+  return String(v);
+}
+
 // ─── Empty form state ──────────────────────────────────────────────────────────
 
 type FormData = {
@@ -158,6 +192,9 @@ export default function PengeluaranOperasional() {
   const [filterTenantId, setFilterTenantId] = useState("all");
   const [offset, setOffset] = useState(0);
 
+  // Chart year
+  const [chartYear, setChartYear] = useState(new Date().getFullYear());
+
   // Dialog
   const [formOpen, setFormOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<Expense | null>(null);
@@ -166,6 +203,12 @@ export default function PengeluaranOperasional() {
   const [uploadState, setUploadState] = useState<UploadState>({ status: "idle" });
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isDragging, setIsDragging] = useState(false);
+
+  // Monthly summary query for chart
+  const { data: chartData, isLoading: chartLoading } = useQuery<MonthlySummary>({
+    queryKey: ["/api/operational-expenses/monthly-summary", chartYear],
+    queryFn: () => apiFetch<MonthlySummary>(`${BASE}/api/operational-expenses/monthly-summary?year=${chartYear}`),
+  });
 
   // Build query params
   const params = new URLSearchParams({ limit: String(LIMIT), offset: String(offset) });
@@ -395,6 +438,89 @@ export default function PengeluaranOperasional() {
           </Card>
         ))}
       </div>
+
+      {/* ─── Grafik Bulanan ──────────────────────────────────────────────────── */}
+      <Card>
+        <CardHeader className="py-3 px-4 pb-2">
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <div>
+              <CardTitle className="text-sm flex items-center gap-2">
+                <BarChart2 className="h-4 w-4 text-orange-500" />
+                Tren Pengeluaran Bulanan
+              </CardTitle>
+              <CardDescription className="text-xs mt-0.5">Per kategori — tahun {chartYear}</CardDescription>
+            </div>
+            <div className="flex items-center gap-1">
+              <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setChartYear(y => y - 1)}>
+                <ChevronLeft className="h-4 w-4" />
+              </Button>
+              <span className="text-sm font-semibold tabular-nums w-12 text-center">{chartYear}</span>
+              <Button variant="ghost" size="icon" className="h-7 w-7"
+                disabled={chartYear >= new Date().getFullYear()}
+                onClick={() => setChartYear(y => y + 1)}>
+                <ChevronRight className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
+          {/* Category total badges */}
+          {chartData && (
+            <div className="flex flex-wrap gap-2 mt-2">
+              {[
+                { key: "listrik", label: "Listrik", color: CAT_COLOR.listrik, val: chartData.categoryTotals.listrik },
+                { key: "internet", label: "Internet", color: CAT_COLOR.internet, val: chartData.categoryTotals.internet },
+                { key: "perbaikan", label: "Perbaikan", color: CAT_COLOR.perbaikan, val: chartData.categoryTotals.perbaikan },
+                { key: "lainLain", label: "Lain-lain", color: CAT_COLOR.lainLain, val: chartData.categoryTotals.lainLain },
+              ].map(({ key, label, color, val }) => (
+                <span key={key} className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium border bg-background">
+                  <span className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ backgroundColor: color }} />
+                  {label}: <strong>{formatRupiah(val)}</strong>
+                </span>
+              ))}
+            </div>
+          )}
+        </CardHeader>
+        <CardContent className="pt-1 pb-4 px-2">
+          {chartLoading ? (
+            <div className="h-56 flex items-center justify-center">
+              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+            </div>
+          ) : !chartData || chartData.months.every(m => m.total === 0) ? (
+            <div className="h-56 flex flex-col items-center justify-center gap-2 text-muted-foreground">
+              <BarChart2 className="h-8 w-8 opacity-25" />
+              <p className="text-sm">Belum ada data pengeluaran di tahun {chartYear}</p>
+            </div>
+          ) : (
+            <ResponsiveContainer width="100%" height={240}>
+              <BarChart data={chartData.months} margin={{ top: 4, right: 8, left: 8, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
+                <XAxis dataKey="month" tick={{ fontSize: 11 }} axisLine={false} tickLine={false} />
+                <YAxis
+                  tick={{ fontSize: 10 }}
+                  axisLine={false}
+                  tickLine={false}
+                  tickFormatter={fmtShort}
+                  width={48}
+                />
+                <Tooltip
+                  formatter={(val: number, name: string) => [formatRupiah(val), name === "lainLain" ? "Lain-lain" : name.charAt(0).toUpperCase() + name.slice(1)]}
+                  labelFormatter={(l) => `Bulan: ${l}`}
+                  contentStyle={{ fontSize: 12, borderRadius: 8 }}
+                />
+                <Legend
+                  iconType="square"
+                  iconSize={10}
+                  formatter={(val) => val === "lainLain" ? "Lain-lain" : val.charAt(0).toUpperCase() + val.slice(1)}
+                  wrapperStyle={{ fontSize: 12 }}
+                />
+                <Bar dataKey="listrik" stackId="a" fill={CAT_COLOR.listrik} radius={[0,0,0,0]} />
+                <Bar dataKey="internet" stackId="a" fill={CAT_COLOR.internet} />
+                <Bar dataKey="perbaikan" stackId="a" fill={CAT_COLOR.perbaikan} />
+                <Bar dataKey="lainLain" stackId="a" fill={CAT_COLOR.lainLain} radius={[4,4,0,0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Filter bar */}
       <Card>
