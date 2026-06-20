@@ -150,4 +150,45 @@ router.post("/uploads/contract-document", uploadRateLimiter, requireAuth, async 
   }
 });
 
+// ─── POST /api/uploads/expense-receipt ────────────────────────────────────────
+// Upload bukti pengeluaran + OCR otomatis untuk baca nominal
+router.post("/uploads/expense-receipt", uploadRateLimiter, requireAuth, async (req, res) => {
+  try {
+    await runMulter(uploadDoc, "file")(req, res);
+  } catch (err) {
+    const msg =
+      err instanceof multer.MulterError && err.code === "LIMIT_FILE_SIZE"
+        ? "File terlalu besar. Maksimal 5MB."
+        : (err as Error).message ?? "Upload gagal";
+    res.status(400).json({ error: msg });
+    return;
+  }
+
+  if (!req.file) {
+    res.status(400).json({ error: "File tidak ditemukan dalam request" });
+    return;
+  }
+
+  try {
+    const { extractAmountFromFile } = await import("../lib/ocr-service");
+    const ext = path.extname(req.file.originalname).toLowerCase() || ".jpg";
+    const filename = `expense-${crypto.randomUUID()}${ext}`;
+
+    const [url, ocr] = await Promise.all([
+      uploadToStorage("expense-receipts", filename, req.file.buffer, req.file.mimetype),
+      extractAmountFromFile(req.file.buffer, req.file.mimetype),
+    ]);
+
+    res.json({
+      url,
+      extractedAmount: ocr.extractedAmount,
+      confidence: ocr.confidence,
+      rawText: ocr.rawText.slice(0, 500),
+    });
+  } catch (err) {
+    req.log?.error(err, "Upload expense receipt gagal");
+    res.status(500).json({ error: "Gagal menyimpan bukti pengeluaran" });
+  }
+});
+
 export default router;

@@ -1,10 +1,9 @@
-import { useState } from "react";
+import { useState, useRef, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -21,10 +20,12 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Separator } from "@/components/ui/separator";
+import { Progress } from "@/components/ui/progress";
 import { useToast } from "@/hooks/use-toast";
 import {
   Plus, TrendingDown, Filter, Pencil, Trash2, ExternalLink,
   Loader2, AlertCircle, Receipt, Zap, Wifi, Wrench, MoreHorizontal,
+  Upload, ImageIcon, CheckCircle2, X, ScanLine,
 } from "lucide-react";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -127,6 +128,12 @@ type FormData = {
   notes: string;
 };
 
+type UploadState =
+  | { status: "idle" }
+  | { status: "uploading"; progress: number }
+  | { status: "done"; url: string; previewSrc: string; extractedAmount: number | null; confidence: number }
+  | { status: "error"; message: string };
+
 const EMPTY_FORM: FormData = {
   tenantId: "",
   category: "lain-lain",
@@ -156,6 +163,9 @@ export default function PengeluaranOperasional() {
   const [editTarget, setEditTarget] = useState<Expense | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Expense | null>(null);
   const [form, setForm] = useState<FormData>(EMPTY_FORM);
+  const [uploadState, setUploadState] = useState<UploadState>({ status: "idle" });
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [isDragging, setIsDragging] = useState(false);
 
   // Build query params
   const params = new URLSearchParams({ limit: String(LIMIT), offset: String(offset) });
@@ -218,9 +228,78 @@ export default function PengeluaranOperasional() {
     onError: (e) => toast({ title: "Gagal hapus", description: e.message, variant: "destructive" }),
   });
 
+  // ─── Upload receipt + OCR ────────────────────────────────────────────────────
+  const handleFileUpload = useCallback(async (file: File) => {
+    const allowed = ["image/jpeg", "image/jpg", "image/png", "image/webp", "application/pdf"];
+    if (!allowed.includes(file.type)) {
+      setUploadState({ status: "error", message: "Format tidak didukung. Gunakan JPG, PNG, WEBP, atau PDF." });
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      setUploadState({ status: "error", message: "File terlalu besar. Maksimal 5MB." });
+      return;
+    }
+
+    const previewSrc = file.type.startsWith("image/") ? URL.createObjectURL(file) : "";
+    setUploadState({ status: "uploading", progress: 10 });
+
+    const formData = new FormData();
+    formData.append("file", file);
+
+    try {
+      setUploadState({ status: "uploading", progress: 40 });
+      const res = await fetch(`${BASE}/api/uploads/expense-receipt`, {
+        method: "POST",
+        credentials: "include",
+        body: formData,
+      });
+      setUploadState({ status: "uploading", progress: 85 });
+
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({})) as { error?: string };
+        throw new Error(j.error ?? "Upload gagal");
+      }
+
+      const data = await res.json() as {
+        url: string; extractedAmount: number | null; confidence: number;
+      };
+
+      setUploadState({
+        status: "done",
+        url: data.url,
+        previewSrc,
+        extractedAmount: data.extractedAmount,
+        confidence: data.confidence,
+      });
+
+      // Auto-fill form
+      setForm((f) => ({
+        ...f,
+        receiptUrl: data.url,
+        ...(data.extractedAmount ? { amount: String(data.extractedAmount) } : {}),
+      }));
+
+      if (data.extractedAmount) {
+        toast({
+          title: "Nominal terbaca otomatis",
+          description: `Rp ${data.extractedAmount.toLocaleString("id-ID")} (konfidensitas ${Math.round(data.confidence * 100)}%)`,
+        });
+      } else {
+        toast({
+          title: "Foto berhasil diupload",
+          description: "Nominal tidak terbaca — isi manual.",
+        });
+      }
+    } catch (err) {
+      setUploadState({ status: "error", message: (err as Error).message });
+      toast({ title: "Upload gagal", description: (err as Error).message, variant: "destructive" });
+    }
+  }, [toast]);
+
   function openCreate() {
     setEditTarget(null);
     setForm(EMPTY_FORM);
+    setUploadState({ status: "idle" });
     setFormOpen(true);
   }
 
@@ -236,6 +315,12 @@ export default function PengeluaranOperasional() {
       receiptUrl: exp.receiptUrl ?? "",
       notes: exp.notes ?? "",
     });
+    // Restore upload state when editing existing receipt
+    setUploadState(
+      exp.receiptUrl
+        ? { status: "done", url: exp.receiptUrl, previewSrc: exp.receiptUrl, extractedAmount: null, confidence: 0 }
+        : { status: "idle" }
+    );
     setFormOpen(true);
   }
 
@@ -557,13 +642,118 @@ export default function PengeluaranOperasional() {
               />
             </div>
 
+            {/* ─── Upload Bukti Pembayaran ─────────────────────────────────── */}
             <div className="flex flex-col gap-1.5">
-              <Label className="text-xs">Link Bukti Pembayaran (URL)</Label>
-              <Input
-                placeholder="https://..."
-                value={form.receiptUrl}
-                onChange={(e) => setForm((f) => ({ ...f, receiptUrl: e.target.value }))}
-              />
+              <Label className="text-xs flex items-center gap-1.5">
+                <ScanLine className="h-3.5 w-3.5 text-primary" />
+                Foto Bukti Pembayaran
+                <span className="text-muted-foreground font-normal">(nominal terbaca otomatis)</span>
+              </Label>
+
+              {/* Drop zone / upload area */}
+              {uploadState.status !== "done" && (
+                <div
+                  className={`relative flex flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed p-5 cursor-pointer transition-colors
+                    ${isDragging ? "border-primary bg-primary/5" : "border-muted-foreground/30 hover:border-primary/60 hover:bg-muted/40"}
+                    ${uploadState.status === "error" ? "border-red-400 bg-red-50" : ""}
+                  `}
+                  onClick={() => fileInputRef.current?.click()}
+                  onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
+                  onDragLeave={() => setIsDragging(false)}
+                  onDrop={(e) => {
+                    e.preventDefault(); setIsDragging(false);
+                    const file = e.dataTransfer.files[0];
+                    if (file) void handleFileUpload(file);
+                  }}
+                >
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/jpeg,image/jpg,image/png,image/webp,application/pdf"
+                    className="hidden"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) void handleFileUpload(file);
+                      e.target.value = "";
+                    }}
+                  />
+
+                  {uploadState.status === "uploading" ? (
+                    <>
+                      <Loader2 className="h-6 w-6 animate-spin text-primary" />
+                      <p className="text-xs text-muted-foreground">Mengupload & membaca nominal…</p>
+                      <Progress value={uploadState.progress} className="w-full h-1.5" />
+                    </>
+                  ) : uploadState.status === "error" ? (
+                    <>
+                      <AlertCircle className="h-6 w-6 text-red-500" />
+                      <p className="text-xs text-red-600 text-center">{uploadState.message}</p>
+                      <p className="text-xs text-muted-foreground">Klik untuk coba lagi</p>
+                    </>
+                  ) : (
+                    <>
+                      <div className="rounded-full bg-primary/10 p-2.5">
+                        <Upload className="h-5 w-5 text-primary" />
+                      </div>
+                      <div className="text-center">
+                        <p className="text-sm font-medium">Klik atau seret foto struk/bukti bayar</p>
+                        <p className="text-xs text-muted-foreground mt-0.5">JPG, PNG, WEBP, PDF · Maks 5MB</p>
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
+
+              {/* Preview setelah upload berhasil */}
+              {uploadState.status === "done" && (
+                <div className="rounded-lg border bg-muted/30 p-3 flex gap-3 items-start">
+                  {uploadState.previewSrc ? (
+                    <a href={uploadState.url} target="_blank" rel="noopener noreferrer">
+                      <img
+                        src={uploadState.previewSrc}
+                        alt="Bukti pembayaran"
+                        className="w-20 h-20 object-cover rounded-md border shrink-0 hover:opacity-90 transition-opacity"
+                      />
+                    </a>
+                  ) : (
+                    <div className="w-20 h-20 rounded-md border bg-white flex items-center justify-center shrink-0">
+                      <ImageIcon className="h-8 w-8 text-muted-foreground" />
+                    </div>
+                  )}
+                  <div className="flex-1 min-w-0 space-y-1">
+                    <div className="flex items-center gap-1.5">
+                      <CheckCircle2 className="h-4 w-4 text-green-600 shrink-0" />
+                      <span className="text-xs font-medium text-green-700">Upload berhasil</span>
+                    </div>
+                    {uploadState.extractedAmount ? (
+                      <div className="flex items-center gap-1.5 bg-green-50 border border-green-200 rounded px-2 py-1">
+                        <ScanLine className="h-3.5 w-3.5 text-green-600 shrink-0" />
+                        <div>
+                          <p className="text-xs font-semibold text-green-700">
+                            OCR: Rp {uploadState.extractedAmount.toLocaleString("id-ID")}
+                          </p>
+                          <p className="text-[10px] text-green-600">
+                            Konfidensitas {Math.round(uploadState.confidence * 100)}% — sudah diisi otomatis
+                          </p>
+                        </div>
+                      </div>
+                    ) : (
+                      <p className="text-xs text-muted-foreground">Nominal tidak terbaca — isi manual di kolom Nominal</p>
+                    )}
+                    <a href={uploadState.url} target="_blank" rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 text-xs text-primary hover:underline">
+                      Lihat file <ExternalLink className="h-3 w-3" />
+                    </a>
+                    <button
+                      type="button"
+                      className="ml-3 text-xs text-muted-foreground hover:text-destructive flex items-center gap-0.5"
+                      onClick={() => { setUploadState({ status: "idle" }); setForm((f) => ({ ...f, receiptUrl: "" })); }}
+                    >
+                      <X className="h-3 w-3" /> Ganti foto
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
 
             <div className="flex flex-col gap-1.5">

@@ -84,17 +84,22 @@ export async function uploadToStorage(
     return saveLocal(bucket, filename, buffer);
   }
 
-  const client = await getClient();
-  await ensureBucket(client, bucket, isPublic);
+  try {
+    const client = await getClient();
+    await ensureBucket(client, bucket, isPublic);
 
-  const { data, error } = await client
-    .from(bucket)
-    .upload(filename, buffer, { contentType, upsert: true });
+    const { data, error } = await client
+      .from(bucket)
+      .upload(filename, buffer, { contentType, upsert: true });
 
-  if (error) throw new Error(`Upload ke storage gagal: ${error.message}`);
+    if (error) throw new Error(`Upload ke storage gagal: ${error.message}`);
 
-  const { data: urlData } = client.from(bucket).getPublicUrl(data.path);
-  return urlData.publicUrl;
+    const { data: urlData } = client.from(bucket).getPublicUrl(data.path);
+    return urlData.publicUrl;
+  } catch (err) {
+    console.error(`[supabase-storage] Supabase gagal (${bucket}), fallback ke local disk:`, (err as Error).message);
+    return saveLocal(bucket, filename, buffer);
+  }
 }
 
 export async function deleteFromStorage(bucket: string, filePath: string): Promise<void> {
