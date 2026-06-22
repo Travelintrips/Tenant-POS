@@ -161,7 +161,9 @@ async function checkUnitOverlap(
 router.get("/bookings", async (req, res) => {
   try {
     const siteId = req.siteId;
-    const siteConditions = siteId > 0 ? [eq(tenantBookingsTable.siteId, siteId)] : [];
+    // Pemilik (owner) bisa lihat booking dari semua site
+    const isOwner = req.user?.role === "owner";
+    const siteConditions = (!isOwner && siteId > 0) ? [eq(tenantBookingsTable.siteId, siteId)] : [];
 
     const rows = await db
       .select(bookingSelect)
