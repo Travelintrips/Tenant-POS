@@ -316,4 +316,54 @@ router.post("/dokumen/:token/tolak", async (req: Request, res: Response) => {
   }
 });
 
+// ── GET /api/public/available-units ──────────────────────────────────────────
+// Public — daftar unit yang masih tersedia (belum ada penyewa aktif)
+router.get("/public/available-units", async (req: Request, res: Response) => {
+  try {
+    const siteIdParam = req.query["site_id"];
+    const siteId = siteIdParam ? Number(siteIdParam) : null;
+
+    const today = new Date().toISOString().slice(0, 10);
+
+    const baseCondition = sql`
+      mu.status != 'maintenance'
+      AND NOT EXISTS (
+        SELECT 1 FROM tenant_bookings tb
+        WHERE tb.unit_code = mu.unit_code
+          AND tb.site_id = mu.site_id
+          AND tb.contract_status NOT IN ('terminated', 'expired')
+          AND tb.booking_status IN ('aktif', 'active')
+          AND (tb.end_date IS NULL OR tb.end_date >= ${today})
+      )
+    `;
+
+    const rows = siteId
+      ? (await db.execute(sql`
+          SELECT
+            mu.id, mu.unit_code, mu.floor, mu.zone, mu.area_kantin,
+            mu.size_m2, mu.default_rent_amount, mu.unit_type, mu.site_id,
+            ms.name AS site_name, ms.code AS site_code
+          FROM mall_units mu
+          LEFT JOIN mall_sites ms ON ms.id = mu.site_id
+          WHERE ${baseCondition} AND mu.site_id = ${siteId}
+          ORDER BY mu.unit_code
+        `) as { rows: Record<string, unknown>[] }).rows
+      : (await db.execute(sql`
+          SELECT
+            mu.id, mu.unit_code, mu.floor, mu.zone, mu.area_kantin,
+            mu.size_m2, mu.default_rent_amount, mu.unit_type, mu.site_id,
+            ms.name AS site_name, ms.code AS site_code
+          FROM mall_units mu
+          LEFT JOIN mall_sites ms ON ms.id = mu.site_id
+          WHERE ${baseCondition}
+          ORDER BY mu.site_id, mu.unit_code
+        `) as { rows: Record<string, unknown>[] }).rows;
+
+    res.json(rows.map(toCamel));
+  } catch (err) {
+    console.error("[public] GET /available-units error:", err);
+    res.status(500).json({ error: "Gagal mengambil data unit tersedia" });
+  }
+});
+
 export default router;

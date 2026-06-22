@@ -838,10 +838,14 @@ function DetailPanel({
             </p>
           )}
 
-          {draft.status === "pending" && (
-            <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 space-y-2">
-              <p className="text-xs font-semibold text-amber-800">Tindakan Admin</p>
-              <p className="text-xs text-amber-700">Setujui atau tolak pendaftaran calon tenant ini. Notifikasi WhatsApp akan dikirim otomatis.</p>
+          {(draft.status === "pending" || (draft.status === "approved" && !draft.bookingId)) && (
+            <div className={`rounded-lg border p-3 space-y-2 ${draft.status === "approved" ? "border-emerald-200 bg-emerald-50" : "border-amber-200 bg-amber-50"}`}>
+              <p className={`text-xs font-semibold ${draft.status === "approved" ? "text-emerald-800" : "text-amber-800"}`}>Tindakan Admin</p>
+              <p className={`text-xs ${draft.status === "approved" ? "text-emerald-700" : "text-amber-700"}`}>
+                {draft.status === "approved"
+                  ? "Tenant telah menandatangani dokumen. Setujui untuk membuat booking otomatis."
+                  : "Setujui atau tolak pendaftaran calon tenant ini. Notifikasi WhatsApp akan dikirim otomatis."}
+              </p>
               <div className="flex gap-2">
                 <Button
                   size="sm"
@@ -1713,16 +1717,19 @@ export default function DrafPerjanjian() {
                           }}>
                             <Copy className="h-3.5 w-3.5" />Salin Link
                           </DropdownMenuItem>
-                          {d.status === "pending" && (<>
+                          {d.status === "pending" && (
                             <DropdownMenuItem className="gap-2" onClick={() => remindMutation.mutate(d.id)}>
                               <Send className="h-3.5 w-3.5" />Kirim WA
                             </DropdownMenuItem>
+                          )}
+                          {(d.status === "pending" || (d.status === "approved" && !d.bookingId)) && (<>
                             <DropdownMenuSeparator />
                             <DropdownMenuItem
                               className="gap-2 text-emerald-700 focus:text-emerald-700"
                               onClick={() => setSelectedId(d.id)}
                             >
-                              <ThumbsUp className="h-3.5 w-3.5" />Setujui / Tolak...
+                              <ThumbsUp className="h-3.5 w-3.5" />
+                              {d.status === "approved" ? "Setujui & Buat Booking..." : "Setujui / Tolak..."}
                             </DropdownMenuItem>
                           </>)}
                           <DropdownMenuSeparator />

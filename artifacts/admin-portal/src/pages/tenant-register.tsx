@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -12,6 +12,13 @@ import {
   CardDescription,
 } from "@/components/ui/card";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   Building2,
   CheckCircle2,
   Loader2,
@@ -23,6 +30,7 @@ import {
   MessageCircle,
   FileText,
   AlertTriangle,
+  DoorOpen,
 } from "lucide-react";
 
 interface RegisterForm {
@@ -75,6 +83,18 @@ const DURASI_OPTIONS = [
 export default function TenantRegister() {
   const [form, setForm] = useState<RegisterForm>(BLANK);
   const [submitted, setSubmitted] = useState(false);
+  const [customUnit, setCustomUnit] = useState(false);
+
+  type AvailableUnit = { id: number; unitCode: string; floor: string | null; zone: string | null; areaKantin: string | null; siteName: string | null; defaultRentAmount: string | null };
+  const { data: availableUnits = [] } = useQuery<AvailableUnit[]>({
+    queryKey: ["/api/public/available-units"],
+    queryFn: async () => {
+      const res = await fetch("/api/public/available-units");
+      if (!res.ok) return [];
+      return res.json() as Promise<AvailableUnit[]>;
+    },
+    staleTime: 60_000,
+  });
 
   function setField(k: keyof RegisterForm, v: string) {
     setForm((f) => ({ ...f, [k]: v }));
@@ -259,11 +279,67 @@ export default function TenantRegister() {
           <CardContent className="space-y-4">
             <div className="space-y-1.5">
               <Label>Unit / Lokasi yang Diminati</Label>
-              <Input
-                placeholder="misal: Unit A-01 Lantai 1, atau deskripsi lokasi yang diinginkan"
-                value={form.interestedUnit}
-                onChange={(e) => setField("interestedUnit", e.target.value)}
-              />
+              {availableUnits.length > 0 && !customUnit ? (
+                <div className="space-y-2">
+                  <Select
+                    value={form.interestedUnit}
+                    onValueChange={(v) => {
+                      if (v === "__custom__") {
+                        setCustomUnit(true);
+                        setField("interestedUnit", "");
+                      } else {
+                        setField("interestedUnit", v);
+                      }
+                    }}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="— Pilih unit yang tersedia —" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {availableUnits.map((u) => (
+                        <SelectItem key={u.id} value={u.unitCode}>
+                          <span className="flex items-center gap-2">
+                            <DoorOpen className="h-3.5 w-3.5 text-sky-500 shrink-0" />
+                            <span className="font-medium">{u.unitCode}</span>
+                            {(u.areaKantin || u.zone || u.floor) && (
+                              <span className="text-muted-foreground text-xs">
+                                · {[u.areaKantin, u.zone, u.floor].filter(Boolean).join(", ")}
+                              </span>
+                            )}
+                            {u.siteName && (
+                              <span className="text-muted-foreground text-xs ml-auto">({u.siteName})</span>
+                            )}
+                          </span>
+                        </SelectItem>
+                      ))}
+                      <SelectItem value="__custom__">
+                        <span className="text-muted-foreground italic">✏️ Ketik manual...</span>
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-sky-700 flex items-center gap-1">
+                    <DoorOpen className="h-3 w-3" />
+                    {availableUnits.length} unit tersedia ditampilkan. Pilih salah satu atau ketik manual.
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-1">
+                  <Input
+                    placeholder="misal: Unit A-01 Lantai 1, atau deskripsi lokasi yang diinginkan"
+                    value={form.interestedUnit}
+                    onChange={(e) => setField("interestedUnit", e.target.value)}
+                  />
+                  {customUnit && availableUnits.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => { setCustomUnit(false); setField("interestedUnit", ""); }}
+                      className="text-xs text-sky-600 hover:underline"
+                    >
+                      ← Pilih dari daftar unit tersedia
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
             <div className="space-y-1.5">
               <Label>

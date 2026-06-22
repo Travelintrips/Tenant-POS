@@ -27,7 +27,7 @@ import {
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, Pencil, Trash2, Search, Upload, X, ImageIcon, Building2, Dumbbell, Eye, CalendarClock, Download, Filter, Tag, Check, ChevronsUpDown } from "lucide-react";
+import { Plus, Pencil, Trash2, Search, Upload, X, ImageIcon, Building2, Dumbbell, Eye, CalendarClock, Download, Filter, Tag, Check, ChevronsUpDown, DoorOpen, ChevronDown, ChevronUp } from "lucide-react";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
@@ -290,10 +290,11 @@ export default function DataTenant() {
     queryFn: fetchTenants,
   });
 
+  const [showAllAvailable, setShowAllAvailable] = useState(false);
+
   const { data: mallUnits = [] } = useQuery<MallUnit[]>({
     queryKey: ["/api/mall-units"],
     queryFn: fetchMallUnits,
-    enabled: dialogOpen,
   });
 
   // Tampilkan SEMUA unit; jika edit, pastikan unit saat ini selalu ada
@@ -625,6 +626,48 @@ export default function DataTenant() {
           </Card>
         ))}
       </div>
+
+      {/* ── Unit Kosong / Tersedia ── */}
+      {(() => {
+        const availableUnits = mallUnits.filter(u => u.status === "available");
+        if (availableUnits.length === 0) return null;
+        const displayUnits = showAllAvailable ? availableUnits : availableUnits.slice(0, 8);
+        return (
+          <div className="rounded-lg border border-sky-200 bg-sky-50 px-4 py-3">
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center gap-2">
+                <DoorOpen className="h-4 w-4 text-sky-600" />
+                <span className="text-sm font-semibold text-sky-800">
+                  Unit Kosong / Tersedia
+                </span>
+                <span className="text-xs font-mono bg-sky-100 text-sky-700 border border-sky-200 rounded-full px-2 py-0.5">
+                  {availableUnits.length} unit
+                </span>
+              </div>
+              {availableUnits.length > 8 && (
+                <button
+                  onClick={() => setShowAllAvailable(v => !v)}
+                  className="text-xs text-sky-600 hover:text-sky-800 flex items-center gap-1"
+                >
+                  {showAllAvailable ? <><ChevronUp className="h-3 w-3" />Sembunyikan</> : <><ChevronDown className="h-3 w-3" />Lihat semua</>}
+                </button>
+              )}
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {displayUnits.map(u => (
+                <span
+                  key={u.id}
+                  className="inline-flex items-center gap-1 rounded-full border border-sky-300 bg-white px-2.5 py-0.5 text-xs font-medium text-sky-700"
+                  title={[u.areaKantin, u.zone, u.floor].filter(Boolean).join(" · ") || "Unit tersedia"}
+                >
+                  <DoorOpen className="h-3 w-3 opacity-60" />
+                  {u.unitCode}
+                </span>
+              ))}
+            </div>
+          </div>
+        );
+      })()}
 
       {/* ── Chip Kategori Cepat ── */}
       {!isLoading && (tenants ?? []).length > 0 && (
