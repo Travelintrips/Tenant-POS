@@ -845,8 +845,15 @@ export default function UnitTenant() {
       }),
     onSuccess: (updated) => {
       queryClient.invalidateQueries({ queryKey });
-      const label = updated.storedStatus === "available" ? "Kosong" : "Terisi";
-      toast({ title: `Unit ${updated.unitCode} ditandai ${label}` });
+      const isNowOccupied = updated.storedStatus !== "available";
+      toast({
+        title: isNowOccupied
+          ? `🔒 Unit ${updated.unitCode} ditandai Terisi`
+          : `🔓 Unit ${updated.unitCode} dikosongkan`,
+        description: isNowOccupied
+          ? "Unit tidak tersedia untuk penyewa baru"
+          : "Unit kini tersedia untuk penyewa baru",
+      });
       if (selectedUnit?.id === updated.id) {
         setSelectedUnit(u => u ? { ...u, ...updated } : null);
       }
@@ -1124,8 +1131,8 @@ export default function UnitTenant() {
                                 size="icon"
                                 variant="ghost"
                                 className={u.storedStatus === "available"
-                                  ? "h-7 w-7 text-amber-600 hover:text-amber-700 hover:bg-amber-50"
-                                  : "h-7 w-7 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50"}
+                                  ? "h-7 w-7 bg-amber-100 text-amber-700 border border-amber-300 hover:bg-amber-200 hover:text-amber-900"
+                                  : "h-7 w-7 bg-emerald-100 text-emerald-700 border border-emerald-300 hover:bg-emerald-200 hover:text-emerald-900"}
                                 onClick={() => statusMutation.mutate({
                                   id: u.id,
                                   status: u.storedStatus === "available" ? "occupied" : "available",
