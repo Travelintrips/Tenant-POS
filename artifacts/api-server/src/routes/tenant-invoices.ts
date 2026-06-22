@@ -13,6 +13,7 @@ import { requireAnyRole } from "../middlewares/auth";
 import { logAudit } from "../lib/audit";
 import { getBaseUrl } from "../lib/app-url";
 import { writePaymentEvent, normalizePaymentMethod } from "../lib/payment-events";
+import { sendInvoiceNotification, getSiteCompanyName } from "../lib/whatsapp";
 
 const router: IRouter = Router();
 router.use("/tenant-invoices", requireAnyRole("owner", "admin", "finance"));
@@ -883,6 +884,43 @@ router.post("/tenant-invoices/generate-from-booking/:bookingId", async (req, res
       afterData: withTenant,
     });
     res.status(201).json(withTenant);
+
+    // ── Kirim WA notifikasi tagihan baru ke tenant (fire-and-forget) ──────────
+    void (async () => {
+      try {
+        const phone = withTenant?.phone as string | null | undefined;
+        if (!phone) return;
+
+        const companyName = await getSiteCompanyName(req.siteId > 0 ? req.siteId : null).catch(() => undefined);
+        const baseUrl = await getBaseUrl().catch(() => undefined);
+        const paymentLink = baseUrl
+          ? `${baseUrl}/bayar/${(withTenant as unknown as Record<string, unknown>)?.token ?? ""}`
+          : undefined;
+
+        // Format periode label: "Januari 2026"
+        const periodStartStr = withTenant?.periodStart as string | undefined;
+        const periodLabel = periodStartStr
+          ? new Date(periodStartStr).toLocaleDateString("id-ID", { month: "long", year: "numeric" })
+          : "-";
+
+        const dueDateStr = withTenant?.dueDate as string | undefined;
+        const dueDateLabel = dueDateStr
+          ? new Date(dueDateStr).toLocaleDateString("id-ID", { day: "numeric", month: "long", year: "numeric" })
+          : "-";
+
+        await sendInvoiceNotification({
+          ownerName: (withTenant?.ownerName as string | null | undefined) ?? "Tenant",
+          businessName: (withTenant?.tenantName as string | null | undefined) ?? "",
+          invoiceNumber: (withTenant?.invoiceNumber as string | undefined) ?? invoice.invoiceNumber,
+          periodLabel,
+          totalAmount: withTenant?.totalAmount ?? "0",
+          dueDate: dueDateLabel,
+          phone,
+          paymentLink: paymentLink && paymentLink.endsWith("/") ? undefined : paymentLink,
+          companyName,
+        });
+      } catch { /* tidak perlu throw */ }
+    })();
   } catch (err) {
     req.log.error({ err, bookingId }, "Gagal membuat invoice dari booking");
     res.status(500).json({ error: "Gagal membuat invoice dari booking" });
