@@ -451,20 +451,6 @@ router.post("/draft-agreements/:id/remind", requireAnyRole("admin", "owner"), as
 
     if (!ok) {
       res.status(422).json({ error: error ?? "Gagal mengirim WA" });
-    const rawPhone = String(row["phone"] ?? "");
-    const digits = rawPhone.replace(/\D/g, "");
-    const target = digits.startsWith("0") ? "62" + digits.slice(1) : digits.startsWith("62") ? digits : "62" + digits;
-
-    const fonnteRes = await fetch("https://api.fonnte.com/send", {
-      method: "POST",
-      headers: { Authorization: token_api, "Content-Type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({ target, message, delay: "2" }).toString(),
-    });
-
-    const fonnteData = await fonnteRes.json() as Record<string, unknown>;
-    if (!fonnteRes.ok || fonnteData["status"] === false) {
-      const reason = String(fonnteData["reason"] ?? fonnteData["message"] ?? "Gagal kirim WA");
-      res.status(502).json({ error: reason });
       return;
     }
 
@@ -490,12 +476,6 @@ router.post("/draft-agreements/:id/kirim-wa-manual", requireAnyRole("admin", "ow
 
   const targetPhone = parsed.data.phone.replace(/\D/g, "").replace(/^0/, "62");
 
-  const { targetPhone } = req.body as { targetPhone?: string };
-  if (!targetPhone || targetPhone.trim().length < 8) {
-    res.status(400).json({ error: "Nomor WhatsApp tujuan tidak valid" });
-    return;
-  }
-
   try {
     const result = await db.execute(
       sql`SELECT * FROM tenant_draft_agreements WHERE id = ${id} LIMIT 1`
@@ -506,7 +486,8 @@ router.post("/draft-agreements/:id/kirim-wa-manual", requireAnyRole("admin", "ow
     const baseUrl = await getBaseUrl().catch(() => undefined);
     const docUrl = baseUrl ? `${baseUrl}/dokumen/${row["token"]}` : `/dokumen/${row["token"]}`;
     const docLabel = row["doc_type"] === "perjanjian_sewa" ? "Perjanjian Sewa" : "Surat Minat Menyewa";
-    const message = `📄 *${docLabel}*\n\nYth. ${row["tenant_name"]},\n\nBerikut link dokumen yang perlu Anda tinjau dan berikan persetujuan:\n\n${docUrl}\n\nSilakan buka link tersebut dan pilih *Setuju* atau *Tidak Setuju*.\n\nTerima kasih.`;
+    const recipientName = (row["brand_name"] as string | null) ?? (row["tenant_name"] as string | null) ?? "Calon Tenant";
+    const message = `📄 *${docLabel}*\n\nYth. ${recipientName},\n\nBerikut link dokumen yang perlu Anda tinjau dan berikan persetujuan:\n\n${docUrl}\n\nSilakan buka link tersebut dan pilih *Setuju* atau *Tidak Setuju*.\n\nTerima kasih.`;
 
     const sentBy = (req.user as { name?: string; username?: string } | undefined)?.name
       ?? (req.user as { name?: string; username?: string } | undefined)?.username
@@ -526,38 +507,6 @@ router.post("/draft-agreements/:id/kirim-wa-manual", requireAnyRole("admin", "ow
     }
 
     res.json({ success: true, message: `WA berhasil dikirim ke ${targetPhone}` });
-    const token_api = process.env["FONNTE_TOKEN"];
-    if (!token_api) {
-      res.status(422).json({ error: "Konfigurasi WhatsApp belum diatur (FONNTE_TOKEN)" });
-      return;
-    }
-
-    const baseUrl = await getBaseUrl().catch(() => undefined);
-    const docUrl = baseUrl
-      ? `${baseUrl}/dokumen/${row["token"]}`
-      : `/dokumen/${row["token"]}`;
-
-    const docLabel = row["doc_type"] === "perjanjian_sewa" ? "Perjanjian Sewa" : "Surat Minat Menyewa";
-    const recipientName = (row["brand_name"] as string | null) ?? (row["tenant_name"] as string | null) ?? "Calon Tenant";
-    const message = `📄 *${docLabel}*\n\nYth. ${recipientName},\n\nBerikut link dokumen yang perlu Anda tinjau dan berikan persetujuan:\n\n${docUrl}\n\nSilakan buka link tersebut dan pilih *Setuju* atau *Tidak Setuju*.\n\nTerima kasih.`;
-
-    const digits = targetPhone.trim().replace(/\D/g, "");
-    const target = digits.startsWith("0") ? "62" + digits.slice(1) : digits.startsWith("62") ? digits : "62" + digits;
-
-    const fonnteRes = await fetch("https://api.fonnte.com/send", {
-      method: "POST",
-      headers: { Authorization: token_api, "Content-Type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({ target, message, delay: "2" }).toString(),
-    });
-
-    const fonnteData = await fonnteRes.json() as Record<string, unknown>;
-    if (!fonnteRes.ok || fonnteData["status"] === false) {
-      const reason = String(fonnteData["reason"] ?? fonnteData["message"] ?? "Gagal kirim WA");
-      res.status(502).json({ error: reason });
-      return;
-    }
-
-    res.json({ success: true, message: `Link dokumen berhasil dikirim ke ${target}` });
   } catch (err) {
     console.error("[draft-agreements] POST kirim-wa-manual error:", err);
     res.status(500).json({ error: "Gagal mengirim WA" });
