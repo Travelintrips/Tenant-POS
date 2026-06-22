@@ -1,6 +1,6 @@
 import { apiFetch } from "@/lib/api";
 import { useSite, ALL_SITES_SENTINEL } from "@/contexts/site-context";
-import React, { useState, useMemo, useRef } from "react";
+import React, { useState, useMemo, useRef, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Building2, Receipt, X, CheckCircle2, AlertCircle, CircleDashed,
@@ -9,7 +9,7 @@ import {
   MoreHorizontal, History, Filter, Search, RotateCcw, ChevronDown,
   ChevronRight, MapPin, Wrench, Package, RefreshCw, Info, FileText,
   Layers, LogIn, LogOut, Ban, ShieldAlert, DollarSign, Dumbbell,
-  Plus, UserPlus, Camera, ImagePlus, Trash2,
+  Plus, UserPlus, Camera, ImagePlus, Trash2, Upload, ScanLine, ImageIcon,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -1615,6 +1615,12 @@ function DetailPanel({ item, onClose, onProses, onBayarInvoice, currentShiftId }
 
 // ─── Modal Bayar Manual ───────────────────────────────────────────────────────
 
+type UploadStateBayar =
+  | { status: "idle" }
+  | { status: "uploading" }
+  | { status: "done"; url: string; previewSrc: string; extractedAmount: number | null; confidence: number }
+  | { status: "error"; message: string };
+
 function ModalBayarManual({ item, currentShiftId, onClose, onSuccess }: {
   item: FloorPlanItem;
   currentShiftId: number | null;
@@ -1628,10 +1634,45 @@ function ModalBayarManual({ item, currentShiftId, onClose, onSuccess }: {
   const [referenceNumber, setReferenceNumber] = useState("");
   const [catatan, setCatatan] = useState("");
   const [result, setResult] = useState<{ receiptNumber: string; paidAmount: number } | null>(null);
+  const [uploadState, setUploadState] = useState<UploadStateBayar>({ status: "idle" });
+  const [isDragging, setIsDragging] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const nominalNum = parseInt(nominal.replace(/\D/g, "")) || 0;
   const isValid = nominalNum > 0 && !!metode;
   const needsReference = metode === "transfer" || metode === "qris" || metode === "edc";
+  const proofUrl = uploadState.status === "done" ? uploadState.url : undefined;
+
+  const handleFile = useCallback(async (file: File) => {
+    if (!file.type.startsWith("image/")) {
+      setUploadState({ status: "error", message: "Hanya file gambar yang diizinkan" });
+      return;
+    }
+    const previewSrc = URL.createObjectURL(file);
+    setUploadState({ status: "uploading" });
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      const res = await fetch(`${BASE}/api/uploads/expense-receipt`, {
+        method: "POST", credentials: "include", body: fd,
+      });
+      const data = await res.json() as { url?: string; extractedAmount?: number; confidence?: number; error?: string };
+      if (!res.ok) throw new Error(data.error ?? "Upload gagal");
+      setUploadState({ status: "done", url: data.url ?? "", previewSrc, extractedAmount: data.extractedAmount ?? null, confidence: data.confidence ?? 0 });
+      if (data.extractedAmount && data.extractedAmount > 0 && !nominal) {
+        setNominal(String(data.extractedAmount));
+        toast({ title: "Nominal Terdeteksi", description: `OCR membaca Rp ${data.extractedAmount.toLocaleString("id-ID")} dari bukti transfer.` });
+      }
+    } catch (e) {
+      setUploadState({ status: "error", message: (e as Error).message });
+    }
+  }, [nominal, toast]);
+
+  const onDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault(); setIsDragging(false);
+    const file = e.dataTransfer.files[0];
+    if (file) void handleFile(file);
+  }, [handleFile]);
 
   const mutation = useMutation<{ receiptNumber: string; paidAmount: number }, Error>({
     mutationFn: async () => {
@@ -1645,6 +1686,7 @@ function ModalBayarManual({ item, currentShiftId, onClose, onSuccess }: {
           paymentMethod: metode,
           paymentDate: tanggalBayar,
           referenceNumber: referenceNumber || undefined,
+          proofUrl: proofUrl || undefined,
           notes: catatan || undefined,
           shiftId: currentShiftId ?? undefined,
         }),
@@ -1745,6 +1787,76 @@ function ModalBayarManual({ item, currentShiftId, onClose, onSuccess }: {
                 </button>
               ))}
             </div>
+          </div>
+
+          {/* Upload Bukti Transfer */}
+          <div className="space-y-1.5">
+            <Label className="flex items-center gap-1.5">
+              <Upload className="w-3.5 h-3.5" />
+              Foto Bukti Transfer
+              <span className="text-muted-foreground font-normal text-xs">(opsional — nominal otomatis terbaca)</span>
+            </Label>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={(e) => { const f = e.target.files?.[0]; if (f) void handleFile(f); }}
+            />
+
+            {uploadState.status === "done" ? (
+              <div className="relative rounded-lg border border-emerald-200 bg-emerald-50 overflow-hidden">
+                <img
+                  src={uploadState.previewSrc}
+                  alt="Bukti transfer"
+                  className="w-full max-h-40 object-contain"
+                />
+                <div className="flex items-center justify-between px-3 py-2 bg-white border-t border-emerald-200">
+                  <div className="flex items-center gap-2 text-xs">
+                    <ScanLine className="w-3.5 h-3.5 text-emerald-600" />
+                    {uploadState.extractedAmount ? (
+                      <span className="text-emerald-700 font-medium">
+                        OCR: Rp {uploadState.extractedAmount.toLocaleString("id-ID")}
+                        <span className="text-muted-foreground font-normal ml-1">({Math.round(uploadState.confidence * 100)}% confidence)</span>
+                      </span>
+                    ) : (
+                      <span className="text-muted-foreground">Nominal tidak terdeteksi otomatis</span>
+                    )}
+                  </div>
+                  <Button
+                    variant="ghost" size="icon" className="h-6 w-6 text-muted-foreground"
+                    onClick={() => { setUploadState({ status: "idle" }); if (fileInputRef.current) fileInputRef.current.value = ""; }}
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </Button>
+                </div>
+              </div>
+            ) : uploadState.status === "uploading" ? (
+              <div className="h-24 flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed bg-muted/30">
+                <RefreshCw className="w-5 h-5 animate-spin text-muted-foreground" />
+                <p className="text-xs text-muted-foreground">Mengupload & membaca nominal...</p>
+              </div>
+            ) : (
+              <div
+                onClick={() => fileInputRef.current?.click()}
+                onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
+                onDragLeave={() => setIsDragging(false)}
+                onDrop={onDrop}
+                className={cn(
+                  "h-24 flex flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed cursor-pointer transition-colors",
+                  isDragging ? "border-emerald-400 bg-emerald-50" : "border-border hover:border-emerald-300 hover:bg-muted/30",
+                  uploadState.status === "error" && "border-red-300 bg-red-50"
+                )}
+              >
+                <ImageIcon className="w-6 h-6 text-muted-foreground" />
+                <p className="text-xs text-muted-foreground text-center px-2">
+                  {uploadState.status === "error"
+                    ? <span className="text-red-600">{uploadState.message}</span>
+                    : <>Klik atau seret foto bukti transfer<br /><span className="opacity-60">Nominal akan terbaca otomatis via OCR</span></>
+                  }
+                </p>
+              </div>
+            )}
           </div>
 
           {/* Referensi (jika transfer/qris/edc) */}

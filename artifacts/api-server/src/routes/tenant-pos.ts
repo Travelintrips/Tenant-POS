@@ -786,6 +786,7 @@ const manualPaymentSchema = z.object({
   paymentMethod: z.enum(["tunai", "transfer", "qris", "edc", "other"]),
   paymentDate: z.string().optional(),
   referenceNumber: z.string().optional(),
+  proofUrl: z.string().optional(),
   notes: z.string().optional(),
   shiftId: z.number().int().positive().optional(),
 });
@@ -797,7 +798,7 @@ router.post("/tenant-pos/manual-payment", paymentRateLimiter, async (req, res) =
     return;
   }
 
-  const { tenantId, amountPaid, paymentMethod, paymentDate, referenceNumber, notes, shiftId } = parsed.data;
+  const { tenantId, amountPaid, paymentMethod, paymentDate, referenceNumber, proofUrl, notes, shiftId } = parsed.data;
 
   try {
     const [tenant] = await db
@@ -832,7 +833,7 @@ router.post("/tenant-pos/manual-payment", paymentRateLimiter, async (req, res) =
         referenceNumber: referenceNumber ?? null,
         referenceId: posReferenceId,
         sourceType: "pos",
-        proofUrl: null,
+        proofUrl: proofUrl ?? null,
         shiftId: shiftId ?? null,
         notes: notes ?? null,
         paidAt,
