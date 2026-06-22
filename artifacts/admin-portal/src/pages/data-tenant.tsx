@@ -297,6 +297,18 @@ export default function DataTenant() {
     queryFn: fetchMallUnits,
   });
 
+  // Map unit_code → status untuk badge di tabel
+  const unitStatusByCode = new Map(mallUnits.map(u => [u.unitCode, u.status as string]));
+
+  const UNIT_STATUS_BADGE: Record<string, { label: string; cls: string }> = {
+    available:  { label: "Tersedia",    cls: "bg-emerald-50 text-emerald-700 border-emerald-200" },
+    occupied:   { label: "Terisi",      cls: "bg-blue-50 text-blue-700 border-blue-200" },
+    maintenance:{ label: "Perawatan",   cls: "bg-slate-100 text-slate-600 border-slate-300" },
+    overdue:    { label: "Tunggakan",   cls: "bg-red-50 text-red-700 border-red-200" },
+    expired:    { label: "Berakhir",    cls: "bg-orange-50 text-orange-700 border-orange-200" },
+    booked:     { label: "Dipesan",     cls: "bg-amber-50 text-amber-700 border-amber-200" },
+  };
+
   // Tampilkan SEMUA unit; jika edit, pastikan unit saat ini selalu ada
   const unitOptions = (() => {
     const allUnits = [...mallUnits];
@@ -905,8 +917,24 @@ export default function DataTenant() {
                         <TableCell>{tenant.ownerName}</TableCell>
                         <TableCell>{tenant.phone ?? "-"}</TableCell>
                         <TableCell>
-                          {tenant.boothNumber ?? "-"}
-                          {tenant.areaName ? <span className="text-muted-foreground"> · {tenant.areaName}</span> : ""}
+                          <div className="flex flex-col gap-0.5">
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className="font-mono text-sm">{tenant.boothNumber ?? "-"}</span>
+                              {tenant.boothNumber && (() => {
+                                const st = unitStatusByCode.get(tenant.boothNumber);
+                                const badge = st ? UNIT_STATUS_BADGE[st] : null;
+                                if (!badge) return null;
+                                return (
+                                  <span className={`inline-flex items-center rounded-full border px-1.5 py-0 text-[10px] font-medium ${badge.cls}`}>
+                                    {badge.label}
+                                  </span>
+                                );
+                              })()}
+                            </div>
+                            {tenant.areaName && (
+                              <span className="text-[11px] text-muted-foreground">{tenant.areaName}</span>
+                            )}
+                          </div>
                         </TableCell>
                         <TableCell>{tenant.category ?? "-"}</TableCell>
                         <TableCell className="font-medium text-sm">
