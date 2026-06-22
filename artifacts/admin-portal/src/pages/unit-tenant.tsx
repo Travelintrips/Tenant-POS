@@ -859,9 +859,6 @@ export default function UnitTenant() {
         title: isNowOccupied
           ? `🔒 Unit ${updated.unitCode} ditandai Terisi`
           : `🔓 Unit ${updated.unitCode} dikosongkan`,
-        description: isNowOccupied
-          ? "Unit tidak tersedia untuk penyewa baru"
-          : "Unit kini tersedia untuk penyewa baru",
       });
       if (selectedUnit?.id === updated.id) {
         setSelectedUnit(u => u ? { ...u, ...updated } : null);
