@@ -1,6 +1,6 @@
 import { apiFetch } from "@/lib/api";
 import { useSite, ALL_SITES_SENTINEL } from "@/contexts/site-context";
-import React, { useState, useMemo, useRef } from "react";
+import React, { useState, useMemo, useRef, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Building2, Receipt, X, CheckCircle2, AlertCircle, CircleDashed,
@@ -9,7 +9,7 @@ import {
   MoreHorizontal, History, Filter, Search, RotateCcw, ChevronDown,
   ChevronRight, MapPin, Wrench, Package, RefreshCw, Info, FileText,
   Layers, LogIn, LogOut, Ban, ShieldAlert, DollarSign, Dumbbell,
-  Plus, UserPlus, Camera, ImagePlus, Trash2,
+  Plus, UserPlus, Camera, ImagePlus, Trash2, Upload, ScanLine, ImageIcon,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -112,10 +112,12 @@ type PaymentHistoryItem = {
   voidedBy: string | null;
   referenceNumber: string | null;
   invoiceId: number | null;
+  bookingId: number | null;
   shiftId: number | null;
   refundAmount: number;
   refundReason: string | null;
   refundStatus: string | null;
+  isManual: boolean;
 };
 
 type ReceiptData = {
@@ -282,6 +284,15 @@ function usePaymentHistory(bookingId: number | null) {
     queryFn: () =>
       apiFetch(`${BASE}/api/tenant-pos/bookings/${bookingId}/payments`, { credentials: "include" }).then((r) => r.json()),
     enabled: bookingId !== null,
+  });
+}
+
+function useTenantAllPayments(tenantId: number | null) {
+  return useQuery<PaymentHistoryItem[]>({
+    queryKey: ["tenant-all-payments", tenantId],
+    queryFn: () =>
+      apiFetch(`${BASE}/api/tenant-pos/tenants/${tenantId}/payments`, { credentials: "include" }).then((r) => r.json()),
+    enabled: tenantId !== null,
   });
 }
 
@@ -574,6 +585,7 @@ function VoidPaymentDialog({ payment, onClose }: {
     },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["payment-history"] });
+      void queryClient.invalidateQueries({ queryKey: ["tenant-all-payments"] });
       void queryClient.invalidateQueries({ queryKey: ["tenant-pos-floor-plan"] });
       void queryClient.invalidateQueries({ queryKey: ["tenant-pos-overview"] });
       void queryClient.invalidateQueries({ queryKey: ["tenant-invoices-pos"] });
@@ -657,6 +669,7 @@ function RefundPaymentDialog({ payment, onClose }: {
     },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["payment-history"] });
+      void queryClient.invalidateQueries({ queryKey: ["tenant-all-payments"] });
       toast({ title: "Refund Dicatat", description: "Data refund berhasil disimpan." });
       onClose(true);
     },
@@ -1160,18 +1173,20 @@ function DetailPanel({ item, onClose, onProses, onBayarInvoice, currentShiftId }
   const user = useAuth().data;
   const canVoidRefund = !!user && ["owner", "admin", "finance"].includes(user.role);
   const canEditLogo = !!user && ["owner", "admin"].includes(user.role);
-  const paymentHistory = usePaymentHistory(item?.bookingId ?? null);
+  const paymentHistory = useTenantAllPayments(item?.tenantId ?? null);
   const tenantInvoices = useTenantInvoices(item?.tenantId ?? null);
   const [receiptPaymentId, setReceiptPaymentId] = useState<number | null>(null);
   const [voidTarget, setVoidTarget] = useState<PaymentHistoryItem | null>(null);
   const [refundTarget, setRefundTarget] = useState<PaymentHistoryItem | null>(null);
   const [activeTab, setActiveTab] = useState<"info" | "tagihan" | "riwayat">("info");
+  const [riwayatFilter, setRiwayatFilter] = useState<"semua" | "invoice" | "manual">("semua");
+  const [showBayarManual, setShowBayarManual] = useState(false);
   const [imgError, setImgError] = useState(false);
   const queryClient = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
 
-  React.useEffect(() => { setImgError(false); }, [item?.tenantId]);
+  React.useEffect(() => { setImgError(false); setRiwayatFilter("semua"); }, [item?.tenantId]);
 
   const uploadLogoMutation = useMutation({
     mutationFn: async (file: File) => {
@@ -1231,13 +1246,32 @@ function DetailPanel({ item, onClose, onProses, onBayarInvoice, currentShiftId }
         setVoidTarget(null);
         if (voided) {
           void queryClient.invalidateQueries({ queryKey: ["payment-history", item.bookingId] });
+          void queryClient.invalidateQueries({ queryKey: ["tenant-all-payments", item.tenantId] });
           void queryClient.invalidateQueries({ queryKey: ["tenant-invoices-pos", item.tenantId] });
         }
       }} />
       <RefundPaymentDialog payment={refundTarget} onClose={(refunded) => {
         setRefundTarget(null);
-        if (refunded) void queryClient.invalidateQueries({ queryKey: ["payment-history", item.bookingId] });
+        if (refunded) {
+          void queryClient.invalidateQueries({ queryKey: ["payment-history", item.bookingId] });
+          void queryClient.invalidateQueries({ queryKey: ["tenant-all-payments", item.tenantId] });
+        }
       }} />
+
+      {showBayarManual && (
+        <ModalBayarManual
+          item={item}
+          currentShiftId={currentShiftId}
+          onClose={() => setShowBayarManual(false)}
+          onSuccess={() => {
+            setShowBayarManual(false);
+            void queryClient.invalidateQueries({ queryKey: ["tenant-pos-floor-plan"] });
+            void queryClient.invalidateQueries({ queryKey: ["tenant-pos-overview"] });
+            void queryClient.invalidateQueries({ queryKey: ["tenant-all-payments", item.tenantId] });
+            void queryClient.invalidateQueries({ queryKey: ["pos-current-shift"] });
+          }}
+        />
+      )}
 
       {/* Header */}
       <div className="px-4 pt-4 pb-3 border-b bg-slate-50/60 shrink-0">
@@ -1273,7 +1307,7 @@ function DetailPanel({ item, onClose, onProses, onBayarInvoice, currentShiftId }
                 activeTab === tab ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-slate-700"
               )}
             >
-              {tab === "info" ? "Info" : tab === "tagihan" ? `Tagihan${openInvoices.length > 0 ? ` (${openInvoices.length})` : ""}` : "Riwayat"}
+              {tab === "info" ? "Info" : tab === "tagihan" ? `Tagihan${openInvoices.length > 0 ? ` (${openInvoices.length})` : ""}` : `Riwayat${Array.isArray(paymentHistory.data) && paymentHistory.data.length > 0 ? ` (${paymentHistory.data.length})` : ""}`}
             </button>
           ))}
         </div>
@@ -1358,6 +1392,19 @@ function DetailPanel({ item, onClose, onProses, onBayarInvoice, currentShiftId }
                 {item.areaName && <DetailRow label="Area / Zona" value={item.areaName} />}
               </div>
             </div>
+
+            {/* ── Tombol Bayar Manual ── */}
+            {!isVacant && (
+              <Button
+                className="w-full gap-2 bg-emerald-600 hover:bg-emerald-700 text-white"
+                size="sm"
+                onClick={() => setShowBayarManual(true)}
+              >
+                <Banknote className="w-4 h-4" />
+                Bayar (Tunai / Transfer)
+              </Button>
+            )}
+
             {item.bookingId && (
               <div>
                 <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">Tagihan Booking</p>
@@ -1475,16 +1522,50 @@ function DetailPanel({ item, onClose, onProses, onBayarInvoice, currentShiftId }
         ) : (
           /* Riwayat Tab */
           <div className="p-4 space-y-2">
+            {/* Filter bar */}
+            {Array.isArray(paymentHistory.data) && paymentHistory.data.length > 0 && (() => {
+              const totalManual = paymentHistory.data.filter(p => p.isManual).length;
+              const totalInvoice = paymentHistory.data.filter(p => !p.isManual).length;
+              return (
+                <div className="flex gap-1 mb-3 bg-muted/40 rounded-lg p-1">
+                  {([
+                    { key: "semua", label: `Semua (${paymentHistory.data.length})` },
+                    { key: "invoice", label: `Invoice (${totalInvoice})` },
+                    { key: "manual", label: `Manual (${totalManual})` },
+                  ] as const).map(({ key, label }) => (
+                    <button
+                      key={key}
+                      onClick={() => setRiwayatFilter(key)}
+                      className={cn(
+                        "flex-1 py-1 text-[10px] font-semibold rounded-md transition-colors",
+                        riwayatFilter === key
+                          ? "bg-white shadow-sm text-primary border border-border"
+                          : "text-muted-foreground hover:text-slate-700"
+                      )}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              );
+            })()}
             {paymentHistory.isLoading ? (
               <div className="space-y-2">{[1, 2, 3].map(i => <Skeleton key={i} className="h-16 w-full rounded-lg" />)}</div>
-            ) : Array.isArray(paymentHistory.data) && paymentHistory.data.length > 0 ? (
-              paymentHistory.data.map((p) => {
+            ) : (() => {
+              const allData = Array.isArray(paymentHistory.data) ? paymentHistory.data : [];
+              const filtered = riwayatFilter === "semua" ? allData
+                : riwayatFilter === "manual" ? allData.filter(p => p.isManual)
+                : allData.filter(p => !p.isManual);
+              return filtered.length > 0 ? filtered.map((p) => {
                 const isVoided = p.isVoided;
                 const hasRefund = p.refundStatus === "processed";
                 return (
                   <div key={p.id} className={cn("rounded-lg border px-3 py-2.5 text-xs space-y-1.5", isVoided ? "bg-red-50/50 border-red-200 opacity-70" : "bg-muted/20")}>
                     <div className="flex items-center justify-between gap-2">
-                      <span className="font-mono text-[10px] text-muted-foreground truncate">{p.receiptNumber ?? `#${p.id}`}</span>
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <span className="font-mono text-[10px] text-muted-foreground truncate">{p.receiptNumber ?? `#${p.id}`}</span>
+                        {p.isManual && <span className="inline-flex items-center text-[9px] px-1 py-0.5 rounded border font-semibold bg-violet-100 text-violet-700 border-violet-300 shrink-0">Manual</span>}
+                      </div>
                       <div className="flex items-center gap-1 shrink-0">
                         {isVoided && <span className="inline-flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded-full border font-bold bg-red-100 text-red-700 border-red-300"><Ban className="w-2.5 h-2.5" />VOID</span>}
                         {hasRefund && <span className="inline-flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded-full border font-medium bg-blue-100 text-blue-700 border-blue-300"><RefreshCw className="w-2.5 h-2.5" />Refund</span>}
@@ -1518,16 +1599,317 @@ function DetailPanel({ item, onClose, onProses, onBayarInvoice, currentShiftId }
                     </div>
                   </div>
                 );
-              })
-            ) : (
-              <div className="rounded-lg border border-dashed p-4 text-center text-muted-foreground text-xs">
-                <Receipt className="w-6 h-6 mx-auto mb-1.5 opacity-30" />Belum ada riwayat pembayaran.
-              </div>
-            )}
+              }) : (
+                <div className="rounded-lg border border-dashed p-4 text-center text-muted-foreground text-xs">
+                  <Receipt className="w-6 h-6 mx-auto mb-1.5 opacity-30" />
+                  {riwayatFilter === "semua" ? "Belum ada riwayat pembayaran." : riwayatFilter === "manual" ? "Tidak ada pembayaran manual." : "Tidak ada pembayaran via invoice."}
+                </div>
+              );
+            })()}
           </div>
         )}
       </div>
     </div>
+  );
+}
+
+// ─── Modal Bayar Manual ───────────────────────────────────────────────────────
+
+type UploadStateBayar =
+  | { status: "idle" }
+  | { status: "uploading" }
+  | { status: "done"; url: string; previewSrc: string; extractedAmount: number | null; confidence: number }
+  | { status: "error"; message: string };
+
+function ModalBayarManual({ item, currentShiftId, onClose, onSuccess }: {
+  item: FloorPlanItem;
+  currentShiftId: number | null;
+  onClose: () => void;
+  onSuccess: () => void;
+}) {
+  const { toast } = useToast();
+  const [nominal, setNominal] = useState("");
+  const [metode, setMetode] = useState<MetodeBayar>("tunai");
+  const [tanggalBayar, setTanggalBayar] = useState(todayString());
+  const [referenceNumber, setReferenceNumber] = useState("");
+  const [catatan, setCatatan] = useState("");
+  const [result, setResult] = useState<{ receiptNumber: string; paidAmount: number } | null>(null);
+  const [uploadState, setUploadState] = useState<UploadStateBayar>({ status: "idle" });
+  const [isDragging, setIsDragging] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const nominalNum = parseInt(nominal.replace(/\D/g, "")) || 0;
+  const isValid = nominalNum > 0 && !!metode;
+  const needsReference = metode === "transfer" || metode === "qris" || metode === "edc";
+  const proofUrl = uploadState.status === "done" ? uploadState.url : undefined;
+
+  const handleFile = useCallback(async (file: File) => {
+    if (!file.type.startsWith("image/")) {
+      setUploadState({ status: "error", message: "Hanya file gambar yang diizinkan" });
+      return;
+    }
+    const previewSrc = URL.createObjectURL(file);
+    setUploadState({ status: "uploading" });
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      const res = await fetch(`${BASE}/api/uploads/expense-receipt`, {
+        method: "POST", credentials: "include", body: fd,
+      });
+      const data = await res.json() as { url?: string; extractedAmount?: number; confidence?: number; error?: string };
+      if (!res.ok) throw new Error(data.error ?? "Upload gagal");
+      setUploadState({ status: "done", url: data.url ?? "", previewSrc, extractedAmount: data.extractedAmount ?? null, confidence: data.confidence ?? 0 });
+      if (data.extractedAmount && data.extractedAmount > 0 && !nominal) {
+        setNominal(String(data.extractedAmount));
+        toast({ title: "Nominal Terdeteksi", description: `OCR membaca Rp ${data.extractedAmount.toLocaleString("id-ID")} dari bukti transfer.` });
+      }
+    } catch (e) {
+      setUploadState({ status: "error", message: (e as Error).message });
+    }
+  }, [nominal, toast]);
+
+  const onDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault(); setIsDragging(false);
+    const file = e.dataTransfer.files[0];
+    if (file) void handleFile(file);
+  }, [handleFile]);
+
+  const mutation = useMutation<{ receiptNumber: string; paidAmount: number }, Error>({
+    mutationFn: async () => {
+      const r = await apiFetch(`${BASE}/api/tenant-pos/manual-payment`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          tenantId: item.tenantId,
+          amountPaid: nominalNum,
+          paymentMethod: metode,
+          paymentDate: tanggalBayar,
+          referenceNumber: referenceNumber || undefined,
+          proofUrl: proofUrl || undefined,
+          notes: catatan || undefined,
+          shiftId: currentShiftId ?? undefined,
+        }),
+      });
+      const data = await r.json() as { error?: string; receiptNumber?: string; paidAmount?: number };
+      if (!r.ok) throw new Error(data.error ?? "Gagal memproses pembayaran");
+      return { receiptNumber: data.receiptNumber!, paidAmount: data.paidAmount! };
+    },
+    onSuccess: (data) => {
+      setResult(data);
+      toast({ title: "Pembayaran Berhasil", description: `Kuitansi ${data.receiptNumber} · ${formatRupiah(nominalNum)} tersimpan.` });
+    },
+    onError: (e) => {
+      toast({ title: "Pembayaran Gagal", description: e.message, variant: "destructive" });
+    },
+  });
+
+  const METODE_OPTIONS_MANUAL: { value: MetodeBayar; label: string; icon: React.ReactNode }[] = [
+    { value: "tunai",    label: "Tunai / Cash",  icon: <Banknote className="w-4 h-4" /> },
+    { value: "transfer", label: "Transfer Bank", icon: <WalletCards className="w-4 h-4" /> },
+    { value: "qris",     label: "QRIS",          icon: <Smartphone className="w-4 h-4" /> },
+    { value: "edc",      label: "EDC / Debit",   icon: <CreditCard className="w-4 h-4" /> },
+  ];
+
+  if (result) {
+    return (
+      <Dialog open onOpenChange={() => { onSuccess(); }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-emerald-700">
+              <CheckCircle2 className="w-5 h-5" /> Pembayaran Berhasil
+            </DialogTitle>
+          </DialogHeader>
+          <div className="py-4 space-y-3 text-sm">
+            <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-4 text-center space-y-1">
+              <p className="text-xs text-muted-foreground">No. Kuitansi</p>
+              <p className="font-mono font-bold text-emerald-800 text-base">{result.receiptNumber}</p>
+            </div>
+            <div className="bg-muted/40 rounded-lg divide-y divide-border/60 px-3">
+              <div className="flex justify-between py-2"><span className="text-muted-foreground">Tenant</span><span className="font-medium">{item.businessName}</span></div>
+              <div className="flex justify-between py-2"><span className="text-muted-foreground">Jumlah</span><span className="font-bold text-emerald-700">{formatRupiah(nominalNum)}</span></div>
+              <div className="flex justify-between py-2"><span className="text-muted-foreground">Metode</span><span className="font-medium">{METODE_OPTIONS_MANUAL.find(m => m.value === metode)?.label ?? metode}</span></div>
+            </div>
+            <p className="text-xs text-muted-foreground text-center">Receipt dikirim ke WhatsApp tenant (jika ada nomor)</p>
+          </div>
+          <Button className="w-full" onClick={() => onSuccess()}>Selesai</Button>
+        </DialogContent>
+      </Dialog>
+    );
+  }
+
+  return (
+    <Dialog open onOpenChange={onClose}>
+      <DialogContent className="max-w-sm">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Banknote className="w-5 h-5 text-emerald-600" /> Bayar Manual
+          </DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4 py-2">
+          {/* Info tenant */}
+          <div className="bg-muted/40 rounded-lg px-3 py-2.5 text-sm space-y-1">
+            <p className="font-semibold">{item.businessName}</p>
+            <p className="text-muted-foreground text-xs">{item.ownerName} · Booth {item.boothNumber}</p>
+          </div>
+
+          {/* Nominal */}
+          <div className="space-y-1.5">
+            <Label htmlFor="mp-nominal">Nominal Pembayaran <span className="text-red-500">*</span></Label>
+            <Input
+              id="mp-nominal"
+              placeholder="Rp 0"
+              value={nominal ? `Rp ${parseInt(nominal.replace(/\D/g, "") || "0").toLocaleString("id-ID")}` : ""}
+              onChange={(e) => setNominal(e.target.value.replace(/\D/g, ""))}
+              inputMode="numeric"
+              disabled={mutation.isPending}
+            />
+          </div>
+
+          {/* Metode */}
+          <div className="space-y-1.5">
+            <Label>Metode Pembayaran <span className="text-red-500">*</span></Label>
+            <div className="grid grid-cols-2 gap-2">
+              {METODE_OPTIONS_MANUAL.map((m) => (
+                <button
+                  key={m.value}
+                  type="button"
+                  onClick={() => setMetode(m.value)}
+                  disabled={mutation.isPending}
+                  className={cn(
+                    "flex items-center gap-2 px-3 py-2.5 rounded-lg border text-sm font-medium transition-all",
+                    metode === m.value
+                      ? "border-emerald-500 bg-emerald-50 text-emerald-700 ring-1 ring-emerald-500"
+                      : "border-border hover:border-slate-400 text-muted-foreground"
+                  )}
+                >
+                  {m.icon}{m.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Upload Bukti Transfer */}
+          <div className="space-y-1.5">
+            <Label className="flex items-center gap-1.5">
+              <Upload className="w-3.5 h-3.5" />
+              Foto Bukti Transfer
+              <span className="text-muted-foreground font-normal text-xs">(opsional — nominal otomatis terbaca)</span>
+            </Label>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={(e) => { const f = e.target.files?.[0]; if (f) void handleFile(f); }}
+            />
+
+            {uploadState.status === "done" ? (
+              <div className="relative rounded-lg border border-emerald-200 bg-emerald-50 overflow-hidden">
+                <img
+                  src={uploadState.previewSrc}
+                  alt="Bukti transfer"
+                  className="w-full max-h-40 object-contain"
+                />
+                <div className="flex items-center justify-between px-3 py-2 bg-white border-t border-emerald-200">
+                  <div className="flex items-center gap-2 text-xs">
+                    <ScanLine className="w-3.5 h-3.5 text-emerald-600" />
+                    {uploadState.extractedAmount ? (
+                      <span className="text-emerald-700 font-medium">
+                        OCR: Rp {uploadState.extractedAmount.toLocaleString("id-ID")}
+                        <span className="text-muted-foreground font-normal ml-1">({Math.round(uploadState.confidence * 100)}% confidence)</span>
+                      </span>
+                    ) : (
+                      <span className="text-muted-foreground">Nominal tidak terdeteksi otomatis</span>
+                    )}
+                  </div>
+                  <Button
+                    variant="ghost" size="icon" className="h-6 w-6 text-muted-foreground"
+                    onClick={() => { setUploadState({ status: "idle" }); if (fileInputRef.current) fileInputRef.current.value = ""; }}
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </Button>
+                </div>
+              </div>
+            ) : uploadState.status === "uploading" ? (
+              <div className="h-24 flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed bg-muted/30">
+                <RefreshCw className="w-5 h-5 animate-spin text-muted-foreground" />
+                <p className="text-xs text-muted-foreground">Mengupload & membaca nominal...</p>
+              </div>
+            ) : (
+              <div
+                onClick={() => fileInputRef.current?.click()}
+                onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
+                onDragLeave={() => setIsDragging(false)}
+                onDrop={onDrop}
+                className={cn(
+                  "h-24 flex flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed cursor-pointer transition-colors",
+                  isDragging ? "border-emerald-400 bg-emerald-50" : "border-border hover:border-emerald-300 hover:bg-muted/30",
+                  uploadState.status === "error" && "border-red-300 bg-red-50"
+                )}
+              >
+                <ImageIcon className="w-6 h-6 text-muted-foreground" />
+                <p className="text-xs text-muted-foreground text-center px-2">
+                  {uploadState.status === "error"
+                    ? <span className="text-red-600">{uploadState.message}</span>
+                    : <>Klik atau seret foto bukti transfer<br /><span className="opacity-60">Nominal akan terbaca otomatis via OCR</span></>
+                  }
+                </p>
+              </div>
+            )}
+          </div>
+
+          {/* Referensi (jika transfer/qris/edc) */}
+          {needsReference && (
+            <div className="space-y-1.5">
+              <Label htmlFor="mp-ref">No. Referensi / Bukti Transfer</Label>
+              <Input
+                id="mp-ref"
+                placeholder="Nomor transaksi / referensi..."
+                value={referenceNumber}
+                onChange={(e) => setReferenceNumber(e.target.value)}
+                disabled={mutation.isPending}
+              />
+            </div>
+          )}
+
+          {/* Tanggal */}
+          <div className="space-y-1.5">
+            <Label htmlFor="mp-tanggal">Tanggal Pembayaran</Label>
+            <Input
+              id="mp-tanggal"
+              type="date"
+              value={tanggalBayar}
+              onChange={(e) => setTanggalBayar(e.target.value)}
+              disabled={mutation.isPending}
+            />
+          </div>
+
+          {/* Catatan */}
+          <div className="space-y-1.5">
+            <Label htmlFor="mp-catatan">Catatan (opsional)</Label>
+            <Input
+              id="mp-catatan"
+              placeholder="Keterangan pembayaran..."
+              value={catatan}
+              onChange={(e) => setCatatan(e.target.value)}
+              disabled={mutation.isPending}
+            />
+          </div>
+        </div>
+        <DialogFooter className="gap-2">
+          <Button variant="outline" onClick={onClose} disabled={mutation.isPending}>Batal</Button>
+          <Button
+            className="bg-emerald-600 hover:bg-emerald-700 text-white"
+            onClick={() => mutation.mutate()}
+            disabled={!isValid || mutation.isPending}
+          >
+            {mutation.isPending ? <RefreshCw className="w-4 h-4 mr-2 animate-spin" /> : <CreditCard className="w-4 h-4 mr-2" />}
+            {mutation.isPending ? "Memproses..." : `Bayar ${nominalNum > 0 ? formatRupiah(nominalNum) : ""}`}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -1606,6 +1988,7 @@ function ModalPembayaran({ item, invoice, shiftId, cashierName, onClose, onSucce
       void queryClient.invalidateQueries({ queryKey: ["tenant-pos-floor-plan"] });
       void queryClient.invalidateQueries({ queryKey: ["tenant-pos-overview"] });
       void queryClient.invalidateQueries({ queryKey: ["payment-history", item.bookingId] });
+      void queryClient.invalidateQueries({ queryKey: ["tenant-all-payments", item.tenantId] });
       void queryClient.invalidateQueries({ queryKey: ["tenant-invoices-pos", item.tenantId] });
       void queryClient.invalidateQueries({ queryKey: ["pos-current-shift"] });
       toast({ title: "Pembayaran Berhasil", description: `Kuitansi ${data.receiptNumber} · ${formatRupiah(nominalNum)} tersimpan.` });

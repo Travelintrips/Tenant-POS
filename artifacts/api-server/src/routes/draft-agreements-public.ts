@@ -56,10 +56,12 @@ async function notifyAdmin(opts: {
   const message = `📄 *Respon ${docLabel}*\n\nStatus: ${statusLabel}\nNama: ${opts.tenantName}\nBrand: ${opts.brandName}${alasan}\n\nLihat dokumen:\n${opts.docUrl}`;
 
   try {
+    const adminDigits = String(adminPhone).replace(/\D/g, "");
+    const adminTarget = adminDigits.startsWith("0") ? "62" + adminDigits.slice(1) : adminDigits.startsWith("62") ? adminDigits : "62" + adminDigits;
     await fetch("https://api.fonnte.com/send", {
       method: "POST",
-      headers: { Authorization: token_api, "Content-Type": "application/json" },
-      body: JSON.stringify({ target: adminPhone, message }),
+      headers: { Authorization: token_api, "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ target: adminTarget, message, delay: "2" }).toString(),
     });
   } catch {
     // fire-and-forget, ignore error
@@ -88,10 +90,12 @@ async function notifyTenant(opts: {
   }
 
   try {
+    const tDigits = String(opts.tenantPhone).replace(/\D/g, "");
+    const tTarget = tDigits.startsWith("0") ? "62" + tDigits.slice(1) : tDigits.startsWith("62") ? tDigits : "62" + tDigits;
     await fetch("https://api.fonnte.com/send", {
       method: "POST",
-      headers: { Authorization: token_api, "Content-Type": "application/json" },
-      body: JSON.stringify({ target: opts.tenantPhone, message }),
+      headers: { Authorization: token_api, "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ target: tTarget, message, delay: "2" }).toString(),
     });
   } catch {
     // fire-and-forget

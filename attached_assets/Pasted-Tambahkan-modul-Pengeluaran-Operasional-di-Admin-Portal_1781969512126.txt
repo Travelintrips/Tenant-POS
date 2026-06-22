@@ -1,0 +1,134 @@
+Tambahkan modul **Pengeluaran Operasional** di Admin Portal / POS Tenant.
+
+=====================================
+🎯 TUJUAN
+=========
+
+Admin dapat mencatat semua pengeluaran operasional tenant atau unit seperti:
+
+* Beli token listrik
+* Bayar internet
+* Perbaikan / maintenance
+* Pengeluaran rutin lain
+
+=====================================
+🗄️ DATABASE
+============
+
+Buat tabel baru `operational_expenses`:
+
+Fields:
+
+* id (PK)
+* site_id / tenant_id
+* category (enum: listrik, internet, perbaikan, lain-lain)
+* description / notes
+* amount (numeric)
+* payment_method (cash / transfer / e-wallet / lainnya)
+* paid_at (datetime)
+* created_by (admin id)
+* created_at (timestamp)
+* receipt_id / attachment (opsional: upload bukti pembayaran)
+
+Tambahkan index pada:
+
+* site_id
+* tenant_id
+* category
+* paid_at
+
+=====================================
+📡 BACKEND ENDPOINTS
+====================
+
+1. **GET /api/operational-expenses**
+
+   * Filter: siteId, tenantId, category, dateFrom, dateTo
+   * Pagination: limit, offset
+   * Response: list pengeluaran + total nominal halaman ini
+
+2. **POST /api/operational-expenses**
+
+   * Body:
+
+```json
+{
+  "siteId": 1,
+  "tenantId": 2,
+  "category": "listrik",
+  "description": "Beli token PLN bulan Juni",
+  "amount": 500000,
+  "paymentMethod": "transfer",
+  "paidAt": "2026-06-20T10:30:00Z",
+  "receiptFile": "<file_upload_optional>"
+}
+```
+
+* Validasi: amount > 0, category valid
+
+3. **PATCH /api/operational-expenses/:id**
+
+   * Edit amount, category, description, paidAt, paymentMethod
+
+4. **DELETE /api/operational-expenses/:id**
+
+   * Hanya admin / owner
+
+=====================================
+🖥️ FRONTEND
+============
+
+1. Halaman / modal baru: **Pengeluaran Operasional**
+
+   * Tabel dengan kolom:
+
+     * No
+     * Tanggal Bayar
+     * Tenant / Unit
+     * Kategori
+     * Deskripsi
+     * Nominal
+     * Payment Method
+     * Receipt / Attachment (link view / download)
+   * Filter bar:
+
+     * Tanggal (from/to)
+     * Tenant / site
+     * Kategori
+   * Tombol Add / Edit / Delete
+
+2. Form Tambah / Edit:
+
+   * Field sesuai database
+   * Upload file bukti pembayaran
+   * Validasi amount numeric >0
+
+3. Summary / Footer:
+
+   * Total pengeluaran per filter / halaman
+   * Highlight pengeluaran besar (> threshold configurable)
+
+=====================================
+🧪 TEST CASES
+=============
+
+1. Tambah pengeluaran baru → tampil di tabel
+2. Edit pengeluaran → perubahan muncul, total recalculated
+3. Hapus pengeluaran → record hilang
+4. Filter by tenant / site → data benar
+5. Filter by category → data sesuai
+6. Filter by date → data sesuai
+7. Upload receipt → bisa lihat/download
+8. Total nominal → sesuai sum amount
+9. Unauthorized user → tidak bisa POST / PATCH / DELETE
+
+=====================================
+📦 OUTPUT
+=========
+
+* Backend: model, migration, endpoint CRUD
+* Frontend: halaman modal + tabel + form
+* Validasi & filter
+* Total nominal & summary
+* Upload & view receipt
+* Audit log optional

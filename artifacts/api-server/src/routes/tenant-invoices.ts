@@ -13,6 +13,7 @@ import { requireAnyRole } from "../middlewares/auth";
 import { logAudit } from "../lib/audit";
 import { getBaseUrl } from "../lib/app-url";
 import { writePaymentEvent, normalizePaymentMethod } from "../lib/payment-events";
+import { sendInvoiceNotification, getSiteCompanyName } from "../lib/whatsapp";
 
 const router: IRouter = Router();
 router.use("/tenant-invoices", requireAnyRole("owner", "admin", "finance"));
@@ -96,6 +97,7 @@ function calcAmounts(data: {
   discountAmount?: string | number | null;
   penaltyAmount?: string | number | null;
   paidAmount?: string | number | null;
+  usePpn?: boolean | null;
 }) {
   const rent = Number(data.rentAmount ?? 0);
   const service = Number(data.serviceChargeAmount ?? 0);
@@ -108,7 +110,7 @@ function calcAmounts(data: {
   const paid = Number(data.paidAmount ?? 0);
 
   const subtotal = rent + service + elec + water + other + trash - discount + penalty;
-  const taxAmt = Math.round(subtotal * PPN_RATE);
+  const taxAmt = (data.usePpn !== false) ? Math.round(subtotal * PPN_RATE) : 0;
   const total = subtotal + taxAmt;
   const outstanding = Math.max(total - paid, 0);
 
@@ -146,6 +148,7 @@ const invoiceSelect = {
   trashChargeAmount: tenantInvoicesTable.trashChargeAmount,
   discountAmount: tenantInvoicesTable.discountAmount,
   penaltyAmount: tenantInvoicesTable.penaltyAmount,
+  usePpn: tenantInvoicesTable.usePpn,
   subtotal: tenantInvoicesTable.subtotal,
   taxAmount: tenantInvoicesTable.taxAmount,
   totalAmount: tenantInvoicesTable.totalAmount,
@@ -531,6 +534,7 @@ const createInvoiceSchema = z.object({
   discountAmount: z.union([z.string(), z.number()]).optional().nullable(),
   penaltyAmount: z.union([z.string(), z.number()]).optional().nullable(),
   taxAmount: z.union([z.string(), z.number()]).optional().nullable(),
+  usePpn: z.boolean().optional(),
   notes: z.string().optional().nullable(),
   status: z.enum(["draft", "unpaid", "partial", "paid", "overdue", "cancelled"]).optional(),
 });
@@ -544,7 +548,8 @@ router.post("/tenant-invoices", async (req, res) => {
   }
 
   const data = parsed.data;
-  const { subtotal, taxAmount: calcedTax, totalAmount, outstandingAmount } = calcAmounts(data);
+  const usePpn = data.usePpn !== false;
+  const { subtotal, taxAmount: calcedTax, totalAmount, outstandingAmount } = calcAmounts({ ...data, usePpn });
 
   const status = data.status ?? resolveStatus(
     Number(totalAmount),
@@ -555,7 +560,6 @@ router.post("/tenant-invoices", async (req, res) => {
   try {
     const invoice = await insertInvoiceSafe({
       ...(req.siteId > 0 ? { siteId: req.siteId } : {}),
-      siteId: req.siteId > 0 ? req.siteId : undefined,
       tenantId: data.tenantId,
       bookingId: data.bookingId ?? null,
       unitCode: data.unitCode ?? null,
@@ -570,6 +574,7 @@ router.post("/tenant-invoices", async (req, res) => {
       trashChargeAmount: String(data.trashChargeAmount ?? "0"),
       discountAmount: String(data.discountAmount ?? "0"),
       penaltyAmount: String(data.penaltyAmount ?? "0"),
+      usePpn,
       taxAmount: calcedTax,
       subtotal,
       totalAmount,
@@ -623,9 +628,11 @@ router.patch("/tenant-invoices/:id", async (req, res) => {
     }
 
     const merged = { ...existing, ...parsed.data };
+    const mergedUsePpn = parsed.data.usePpn !== undefined ? parsed.data.usePpn : (existing.usePpn ?? true);
     const { subtotal, taxAmount: calcedTax, totalAmount, outstandingAmount } = calcAmounts({
       ...merged,
       paidAmount: existing.paidAmount,
+      usePpn: mergedUsePpn,
     });
 
     const status = parsed.data.status ?? resolveStatus(
@@ -649,6 +656,7 @@ router.patch("/tenant-invoices/:id", async (req, res) => {
         trashChargeAmount: String(merged.trashChargeAmount ?? "0"),
         discountAmount: String(merged.discountAmount ?? "0"),
         penaltyAmount: String(merged.penaltyAmount ?? "0"),
+        usePpn: mergedUsePpn,
         taxAmount: calcedTax,
         subtotal,
         totalAmount,
@@ -878,6 +886,43 @@ router.post("/tenant-invoices/generate-from-booking/:bookingId", async (req, res
       afterData: withTenant,
     });
     res.status(201).json(withTenant);
+
+    // ── Kirim WA notifikasi tagihan baru ke tenant (fire-and-forget) ──────────
+    void (async () => {
+      try {
+        const phone = withTenant?.phone as string | null | undefined;
+        if (!phone) return;
+
+        const companyName = await getSiteCompanyName(req.siteId > 0 ? req.siteId : null).catch(() => undefined);
+        const baseUrl = await getBaseUrl().catch(() => undefined);
+        const paymentLink = baseUrl
+          ? `${baseUrl}/bayar/${(withTenant as unknown as Record<string, unknown>)?.token ?? ""}`
+          : undefined;
+
+        // Format periode label: "Januari 2026"
+        const periodStartStr = withTenant?.periodStart as string | undefined;
+        const periodLabel = periodStartStr
+          ? new Date(periodStartStr).toLocaleDateString("id-ID", { month: "long", year: "numeric" })
+          : "-";
+
+        const dueDateStr = withTenant?.dueDate as string | undefined;
+        const dueDateLabel = dueDateStr
+          ? new Date(dueDateStr).toLocaleDateString("id-ID", { day: "numeric", month: "long", year: "numeric" })
+          : "-";
+
+        await sendInvoiceNotification({
+          ownerName: (withTenant?.ownerName as string | null | undefined) ?? "Tenant",
+          businessName: (withTenant?.tenantName as string | null | undefined) ?? "",
+          invoiceNumber: (withTenant?.invoiceNumber as string | undefined) ?? invoice.invoiceNumber,
+          periodLabel,
+          totalAmount: withTenant?.totalAmount ?? "0",
+          dueDate: dueDateLabel,
+          phone,
+          paymentLink: paymentLink && paymentLink.endsWith("/") ? undefined : paymentLink,
+          companyName,
+        });
+      } catch { /* tidak perlu throw */ }
+    })();
   } catch (err) {
     req.log.error({ err, bookingId }, "Gagal membuat invoice dari booking");
     res.status(500).json({ error: "Gagal membuat invoice dari booking" });
@@ -1103,6 +1148,115 @@ router.delete("/tenant-invoices/:id", requireAnyRole("owner", "admin"), async (r
   } catch (err) {
     req.log.error(err, "Failed to delete invoice");
     res.status(500).json({ error: "Gagal menghapus invoice" });
+  }
+});
+
+// ─── GET /api/tenant-invoices/export ────────────────────────────────────────
+router.get("/tenant-invoices/export", async (req, res) => {
+  try {
+    const { from, to, tenant_id, status, unit_code } = req.query as Record<string, string | undefined>;
+
+    const conditions = [];
+    if (req.siteId > 0) conditions.push(eq(tenantInvoicesTable.siteId, req.siteId));
+    if (tenant_id) conditions.push(eq(tenantInvoicesTable.tenantId, Number(tenant_id)));
+    if (status) conditions.push(eq(tenantInvoicesTable.status, status));
+    if (unit_code) conditions.push(ilike(tenantInvoicesTable.unitCode, `%${unit_code}%`));
+    if (from) conditions.push(sql`${tenantInvoicesTable.createdAt} >= ${new Date(from).toISOString()}`);
+    if (to)   conditions.push(sql`${tenantInvoicesTable.createdAt} <  ${new Date(new Date(to).getTime() + 86400000).toISOString()}`);
+
+    const rows = await db
+      .select({
+        invoiceNumber: tenantInvoicesTable.invoiceNumber,
+        tenantName: tenantsTable.businessName,
+        ownerName: tenantsTable.ownerName,
+        unitCode: tenantInvoicesTable.unitCode,
+        boothNumber: tenantsTable.boothNumber,
+        periodStart: tenantInvoicesTable.periodStart,
+        periodEnd: tenantInvoicesTable.periodEnd,
+        dueDate: tenantInvoicesTable.dueDate,
+        rentAmount: tenantInvoicesTable.rentAmount,
+        serviceChargeAmount: tenantInvoicesTable.serviceChargeAmount,
+        electricityChargeAmount: tenantInvoicesTable.electricityChargeAmount,
+        waterChargeAmount: tenantInvoicesTable.waterChargeAmount,
+        otherChargeAmount: tenantInvoicesTable.otherChargeAmount,
+        trashChargeAmount: tenantInvoicesTable.trashChargeAmount,
+        discountAmount: tenantInvoicesTable.discountAmount,
+        penaltyAmount: tenantInvoicesTable.penaltyAmount,
+        usePpn: tenantInvoicesTable.usePpn,
+        subtotal: tenantInvoicesTable.subtotal,
+        taxAmount: tenantInvoicesTable.taxAmount,
+        totalAmount: tenantInvoicesTable.totalAmount,
+        paidAmount: tenantInvoicesTable.paidAmount,
+        outstandingAmount: tenantInvoicesTable.outstandingAmount,
+        status: tenantInvoicesTable.status,
+        notes: tenantInvoicesTable.notes,
+        createdAt: tenantInvoicesTable.createdAt,
+      })
+      .from(tenantInvoicesTable)
+      .leftJoin(tenantsTable, eq(tenantInvoicesTable.tenantId, tenantsTable.id))
+      .where(conditions.length > 0 ? and(...conditions) : undefined)
+      .orderBy(tenantInvoicesTable.createdAt);
+
+    const STATUS_ID: Record<string, string> = {
+      draft: "Draft", unpaid: "Belum Bayar", partial: "Sebagian",
+      paid: "Lunas", overdue: "Jatuh Tempo", cancelled: "Dibatalkan",
+    };
+    const esc = (v: string | number | null | undefined) => {
+      if (v === null || v === undefined) return "";
+      const s = String(v);
+      if (s.includes(",") || s.includes('"') || s.includes("\n")) return `"${s.replace(/"/g, '""')}"`;
+      return s;
+    };
+    const fmtDate = (d: string | null | undefined) => d ? new Date(d).toLocaleDateString("id-ID") : "";
+
+    const headers = [
+      "No. Invoice", "Tenant", "Pemilik", "Booth", "Kode Unit",
+      "Periode Mulai", "Periode Selesai", "Jatuh Tempo",
+      "Sewa (Rp)", "Service Charge (Rp)", "Listrik (Rp)", "Air (Rp)", "Lainnya (Rp)", "Sampah (Rp)",
+      "Diskon (Rp)", "Denda (Rp)", "Gunakan PPN", "PPN 11% (Rp)",
+      "Subtotal (Rp)", "Total (Rp)", "Terbayar (Rp)", "Sisa (Rp)",
+      "Status", "Catatan", "Dibuat",
+    ];
+
+    const lines = [
+      "\uFEFF" + headers.join(","),
+      ...rows.map((r) => [
+        esc(r.invoiceNumber),
+        esc(r.tenantName),
+        esc(r.ownerName),
+        esc(r.boothNumber),
+        esc(r.unitCode),
+        esc(fmtDate(r.periodStart)),
+        esc(fmtDate(r.periodEnd)),
+        esc(fmtDate(r.dueDate)),
+        Number(r.rentAmount ?? 0),
+        Number(r.serviceChargeAmount ?? 0),
+        Number(r.electricityChargeAmount ?? 0),
+        Number(r.waterChargeAmount ?? 0),
+        Number(r.otherChargeAmount ?? 0),
+        Number(r.trashChargeAmount ?? 0),
+        Number(r.discountAmount ?? 0),
+        Number(r.penaltyAmount ?? 0),
+        r.usePpn ? "Ya" : "Tidak",
+        Number(r.taxAmount ?? 0),
+        Number(r.subtotal ?? 0),
+        Number(r.totalAmount ?? 0),
+        Number(r.paidAmount ?? 0),
+        Number(r.outstandingAmount ?? 0),
+        esc(STATUS_ID[r.status] ?? r.status),
+        esc(r.notes),
+        esc(fmtDate(r.createdAt?.toISOString())),
+      ].join(",")),
+    ];
+
+    const now = new Date();
+    const stamp = `${now.getFullYear()}${String(now.getMonth()+1).padStart(2,"0")}${String(now.getDate()).padStart(2,"0")}-${String(now.getHours()).padStart(2,"0")}${String(now.getMinutes()).padStart(2,"0")}${String(now.getSeconds()).padStart(2,"0")}`;
+    res.setHeader("Content-Type", "text/csv; charset=utf-8");
+    res.setHeader("Content-Disposition", `attachment; filename="invoice-tenant-${stamp}.csv"`);
+    res.send(lines.join("\r\n"));
+  } catch (err) {
+    req.log.error(err, "Failed to export invoices");
+    res.status(500).json({ error: "Gagal mengekspor data invoice" });
   }
 });
 

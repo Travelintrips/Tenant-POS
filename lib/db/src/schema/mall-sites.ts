@@ -15,6 +15,7 @@ export const mallSitesTable = pgTable("mall_sites", {
   type: text("type").notNull().default("mall_tenant"),
   address: text("address"),
   status: text("status").notNull().default("active"),
+  companyName: text("company_name").notNull().default("Manajemen CST"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
@@ -25,5 +26,5 @@ export const insertMallSiteSchema = createInsertSchema(mallSitesTable).omit({
   updatedAt: true,
 });
 
-export type InsertMallSite = z.infer<typeof insertMallSiteSchema>;
+export type InsertMallSite = typeof mallSitesTable.$inferInsert;
 export type MallSite = typeof mallSitesTable.$inferSelect;

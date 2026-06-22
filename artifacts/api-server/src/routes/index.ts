@@ -28,6 +28,7 @@ import settingsRouter from "./settings";
 import reconciliationRouter from "./reconciliation";
 import bankReconciliationRouter from "./bank-reconciliation";
 import paymentsRouter from "./payments";
+import operationalExpensesRouter from "./operational-expenses";
 import { requireAuth, requireNonTenantUser } from "../middlewares/auth";
 import { siteContext } from "../middlewares/site-context";
 
@@ -75,5 +76,6 @@ router.use(systemStatusRouter);
 router.use(settingsRouter);
 router.use(reconciliationRouter);
 router.use(draftAgreementsRouter);
+router.use(operationalExpensesRouter);
 
 export default router;

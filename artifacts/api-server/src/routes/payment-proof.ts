@@ -7,7 +7,7 @@ import { tenantInvoicesTable, tenantPaymentsTable, tenantsTable, systemSettingsT
 import { eq, sql, and, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { sseBroker } from "../lib/sse-broker";
-import { sendPaymentReceived, sendAdminPaymentAlert } from "../lib/whatsapp";
+import { sendPaymentReceived, sendAdminPaymentAlert, getSiteCompanyName } from "../lib/whatsapp";
 import { uploadRateLimiter } from "../middlewares/rate-limit";
 import { uploadToStorage } from "../lib/supabase-storage";
 import { getBaseUrl } from "../lib/app-url";
@@ -326,12 +326,14 @@ router.post("/pay/:token/proof", uploadRateLimiter, async (req, res) => {
         .limit(1);
 
       if (!recentWa) {
+        const companyName = await getSiteCompanyName((invoice as { siteId?: number | null }).siteId).catch(() => "Manajemen CST");
         await sendPaymentReceived({
           ownerName: invoice.ownerName ?? "Tenant",
           businessName: invoice.businessName ?? "",
           invoiceNumber: invoice.invoiceNumber,
           amount,
           phone: invoice.phone,
+          companyName,
         }).catch(() => {});
       }
     }

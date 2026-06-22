@@ -3,6 +3,7 @@ import { db } from "@workspace/db";
 import {
   tenantsTable, insertTenantSchema,
   tenantBookingsTable, tenantInvoicesTable, tenantPaymentsTable, mallSitesTable,
+  financePaymentEventsTable, tenantUserAccessTable,
 } from "@workspace/db/schema";
 import { eq, asc, desc, and, inArray, sql } from "drizzle-orm";
 import { requireAnyRole } from "../middlewares/auth";
@@ -232,7 +233,9 @@ router.delete("/tenants/bulk", async (req, res) => {
   }
 
   try {
-    // Hapus data terkait terlebih dahulu
+    // Hapus data terkait terlebih dahulu (urutan: child dulu sebelum parent)
+    await db.delete(financePaymentEventsTable).where(inArray(financePaymentEventsTable.tenantId, numIds));
+    await db.delete(tenantUserAccessTable).where(inArray(tenantUserAccessTable.tenantId, numIds));
     await db.delete(tenantPaymentsTable).where(inArray(tenantPaymentsTable.tenantId, numIds));
     await db.delete(tenantInvoicesTable).where(inArray(tenantInvoicesTable.tenantId, numIds));
     await db.delete(tenantBookingsTable).where(inArray(tenantBookingsTable.tenantId, numIds));
@@ -271,7 +274,9 @@ router.delete("/tenants/:id", async (req, res) => {
       return;
     }
 
-    // Hapus data terkait terlebih dahulu (menghindari foreign key constraint)
+    // Hapus data terkait terlebih dahulu (urutan: child dulu sebelum parent)
+    await db.delete(financePaymentEventsTable).where(eq(financePaymentEventsTable.tenantId, id));
+    await db.delete(tenantUserAccessTable).where(eq(tenantUserAccessTable.tenantId, id));
     await db.delete(tenantPaymentsTable).where(eq(tenantPaymentsTable.tenantId, id));
     await db.delete(tenantInvoicesTable).where(eq(tenantInvoicesTable.tenantId, id));
     await db.delete(tenantBookingsTable).where(eq(tenantBookingsTable.tenantId, id));

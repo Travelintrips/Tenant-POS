@@ -7,6 +7,7 @@ export interface MallSite {
   name: string;
   type: string;
   status: string;
+  companyName?: string;
 }
 
 export const ALL_SITES_SENTINEL: MallSite = {

@@ -1,7 +1,7 @@
-import { pgTable, serial, integer, text, date, numeric, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, serial, integer, text, date, numeric, timestamp, boolean } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
-import { z } from "zod/v4";
+import { z } from "zod";
 import { tenantsTable } from "./tenants";
 import { tenantBookingsTable } from "./tenant-bookings";
 import { mallSitesTable } from "./mall-sites";
@@ -37,6 +37,7 @@ export const tenantInvoicesTable = pgTable("tenant_invoices", {
   notes: text("notes"),
   paymentToken: text("payment_token"),
   lastOverdueReminderAt: timestamp("last_overdue_reminder_at", { withTimezone: true }),
+  usePpn: boolean("use_ppn").notNull().default(true),
   dueReminder3dAt: timestamp("due_reminder_3d_at", { withTimezone: true }),
   dueReminder1dAt: timestamp("due_reminder_1d_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -49,5 +50,5 @@ export const tenantInvoicesRelations = relations(tenantInvoicesTable, ({ one }) 
 }));
 
 export const insertTenantInvoiceSchema = createInsertSchema(tenantInvoicesTable).omit({ id: true, createdAt: true, updatedAt: true });
-export type InsertTenantInvoice = z.infer<typeof insertTenantInvoiceSchema>;
+export type InsertTenantInvoice = typeof tenantInvoicesTable.$inferInsert;
 export type TenantInvoice = typeof tenantInvoicesTable.$inferSelect;

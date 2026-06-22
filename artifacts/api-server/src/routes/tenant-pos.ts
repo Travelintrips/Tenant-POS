@@ -18,7 +18,7 @@ import { sseBroker } from "../lib/sse-broker";
 import { writePaymentEvent, normalizePaymentMethod } from "../lib/payment-events";
 import { generateReceiptHtml, saveReceiptFile } from "../lib/pos-receipt";
 import { postPosPaymentJournal } from "../lib/pos-journal";
-import { sendPosPaymentSuccess } from "../lib/whatsapp";
+import { sendPosPaymentSuccess, getSiteCompanyName } from "../lib/whatsapp";
 import { recordPayment, LedgerError } from "../lib/payment-ledger";
 import { getBaseUrl } from "../lib/app-url";
 
@@ -303,6 +303,53 @@ router.get("/tenant-pos/bookings/:bookingId/payments", async (req, res) => {
   }
 });
 
+// ─── GET /api/tenant-pos/tenants/:tenantId/payments ──────────────────────────
+router.get("/tenant-pos/tenants/:tenantId/payments", async (req, res) => {
+  const tenantId = Number(req.params.tenantId);
+  if (isNaN(tenantId)) {
+    res.status(400).json({ error: "ID tidak valid" });
+    return;
+  }
+  try {
+    const siteFilter = req.siteId > 0 ? eq(tenantPaymentsTable.siteId, req.siteId) : undefined;
+    const payments = await db
+      .select()
+      .from(tenantPaymentsTable)
+      .where(and(eq(tenantPaymentsTable.tenantId, tenantId), siteFilter))
+      .orderBy(desc(tenantPaymentsTable.paidAt));
+
+    res.json(
+      payments.map((p) => ({
+        id: p.id,
+        receiptNumber: p.receiptNumber,
+        amountPaid: Number(p.amount),
+        discountAmount: Number(p.discountAmount ?? 0),
+        penaltyAmount: Number(p.penaltyAmount ?? 0),
+        paymentMethod: p.paymentMethod,
+        paymentStatus: p.paymentStatus,
+        paymentDate: p.paidAt,
+        notes: p.notes,
+        createdAt: p.createdAt,
+        isVoided: p.isVoided,
+        voidReason: p.voidReason,
+        voidedAt: p.voidedAt,
+        voidedBy: p.voidedBy,
+        referenceNumber: p.referenceNumber,
+        invoiceId: p.invoiceId,
+        bookingId: p.bookingId,
+        shiftId: p.shiftId,
+        refundAmount: Number(p.refundAmount ?? 0),
+        refundReason: p.refundReason,
+        refundStatus: p.refundStatus,
+        isManual: p.bookingId === null,
+      }))
+    );
+  } catch (err) {
+    req.log.error(err, "Failed to get tenant payment history");
+    res.status(500).json({ error: "Gagal mengambil riwayat pembayaran" });
+  }
+});
+
 // ─── GET /api/tenant-pos/recent-payments ─────────────────────────────────────
 router.get("/tenant-pos/recent-payments", async (req, res) => {
   try {
@@ -499,7 +546,7 @@ router.post("/tenant-pos/payments", paymentRateLimiter, async (req, res) => {
             refundAmount: "0",
           })
           .returning();
-        payment = inserted;
+        payment = inserted as typeof payment;
       }
 
       const [updatedBooking] = await tx
@@ -572,8 +619,8 @@ router.post("/tenant-pos/payments", paymentRateLimiter, async (req, res) => {
       sourceId: result.payment.id,
       ownerTenantId: tenantId ?? null,
       tenantId: tenantId ?? null,
-      siteId: result.payment.siteId ?? null,
-      invoiceId: result.payment.invoiceId ?? null,
+      siteId: (result.payment.siteId as number | null) ?? null,
+      invoiceId: (result.payment.invoiceId as number | null) ?? null,
       amount: amountPaid,
       direction: "IN",
       paymentMethod: normalizePaymentMethod(paymentMethod),
@@ -590,10 +637,10 @@ router.post("/tenant-pos/payments", paymentRateLimiter, async (req, res) => {
 
     // ── Post-payment: Journal → Receipt → WhatsApp (fire-and-forget, non-blocking) ──
     const paymentId = result.payment.id;
-    const siteId = result.payment.siteId ?? null;
+    const siteId = (result.payment.siteId as number | null) ?? null;
     const kasirName = getSessionUser(req)?.name ?? "Kasir";
     const invoiceNumber = result.preInsertInvoice?.invoiceNumber ?? null;
-    const paidAt = result.payment.paidAt ?? new Date();
+    const paidAt = (result.payment.paidAt as Date | null) ?? new Date();
 
     // Fetch tenant info for WA + receipt (do this async)
     void (async () => {
@@ -636,7 +683,7 @@ router.post("/tenant-pos/payments", paymentRateLimiter, async (req, res) => {
             paidAt: new Date(paidAt),
             journalId: journalResult.journalId,
           });
-          const saved = saveReceiptFile(result.receiptNumber, receiptHtml);
+          const saved = await saveReceiptFile(result.receiptNumber, receiptHtml);
           receiptUrl = saved.fileUrl;
         } catch (receiptErr) {
           logger.error({ err: receiptErr, paymentId }, "[pos] Gagal generate receipt — dilanjutkan");
@@ -676,6 +723,7 @@ router.post("/tenant-pos/payments", paymentRateLimiter, async (req, res) => {
           try {
             const baseUrl = await getBaseUrl();
             const fullReceiptUrl = receiptUrl && baseUrl ? `${baseUrl}${receiptUrl}` : null;
+            const posCompanyName = await getSiteCompanyName(siteId);
             const waResult = await sendPosPaymentSuccess({
               ownerName: result.tenantData?.ownerName ?? "Tenant",
               businessName: result.tenantData?.businessName ?? "Tenant",
@@ -685,6 +733,7 @@ router.post("/tenant-pos/payments", paymentRateLimiter, async (req, res) => {
               receiptNumber: result.receiptNumber,
               receiptUrl: fullReceiptUrl,
               phone: tenantPhone,
+              companyName: posCompanyName,
             });
             waStatus = waResult.ok ? (waResult.skipped ? "skipped" : "sent") : "failed";
             waError = waResult.error ?? null;
@@ -736,6 +785,159 @@ router.post("/tenant-pos/payments", paymentRateLimiter, async (req, res) => {
       logger.error({ err }, "Gagal memproses pembayaran");
       res.status(500).json({ error: "Gagal memproses pembayaran" });
     }
+  }
+});
+
+// ─── POST /api/tenant-pos/manual-payment ─────────────────────────────────────
+// Pembayaran manual (tunai/transfer) tanpa booking — langsung ke tenant
+const manualPaymentSchema = z.object({
+  tenantId: z.number().int().positive(),
+  amountPaid: z.number().int().min(1, "Nominal harus lebih dari 0"),
+  paymentMethod: z.enum(["tunai", "transfer", "qris", "edc", "other"]),
+  paymentDate: z.string().optional(),
+  referenceNumber: z.string().optional(),
+  proofUrl: z.string().optional(),
+  notes: z.string().optional(),
+  shiftId: z.number().int().positive().optional(),
+});
+
+router.post("/tenant-pos/manual-payment", paymentRateLimiter, async (req, res) => {
+  const parsed = manualPaymentSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Data tidak valid", detail: parsed.error.flatten().fieldErrors });
+    return;
+  }
+
+  const { tenantId, amountPaid, paymentMethod, paymentDate, referenceNumber, proofUrl, notes, shiftId } = parsed.data;
+
+  try {
+    const [tenant] = await db
+      .select({ id: tenantsTable.id, businessName: tenantsTable.businessName, ownerName: tenantsTable.ownerName, phone: tenantsTable.phone, boothNumber: tenantsTable.boothNumber })
+      .from(tenantsTable)
+      .where(eq(tenantsTable.id, tenantId));
+
+    if (!tenant) { res.status(404).json({ error: "Tenant tidak ditemukan" }); return; }
+
+    const receiptNumber = await generateReceiptNumber();
+    const paidAt = paymentDate ? new Date(paymentDate) : new Date();
+    const siteId = req.siteId > 0 ? req.siteId : null;
+    const posReferenceId = `POS-MANUAL-${receiptNumber}`;
+
+    const [inserted] = await db
+      .insert(tenantPaymentsTable)
+      .values({
+        siteId: siteId ?? undefined,
+        bookingId: null,
+        tenantBookingId: null,
+        tenantId,
+        invoiceId: null,
+        amount: String(amountPaid),
+        discountAmount: "0",
+        penaltyAmount: "0",
+        paymentMethod,
+        method: paymentMethod,
+        paymentStatus: "PAID",
+        status: "PAID",
+        approvalStatus: "approved",
+        receiptNumber,
+        referenceNumber: referenceNumber ?? null,
+        referenceId: posReferenceId,
+        sourceType: "pos",
+        proofUrl: proofUrl ?? null,
+        shiftId: shiftId ?? null,
+        notes: notes ?? null,
+        paidAt,
+        isVoided: false,
+        refundAmount: "0",
+      })
+      .returning();
+
+    if (shiftId && paymentMethod === "tunai") {
+      const [shift] = await db.select().from(cashierShiftsTable).where(and(eq(cashierShiftsTable.id, shiftId), eq(cashierShiftsTable.status, "open")));
+      if (shift) {
+        await db.update(cashierShiftsTable).set({ expectedCash: sql`${cashierShiftsTable.expectedCash}::numeric + ${amountPaid}`, updatedAt: new Date() }).where(eq(cashierShiftsTable.id, shiftId));
+      }
+    }
+
+    logAudit(req, { action: "create_manual_payment", entityType: "payment", entityId: inserted.id, afterData: { paymentId: inserted.id, tenantId, amountPaid, paymentMethod, receiptNumber } });
+    sseBroker.publish("payment_created", { paymentId: inserted.id });
+
+    writePaymentEvent({
+      sourceApp: "tenant_pos", ownerApp: "tenant_management", sourceModule: "pos_manual", sourceTable: "tenant_payments",
+      sourceId: inserted.id, ownerTenantId: tenantId, tenantId, siteId,
+      invoiceId: null, amount: amountPaid, direction: "IN",
+      paymentMethod: normalizePaymentMethod(paymentMethod),
+      paymentReference: referenceNumber ?? null,
+      paymentStatus: paymentMethod === "transfer" ? "waiting_confirmation" : "confirmed",
+      proofUrl: null,
+      metadata: { receiptNumber, source: "manual_payment" },
+    }).catch(() => {});
+
+    const kasirName = getSessionUser(req)?.name ?? "Kasir";
+    const paymentId = inserted.id;
+
+    void (async () => {
+      try {
+        const journalResult = await postPosPaymentJournal({
+          paymentId, tenantId, invoiceId: null, invoiceNumber: null,
+          businessName: tenant.businessName ?? null,
+          amountPaid, paymentMethod,
+          transactionDate: new Date(paidAt),
+          kasirName, siteId, receiptNumber,
+        });
+
+        let receiptUrl: string | null = null;
+        try {
+          const receiptHtml = generateReceiptHtml({
+            receiptNumber, invoiceNumber: null,
+            businessName: tenant.businessName ?? "Tenant",
+            ownerName: tenant.ownerName ?? "",
+            unitCode: tenant.boothNumber ?? null,
+            periodLabel: null,
+            amountPaid, netAmount: journalResult.netAmount, taxAmount: journalResult.taxAmount,
+            discountAmount: 0, penaltyAmount: 0,
+            paymentMethod, kasirName, paidAt: new Date(paidAt), journalId: journalResult.journalId,
+          });
+          const saved = await saveReceiptFile(receiptNumber, receiptHtml);
+          receiptUrl = saved.fileUrl;
+        } catch (receiptErr) {
+          logger.error({ err: receiptErr, paymentId }, "[pos-manual] Gagal generate receipt");
+        }
+
+        try {
+          await db.insert(paymentReceiptsTable).values({
+            paymentId, invoiceId: null, tenantId, siteId, receiptNumber,
+            fileUrl: receiptUrl ?? "",
+            invoiceNumber: null,
+            businessName: tenant.businessName ?? null,
+            ownerName: tenant.ownerName ?? null,
+            unitCode: tenant.boothNumber ?? null,
+            amountPaid: String(amountPaid), taxAmount: String(journalResult.taxAmount), netAmount: String(journalResult.netAmount),
+            paymentMethod, kasirName, journalId: journalResult.journalId, waStatus: "pending",
+          });
+        } catch (dbErr) {
+          logger.error({ err: dbErr, paymentId }, "[pos-manual] Gagal simpan record receipt");
+        }
+
+        if (tenant.phone) {
+          try {
+            const baseUrl = await getBaseUrl();
+            const fullReceiptUrl = receiptUrl && baseUrl ? `${baseUrl}${receiptUrl}` : null;
+            const manualCompanyName = await getSiteCompanyName(req.siteId);
+            await sendPosPaymentSuccess({ ownerName: tenant.ownerName ?? "Tenant", businessName: tenant.businessName ?? "Tenant", invoiceNumber: null, amountPaid, paymentMethod, receiptNumber, receiptUrl: fullReceiptUrl, phone: tenant.phone, companyName: manualCompanyName });
+          } catch (waErr) {
+            logger.error({ err: waErr, paymentId }, "[pos-manual] Gagal kirim WA");
+          }
+        }
+      } catch (postErr) {
+        logger.error({ err: postErr, paymentId }, "[pos-manual] Gagal post-payment processing");
+      }
+    })();
+
+    res.status(201).json({ success: true, payment: inserted, receiptNumber, paymentStatus: "PAID", paidAmount: amountPaid, remainingAmount: 0, change: 0 });
+  } catch (err) {
+    logger.error({ err }, "Gagal memproses pembayaran manual");
+    res.status(500).json({ error: "Gagal memproses pembayaran manual" });
   }
 });
 

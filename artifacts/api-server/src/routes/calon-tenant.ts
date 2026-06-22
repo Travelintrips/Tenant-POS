@@ -5,7 +5,7 @@ import { z } from "zod";
 import crypto from "crypto";
 import { registrationRateLimiter } from "../middlewares/rate-limit";
 import { requireAuth, requireAnyRole } from "../middlewares/auth";
-import { sendCalonTenantApproved, sendCalonTenantRejected, sendCalonTenantReminder } from "../lib/whatsapp";
+import { sendCalonTenantApproved, sendCalonTenantRejected, sendCalonTenantReminder, getSiteCompanyName } from "../lib/whatsapp";
 import { logAudit } from "../lib/audit";
 
 const router: IRouter = Router();
@@ -71,10 +71,12 @@ router.post("/calon-tenant/daftar", registrationRateLimiter, async (req: Request
 
       if (adminPhone) {
         const msg = `📋 *Pendaftaran Calon Tenant Baru*\n\nNama PIC: ${d.picName}\nBrand/Usaha: ${d.brandName}\nJenis Usaha: ${d.businessType}\nWhatsApp: ${d.phone}${d.interestedUnit ? `\nUnit Diminati: ${d.interestedUnit}` : ""}${d.notes ? `\nCatatan: ${d.notes}` : ""}\n\nSilakan buka portal admin untuk meninjau dan membuat dokumen surat minat.`;
+        const adminDigits = String(adminPhone).replace(/\D/g, "");
+        const adminTarget = adminDigits.startsWith("0") ? "62" + adminDigits.slice(1) : adminDigits.startsWith("62") ? adminDigits : "62" + adminDigits;
         fetch("https://api.fonnte.com/send", {
           method: "POST",
-          headers: { Authorization: fonnteToken, "Content-Type": "application/json" },
-          body: JSON.stringify({ target: adminPhone, message: msg }),
+          headers: { Authorization: fonnteToken, "Content-Type": "application/x-www-form-urlencoded" },
+          body: new URLSearchParams({ target: adminTarget, message: msg, delay: "2" }).toString(),
         }).catch(() => {});
       }
     }
@@ -183,9 +185,10 @@ router.patch(
       const brandName = (row.brand_name as string | null) ?? (row.tenant_name as string | null) ?? undefined;
 
       if (phone) {
+        const calonCompanyName = await getSiteCompanyName(req.siteId).catch(() => undefined);
         const waResult = status === "approved"
-          ? await sendCalonTenantApproved(phone, brandName ?? undefined)
-          : await sendCalonTenantRejected(phone, brandName ?? undefined);
+          ? await sendCalonTenantApproved(phone, brandName ?? undefined, calonCompanyName)
+          : await sendCalonTenantRejected(phone, brandName ?? undefined, calonCompanyName);
         waSent = waResult.ok && !waResult.skipped;
       }
 
@@ -245,7 +248,8 @@ router.post(
         const brandName = (row.brand_name as string | null) ?? (row.tenant_name as string | null) ?? undefined;
 
         try {
-          const waResult = await sendCalonTenantReminder(phone, brandName);
+          const reminderCompanyName = await getSiteCompanyName(req.siteId).catch(() => undefined);
+          const waResult = await sendCalonTenantReminder(phone, brandName, reminderCompanyName);
           if (waResult.ok) {
             sent++;
             results.push({ id, brandName: brandName ?? phone, phone, ok: true });
@@ -307,6 +311,14 @@ router.post(
       return;
     }
 
+    const sentBy = (req.user as { name?: string; username?: string } | undefined)?.name
+      ?? (req.user as { name?: string; username?: string } | undefined)?.username
+      ?? "admin";
+    const siteId = req.siteId ?? null;
+
+    let status: "success" | "failed" = "failed";
+    let errorMessage: string | null = null;
+
     try {
       const appUrl = process.env["APP_URL"] ?? `${req.protocol}://${req.get("host")}`;
       const registerUrl = `${appUrl}/tenant/register`;
@@ -320,15 +332,53 @@ router.post(
       const body = await r.json().catch(() => ({})) as Record<string, unknown>;
 
       if (!r.ok || body["status"] === false) {
-        const errMsg = String(body["reason"] ?? body["detail"] ?? "Gagal mengirim WA");
-        res.status(422).json({ error: errMsg });
-        return;
+        errorMessage = String(body["reason"] ?? body["detail"] ?? "Gagal mengirim WA");
+      } else {
+        status = "success";
       }
-
-      res.json({ success: true, message: `Link registrasi berhasil dikirim ke ${rawPhone}` });
     } catch (err) {
+      errorMessage = err instanceof Error ? err.message : "Network error";
       console.error("[calon-tenant] POST /kirim-link-wa error:", err);
-      res.status(500).json({ error: "Gagal mengirim WhatsApp" });
+    }
+
+    await db.execute(sql`
+      INSERT INTO registration_link_wa_log (phone_number, status, sent_by, error_message, site_id)
+      VALUES (${rawPhone}, ${status}, ${sentBy}, ${errorMessage}, ${siteId})
+    `).catch((logErr) => console.error("[kirim-link-wa] gagal simpan log:", logErr));
+
+    if (status === "success") {
+      res.json({ success: true, message: `Link registrasi berhasil dikirim ke ${rawPhone}` });
+    } else {
+      res.status(422).json({ error: errorMessage ?? "Gagal mengirim WA" });
+    }
+  }
+);
+
+// ── GET /api/calon-tenant/link-wa-log ─────────────────────────────────────────
+router.get(
+  "/calon-tenant/link-wa-log",
+  requireAuth,
+  requireAnyRole("admin", "owner"),
+  async (req: Request, res: Response) => {
+    try {
+      const result = await db.execute(sql`
+        SELECT id, phone_number, sent_at, status, sent_by, error_message
+        FROM registration_link_wa_log
+        WHERE site_id = ${req.siteId} OR site_id IS NULL
+        ORDER BY sent_at DESC
+        LIMIT 30
+      `);
+      const rows = (result as { rows: Record<string, unknown>[] }).rows.map((r) => {
+        const out: Record<string, unknown> = {};
+        for (const [k, v] of Object.entries(r)) {
+          out[k.replace(/_([a-z])/g, (_, c: string) => (c as string).toUpperCase())] = v;
+        }
+        return out;
+      });
+      res.json({ success: true, logs: rows });
+    } catch (err) {
+      console.error("[calon-tenant] GET /link-wa-log error:", err);
+      res.status(500).json({ error: "Gagal memuat riwayat" });
     }
   }
 );

@@ -1949,6 +1949,12 @@ ALTER TABLE tenants ADD COLUMN IF NOT EXISTS default_trash_charge_amount numeric
 ALTER TABLE tenant_invoices ADD COLUMN IF NOT EXISTS trash_charge_amount numeric NOT NULL DEFAULT 0;
     `.trim(),
   },
+  {
+    name: "0045_invoice_use_ppn",
+    sql: `
+ALTER TABLE tenant_invoices ADD COLUMN IF NOT EXISTS use_ppn boolean NOT NULL DEFAULT true;
+    `.trim(),
+  },
 ];
 
 const MIGRATIONS_TABLE = "schema_migrations";
@@ -2119,6 +2125,52 @@ CREATE TABLE IF NOT EXISTS "draft_agreements_wa_log" (
   "sent_by" text,
   "type" text NOT NULL DEFAULT 'manual',
   "error_message" text
+);
+  `.trim(),
+},
+{
+  name: "0049_operational_expenses",
+  sql: `
+CREATE TABLE IF NOT EXISTS "operational_expenses" (
+  "id" serial PRIMARY KEY,
+  "site_id" integer REFERENCES "mall_sites"("id"),
+  "tenant_id" integer REFERENCES "tenants"("id"),
+  "category" text NOT NULL DEFAULT 'lain-lain',
+  "description" text,
+  "amount" numeric NOT NULL,
+  "payment_method" text NOT NULL DEFAULT 'cash',
+  "paid_at" timestamptz NOT NULL DEFAULT now(),
+  "created_by" integer,
+  "receipt_url" text,
+  "notes" text,
+  "created_at" timestamptz NOT NULL DEFAULT now(),
+  "updated_at" timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS "oe_site_id_idx" ON "operational_expenses"("site_id");
+CREATE INDEX IF NOT EXISTS "oe_tenant_id_idx" ON "operational_expenses"("tenant_id");
+CREATE INDEX IF NOT EXISTS "oe_category_idx" ON "operational_expenses"("category");
+CREATE INDEX IF NOT EXISTS "oe_paid_at_idx" ON "operational_expenses"("paid_at");
+  `.trim(),
+},
+{
+  name: "0050_mall_sites_company_name",
+  sql: `
+ALTER TABLE mall_sites ADD COLUMN IF NOT EXISTS company_name TEXT NOT NULL DEFAULT 'Manajemen CST';
+UPDATE mall_sites SET company_name = 'PT ELMIRA RATU ABADI' WHERE code = 'TOD_M1_BANDARA';
+UPDATE mall_sites SET company_name = 'PT CAHAYA SEJATI TEKNOLOGI' WHERE code = 'SPORT_CENTER_BANDARA';
+  `.trim(),
+},
+{
+  name: "0051_registration_link_wa_log",
+  sql: `
+CREATE TABLE IF NOT EXISTS "registration_link_wa_log" (
+  "id" serial PRIMARY KEY NOT NULL,
+  "phone_number" text NOT NULL,
+  "sent_at" timestamptz NOT NULL DEFAULT NOW(),
+  "status" text NOT NULL DEFAULT 'pending',
+  "sent_by" text,
+  "error_message" text,
+  "site_id" integer
 );
   `.trim(),
 });

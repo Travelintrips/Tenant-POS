@@ -26,6 +26,7 @@ export interface MallConfigStruk {
   tagline?: string;
   logoUrl?: string;
   invoiceFooterNote?: string;
+  companyName?: string;
 }
 
 function formatRp(v: number) {
@@ -49,6 +50,7 @@ async function fetchStrukConfig(): Promise<MallConfigStruk> {
 export async function cetakStrukPDF(data: DataStruk, config?: MallConfigStruk) {
   const cfg = config ?? (await fetchStrukConfig());
   const mallName = cfg.mallName || "Mall Admin";
+  const companyName = cfg.companyName || "";
   const tagline = cfg.tagline || "Sistem Manajemen Tenant";
   const logoUrl = cfg.logoUrl || "";
   const footerNote = cfg.invoiceFooterNote || "";
@@ -156,6 +158,7 @@ export async function cetakStrukPDF(data: DataStruk, config?: MallConfigStruk) {
   <div class="center logo-area">
     ${logoHtml}
     <div class="xlarge bold">${mallName.toUpperCase()}</div>
+    ${companyName ? `<div class="small muted" style="font-size:9px;color:#666;">${companyName}</div>` : ""}
     <div class="small muted">${tagline}</div>
   </div>
 

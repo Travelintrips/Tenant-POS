@@ -16,6 +16,7 @@ import {
   sendContractActivated,
   sendContractExpiringSoon,
   sendContractTerminated,
+  getSiteCompanyName,
 } from "../lib/whatsapp";
 import { z } from "zod";
 
@@ -243,21 +244,24 @@ router.post("/bookings", async (req, res) => {
 
       const phone = tenant?.phone;
       if (phone) {
-        sendBookingConfirmation({
-          ownerName: tenant.ownerName ?? withTenant.tenantName ?? "Tenant",
-          businessName: withTenant.tenantName ?? "-",
-          orderNumber: withTenant.orderNumber ?? "",
-          contractNumber: withTenant.contractNumber,
-          unitCode: withTenant.unitCode ?? "-",
-          floor: withTenant.floor,
-          startDate: withTenant.startDate ?? "",
-          endDate: withTenant.endDate ?? "",
-          durationMonths: withTenant.durationMonths,
-          rentAmount: withTenant.rentAmount ?? "0",
-          totalAmount: withTenant.totalAmount,
-          dueDate: withTenant.dueDate,
-          phone,
-        }).then(async (result) => {
+        getSiteCompanyName(withTenant.siteId ?? null).then(companyName =>
+          sendBookingConfirmation({
+            ownerName: tenant.ownerName ?? withTenant.tenantName ?? "Tenant",
+            businessName: withTenant.tenantName ?? "-",
+            orderNumber: withTenant.orderNumber ?? "",
+            contractNumber: withTenant.contractNumber,
+            unitCode: withTenant.unitCode ?? "-",
+            floor: withTenant.floor,
+            startDate: withTenant.startDate ?? "",
+            endDate: withTenant.endDate ?? "",
+            durationMonths: withTenant.durationMonths,
+            rentAmount: withTenant.rentAmount ?? "0",
+            totalAmount: withTenant.totalAmount,
+            dueDate: withTenant.dueDate,
+            phone,
+            companyName,
+          })
+        ).then(async (result) => {
           try {
             await db.insert(waLogsTable).values({
               siteId: withTenant.siteId ?? null,
@@ -387,6 +391,7 @@ router.put("/bookings/:id", async (req, res) => {
         const sentBy = (req.user as { email?: string } | undefined)?.email ?? null;
         let waPromise: Promise<import("../lib/whatsapp").WaResult> | null = null;
         let msgType = "";
+        const contractCompanyName = await getSiteCompanyName(withTenant.siteId ?? null);
 
         if (newStatus === "active" && oldStatus !== "active") {
           msgType = "contract_activated";
@@ -400,6 +405,7 @@ router.put("/bookings/:id", async (req, res) => {
             startDate: withTenant.startDate ?? "",
             endDate: withTenant.endDate ?? "",
             phone,
+            companyName: contractCompanyName,
           });
         } else if (newStatus === "expiring_soon" && oldStatus !== "expiring_soon") {
           msgType = "contract_expiring_soon";
@@ -415,6 +421,7 @@ router.put("/bookings/:id", async (req, res) => {
             endDate: withTenant.endDate ?? "",
             daysLeft: Math.max(1, daysLeft),
             phone,
+            companyName: contractCompanyName,
           });
         }
 
@@ -494,6 +501,7 @@ router.post("/bookings/:id/terminate", requireAnyRole("owner", "admin"), async (
       const phone = tenant?.phone;
       if (phone) {
         const sentBy = (req.user as { email?: string } | undefined)?.email ?? null;
+        const terminateCompanyName = await getSiteCompanyName(before.siteId ?? null);
         sendContractTerminated({
           ownerName: tenant.ownerName ?? before.tenantName ?? "Tenant",
           businessName: before.tenantName ?? "-",
@@ -502,6 +510,7 @@ router.post("/bookings/:id/terminate", requireAnyRole("owner", "admin"), async (
           unitCode: before.unitCode ?? "-",
           reason: reason ?? null,
           phone,
+          companyName: terminateCompanyName,
         }).then(async (result) => {
           try {
             await db.insert(waLogsTable).values({

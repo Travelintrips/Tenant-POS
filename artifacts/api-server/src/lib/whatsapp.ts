@@ -6,9 +6,44 @@
  * Jika token tidak ada, notifikasi di-skip tanpa error.
  */
 
+import { db } from "@workspace/db";
+import { sql } from "drizzle-orm";
+
 const FONNTE_TOKEN = process.env.FONNTE_TOKEN;
 const FONNTE_SENDER = process.env.FONNTE_SENDER ?? "";
 const FONNTE_URL = "https://api.fonnte.com/send";
+
+// ─── Helper: ambil company_name dari mall_sites ───────────────────────────────
+
+const _companyNameCache = new Map<number, { name: string; expiresAt: number }>();
+const CACHE_TTL = 5 * 60 * 1000;
+
+export async function getSiteCompanyName(siteId: number | null | undefined): Promise<string> {
+  const DEFAULT = "Manajemen CST";
+  if (!siteId || siteId <= 0) return DEFAULT;
+
+  const cached = _companyNameCache.get(siteId);
+  if (cached && cached.expiresAt > Date.now()) return cached.name;
+
+  try {
+    const result = await db.execute(sql`SELECT company_name FROM mall_sites WHERE id = ${siteId} LIMIT 1`);
+    const rows = (result as { rows: Record<string, unknown>[] }).rows;
+    const name = (rows[0]?.company_name as string | undefined) ?? DEFAULT;
+    _companyNameCache.set(siteId, { name, expiresAt: Date.now() + CACHE_TTL });
+    return name;
+  } catch {
+    return DEFAULT;
+  }
+}
+
+/** Hapus cache company_name (dipanggil saat site diupdate) */
+export function clearCompanyNameCache(siteId?: number) {
+  if (siteId) {
+    _companyNameCache.delete(siteId);
+  } else {
+    _companyNameCache.clear();
+  }
+}
 
 /** Terjemahkan pesan error Fonnte ke Bahasa Indonesia yang lebih jelas */
 function translateFonnteError(reason: string): string {
@@ -95,6 +130,7 @@ export interface InvoiceNotifParams {
   dueDate: string;
   phone: string;
   paymentLink?: string;
+  companyName?: string;
 }
 
 export interface PaymentConfirmParams {
@@ -104,6 +140,7 @@ export interface PaymentConfirmParams {
   amountPaid: string | number;
   paymentMethod: string;
   phone: string;
+  companyName?: string;
 }
 
 export interface OverdueReminderParams {
@@ -114,12 +151,14 @@ export interface OverdueReminderParams {
   outstandingAmount: string | number;
   daysOverdue: number;
   phone: string;
+  companyName?: string;
 }
 
 /**
  * Kirim notifikasi invoice baru ke tenant
  */
 export async function sendInvoiceNotification(params: InvoiceNotifParams): Promise<WaResult> {
+  const company = params.companyName ?? "Manajemen CST";
   const linkLine = params.paymentLink
     ? `\n🔗 *Link Pembayaran:*\n${params.paymentLink}\n`
     : "";
@@ -137,7 +176,7 @@ export async function sendInvoiceNotification(params: InvoiceNotifParams): Promi
     `\nMohon lakukan pembayaran sebelum tanggal jatuh tempo untuk menghindari denda keterlambatan.\n\n` +
     `Hubungi kami jika ada pertanyaan.\n\n` +
     `Terima kasih 🙏\n` +
-    `_Manajemen CST_`;
+    `_${company}_`;
 
   return sendMessage(params.phone, message);
 }
@@ -146,6 +185,7 @@ export async function sendInvoiceNotification(params: InvoiceNotifParams): Promi
  * Kirim konfirmasi pembayaran ke tenant
  */
 export async function sendPaymentConfirmation(params: PaymentConfirmParams): Promise<WaResult> {
+  const company = params.companyName ?? "Manajemen CST";
   const methodLabel: Record<string, string> = {
     transfer: "Transfer Bank",
     tunai: "Tunai / Cash",
@@ -163,7 +203,7 @@ export async function sendPaymentConfirmation(params: PaymentConfirmParams): Pro
     `• Jumlah         : *${formatRupiah(params.amountPaid)}*\n` +
     `• Metode         : ${methodLabel[params.paymentMethod] ?? params.paymentMethod}\n\n` +
     `Terima kasih atas pembayaran Anda yang tepat waktu. 🙏\n` +
-    `_Manajemen CST_`;
+    `_${company}_`;
 
   return sendMessage(params.phone, message);
 }
@@ -174,6 +214,7 @@ export interface PaymentReceivedParams {
   invoiceNumber: string;
   amount: string | number;
   phone: string;
+  companyName?: string;
 }
 
 export interface PaymentApprovedParams {
@@ -182,6 +223,7 @@ export interface PaymentApprovedParams {
   invoiceNumber: string;
   amount: string | number;
   phone: string;
+  companyName?: string;
 }
 
 export interface PaymentRejectedParams {
@@ -190,12 +232,14 @@ export interface PaymentRejectedParams {
   invoiceNumber: string;
   rejectionReason: string;
   phone: string;
+  companyName?: string;
 }
 
 /**
  * Kirim notifikasi bukti pembayaran diterima (menunggu verifikasi)
  */
 export async function sendPaymentReceived(params: PaymentReceivedParams): Promise<WaResult> {
+  const company = params.companyName ?? "Manajemen CST";
   const message =
     `🔔 *Bukti Pembayaran Diterima — ${params.businessName}*\n` +
     `━━━━━━━━━━━━━━━━━━━━━\n\n` +
@@ -205,7 +249,7 @@ export async function sendPaymentReceived(params: PaymentReceivedParams): Promis
     `• Jumlah         : *${formatRupiah(params.amount)}*\n\n` +
     `Pembayaran Anda sedang dalam proses verifikasi oleh tim kami. Anda akan mendapat konfirmasi setelah proses selesai.\n\n` +
     `Terima kasih atas kesabaran Anda. 🙏\n` +
-    `_Manajemen CST_`;
+    `_${company}_`;
 
   return sendMessage(params.phone, message);
 }
@@ -214,6 +258,7 @@ export async function sendPaymentReceived(params: PaymentReceivedParams): Promis
  * Kirim konfirmasi pembayaran disetujui admin
  */
 export async function sendPaymentApproved(params: PaymentApprovedParams): Promise<WaResult> {
+  const company = params.companyName ?? "Manajemen CST";
   const message =
     `✅ *Pembayaran Disetujui — ${params.businessName}*\n` +
     `━━━━━━━━━━━━━━━━━━━━━\n\n` +
@@ -223,7 +268,7 @@ export async function sendPaymentApproved(params: PaymentApprovedParams): Promis
     `• Jumlah         : *${formatRupiah(params.amount)}*\n\n` +
     `Simpan pesan ini sebagai bukti konfirmasi pembayaran Anda.\n\n` +
     `Terima kasih atas kepercayaan Anda. 🙏\n` +
-    `_Manajemen CST_`;
+    `_${company}_`;
 
   return sendMessage(params.phone, message);
 }
@@ -232,6 +277,7 @@ export async function sendPaymentApproved(params: PaymentApprovedParams): Promis
  * Kirim notifikasi pembayaran ditolak admin
  */
 export async function sendPaymentRejected(params: PaymentRejectedParams): Promise<WaResult> {
+  const company = params.companyName ?? "Manajemen CST";
   const message =
     `❌ *Pembayaran Tidak Dapat Diproses — ${params.businessName}*\n` +
     `━━━━━━━━━━━━━━━━━━━━━\n\n` +
@@ -241,7 +287,7 @@ export async function sendPaymentRejected(params: PaymentRejectedParams): Promis
     `• Alasan         : ${params.rejectionReason}\n\n` +
     `Mohon upload ulang bukti pembayaran yang valid melalui link yang telah dikirimkan sebelumnya, atau hubungi kami untuk informasi lebih lanjut.\n\n` +
     `Terima kasih. 🙏\n` +
-    `_Manajemen CST_`;
+    `_${company}_`;
 
   return sendMessage(params.phone, message);
 }
@@ -358,12 +404,14 @@ export interface ReconciliationReminderParams {
   dueDate: string;
   phone: string;
   monthLabel: string;
+  companyName?: string;
 }
 
 /**
  * Kirim pengingat rekonsiliasi ke tenant yang invoicenya belum terverifikasi bank
  */
 export async function sendReconciliationReminder(params: ReconciliationReminderParams): Promise<WaResult> {
+  const company = params.companyName ?? "Manajemen CST";
   const message =
     `📋 *Pengingat Rekonsiliasi — ${params.businessName}*\n` +
     `━━━━━━━━━━━━━━━━━━━━━\n\n` +
@@ -378,7 +426,7 @@ export async function sendReconciliationReminder(params: ReconciliationReminderP
     `2️⃣ Kirimkan bukti transfer jika sudah membayar\n\n` +
     `Hubungi kami jika ada pertanyaan atau kendala pembayaran.\n\n` +
     `Terima kasih. 🙏\n` +
-    `_Manajemen CST_`;
+    `_${company}_`;
 
   return sendMessage(params.phone, message);
 }
@@ -397,12 +445,14 @@ export interface BookingConfirmationParams {
   totalAmount?: string | number | null;
   dueDate?: string | null;
   phone: string;
+  companyName?: string;
 }
 
 /**
  * Kirim konfirmasi booking/kontrak resmi ke tenant
  */
 export async function sendBookingConfirmation(params: BookingConfirmationParams): Promise<WaResult> {
+  const company = params.companyName ?? "Manajemen CST";
   const fmtDate = (d: string) => {
     const dt = new Date(d);
     return isNaN(dt.getTime()) ? d : dt.toLocaleDateString("id-ID", { day: "numeric", month: "long", year: "numeric" });
@@ -441,7 +491,7 @@ export async function sendBookingConfirmation(params: BookingConfirmationParams)
     `\nMohon simpan pesan ini sebagai bukti konfirmasi kontrak Anda.\n\n` +
     `Jika ada pertanyaan terkait kontrak, silakan hubungi tim manajemen kami.\n\n` +
     `Terima kasih atas kepercayaan Anda. 🙏\n` +
-    `_Manajemen CST_`;
+    `_${company}_`;
 
   return sendMessage(params.phone, message);
 }
@@ -456,12 +506,14 @@ export interface ContractActivatedParams {
   startDate: string;
   endDate: string;
   phone: string;
+  companyName?: string;
 }
 
 /**
  * Kirim notifikasi kontrak resmi aktif ke tenant
  */
 export async function sendContractActivated(params: ContractActivatedParams): Promise<WaResult> {
+  const company = params.companyName ?? "Manajemen CST";
   const fmtDate = (d: string) => {
     const dt = new Date(d);
     return isNaN(dt.getTime()) ? d : dt.toLocaleDateString("id-ID", { day: "numeric", month: "long", year: "numeric" });
@@ -481,7 +533,7 @@ export async function sendContractActivated(params: ContractActivatedParams): Pr
     `• Periode      : ${fmtDate(params.startDate)} s/d ${fmtDate(params.endDate)}\n\n` +
     `Selamat beroperasi! Jika ada pertanyaan, silakan hubungi tim manajemen kami.\n\n` +
     `Terima kasih. 🙏\n` +
-    `_Manajemen CST_`;
+    `_${company}_`;
   return sendMessage(params.phone, message);
 }
 
@@ -494,12 +546,14 @@ export interface ContractExpiringSoonParams {
   endDate: string;
   daysLeft: number;
   phone: string;
+  companyName?: string;
 }
 
 /**
  * Kirim pengingat kontrak akan berakhir dalam 30 hari
  */
 export async function sendContractExpiringSoon(params: ContractExpiringSoonParams): Promise<WaResult> {
+  const company = params.companyName ?? "Manajemen CST";
   const fmtDate = (d: string) => {
     const dt = new Date(d);
     return isNaN(dt.getTime()) ? d : dt.toLocaleDateString("id-ID", { day: "numeric", month: "long", year: "numeric" });
@@ -518,7 +572,7 @@ export async function sendContractExpiringSoon(params: ContractExpiringSoonParam
     `• Berakhir     : *${fmtDate(params.endDate)}*\n\n` +
     `Mohon segera hubungi tim manajemen kami jika Anda ingin memperpanjang kontrak sewa.\n\n` +
     `Terima kasih. 🙏\n` +
-    `_Manajemen CST_`;
+    `_${company}_`;
   return sendMessage(params.phone, message);
 }
 
@@ -530,12 +584,14 @@ export interface ContractTerminatedParams {
   unitCode: string;
   reason?: string | null;
   phone: string;
+  companyName?: string;
 }
 
 /**
  * Kirim notifikasi kontrak diterminasi ke tenant
  */
 export async function sendContractTerminated(params: ContractTerminatedParams): Promise<WaResult> {
+  const company = params.companyName ?? "Manajemen CST";
   const refLine = params.contractNumber
     ? `• No. Kontrak  : *${params.contractNumber}*\n`
     : `• No. Order    : *${params.orderNumber}*\n`;
@@ -553,17 +609,15 @@ export async function sendContractTerminated(params: ContractTerminatedParams): 
     reasonLine +
     `\nUntuk informasi lebih lanjut terkait proses pengakhiran kontrak, silakan hubungi tim manajemen kami.\n\n` +
     `Terima kasih atas kepercayaan Anda selama ini. 🙏\n` +
-    `_Manajemen CST_`;
+    `_${company}_`;
   return sendMessage(params.phone, message);
 }
 
 /**
- * Kirim pengingat tagihan overdue ke tenant
- */
-/**
  * Kirim reminder ke calon tenant yang pendaftarannya masih pending (bulk reminder)
  */
-export async function sendCalonTenantReminder(phone: string, brandOrName?: string): Promise<WaResult> {
+export async function sendCalonTenantReminder(phone: string, brandOrName?: string, companyName?: string): Promise<WaResult> {
+  const company = companyName ?? "Manajemen CST";
   const nameLine = brandOrName ? `Halo *${brandOrName}*,` : "Halo,";
   const message =
     `🔔 *Pengingat Pendaftaran Tenant*\n` +
@@ -572,14 +626,15 @@ export async function sendCalonTenantReminder(phone: string, brandOrName?: strin
     `Pendaftaran tenant Anda saat ini masih *menunggu proses* dari tim kami.\n\n` +
     `Mohon pastikan dokumen/perjanjian Anda telah dilengkapi. Jika membutuhkan bantuan atau ada pertanyaan, tim kami siap membantu.\n\n` +
     `Terima kasih atas kesabaran Anda. 🙏\n` +
-    `_Manajemen CST_`;
+    `_${company}_`;
   return sendMessage(phone, message);
 }
 
 /**
  * Kirim notifikasi ke calon tenant saat pendaftaran disetujui admin
  */
-export async function sendCalonTenantApproved(phone: string, brandName?: string): Promise<WaResult> {
+export async function sendCalonTenantApproved(phone: string, brandName?: string, companyName?: string): Promise<WaResult> {
+  const company = companyName ?? "Manajemen CST";
   const nameLine = brandName ? ` atas nama *${brandName}*` : "";
   const message =
     `✅ *Pendaftaran Tenant Disetujui*\n` +
@@ -587,14 +642,15 @@ export async function sendCalonTenantApproved(phone: string, brandName?: string)
     `Selamat! Pendaftaran tenant Anda${nameLine} telah *disetujui* oleh tim kami.\n\n` +
     `Tim kami akan segera menghubungi Anda untuk proses berikutnya.\n\n` +
     `Terima kasih atas kepercayaan Anda. 🙏\n` +
-    `_Manajemen CST_`;
+    `_${company}_`;
   return sendMessage(phone, message);
 }
 
 /**
  * Kirim notifikasi ke calon tenant saat pendaftaran ditolak admin
  */
-export async function sendCalonTenantRejected(phone: string, brandName?: string): Promise<WaResult> {
+export async function sendCalonTenantRejected(phone: string, brandName?: string, companyName?: string): Promise<WaResult> {
+  const company = companyName ?? "Manajemen CST";
   const nameLine = brandName ? ` atas nama *${brandName}*` : "";
   const message =
     `❌ *Pendaftaran Tenant Tidak Dapat Diproses*\n` +
@@ -602,7 +658,7 @@ export async function sendCalonTenantRejected(phone: string, brandName?: string)
     `Mohon maaf, pendaftaran tenant Anda${nameLine} belum dapat kami lanjutkan saat ini.\n\n` +
     `Untuk informasi lebih lanjut, silakan hubungi tim manajemen kami.\n\n` +
     `Terima kasih. 🙏\n` +
-    `_Manajemen CST_`;
+    `_${company}_`;
   return sendMessage(phone, message);
 }
 
@@ -615,12 +671,14 @@ export interface PosPaymentSuccessParams {
   receiptNumber: string;
   receiptUrl?: string | null;
   phone: string;
+  companyName?: string;
 }
 
 /**
  * Kirim notifikasi pembayaran POS berhasil ke tenant — termasuk link receipt
  */
 export async function sendPosPaymentSuccess(params: PosPaymentSuccessParams): Promise<WaResult> {
+  const company = params.companyName ?? "Manajemen CST";
   const methodLabel: Record<string, string> = {
     transfer: "Transfer Bank",
     tunai: "Tunai / Cash",
@@ -648,12 +706,13 @@ export async function sendPosPaymentSuccess(params: PosPaymentSuccessParams): Pr
     `• Metode         : ${methodLabel[params.paymentMethod] ?? params.paymentMethod}\n` +
     receiptLine +
     `\nTerima kasih atas pembayaran Anda yang tepat waktu. 🙏\n` +
-    `_Manajemen CST_`;
+    `_${company}_`;
 
   return sendMessage(params.phone, message);
 }
 
 export async function sendOverdueReminder(params: OverdueReminderParams): Promise<WaResult> {
+  const company = params.companyName ?? "Manajemen CST";
   const message =
     `⚠️ *Tagihan Melewati Jatuh Tempo — ${params.businessName}*\n` +
     `━━━━━━━━━━━━━━━━━━━━━\n\n` +
@@ -666,7 +725,7 @@ export async function sendOverdueReminder(params: OverdueReminderParams): Promis
     `Mohon segera lakukan pembayaran untuk menghindari sanksi keterlambatan lebih lanjut.\n\n` +
     `Hubungi kami jika ada pertanyaan atau kendala.\n\n` +
     `Terima kasih. 🙏\n` +
-    `_Manajemen CST_`;
+    `_${company}_`;
 
   return sendMessage(params.phone, message);
 }

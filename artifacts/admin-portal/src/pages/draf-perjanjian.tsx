@@ -75,6 +75,9 @@ import {
   Search,
   CalendarRange,
   MessageSquare,
+  MessageCircle,
+  CreditCard,
+  Loader2,
   Phone,
 } from "lucide-react";
 
@@ -340,6 +343,7 @@ function DetailPanel({
   onClose,
   onDelete,
   onRemind,
+  onKirimWaApproved,
   onEdit,
   onBookingCreated,
   onStatusChanged,
@@ -348,6 +352,7 @@ function DetailPanel({
   onClose: () => void;
   onDelete: (id: number) => void;
   onRemind: (id: number) => void;
+  onKirimWaApproved: (id: number) => void;
   onEdit: (draft: DraftAgreement) => void;
   onBookingCreated: () => void;
   onStatusChanged: () => void;
@@ -357,6 +362,23 @@ function DetailPanel({
   const [, setLocation] = useLocation();
   const [showBookingDialog, setShowBookingDialog] = useState(false);
   const [waPhone, setWaPhone] = useState(draft.phone ?? "");
+  const [postBookingResult, setPostBookingResult] = useState<{ tenantId: number; bookingId: number } | null>(null);
+  const [waPhone, setWaPhone] = useState(draft.phone || "");
+
+  const kirimWaManualMutation = useMutation({
+    mutationFn: ({ id, targetPhone }: { id: number; targetPhone: string }) =>
+      apiFetchJson(`/api/draft-agreements/${id}/kirim-wa-manual`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ targetPhone }),
+      }),
+    onSuccess: (data: { message?: string }) => {
+      toast({ title: "WA Terkirim! ✅", description: data?.message ?? "Link dokumen berhasil dikirim via WhatsApp." });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Gagal Kirim WA", description: err.message, variant: "destructive" });
+    },
+  });
   const [confirmDialog, setConfirmDialog] = useState<{
     open: boolean;
     type: "approved" | "rejected" | null;
@@ -453,15 +475,28 @@ function DetailPanel({
       return body as { success: boolean; tenantId: number; bookingId: number; message: string };
     },
     onSuccess: (result) => {
-      toast({
-        title: "Berhasil dibuat!",
-        description: `Tenant ID #${result.tenantId} dan Booking #${result.bookingId} telah dibuat.`,
-      });
       setShowBookingDialog(false);
+      setPostBookingResult({ tenantId: result.tenantId, bookingId: result.bookingId });
       onBookingCreated();
     },
     onError: (err: Error) => {
       toast({ title: "Gagal membuat booking", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const generateInvoiceMutation = useMutation({
+    mutationFn: async (bookingId: number) => {
+      const res = await apiFetch(`/api/tenant-invoices/generate-from-booking/${bookingId}`, { method: "POST" });
+      const body = await res.json();
+      if (!res.ok) throw new Error((body as { error?: string }).error ?? `Error ${res.status}`);
+      return body as { id: number; invoiceNumber: string };
+    },
+    onSuccess: () => {
+      toast({ title: "Invoice berhasil dibuat!", description: "Mengarahkan ke halaman Invoice & Pembayaran..." });
+      setTimeout(() => setLocation("/tenant-invoices"), 800);
+    },
+    onError: (err: Error) => {
+      toast({ title: "Gagal buat invoice", description: err.message, variant: "destructive" });
     },
   });
 
@@ -501,24 +536,78 @@ function DetailPanel({
         </CardHeader>
 
         <CardContent className="space-y-4 text-sm">
-          {canCreateBooking && (
-            <div className="rounded-lg bg-emerald-50 border border-emerald-200 p-3 space-y-2">
-              <p className="text-xs font-semibold text-emerald-800">✅ Dokumen telah disetujui oleh calon tenant</p>
-              <p className="text-xs text-emerald-700">Buat kontrak resmi tenant dan booking di sistem untuk mulai proses sewa.</p>
-              <Button
-                size="sm"
-                className="gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white"
-                onClick={() => setShowBookingDialog(true)}
-              >
-                <BookmarkCheck className="h-3.5 w-3.5" />Buat Tenant &amp; Booking
-              </Button>
+          {/* ── Panel sukses setelah booking dibuat ── */}
+          {postBookingResult && (
+            <div className="rounded-lg bg-emerald-50 border-2 border-emerald-300 p-4 space-y-3">
+              <div className="flex items-center gap-2">
+                <CheckCircle2 className="h-5 w-5 text-emerald-600 shrink-0" />
+                <div>
+                  <p className="text-sm font-semibold text-emerald-800">Tenant &amp; Booking berhasil dibuat!</p>
+                  <p className="text-xs text-emerald-700">WA notifikasi kontrak otomatis dikirim ke tenant.</p>
+                </div>
+              </div>
+              <div className="flex flex-col gap-2">
+                <Button
+                  size="sm"
+                  className="gap-1.5 bg-sky-600 hover:bg-sky-700 text-white w-full justify-start"
+                  onClick={() => generateInvoiceMutation.mutate(postBookingResult.bookingId)}
+                  disabled={generateInvoiceMutation.isPending}
+                >
+                  {generateInvoiceMutation.isPending
+                    ? <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                    : <CreditCard className="h-3.5 w-3.5" />}
+                  Buat Invoice Pertama &amp; Lanjut ke Pembayaran
+                </Button>
+                <div className="flex gap-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="gap-1.5 border-emerald-300 text-emerald-700 hover:bg-emerald-100 flex-1"
+                    onClick={() => setLocation("/tenant-invoices")}
+                  >
+                    <CreditCard className="h-3 w-3" />Invoice
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="gap-1.5 border-violet-300 text-violet-700 hover:bg-violet-50 flex-1"
+                    onClick={() => setLocation("/booking-tenant")}
+                  >
+                    <BookmarkCheck className="h-3 w-3" />Booking
+                  </Button>
+                </div>
+              </div>
             </div>
           )}
 
-          {alreadyConverted && (
+          {canCreateBooking && !postBookingResult && (
+            <div className="rounded-lg bg-emerald-50 border border-emerald-200 p-3 space-y-2">
+              <p className="text-xs font-semibold text-emerald-800">✅ Dokumen telah disetujui oleh calon tenant</p>
+              <p className="text-xs text-emerald-700">Buat kontrak resmi tenant dan booking di sistem untuk mulai proses sewa.</p>
+              <div className="flex gap-2 flex-wrap">
+                <Button
+                  size="sm"
+                  className="gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white"
+                  onClick={() => setShowBookingDialog(true)}
+                >
+                  <BookmarkCheck className="h-3.5 w-3.5" />Buat Tenant &amp; Booking
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="gap-1.5 border-emerald-300 text-emerald-700 hover:bg-emerald-100"
+                  onClick={() => onKirimWaApproved(draft.id)}
+                >
+                  <MessageCircle className="h-3.5 w-3.5" />Kirim WA Disetujui
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {alreadyConverted && !postBookingResult && (
             <div className="rounded-lg bg-violet-50 border border-violet-200 p-3 space-y-1.5">
               <p className="text-xs font-semibold text-violet-800">Draf ini sudah dikonversi ke booking resmi</p>
-              <div className="flex gap-2">
+              <div className="flex gap-2 flex-wrap">
                 <Button
                   size="sm"
                   variant="outline"
@@ -526,6 +615,14 @@ function DetailPanel({
                   onClick={() => setLocation("/booking-tenant")}
                 >
                   <BookmarkCheck className="h-3 w-3" />Lihat di Booking Tenant
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-7 text-xs gap-1 border-sky-300 text-sky-700 hover:bg-sky-50"
+                  onClick={() => setLocation("/tenant-invoices")}
+                >
+                  <CreditCard className="h-3 w-3" />Invoice &amp; Pembayaran
                 </Button>
               </div>
             </div>
@@ -543,6 +640,51 @@ function DetailPanel({
                   <ExternalLink className="h-3 w-3" />Buka
                 </a>
               </Button>
+              {draft.status === "pending" && (
+                <Button
+                  size="sm"
+                  className="h-7 text-xs gap-1 bg-green-600 hover:bg-green-700 text-white"
+                  onClick={() => onRemind(draft.id)}
+                >
+                  <Send className="h-3 w-3" />Kirim via WA
+                </Button>
+              )}
+              {draft.status === "approved" && !alreadyConverted && (
+                <Button
+                  size="sm"
+                  className="h-7 text-xs gap-1 bg-green-600 hover:bg-green-700 text-white"
+                  onClick={() => onKirimWaApproved(draft.id)}
+                >
+                  <MessageCircle className="h-3 w-3" />Kirim WA Notif
+                </Button>
+              )}
+            </div>
+            {/* Kirim ke nomor WA manual */}
+            <div className="pt-1 border-t border-muted-foreground/20">
+              <p className="text-[10px] text-muted-foreground mb-1.5 flex items-center gap-1">
+                <Phone className="h-3 w-3" />Kirim link ke nomor WA lain
+              </p>
+              <div className="flex gap-2">
+                <Input
+                  type="tel"
+                  placeholder="Contoh: 08123456789"
+                  value={waPhone}
+                  onChange={(e) => setWaPhone(e.target.value)}
+                  className="h-8 text-xs flex-1 bg-background"
+                />
+                <Button
+                  size="sm"
+                  className="h-8 text-xs gap-1.5 bg-green-600 hover:bg-green-700 text-white shrink-0"
+                  disabled={kirimWaManualMutation.isPending || waPhone.trim().length < 8}
+                  onClick={() => kirimWaManualMutation.mutate({ id: draft.id, targetPhone: waPhone.trim() })}
+                >
+                  {kirimWaManualMutation.isPending
+                    ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    : <Send className="h-3.5 w-3.5" />
+                  }
+                  {kirimWaManualMutation.isPending ? "Mengirim..." : "Kirim WA"}
+                </Button>
+              </div>
             </div>
           </div>
 
@@ -1094,6 +1236,17 @@ export default function DrafPerjanjian() {
     },
     onError: (err: Error) => {
       toast({ title: "Gagal kirim WA", description: err.message, variant: "destructive" });
+  const kirimWaApprovedMutation = useMutation({
+    mutationFn: (id: number) => apiFetchJson(`/api/draft-agreements/${id}/kirim-wa-approved`, { method: "POST" }),
+    onSuccess: (data: { skipped?: boolean }) => {
+      if (data?.skipped) {
+        toast({ title: "WA tidak dikirim", description: "FONNTE_TOKEN belum dikonfigurasi di Secrets." });
+      } else {
+        toast({ title: "Notifikasi WA terkirim!", description: "Pesan persetujuan telah dikirim ke calon tenant via WhatsApp." });
+      }
+    },
+    onError: (err: Error) => {
+      toast({ title: "Gagal mengirim WA", description: err.message, variant: "destructive" });
     },
   });
 
@@ -1532,6 +1685,7 @@ export default function DrafPerjanjian() {
               onClose={() => setSelectedId(null)}
               onDelete={(id) => setDeleteId(id)}
               onRemind={(id) => remindMutation.mutate(id)}
+              onKirimWaApproved={(id) => kirimWaApprovedMutation.mutate(id)}
               onEdit={handleOpenEdit}
               onBookingCreated={() => {
                 invalidate();
