@@ -9,7 +9,7 @@
 import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
 
-const FONNTE_TOKEN = process.env.FONNTE_TOKEN;
+const FONNTE_TOKEN = process.env.FONNTE_API_KEY ?? process.env.FONNTE_TOKEN;
 const FONNTE_SENDER = process.env.FONNTE_SENDER ?? "";
 const FONNTE_URL = "https://api.fonnte.com/send";
 

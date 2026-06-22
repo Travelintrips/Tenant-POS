@@ -54,7 +54,7 @@ router.post("/calon-tenant/daftar", registrationRateLimiter, async (req: Request
     `);
 
     // Notifikasi admin via WA (fire-and-forget)
-    const fonnteToken = process.env.FONNTE_TOKEN;
+    const fonnteToken = process.env.FONNTE_API_KEY ?? process.env.FONNTE_TOKEN;
     if (fonnteToken) {
       // Ambil nomor WA admin/owner dari env atau DB
       const adminPhone = process.env.ADMIN_WHATSAPP ?? await (async () => {
@@ -305,9 +305,9 @@ router.post(
     }
 
     const rawPhone = parsed.data.phone.replace(/\D/g, "").replace(/^0/, "62");
-    const token_api = process.env["FONNTE_TOKEN"];
+    const token_api = process.env["FONNTE_API_KEY"] ?? process.env["FONNTE_TOKEN"];
     if (!token_api) {
-      res.status(422).json({ error: "Konfigurasi WhatsApp belum diatur (FONNTE_TOKEN)" });
+      res.status(422).json({ error: "Konfigurasi WhatsApp belum diatur. Tambahkan FONNTE_API_KEY di Secrets." });
       return;
     }
 
