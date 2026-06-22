@@ -1348,24 +1348,21 @@ export default function UnitTenant() {
                           className="py-2.5 text-right"
                           onClick={e => e.stopPropagation()}
                         >
-                          <div className="flex gap-1 justify-end">
+                          <div className="flex gap-1 justify-end items-center">
                             {(u.storedStatus === "available" || (u.storedStatus === "occupied" && !u.tenantId)) && (
                               <Button
-                                size="icon"
-                                variant="ghost"
+                                size="sm"
+                                variant="outline"
                                 className={u.storedStatus === "available"
-                                  ? "h-7 w-7 bg-amber-100 text-amber-700 border border-amber-300 hover:bg-amber-200 hover:text-amber-900"
-                                  : "h-7 w-7 bg-emerald-100 text-emerald-700 border border-emerald-300 hover:bg-emerald-200 hover:text-emerald-900"}
+                                  ? "h-6 px-2 text-[11px] font-medium bg-amber-50 text-amber-800 border-amber-300 hover:bg-amber-100"
+                                  : "h-6 px-2 text-[11px] font-medium bg-emerald-50 text-emerald-800 border-emerald-300 hover:bg-emerald-100"}
                                 onClick={() => statusMutation.mutate({
                                   id: u.id,
                                   status: u.storedStatus === "available" ? "occupied" : "available",
                                 })}
                                 disabled={statusMutation.isPending}
-                                title={u.storedStatus === "available" ? "Tandai Terisi" : "Kosongkan Unit"}
                               >
-                                {u.storedStatus === "available"
-                                  ? <Lock className="h-3.5 w-3.5" />
-                                  : <Unlock className="h-3.5 w-3.5" />}
+                                {u.storedStatus === "available" ? "Tandai Terisi" : "Kosongkan"}
                               </Button>
                             )}
                             <Button
