@@ -6,6 +6,9 @@ id = "artifacts/admin-portal"
 router = "path"
 restrictSecretAccess = false
 
+[secrets]
+restrictAccess = false
+
 [[integratedSkills]]
 name = "react-vite"
 version = "1.0.0"
