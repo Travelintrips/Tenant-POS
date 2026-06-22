@@ -285,4 +285,52 @@ router.post(
   }
 );
 
+// ── POST /api/calon-tenant/kirim-link-wa ──────────────────────────────────────
+router.post(
+  "/calon-tenant/kirim-link-wa",
+  requireAuth,
+  requireAnyRole("admin", "owner"),
+  async (req: Request, res: Response) => {
+    const schema = z.object({
+      phone: z.string().min(8, "Nomor WA tidak valid"),
+    });
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: parsed.error.issues.map((i) => i.message).join("; ") });
+      return;
+    }
+
+    const rawPhone = parsed.data.phone.replace(/\D/g, "").replace(/^0/, "62");
+    const token_api = process.env["FONNTE_TOKEN"];
+    if (!token_api) {
+      res.status(422).json({ error: "Konfigurasi WhatsApp belum diatur (FONNTE_TOKEN)" });
+      return;
+    }
+
+    try {
+      const appUrl = process.env["APP_URL"] ?? `${req.protocol}://${req.get("host")}`;
+      const registerUrl = `${appUrl}/tenant/register`;
+      const message = `🏢 *Pendaftaran Calon Tenant*\n\nHalo,\n\nAnda diundang untuk mengisi formulir pendaftaran calon tenant melalui link berikut:\n\n${registerUrl}\n\nSilakan isi data dengan lengkap. Terima kasih.`;
+
+      const r = await fetch("https://api.fonnte.com/send", {
+        method: "POST",
+        headers: { Authorization: token_api, "Content-Type": "application/json" },
+        body: JSON.stringify({ target: rawPhone, message }),
+      });
+      const body = await r.json().catch(() => ({})) as Record<string, unknown>;
+
+      if (!r.ok || body["status"] === false) {
+        const errMsg = String(body["reason"] ?? body["detail"] ?? "Gagal mengirim WA");
+        res.status(422).json({ error: errMsg });
+        return;
+      }
+
+      res.json({ success: true, message: `Link registrasi berhasil dikirim ke ${rawPhone}` });
+    } catch (err) {
+      console.error("[calon-tenant] POST /kirim-link-wa error:", err);
+      res.status(500).json({ error: "Gagal mengirim WhatsApp" });
+    }
+  }
+);
+
 export default router;

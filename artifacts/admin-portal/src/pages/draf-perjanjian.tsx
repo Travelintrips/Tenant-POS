@@ -921,6 +921,7 @@ export default function DrafPerjanjian() {
   const [deleteId, setDeleteId] = useState<number | null>(null);
   const [editDraft, setEditDraft] = useState<DraftAgreement | null>(null);
   const [editForm, setEditForm] = useState<CreateForm>(BLANK_FORM);
+  const [kirimLinkWaPhone, setKirimLinkWaPhone] = useState("");
 
   // ── Build API query string ─────────────────────────────────────────────────
   const apiQs = new URLSearchParams();
@@ -1076,6 +1077,26 @@ export default function DrafPerjanjian() {
     },
   });
 
+  const kirimLinkWaMutation = useMutation({
+    mutationFn: async (phone: string) => {
+      const res = await apiFetch("/api/calon-tenant/kirim-link-wa", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phone }),
+      });
+      const body = await res.json() as { success?: boolean; error?: string; message?: string };
+      if (!res.ok) throw new Error(body.error ?? `Error ${res.status}`);
+      return body;
+    },
+    onSuccess: () => {
+      toast({ title: "WA terkirim!", description: `Link pendaftaran berhasil dikirim ke ${kirimLinkWaPhone}` });
+      setKirimLinkWaPhone("");
+    },
+    onError: (err: Error) => {
+      toast({ title: "Gagal kirim WA", description: err.message, variant: "destructive" });
+    },
+  });
+
   const bulkReminderMutation = useMutation({
     mutationFn: async () => {
       const res = await apiFetch("/api/calon-tenant/bulk-reminder", { method: "POST" });
@@ -1200,33 +1221,62 @@ export default function DrafPerjanjian() {
       {(() => {
         const registerUrl = `${window.location.origin}/tenant/register`;
         return (
-          <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 flex flex-col sm:flex-row items-start sm:items-center gap-3">
-            <div className="flex items-center gap-2 text-blue-700 shrink-0">
-              <Link2 className="h-4 w-4" />
-              <span className="text-sm font-medium">Link Pendaftaran Mandiri</span>
-            </div>
-            <div className="flex-1 flex items-center gap-2 min-w-0">
-              <code className="text-xs bg-white border border-blue-200 rounded px-2 py-1 text-blue-800 truncate flex-1 block">
-                {registerUrl}
-              </code>
-              <Button
-                variant="outline"
-                size="sm"
-                className="shrink-0 h-7 px-2 border-blue-300 text-blue-700 hover:bg-blue-100"
-                onClick={() => {
-                  navigator.clipboard.writeText(registerUrl);
-                  toast({ title: "Link disalin!", description: "Bagikan link ini kepada calon tenant untuk mendaftar sendiri." });
-                }}
-              >
-                <Copy className="h-3.5 w-3.5" />
-              </Button>
-              <a href={registerUrl} target="_blank" rel="noopener noreferrer">
-                <Button variant="outline" size="sm" className="shrink-0 h-7 px-2 border-blue-300 text-blue-700 hover:bg-blue-100">
-                  <ExternalLink className="h-3.5 w-3.5" />
+          <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 space-y-2">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
+              <div className="flex items-center gap-2 text-blue-700 shrink-0">
+                <Link2 className="h-4 w-4" />
+                <span className="text-sm font-medium">Link Pendaftaran Mandiri</span>
+              </div>
+              <div className="flex-1 flex items-center gap-2 min-w-0">
+                <code className="text-xs bg-white border border-blue-200 rounded px-2 py-1 text-blue-800 truncate flex-1 block">
+                  {registerUrl}
+                </code>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="shrink-0 h-7 px-2 border-blue-300 text-blue-700 hover:bg-blue-100"
+                  onClick={() => {
+                    navigator.clipboard.writeText(registerUrl);
+                    toast({ title: "Link disalin!", description: "Bagikan link ini kepada calon tenant untuk mendaftar sendiri." });
+                  }}
+                >
+                  <Copy className="h-3.5 w-3.5" />
                 </Button>
-              </a>
+                <a href={registerUrl} target="_blank" rel="noopener noreferrer">
+                  <Button variant="outline" size="sm" className="shrink-0 h-7 px-2 border-blue-300 text-blue-700 hover:bg-blue-100">
+                    <ExternalLink className="h-3.5 w-3.5" />
+                  </Button>
+                </a>
+              </div>
             </div>
-            <p className="text-xs text-blue-600 sm:max-w-[200px]">Bagikan kepada calon tenant agar dapat mengisi formulir sendiri.</p>
+            {/* Kirim WA langsung */}
+            <div className="flex items-center gap-2 pt-1 border-t border-blue-200">
+              <MessageSquare className="h-4 w-4 text-blue-600 shrink-0" />
+              <div className="relative flex-1">
+                <Phone className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-blue-400" />
+                <Input
+                  className="h-8 text-xs pl-8 bg-white border-blue-200 focus:border-blue-400"
+                  placeholder="Nomor WA tujuan (cth: 628123456789)"
+                  value={kirimLinkWaPhone}
+                  onChange={(e) => setKirimLinkWaPhone(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && kirimLinkWaPhone.trim() && !kirimLinkWaMutation.isPending) {
+                      kirimLinkWaMutation.mutate(kirimLinkWaPhone.trim());
+                    }
+                  }}
+                />
+              </div>
+              <Button
+                size="sm"
+                className="h-8 gap-1.5 shrink-0 bg-green-600 hover:bg-green-700 text-white"
+                disabled={kirimLinkWaMutation.isPending || !kirimLinkWaPhone.trim()}
+                onClick={() => kirimLinkWaMutation.mutate(kirimLinkWaPhone.trim())}
+              >
+                <Send className="h-3.5 w-3.5" />
+                {kirimLinkWaMutation.isPending ? "Mengirim..." : "Kirim WA"}
+              </Button>
+            </div>
+            <p className="text-xs text-blue-500">Masukkan nomor WA calon tenant dan klik <strong>Kirim WA</strong> — link formulir pendaftaran akan langsung dikirim.</p>
           </div>
         );
       })()}
