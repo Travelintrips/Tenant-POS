@@ -1454,6 +1454,33 @@ export default function DrafPerjanjian() {
               </Button>
             </div>
             <p className="text-xs text-blue-500">Masukkan nomor WA calon tenant dan klik <strong>Kirim WA</strong> — link formulir pendaftaran akan langsung dikirim.</p>
+            {/* Riwayat pengiriman link WA */}
+            {linkWaLogQuery.data && linkWaLogQuery.data.length > 0 && (
+              <div className="pt-2 border-t border-blue-200">
+                <p className="text-xs font-medium text-blue-700 mb-2 flex items-center gap-1">
+                  <Clock className="h-3.5 w-3.5" />Riwayat Kirim Link WA (30 terakhir)
+                </p>
+                <div className="space-y-1.5 max-h-40 overflow-y-auto pr-1">
+                  {linkWaLogQuery.data.map((log) => (
+                    <div key={log.id} className="flex items-start justify-between gap-2 text-xs bg-white/60 rounded px-2 py-1.5">
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <span className={`inline-flex items-center gap-0.5 shrink-0 px-1.5 py-0.5 rounded-full text-[10px] font-medium ${log.status === "success" ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"}`}>
+                          {log.status === "success" ? "✓ Berhasil" : "✗ Gagal"}
+                        </span>
+                        <span className="truncate text-gray-700 font-mono">{log.phoneNumber}</span>
+                        {log.errorMessage && (
+                          <span className="text-red-500 truncate" title={log.errorMessage}>— {log.errorMessage}</span>
+                        )}
+                      </div>
+                      <div className="text-gray-400 shrink-0 text-right">
+                        <div>{new Date(log.sentAt).toLocaleDateString("id-ID", { day: "2-digit", month: "short" })}</div>
+                        <div>{new Date(log.sentAt).toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" })}</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         );
       })()}
