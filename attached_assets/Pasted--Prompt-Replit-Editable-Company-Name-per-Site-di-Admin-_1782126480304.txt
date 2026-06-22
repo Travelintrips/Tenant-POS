@@ -1,0 +1,106 @@
+**Prompt Replit — Editable Company Name per Site di Admin Portal**
+
+=====================================
+🎯 TUJUAN
+=========
+
+Admin dapat mengubah nama PT / perusahaan pengelola untuk setiap site langsung dari halaman Settings.
+Perubahan ini akan otomatis mempengaruhi:
+
+* Template WA (blast overdue, contract reminder, payment notifications)
+* Invoice PDF header/footer
+* Struk POS
+* Semua tampilan frontend yang menampilkan `companyName` per site
+
+---
+
+# 🗄️ DATABASE
+
+* Kolom `company_name` di tabel `mall_sites` sudah ada
+* Gunakan API untuk update field ini agar tetap ter-sync dengan cache frontend
+
+---
+
+# 📡 BACKEND
+
+1. Endpoint baru / diperbarui di `settings.ts`:
+
+* **GET /api/settings/sites**
+
+```json
+[
+  {
+    "siteId": 1,
+    "siteName": "TOD M1 Bandara",
+    "companyName": "PT ELMIRA RATU ABADI"
+  },
+  {
+    "siteId": 2,
+    "siteName": "Sport Center Bandara",
+    "companyName": "PT CAHAYA SEJATI TEKNOLOGI"
+  }
+]
+```
+
+* **PUT /api/settings/sites/:siteId/company**
+
+```json
+{
+  "companyName": "PT Baru"
+}
+```
+
+* Validasi:
+
+  * companyName wajib diisi
+  * max 255 karakter
+  * sanitize untuk hindari XSS / injection
+
+* Response:
+
+```json
+{
+  "success": true,
+  "siteId": 1,
+  "companyName": "PT Baru"
+}
+```
+
+* Update cache internal helper `getSiteCompanyName(siteId)` jika ada
+
+---
+
+# 🖥️ FRONTEND
+
+1. Halaman Settings → tab Sites
+2. Tambahkan kolom baru: **Nama Perusahaan**
+3. UI:
+
+   * Editable input field / inline edit per row
+   * Tombol "Simpan" di bawah atau otomatis save onBlur
+   * Validasi input (required, max 255)
+   * Feedback toast/success
+4. Update state / context:
+
+   * `useSite()` hook di seluruh app harus membaca companyName terbaru
+   * Refresh data frontend setelah edit sukses
+
+---
+
+# 🧪 TEST CASES
+
+1. Ambil list site → tampilkan companyName sesuai DB
+2. Edit companyName → save → backend update
+3. Pastikan companyName baru muncul di invoice PDF, struk POS, WA blast
+4. Input kosong / >255 karakter → validasi error
+5. Edit satu site → tidak mempengaruhi site lain
+6. UI HMR → perubahan langsung terlihat tanpa reload full page
+
+---
+
+# 📦 OUTPUT REQUIRED
+
+* Backend: GET & PUT endpoints untuk companyName per site
+* Frontend: table + input editable + save button / onBlur
+* State update & cache refresh di `useSite()`
+* Test & verifikasi invoice, POS, WA templates mengikuti perubahan companyName

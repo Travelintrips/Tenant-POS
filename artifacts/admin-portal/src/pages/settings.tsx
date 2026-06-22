@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef, useState, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -13,7 +13,7 @@ import {
   Settings, Building2, FileText, DollarSign, Save, RefreshCw,
   MessageSquare, CheckCircle2, XCircle, Wifi, WifiOff, Send,
   AlertCircle, Loader2, ExternalLink, Smartphone, Info, Link,
-  Upload, Palette, Eye, ImageIcon, X,
+  Upload, Palette, Eye, ImageIcon, X, Pencil, Check, Globe2,
 } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 
@@ -559,6 +559,163 @@ function LogoUploader({ logoUrl, onUpload }: { logoUrl: string; onUpload: (url: 
   );
 }
 
+// ─── Site Company Name Panel ──────────────────────────────────────────────────
+
+interface SiteEntry { siteId: number; siteName: string; companyName: string }
+
+function SiteCompanyPanel() {
+  const { toast } = useToast();
+  const qc = useQueryClient();
+
+  const { data: sites, isLoading } = useQuery<SiteEntry[]>({
+    queryKey: ["settings-sites"],
+    queryFn: async () => {
+      const res = await apiFetch("/api/settings/sites");
+      if (!res.ok) throw new Error("Gagal memuat data site");
+      return res.json();
+    },
+  });
+
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [draftName, setDraftName] = useState("");
+  const [savingId, setSavingId] = useState<number | null>(null);
+
+  const startEdit = useCallback((site: SiteEntry) => {
+    setEditingId(site.siteId);
+    setDraftName(site.companyName);
+  }, []);
+
+  const cancelEdit = useCallback(() => {
+    setEditingId(null);
+    setDraftName("");
+  }, []);
+
+  const saveEdit = useCallback(async (siteId: number) => {
+    const trimmed = draftName.trim();
+    if (!trimmed) {
+      toast({ title: "Validasi", description: "Nama perusahaan wajib diisi", variant: "destructive" });
+      return;
+    }
+    if (trimmed.length > 255) {
+      toast({ title: "Validasi", description: "Nama perusahaan maksimal 255 karakter", variant: "destructive" });
+      return;
+    }
+    setSavingId(siteId);
+    try {
+      const res = await apiFetch(`/api/settings/sites/${siteId}/company`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ companyName: trimmed }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({})) as { error?: string };
+        throw new Error(err.error ?? "Gagal menyimpan");
+      }
+      toast({ title: "Berhasil", description: "Nama perusahaan berhasil diperbarui." });
+      await qc.invalidateQueries({ queryKey: ["settings-sites"] });
+      await qc.invalidateQueries({ queryKey: ["settings"] });
+      await qc.invalidateQueries({ queryKey: ["sites"] });
+      setEditingId(null);
+      setDraftName("");
+    } catch (err) {
+      toast({ title: "Gagal", description: (err as Error).message, variant: "destructive" });
+    } finally {
+      setSavingId(null);
+    }
+  }, [draftName, toast, qc]);
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <CardTitle className="text-sm flex items-center gap-2">
+          <Globe2 className="h-4 w-4 text-primary" />
+          Nama Perusahaan per Site
+        </CardTitle>
+        <CardDescription className="text-xs">
+          Nama PT pengelola yang muncul di invoice PDF, struk POS, dan notifikasi WA per site
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        {isLoading ? (
+          <div className="h-16 flex items-center justify-center text-sm text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin mr-2" /> Memuat...
+          </div>
+        ) : !sites?.length ? (
+          <p className="text-sm text-muted-foreground">Tidak ada data site.</p>
+        ) : (
+          <div className="space-y-3">
+            {sites.map((site) => {
+              const isEditing = editingId === site.siteId;
+              const isSaving = savingId === site.siteId;
+              return (
+                <div key={site.siteId} className="flex items-center gap-3 p-3 rounded-lg border bg-muted/30">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-medium text-muted-foreground mb-1">{site.siteName}</p>
+                    {isEditing ? (
+                      <Input
+                        value={draftName}
+                        onChange={(e) => setDraftName(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") void saveEdit(site.siteId);
+                          if (e.key === "Escape") cancelEdit();
+                        }}
+                        placeholder="Nama PT / perusahaan pengelola"
+                        className="h-8 text-sm"
+                        maxLength={255}
+                        autoFocus
+                        disabled={isSaving}
+                      />
+                    ) : (
+                      <p className="text-sm font-semibold truncate">
+                        {site.companyName || <span className="text-muted-foreground italic font-normal">Belum diatur</span>}
+                      </p>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-1 shrink-0">
+                    {isEditing ? (
+                      <>
+                        <Button
+                          size="sm"
+                          variant="default"
+                          className="h-7 px-2 gap-1 text-xs"
+                          onClick={() => void saveEdit(site.siteId)}
+                          disabled={isSaving}
+                        >
+                          {isSaving ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}
+                          Simpan
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-7 px-2 text-xs"
+                          onClick={cancelEdit}
+                          disabled={isSaving}
+                        >
+                          <X className="h-3 w-3" />
+                        </Button>
+                      </>
+                    ) : (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-7 px-2 gap-1 text-xs"
+                        onClick={() => startEdit(site)}
+                      >
+                        <Pencil className="h-3 w-3" />
+                        Edit
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 // ─── Main Settings Page ────────────────────────────────────────────────────────
 
 export default function SettingsPage() {
@@ -933,6 +1090,9 @@ export default function SettingsPage() {
           )}
         </div>
       </form>
+
+      {/* Panel Nama Perusahaan per Site */}
+      <SiteCompanyPanel />
 
       {/* Panel WhatsApp — di luar form karena punya state/action sendiri */}
       <WhatsAppPanel
