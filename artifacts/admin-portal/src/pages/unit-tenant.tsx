@@ -44,9 +44,16 @@ import { Textarea } from "@/components/ui/textarea";
 import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import {
   Plus, Search, Pencil, Trash2, LayoutGrid, Table2, RefreshCw,
   Building2, MapPin, Package, X, Database, Lock, Unlock,
+  RefreshCcw, Wrench, CheckSquare,
 } from "lucide-react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -734,6 +741,8 @@ export default function UnitTenant() {
   const [editingUnit, setEditingUnit] = useState<MallUnit | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<MallUnit | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [showBulkDeleteConfirm, setShowBulkDeleteConfirm] = useState(false);
 
   const queryKey = ["mall-units", activeSiteId];
 
@@ -863,6 +872,89 @@ export default function UnitTenant() {
     },
   });
 
+  const bulkStatusMutation = useMutation({
+    mutationFn: ({ ids, status }: { ids: number[]; status: string }) =>
+      apiFetchJson<{ ok: boolean; updatedCount: number }>("/api/mall-units/bulk-status", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids, status }),
+      }),
+    onSuccess: (result, vars) => {
+      queryClient.invalidateQueries({ queryKey });
+      setSelectedIds(new Set());
+      const label = vars.status === "occupied" ? "Terisi" : vars.status === "available" ? "Kosong" : "Perawatan";
+      const emoji = vars.status === "occupied" ? "🔒" : vars.status === "available" ? "🔓" : "🔧";
+      toast({
+        title: `${emoji} ${result.updatedCount} unit ditandai ${label}`,
+        description: `Perubahan status berhasil diterapkan ke ${result.updatedCount} unit.`,
+      });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Gagal update status massal", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const syncMutation = useMutation({
+    mutationFn: () =>
+      apiFetchJson<{ ok: boolean; message: string; totalChanged: number; toOccupied: number; toAvailable: number }>(
+        "/api/mall-units/sync-from-bookings",
+        { method: "POST" },
+      ),
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey });
+      toast({
+        title: result.totalChanged > 0 ? "✅ Sinkronisasi selesai" : "✅ Data sudah sinkron",
+        description: result.message,
+      });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Gagal sinkronisasi", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const bulkDeleteMutation = useMutation({
+    mutationFn: async (ids: number[]) => {
+      const results = await Promise.allSettled(
+        ids.map(id => apiFetch(`/api/mall-units/${id}`, { method: "DELETE" })),
+      );
+      const failed = results.filter(r => r.status === "rejected").length;
+      const succeeded = results.filter(r => r.status === "fulfilled").length;
+      return { succeeded, failed };
+    },
+    onSuccess: ({ succeeded, failed }) => {
+      queryClient.invalidateQueries({ queryKey });
+      setSelectedIds(new Set());
+      setShowBulkDeleteConfirm(false);
+      toast({
+        title: `🗑️ ${succeeded} unit dihapus`,
+        description: failed > 0 ? `${failed} unit gagal dihapus (mungkin masih ada booking aktif).` : undefined,
+        variant: failed > 0 ? "destructive" : "default",
+      });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Gagal hapus unit", description: err.message, variant: "destructive" });
+      setShowBulkDeleteConfirm(false);
+    },
+  });
+
+  function toggleSelect(id: number) {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleSelectAll() {
+    const editableFiltered = filtered.filter(u => u.storedStatus === "available" || (u.storedStatus === "occupied" && !u.tenantId) || u.storedStatus === "maintenance");
+    const allSelected = editableFiltered.every(u => selectedIds.has(u.id));
+    if (allSelected) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(editableFiltered.map(u => u.id)));
+    }
+  }
+
   function handleSaveForm(formData: UnitFormData) {
     const payload = {
       unitCode: formData.unitCode.trim(),
@@ -946,6 +1038,25 @@ export default function UnitTenant() {
                 {seedMutation.isPending ? "Seeding..." : "Seed Kantin"}
               </Button>
             )}
+            {canEdit && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => syncMutation.mutate()}
+                    disabled={syncMutation.isPending}
+                    className="h-8 text-xs gap-1 text-blue-700 border-blue-300 hover:bg-blue-50"
+                  >
+                    <RefreshCcw className={`h-3 w-3 ${syncMutation.isPending ? "animate-spin" : ""}`} />
+                    {syncMutation.isPending ? "Menyinkron..." : "Sinkron Booking"}
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p className="text-xs">Sinkronkan status unit dengan data booking aktif</p>
+                </TooltipContent>
+              </Tooltip>
+            )}
             <Button
               variant="outline"
               size="sm"
@@ -967,6 +1078,62 @@ export default function UnitTenant() {
             )}
           </div>
         </div>
+
+        {/* ── Bulk action bar ── */}
+        {canEdit && selectedIds.size > 0 && (
+          <div className="flex items-center gap-2 px-3 py-2 bg-primary/5 border border-primary/20 rounded-lg flex-wrap">
+            <span className="text-xs font-semibold text-primary flex items-center gap-1">
+              <CheckSquare className="h-3.5 w-3.5" />
+              {selectedIds.size} unit dipilih
+            </span>
+            <div className="flex gap-1.5 flex-wrap ml-2">
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7 text-xs gap-1 bg-amber-50 text-amber-800 border-amber-300 hover:bg-amber-100"
+                onClick={() => bulkStatusMutation.mutate({ ids: Array.from(selectedIds), status: "occupied" })}
+                disabled={bulkStatusMutation.isPending}
+              >
+                <Lock className="h-3 w-3" /> Tandai Terisi
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7 text-xs gap-1 bg-emerald-50 text-emerald-800 border-emerald-300 hover:bg-emerald-100"
+                onClick={() => bulkStatusMutation.mutate({ ids: Array.from(selectedIds), status: "available" })}
+                disabled={bulkStatusMutation.isPending}
+              >
+                <Unlock className="h-3 w-3" /> Tandai Kosong
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7 text-xs gap-1 bg-slate-100 text-slate-700 border-slate-300 hover:bg-slate-200"
+                onClick={() => bulkStatusMutation.mutate({ ids: Array.from(selectedIds), status: "maintenance" })}
+                disabled={bulkStatusMutation.isPending}
+              >
+                <Wrench className="h-3 w-3" /> Perawatan
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7 text-xs gap-1 bg-red-50 text-red-700 border-red-300 hover:bg-red-100"
+                onClick={() => setShowBulkDeleteConfirm(true)}
+                disabled={bulkDeleteMutation.isPending}
+              >
+                <Trash2 className="h-3 w-3" /> Hapus
+              </Button>
+            </div>
+            <Button
+              size="icon"
+              variant="ghost"
+              className="h-6 w-6 ml-auto text-muted-foreground"
+              onClick={() => setSelectedIds(new Set())}
+            >
+              <X className="h-3.5 w-3.5" />
+            </Button>
+          </div>
+        )}
 
         {/* Summary strip */}
         {!isLoading && units.length > 0 && <SummaryCounts units={units} />}
@@ -1052,6 +1219,19 @@ export default function UnitTenant() {
             <Table>
               <TableHeader>
                 <TableRow className="bg-muted/30">
+                  {canEdit && (
+                    <TableHead className="w-8 pl-3">
+                      <Checkbox
+                        checked={
+                          filtered.length > 0 &&
+                          filtered.every(u => selectedIds.has(u.id))
+                        }
+                        onCheckedChange={toggleSelectAll}
+                        aria-label="Pilih semua"
+                        className="h-3.5 w-3.5"
+                      />
+                    </TableHead>
+                  )}
                   <TableHead className="text-xs w-28">Kode Unit</TableHead>
                   <TableHead className="text-xs">Area</TableHead>
                   <TableHead className="text-xs">Jenis</TableHead>
@@ -1069,7 +1249,7 @@ export default function UnitTenant() {
                 {filtered.length === 0 ? (
                   <TableRow>
                     <TableCell
-                      colSpan={canEdit ? 9 : 8}
+                      colSpan={canEdit ? 10 : 8}
                       className="text-center py-12 text-muted-foreground text-sm"
                     >
                       {units.length === 0
@@ -1083,9 +1263,19 @@ export default function UnitTenant() {
                   filtered.map(u => (
                     <TableRow
                       key={u.id}
-                      className="hover:bg-muted/20 cursor-pointer"
+                      className={`hover:bg-muted/20 cursor-pointer ${selectedIds.has(u.id) ? "bg-primary/5" : ""}`}
                       onClick={() => setSelectedUnit(u)}
                     >
+                      {canEdit && (
+                        <TableCell className="pl-3 py-2.5" onClick={e => { e.stopPropagation(); toggleSelect(u.id); }}>
+                          <Checkbox
+                            checked={selectedIds.has(u.id)}
+                            onCheckedChange={() => toggleSelect(u.id)}
+                            aria-label={`Pilih ${u.unitCode}`}
+                            className="h-3.5 w-3.5"
+                          />
+                        </TableCell>
+                      )}
                       <TableCell className="py-2.5">
                         <span className="font-mono text-xs font-semibold">{u.unitCode}</span>
                       </TableCell>
@@ -1234,6 +1424,37 @@ export default function UnitTenant() {
               disabled={deleteMutation.isPending}
             >
               {deleteMutation.isPending ? "Menghapus..." : "Hapus"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* ── Bulk delete dialog ── */}
+      <AlertDialog
+        open={showBulkDeleteConfirm}
+        onOpenChange={v => { if (!v) setShowBulkDeleteConfirm(false); }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Hapus {selectedIds.size} unit sekaligus?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {selectedIds.size} unit yang dipilih akan dihapus secara permanen.
+              Unit yang masih memiliki booking aktif akan ditolak penghapusannya secara otomatis.
+              Tindakan ini tidak dapat diurungkan.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={bulkDeleteMutation.isPending}>
+              Batal
+            </AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => bulkDeleteMutation.mutate(Array.from(selectedIds))}
+              disabled={bulkDeleteMutation.isPending}
+            >
+              {bulkDeleteMutation.isPending ? "Menghapus..." : `Hapus ${selectedIds.size} Unit`}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

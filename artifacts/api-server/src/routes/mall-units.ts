@@ -284,6 +284,111 @@ router.post("/mall-units", requireAnyRole("owner", "admin"), async (req, res) =>
   }
 });
 
+// ─── PATCH /api/mall-units/bulk-status ───────────────────────────────────────
+router.patch("/mall-units/bulk-status", requireAnyRole("owner", "admin"), async (req, res) => {
+  const { ids, status } = req.body as { ids: unknown; status: unknown };
+  if (!Array.isArray(ids) || ids.length === 0) {
+    res.status(400).json({ error: "ids harus berupa array tidak kosong" }); return;
+  }
+  if (typeof status !== "string" || !UNIT_STATUSES.includes(status as UnitStatus)) {
+    res.status(400).json({ error: "Status tidak valid" }); return;
+  }
+  const numericIds = ids.map(Number).filter(n => !isNaN(n));
+  if (numericIds.length === 0) {
+    res.status(400).json({ error: "IDs tidak valid" }); return;
+  }
+  try {
+    const siteId = req.siteId;
+    const whereClause = siteId > 0
+      ? and(inArray(mallUnitsTable.id, numericIds), eq(mallUnitsTable.siteId, siteId))
+      : inArray(mallUnitsTable.id, numericIds);
+    const updated = await db
+      .update(mallUnitsTable)
+      .set({ status: status as UnitStatus, updatedAt: new Date() })
+      .where(whereClause)
+      .returning({ id: mallUnitsTable.id, unitCode: mallUnitsTable.unitCode });
+    logAudit(req, {
+      action: "bulk_update_unit_status",
+      entityType: "mall_unit",
+      entityId: 0,
+      afterData: { ids: numericIds, status, updatedCount: updated.length },
+    });
+    sseBroker.publish("unit_updated", { unitIds: numericIds });
+    res.json({ ok: true, updatedCount: updated.length, units: updated });
+  } catch (err) {
+    req.log.error(err, "Failed to bulk update mall unit status");
+    res.status(500).json({ error: "Gagal update status unit secara massal" });
+  }
+});
+
+// ─── POST /api/mall-units/sync-from-bookings ──────────────────────────────────
+router.post("/mall-units/sync-from-bookings", requireAnyRole("owner", "admin"), async (req, res) => {
+  const siteId = req.siteId;
+  try {
+    const unitFilter = siteId > 0 ? eq(mallUnitsTable.siteId, siteId) : undefined;
+    const units = await db.select().from(mallUnitsTable).where(unitFilter);
+
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const bookingConditions: any[] = [
+      sql`${tenantBookingsTable.contractStatus} NOT IN ('terminated','expired')`,
+      or(
+        sql`${tenantBookingsTable.endDate} >= ${todayStr}`,
+        sql`${tenantBookingsTable.endDate} IS NULL`,
+      ),
+    ];
+    if (siteId > 0) bookingConditions.push(eq(tenantBookingsTable.siteId, siteId));
+
+    const bookings = await db
+      .select({ unitCode: tenantBookingsTable.unitCode, contractStatus: tenantBookingsTable.contractStatus })
+      .from(tenantBookingsTable)
+      .where(and(...bookingConditions));
+
+    const activeUnitCodes = new Set(bookings.map(b => b.unitCode).filter(Boolean) as string[]);
+
+    const toOccupied: number[] = [];
+    const toAvailable: number[] = [];
+
+    for (const u of units) {
+      if (u.status === "maintenance") continue;
+      const hasActiveBooking = activeUnitCodes.has(u.unitCode);
+      if (hasActiveBooking && u.status !== "occupied") toOccupied.push(u.id);
+      if (!hasActiveBooking && u.status === "occupied") toAvailable.push(u.id);
+    }
+
+    if (toOccupied.length > 0) {
+      await db.update(mallUnitsTable)
+        .set({ status: "occupied", updatedAt: new Date() })
+        .where(inArray(mallUnitsTable.id, toOccupied));
+    }
+    if (toAvailable.length > 0) {
+      await db.update(mallUnitsTable)
+        .set({ status: "available", updatedAt: new Date() })
+        .where(inArray(mallUnitsTable.id, toAvailable));
+    }
+
+    const totalChanged = toOccupied.length + toAvailable.length;
+    logAudit(req, {
+      action: "sync_units_from_bookings",
+      entityType: "mall_unit",
+      entityId: 0,
+      afterData: { toOccupied: toOccupied.length, toAvailable: toAvailable.length, siteId },
+    });
+    sseBroker.publish("unit_updated", { synced: true });
+    res.json({
+      ok: true,
+      totalChanged,
+      toOccupied: toOccupied.length,
+      toAvailable: toAvailable.length,
+      message: totalChanged === 0
+        ? "Semua status unit sudah sinkron dengan data booking"
+        : `${totalChanged} unit berhasil disinkronkan (${toOccupied.length} → Terisi, ${toAvailable.length} → Kosong)`,
+    });
+  } catch (err) {
+    req.log.error(err, "Failed to sync unit status from bookings");
+    res.status(500).json({ error: "Gagal sinkronisasi status unit dari booking" });
+  }
+});
+
 // ─── PATCH /api/mall-units/:id ────────────────────────────────────────────────
 router.patch("/mall-units/:id", requireAnyRole("owner", "admin"), async (req, res) => {
   const id = Number(req.params.id);
