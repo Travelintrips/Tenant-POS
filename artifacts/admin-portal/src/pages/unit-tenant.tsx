@@ -1187,18 +1187,54 @@ export default function UnitTenant() {
             </SelectContent>
           </Select>
 
-          <Select value={filterStatus} onValueChange={setFilterStatus}>
-            <SelectTrigger className="h-8 w-36 text-xs">
-              <SelectValue placeholder="Semua Status" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Semua Status</SelectItem>
-              {UNIT_STATUSES.map(s => (
-                <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
         </div>
+
+        {/* ── Status filter pills ── */}
+        {!isLoading && units.length > 0 && (
+          <div className="flex flex-wrap gap-1.5">
+            {/* Semua */}
+            <button
+              onClick={() => setFilterStatus("all")}
+              className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium border transition-all ${
+                filterStatus === "all"
+                  ? "bg-primary text-primary-foreground border-primary shadow-sm"
+                  : "bg-white text-muted-foreground border-border hover:border-primary/50 hover:text-foreground"
+              }`}
+            >
+              Semua
+              <span className={`inline-flex items-center justify-center min-w-[18px] h-[18px] rounded-full text-[10px] font-bold px-1 ${
+                filterStatus === "all" ? "bg-white/20 text-white" : "bg-muted text-muted-foreground"
+              }`}>
+                {units.length}
+              </span>
+            </button>
+
+            {/* Per status */}
+            {UNIT_STATUSES.map(s => {
+              const count = units.filter(u => u.status === s.value).length;
+              if (count === 0) return null;
+              const isActive = filterStatus === s.value;
+              return (
+                <button
+                  key={s.value}
+                  onClick={() => setFilterStatus(isActive ? "all" : s.value)}
+                  className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium border transition-all ${
+                    isActive
+                      ? `${s.color} border-current shadow-sm ring-1 ring-current/30`
+                      : "bg-white text-muted-foreground border-border hover:border-current/40"
+                  }`}
+                >
+                  {s.label}
+                  <span className={`inline-flex items-center justify-center min-w-[18px] h-[18px] rounded-full text-[10px] font-bold px-1 ${
+                    isActive ? "bg-current/20" : "bg-muted text-muted-foreground"
+                  }`}>
+                    {count}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        )}
 
         {/* Content */}
         {isLoading ? (
