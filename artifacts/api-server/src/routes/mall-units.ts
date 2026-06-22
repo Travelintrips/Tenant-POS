@@ -32,13 +32,15 @@ function computeUnitStatus(opts: {
   bookingEndDate: string | null;
   bookingDueDate: string | null;
   hasBooking: boolean;
+  hasTenant: boolean;
 }): UnitStatus {
-  const { storedStatus, hasBooking, bookingContractStatus, bookingPaymentStatus, bookingEndDate, bookingDueDate } = opts;
+  const { storedStatus, hasBooking, hasTenant, bookingContractStatus, bookingPaymentStatus, bookingEndDate, bookingDueDate } = opts;
   const todayStr = today();
 
   if (storedStatus === "maintenance") return "maintenance";
   if (!hasBooking) {
     if (storedStatus === "occupied") return "occupied";
+    if (hasTenant) return "occupied"; // tenant aktif di unit ini (via booth_number)
     return "available";
   }
 
@@ -123,6 +125,8 @@ router.get("/mall-units", async (req, res) => {
     }
 
     const tenantMap = new Map(tenants.map(t => [t.id, t]));
+    // Index tenant juga berdasarkan booth_number → bisa lookup langsung tanpa booking
+    const tenantByBooth = new Map(tenants.filter(t => t.boothNumber).map(t => [t.boothNumber!, t]));
 
     const latestInvoiceByBooking = new Map<number, typeof invoices[number]>();
     for (const inv of invoices) {
@@ -133,12 +137,16 @@ router.get("/mall-units", async (req, res) => {
 
     const result = units.map((u) => {
       const booking = bookingByUnit.get(u.unitCode) ?? null;
-      const tenant = booking?.tenantId ? tenantMap.get(booking.tenantId) : null;
+      // Prioritas: tenant via booking → tenant via booth_number langsung
+      const tenant = booking?.tenantId
+        ? (tenantMap.get(booking.tenantId) ?? tenantByBooth.get(u.unitCode) ?? null)
+        : (tenantByBooth.get(u.unitCode) ?? null);
       const invoice = booking?.id ? latestInvoiceByBooking.get(booking.id) : null;
 
       const computedStatus = computeUnitStatus({
         storedStatus: u.status,
         hasBooking: !!booking,
+        hasTenant: !!tenant,
         bookingContractStatus: booking?.contractStatus ?? null,
         bookingPaymentStatus: booking?.paymentStatus ?? null,
         bookingStartDate: booking?.startDate ?? null,
@@ -166,15 +174,15 @@ router.get("/mall-units", async (req, res) => {
         createdAt: u.createdAt,
         updatedAt: u.updatedAt,
         bookingId: booking?.id ?? null,
-        tenantId: booking?.tenantId ?? null,
+        tenantId: tenant?.id ?? booking?.tenantId ?? null,
         businessName: tenant?.businessName ?? null,
         ownerName: tenant?.ownerName ?? null,
         phone: tenant?.phone ?? null,
         email: tenant?.email ?? null,
         category: tenant?.category ?? tenant?.businessCategory ?? null,
         boothNumber: tenant?.boothNumber ?? u.unitCode,
-        startDate: booking?.startDate ?? null,
-        endDate: booking?.endDate ?? null,
+        startDate: booking?.startDate ?? tenant?.contractStartDate ?? null,
+        endDate: booking?.endDate ?? tenant?.contractEndDate ?? null,
         totalAmount: Number(booking?.totalAmount ?? 0),
         paidAmount: Number(booking?.paidAmount ?? 0),
         remainingAmount: Number(booking?.remainingAmount ?? 0),
