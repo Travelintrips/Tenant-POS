@@ -91,6 +91,13 @@ import {
 } from "lucide-react";
 
 // ── Tipe data ──────────────────────────────────────────────────────────────────
+interface MallUnitInfo {
+  unitCode: string;
+  areaName: string;
+  defaultRentAmount: number | null;
+  status: string;
+}
+
 interface DraftAgreement {
   id: number;
   token: string;
@@ -305,6 +312,98 @@ function PaginationBar({
   );
 }
 
+// ── Unit Picker Row ────────────────────────────────────────────────────────────
+function UnitPickerRow({
+  unitCode,
+  areaName,
+  onUnitCode,
+  onAreaName,
+  onRentAmount,
+  availableUnits,
+  loadingUnits,
+}: {
+  unitCode: string;
+  areaName: string;
+  onUnitCode: (v: string) => void;
+  onAreaName: (v: string) => void;
+  onRentAmount?: (v: string) => void;
+  availableUnits: MallUnitInfo[];
+  loadingUnits: boolean;
+}) {
+  function handleSelect(val: string) {
+    const unit = availableUnits.find((u) => u.unitCode === val);
+    if (!unit) return;
+    onUnitCode(unit.unitCode);
+    onAreaName(unit.areaName);
+    if (onRentAmount && unit.defaultRentAmount) {
+      onRentAmount(String(unit.defaultRentAmount));
+    }
+  }
+
+  const placeholder = loadingUnits
+    ? "Memuat unit..."
+    : availableUnits.length === 0
+    ? "Tidak ada unit kosong saat ini"
+    : "— Pilih unit kosong (otomatis isi) —";
+
+  return (
+    <>
+      <div className="space-y-1.5 col-span-2">
+        <Label className="flex items-center gap-1.5">
+          Pilih Unit Kosong
+          {availableUnits.length > 0 && (
+            <span className="text-xs bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded-full border border-emerald-200 font-medium">
+              {availableUnits.length} tersedia
+            </span>
+          )}
+        </Label>
+        <Select
+          onValueChange={handleSelect}
+          disabled={loadingUnits || availableUnits.length === 0}
+        >
+          <SelectTrigger className="text-sm">
+            <SelectValue placeholder={placeholder} />
+          </SelectTrigger>
+          <SelectContent>
+            {availableUnits.map((u) => (
+              <SelectItem key={u.unitCode} value={u.unitCode} className="text-sm">
+                <span className="font-mono font-semibold">{u.unitCode}</span>
+                {u.areaName && (
+                  <span className="ml-2 text-muted-foreground">· {u.areaName}</span>
+                )}
+                {u.defaultRentAmount ? (
+                  <span className="ml-2 text-emerald-700 font-medium">
+                    Rp {u.defaultRentAmount.toLocaleString("id-ID")}/bln
+                  </span>
+                ) : null}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <p className="text-xs text-muted-foreground">
+          Memilih unit akan otomatis mengisi Kode Unit dan Nama Area di bawah.
+        </p>
+      </div>
+      <div className="space-y-1.5">
+        <Label>Kode Unit</Label>
+        <Input
+          placeholder="misal: SC-01"
+          value={unitCode}
+          onChange={(e) => onUnitCode(e.target.value)}
+        />
+      </div>
+      <div className="space-y-1.5">
+        <Label>Nama Area/Lokasi</Label>
+        <Input
+          placeholder="misal: Sport Center Lantai 1"
+          value={areaName}
+          onChange={(e) => onAreaName(e.target.value)}
+        />
+      </div>
+    </>
+  );
+}
+
 // ── Form buat draf baru ────────────────────────────────────────────────────────
 interface CreateForm {
   docType: "surat_minat" | "perjanjian_sewa";
@@ -417,6 +516,24 @@ function DetailPanel({
     areaName: draft.areaName ?? "",
     billingCycle: "monthly" as "monthly" | "quarterly" | "yearly",
     notes: "",
+  });
+
+  const { data: availableUnits = [], isLoading: loadingUnits } = useQuery<MallUnitInfo[]>({
+    queryKey: ["mall-units-available"],
+    queryFn: async () => {
+      const res = await apiFetch("/api/mall-units");
+      if (!res.ok) return [];
+      const data = await res.json() as any[];
+      return data
+        .filter((u) => u.status === "available")
+        .map((u) => ({
+          unitCode: u.unitCode as string,
+          areaName: (u.areaKantin ?? u.zone ?? u.floor ?? "") as string,
+          defaultRentAmount: u.defaultRentAmount ? Number(u.defaultRentAmount) : null,
+          status: u.status as string,
+        }));
+    },
+    staleTime: 60_000,
   });
 
   const waLogQuery = useQuery<WaLog[]>({
@@ -991,14 +1108,15 @@ function DetailPanel({
             </div>
 
             <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label>Kode Unit</Label>
-                <Input placeholder="SC-01" value={bookingForm.unitCode} onChange={(e) => setBookingForm((f) => ({ ...f, unitCode: e.target.value }))} />
-              </div>
-              <div className="space-y-1.5">
-                <Label>Area/Lokasi</Label>
-                <Input placeholder="Sport Center Lt. 1" value={bookingForm.areaName} onChange={(e) => setBookingForm((f) => ({ ...f, areaName: e.target.value }))} />
-              </div>
+              <UnitPickerRow
+                unitCode={bookingForm.unitCode}
+                areaName={bookingForm.areaName}
+                onUnitCode={(v) => setBookingForm((f) => ({ ...f, unitCode: v }))}
+                onAreaName={(v) => setBookingForm((f) => ({ ...f, areaName: v }))}
+                onRentAmount={(v) => setBookingForm((f) => ({ ...f, rentAmount: v }))}
+                availableUnits={availableUnits}
+                loadingUnits={loadingUnits}
+              />
               <div className="space-y-1.5">
                 <Label>Tanggal Mulai <span className="text-destructive">*</span></Label>
                 <Input type="date" value={bookingForm.startDate} onChange={(e) => setBookingForm((f) => ({ ...f, startDate: e.target.value }))} />
@@ -1125,6 +1243,25 @@ export default function DrafPerjanjian() {
   if (dateTo) apiQs.set("dateTo", dateTo);
   apiQs.set("sortBy", sortBy);
   apiQs.set("sortDir", sortDir);
+
+  // ── Query: available mall units (untuk picker) ────────────────────────────
+  const { data: availableUnits = [], isLoading: loadingUnits } = useQuery<MallUnitInfo[]>({
+    queryKey: ["mall-units-available"],
+    queryFn: async () => {
+      const res = await apiFetch("/api/mall-units");
+      if (!res.ok) return [];
+      const data = await res.json() as any[];
+      return data
+        .filter((u) => u.status === "available")
+        .map((u) => ({
+          unitCode: u.unitCode as string,
+          areaName: (u.areaKantin ?? u.zone ?? u.floor ?? "") as string,
+          defaultRentAmount: u.defaultRentAmount ? Number(u.defaultRentAmount) : null,
+          status: u.status as string,
+        }));
+    },
+    staleTime: 60_000,
+  });
 
   // ── Query: paginated list ──────────────────────────────────────────────────
   const {
@@ -2095,14 +2232,15 @@ export default function DrafPerjanjian() {
             <div className="space-y-3">
               <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide border-b pb-1">Unit &amp; Periode Sewa</h3>
               <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1.5">
-                  <Label>Kode Unit</Label>
-                  <Input placeholder="misal: SC-01" value={form.unitCode} onChange={(e) => setField("unitCode", e.target.value)} />
-                </div>
-                <div className="space-y-1.5">
-                  <Label>Nama Area/Lokasi</Label>
-                  <Input placeholder="misal: Sport Center Lantai 1" value={form.areaName} onChange={(e) => setField("areaName", e.target.value)} />
-                </div>
+                <UnitPickerRow
+                  unitCode={form.unitCode}
+                  areaName={form.areaName}
+                  onUnitCode={(v) => setField("unitCode", v)}
+                  onAreaName={(v) => setField("areaName", v)}
+                  onRentAmount={(v) => setField("rentAmount", v)}
+                  availableUnits={availableUnits}
+                  loadingUnits={loadingUnits}
+                />
                 <div className="space-y-1.5">
                   <Label>Tanggal Mulai</Label>
                   <Input type="date" value={form.startDate} onChange={(e) => setField("startDate", e.target.value)} />
@@ -2249,14 +2387,15 @@ export default function DrafPerjanjian() {
                   <Label>Unit / Lokasi yang Diminati</Label>
                   <Input placeholder="dari pendaftaran mandiri" value={editForm.interestedUnit} onChange={(e) => setEditField("interestedUnit", e.target.value)} />
                 </div>
-                <div className="space-y-1.5">
-                  <Label>Kode Unit</Label>
-                  <Input placeholder="misal: SC-01" value={editForm.unitCode} onChange={(e) => setEditField("unitCode", e.target.value)} />
-                </div>
-                <div className="space-y-1.5">
-                  <Label>Nama Area/Lokasi</Label>
-                  <Input placeholder="misal: Sport Center Lantai 1" value={editForm.areaName} onChange={(e) => setEditField("areaName", e.target.value)} />
-                </div>
+                <UnitPickerRow
+                  unitCode={editForm.unitCode}
+                  areaName={editForm.areaName}
+                  onUnitCode={(v) => setEditField("unitCode", v)}
+                  onAreaName={(v) => setEditField("areaName", v)}
+                  onRentAmount={(v) => setEditField("rentAmount", v)}
+                  availableUnits={availableUnits}
+                  loadingUnits={loadingUnits}
+                />
                 <div className="space-y-1.5">
                   <Label>Tanggal Mulai</Label>
                   <Input type="date" value={editForm.startDate} onChange={(e) => setEditField("startDate", e.target.value)} />
