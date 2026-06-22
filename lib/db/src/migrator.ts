@@ -2161,6 +2161,13 @@ UPDATE mall_sites SET company_name = 'PT CAHAYA SEJATI TEKNOLOGI' WHERE code = '
   `.trim(),
 },
 {
+  name: "0052_draft_agreement_status",
+  sql: `
+ALTER TABLE tenant_draft_agreements ADD COLUMN IF NOT EXISTS agreement_status text;
+ALTER TABLE tenant_draft_agreements ADD COLUMN IF NOT EXISTS disagreement_reason text;
+  `.trim(),
+},
+{
   name: "0051_registration_link_wa_log",
   sql: `
 CREATE TABLE IF NOT EXISTS "registration_link_wa_log" (

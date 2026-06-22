@@ -1,0 +1,83 @@
+**Prompt Replit — Section Syarat & Ketentuan Penyewa Tenant**
+
+=====================================
+🎯 TUJUAN
+=========
+
+Menambahkan section **“Persetujuan Ketentuan Sewa Tenant”** di form /tenant/register, dengan ringkasan syarat & ketentuan dalam bentuk card/accordion agar calon tenant membaca dan menyetujui sebelum submit.
+
+---
+
+# 🖥️ FRONTEND
+
+1. Section baru di bawah semua field form, sebelum tombol submit.
+2. Tampilkan **Syarat & Ketentuan**:
+
+   * Ringkasan ketentuan dalam card atau accordion:
+
+     1. Semua data diproses tim manajemen
+     2. Calon tenant wajib memberikan data yang benar
+     3. Persetujuan tidak otomatis diterima
+     4. Biaya sewa, deposit, masa sewa, ketentuan operasional dibahas lebih lanjut
+     5. Tenant wajib mematuhi kebersihan, jam operasional, perizinan, larangan usaha ilegal
+     6. Tenant bisa memilih opsi **sewa bulanan**
+     7. Manajemen berhak menolak pendaftaran jika tidak sesuai ketentuan
+3. Tambahkan radio button wajib:
+
+   * “Saya setuju dengan ketentuan sewa tenant”
+   * “Saya tidak setuju”
+4. Jika pilih **tidak setuju**:
+
+   * Tampilkan textarea wajib:
+
+     * Label: “Alasan tidak setuju”
+     * Placeholder: “Tuliskan alasan Anda tidak setuju dengan ketentuan sewa tenant...”
+   * Tombol submit disabled sampai alasan ≥ 10 karakter
+5. Jika pilih **setuju**:
+
+   * Textarea disembunyikan
+   * Tombol submit aktif jika semua field wajib lain valid
+
+---
+
+# 📡 BACKEND
+
+1. Tambahkan field di database calon tenant:
+
+   * `agreement_status` → enum(setuju / tidak_setuju)
+   * `disagreement_reason` → nullable
+   * `lease_duration_months` → nullable, integer
+2. Update POST /api/calon-tenant/daftar:
+
+   * Terima `agreement_status`, `disagreement_reason`, `lease_duration_months`
+   * Validasi:
+
+     * agreement_status wajib diisi
+     * jika tidak_setuju → disagreement_reason ≥10 karakter
+   * Simpan ke database
+3. Admin portal:
+
+   * Tampilkan di detail pendaftar:
+
+     * Status Persetujuan
+     * Alasan Tidak Setuju (jika ada)
+     * Durasi Sewa Bulanan (jika diisi)
+
+---
+
+# 🧪 VALIDASI
+
+1. Tombol submit nonaktif sampai radio dipilih
+2. Tidak setuju → textarea minimal 10 karakter
+3. Pilihan sewa bulanan optional → simpan ke DB jika ada
+4. Backend & frontend sinkron: agreement_status, disagreement_reason, lease_duration_months
+5. Admin bisa melihat semua info di detail pendaftar
+
+---
+
+# 📦 OUTPUT REQUIRED
+
+* Frontend: card/accordion Syarat & Ketentuan, radio + textarea, durasi sewa bulanan, validasi, tombol submit
+* Backend: tambahkan field + validasi + simpan ke DB
+* Admin portal: tampilkan status persetujuan, alasan, durasi sewa
+* UI responsif, desain card putih, border radius, tombol biru, mobile friendly

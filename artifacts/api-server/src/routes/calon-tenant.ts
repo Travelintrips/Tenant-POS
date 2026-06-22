@@ -19,6 +19,14 @@ const registerSchema = z.object({
   address: z.string().max(500).optional(),
   interestedUnit: z.string().max(300).optional(),
   notes: z.string().max(2000).optional(),
+  agreementStatus: z.enum(["setuju", "tidak_setuju"], { required_error: "Persetujuan ketentuan sewa wajib dipilih" }),
+  disagreementReason: z.string().max(2000).optional(),
+}).superRefine((data, ctx) => {
+  if (data.agreementStatus === "tidak_setuju") {
+    if (!data.disagreementReason || data.disagreementReason.trim().length < 10) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Alasan tidak setuju minimal 10 karakter", path: ["disagreementReason"] });
+    }
+  }
 });
 
 // ── POST /api/calon-tenant/daftar ─────────────────────────────────────────────
@@ -44,12 +52,14 @@ router.post("/calon-tenant/daftar", registrationRateLimiter, async (req: Request
         token, site_id, doc_type,
         pic_name, tenant_name, brand_name, business_type,
         email, phone, address, interested_unit,
-        notes, source, ip_address, status
+        notes, source, ip_address, status,
+        agreement_status, disagreement_reason
       ) VALUES (
         ${token}, 0, 'surat_minat',
         ${d.picName}, ${d.picName}, ${d.brandName}, ${d.businessType},
         ${d.email || null}, ${d.phone}, ${d.address || null}, ${d.interestedUnit || null},
-        ${d.notes || null}, 'self_register', ${ip}, 'pending'
+        ${d.notes || null}, 'self_register', ${ip}, 'pending',
+        ${d.agreementStatus}, ${d.agreementStatus === "tidak_setuju" ? (d.disagreementReason ?? null) : null}
       )
     `);
 

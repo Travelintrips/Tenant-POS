@@ -21,6 +21,8 @@ import {
   Briefcase,
   MapPin,
   MessageCircle,
+  FileText,
+  AlertTriangle,
 } from "lucide-react";
 
 interface RegisterForm {
@@ -32,6 +34,8 @@ interface RegisterForm {
   address: string;
   interestedUnit: string;
   notes: string;
+  agreementStatus: "setuju" | "tidak_setuju" | "";
+  disagreementReason: string;
 }
 
 const BLANK: RegisterForm = {
@@ -43,7 +47,18 @@ const BLANK: RegisterForm = {
   address: "",
   interestedUnit: "",
   notes: "",
+  agreementStatus: "",
+  disagreementReason: "",
 };
+
+const KETENTUAN = [
+  "Data pendaftaran yang diberikan akan diproses dan ditinjau oleh tim manajemen.",
+  "Calon tenant wajib memberikan informasi yang benar, lengkap, dan dapat dipertanggungjawabkan.",
+  "Persetujuan pendaftaran tidak berarti otomatis diterima sebagai tenant — keputusan akhir ada di tangan manajemen.",
+  "Besaran biaya sewa, deposit, masa sewa, dan ketentuan operasional lainnya akan dibahas lebih lanjut setelah seleksi.",
+  "Tenant wajib mengikuti aturan kebersihan, jam operasional yang berlaku, kelengkapan perizinan usaha, dan larangan menjalankan usaha ilegal.",
+  "Manajemen berhak menolak pendaftaran apabila calon tenant tidak memenuhi persyaratan atau bertentangan dengan ketentuan yang berlaku.",
+];
 
 export default function TenantRegister() {
   const [form, setForm] = useState<RegisterForm>(BLANK);
@@ -67,6 +82,8 @@ export default function TenantRegister() {
           address: f.address.trim() || undefined,
           interestedUnit: f.interestedUnit.trim() || undefined,
           notes: f.notes.trim() || undefined,
+          agreementStatus: f.agreementStatus,
+          disagreementReason: f.disagreementReason.trim() || undefined,
         }),
       });
       const body = await res.json();
@@ -76,11 +93,17 @@ export default function TenantRegister() {
     onSuccess: () => setSubmitted(true),
   });
 
-  const canSubmit =
+  const baseFieldsValid =
     form.picName.trim().length >= 2 &&
     form.brandName.trim().length >= 1 &&
     form.businessType.trim().length >= 1 &&
     form.phone.trim().length >= 8;
+
+  const agreementValid =
+    form.agreementStatus === "setuju" ||
+    (form.agreementStatus === "tidak_setuju" && form.disagreementReason.trim().length >= 10);
+
+  const canSubmit = baseFieldsValid && agreementValid;
 
   if (submitted) {
     return (
@@ -243,6 +266,114 @@ export default function TenantRegister() {
           </CardContent>
         </Card>
 
+        {/* Persetujuan Ketentuan Sewa */}
+        <Card className={`shadow-sm border-2 ${form.agreementStatus === "setuju" ? "border-emerald-200 bg-emerald-50/30" : form.agreementStatus === "tidak_setuju" ? "border-amber-200 bg-amber-50/30" : "border-slate-200"}`}>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base flex items-center gap-2">
+              <FileText className="h-4 w-4 text-primary" />
+              Persetujuan Ketentuan Sewa Tenant <span className="text-destructive">*</span>
+            </CardTitle>
+            <CardDescription>Baca dan pahami ketentuan berikut sebelum melanjutkan pendaftaran</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {/* Daftar Ketentuan */}
+            <div className="bg-white border border-slate-200 rounded-lg p-4 space-y-2.5">
+              {KETENTUAN.map((item, i) => (
+                <div key={i} className="flex gap-2.5 text-sm text-slate-700">
+                  <span className="shrink-0 w-5 h-5 rounded-full bg-primary/10 text-primary flex items-center justify-center text-xs font-bold mt-0.5">
+                    {i + 1}
+                  </span>
+                  <p className="leading-relaxed">{item}</p>
+                </div>
+              ))}
+            </div>
+
+            {/* Radio Buttons */}
+            <div className="space-y-2.5">
+              <Label className="text-sm font-medium text-slate-700">
+                Pilihan persetujuan Anda <span className="text-destructive">*</span>
+              </Label>
+
+              {/* Setuju */}
+              <label
+                className={`flex items-center gap-3 p-3.5 rounded-lg border-2 cursor-pointer transition-all ${
+                  form.agreementStatus === "setuju"
+                    ? "border-emerald-400 bg-emerald-50"
+                    : "border-slate-200 bg-white hover:border-slate-300"
+                }`}
+              >
+                <input
+                  type="radio"
+                  name="agreementStatus"
+                  value="setuju"
+                  checked={form.agreementStatus === "setuju"}
+                  onChange={() => setField("agreementStatus", "setuju")}
+                  className="w-4 h-4 accent-emerald-600"
+                />
+                <div>
+                  <p className={`text-sm font-medium ${form.agreementStatus === "setuju" ? "text-emerald-700" : "text-slate-700"}`}>
+                    ✅ Saya setuju dengan ketentuan sewa tenant
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    Saya telah membaca dan menyetujui seluruh ketentuan di atas
+                  </p>
+                </div>
+              </label>
+
+              {/* Tidak Setuju */}
+              <label
+                className={`flex items-center gap-3 p-3.5 rounded-lg border-2 cursor-pointer transition-all ${
+                  form.agreementStatus === "tidak_setuju"
+                    ? "border-amber-400 bg-amber-50"
+                    : "border-slate-200 bg-white hover:border-slate-300"
+                }`}
+              >
+                <input
+                  type="radio"
+                  name="agreementStatus"
+                  value="tidak_setuju"
+                  checked={form.agreementStatus === "tidak_setuju"}
+                  onChange={() => setField("agreementStatus", "tidak_setuju")}
+                  className="w-4 h-4 accent-amber-600"
+                />
+                <div>
+                  <p className={`text-sm font-medium ${form.agreementStatus === "tidak_setuju" ? "text-amber-700" : "text-slate-700"}`}>
+                    ⚠️ Saya tidak setuju
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    Wajib mengisi alasan di bawah ini
+                  </p>
+                </div>
+              </label>
+            </div>
+
+            {/* Textarea Alasan (muncul hanya jika tidak setuju) */}
+            {form.agreementStatus === "tidak_setuju" && (
+              <div className="space-y-1.5 animate-in fade-in slide-in-from-top-2 duration-200">
+                <Label className="flex items-center gap-1.5 text-amber-700">
+                  <AlertTriangle className="h-3.5 w-3.5" />
+                  Alasan tidak setuju <span className="text-destructive">*</span>
+                </Label>
+                <Textarea
+                  placeholder="Tuliskan alasan Anda tidak setuju dengan ketentuan sewa tenant..."
+                  rows={3}
+                  value={form.disagreementReason}
+                  onChange={(e) => setField("disagreementReason", e.target.value)}
+                  className="border-amber-300 focus:border-amber-400 bg-white"
+                />
+                <p className="text-xs text-muted-foreground">
+                  {form.disagreementReason.trim().length}/10 karakter minimum
+                  {form.disagreementReason.trim().length < 10 && form.disagreementReason.length > 0 && (
+                    <span className="text-destructive ml-1">
+                      (butuh {10 - form.disagreementReason.trim().length} karakter lagi)
+                    </span>
+                  )}
+                </p>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
         {/* Submit */}
         <div className="space-y-3">
           <Button
@@ -256,10 +387,26 @@ export default function TenantRegister() {
               <><CheckCircle2 className="h-4 w-4" />Kirim Pendaftaran</>
             )}
           </Button>
-          <p className="text-center text-xs text-muted-foreground">
-            Dengan mengirim formulir ini, data Anda akan diproses oleh tim manajemen.
-            Dokumen penawaran akan dikirimkan melalui WhatsApp.
-          </p>
+          {!form.agreementStatus && (
+            <p className="text-center text-xs text-amber-600 font-medium">
+              Wajib memilih persetujuan ketentuan sewa sebelum mengirim
+            </p>
+          )}
+          {!form.agreementStatus && (
+            <p className="text-center text-xs text-muted-foreground">
+              Dengan mengirim formulir ini, data Anda akan diproses oleh tim manajemen.
+            </p>
+          )}
+          {form.agreementStatus === "setuju" && (
+            <p className="text-center text-xs text-emerald-600">
+              ✅ Anda telah menyetujui ketentuan sewa. Dokumen penawaran akan dikirimkan melalui WhatsApp.
+            </p>
+          )}
+          {form.agreementStatus === "tidak_setuju" && (
+            <p className="text-center text-xs text-amber-600">
+              ⚠️ Pendaftaran tetap diterima namun tim kami akan menghubungi Anda untuk diskusi lebih lanjut.
+            </p>
+          )}
         </div>
       </div>
     </div>

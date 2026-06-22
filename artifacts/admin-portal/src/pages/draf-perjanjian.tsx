@@ -106,6 +106,8 @@ interface DraftAgreement {
   depositAmount: string;
   paymentTerms: string | null;
   notes: string | null;
+  agreementStatus: "setuju" | "tidak_setuju" | null;
+  disagreementReason: string | null;
   status: "pending" | "approved" | "rejected";
   respondedAt: string | null;
   respondedName: string | null;
@@ -778,6 +780,19 @@ function DetailPanel({
           )}
           {draft.interestedUnit && (
             <div><p className="text-xs text-muted-foreground">Unit yang Diminati</p><p className="font-medium">{draft.interestedUnit}</p></div>
+          )}
+          {draft.agreementStatus && (
+            <div className={`rounded-lg border p-3 ${draft.agreementStatus === "setuju" ? "bg-emerald-50 border-emerald-200" : "bg-amber-50 border-amber-200"}`}>
+              <p className="text-xs text-muted-foreground mb-1">Status Persetujuan Ketentuan Sewa</p>
+              <span className={`inline-flex items-center gap-1.5 text-sm font-semibold ${draft.agreementStatus === "setuju" ? "text-emerald-700" : "text-amber-700"}`}>
+                {draft.agreementStatus === "setuju" ? "✅ Menyetujui ketentuan sewa" : "⚠️ Tidak menyetujui ketentuan sewa"}
+              </span>
+              {draft.agreementStatus === "tidak_setuju" && draft.disagreementReason && (
+                <p className="text-xs text-amber-700 mt-1.5 leading-relaxed border-t border-amber-200 pt-1.5">
+                  <span className="font-medium">Alasan: </span>{draft.disagreementReason}
+                </p>
+              )}
+            </div>
           )}
           <div className="grid grid-cols-2 gap-x-4 gap-y-2">
             <div><p className="text-xs text-muted-foreground">Email</p><p className="font-medium">{draft.email || "—"}</p></div>
