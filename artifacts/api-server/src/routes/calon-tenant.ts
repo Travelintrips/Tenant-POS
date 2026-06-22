@@ -168,14 +168,24 @@ router.patch(
         return;
       }
 
-      // Jangan proses ulang jika sudah disetujui/ditolak
-      if (row.status !== "pending") {
+      // Blokir jika sudah ditolak, atau sudah punya booking (sudah dikonversi)
+      if (row["status"] === "rejected") {
         res.status(409).json({
-          error: "Status sudah diproses sebelumnya, tidak dapat diubah lagi",
-          currentStatus: row.status,
+          error: "Draf ini sudah ditolak, tidak dapat disetujui",
+          currentStatus: row["status"],
         });
         return;
       }
+      if (row["booking_id"]) {
+        res.status(409).json({
+          error: "Draf ini sudah dikonversi ke booking",
+          bookingId: row["booking_id"],
+          currentStatus: row["status"],
+        });
+        return;
+      }
+      // status 'pending' (belum direspon) atau 'approved' (tenant sudah tanda tangan)
+      // sama-sama boleh diproses admin
 
       // Ambil nama admin dari session
       const user = req.user as { name?: string; email?: string; dbId?: unknown } | undefined;
