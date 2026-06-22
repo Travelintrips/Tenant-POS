@@ -323,6 +323,54 @@ router.delete("/draft-agreements/:id", requireAnyRole("admin", "owner"), async (
   }
 });
 
+// ── helper: kirim WA dan catat log ────────────────────────────────────────────
+async function sendWaAndLog({
+  draftId,
+  phone,
+  message,
+  sentBy,
+  type,
+}: {
+  draftId: number;
+  phone: string;
+  message: string;
+  sentBy: string;
+  type: "auto" | "manual";
+}): Promise<{ ok: boolean; error?: string }> {
+  const token_api = process.env["FONNTE_TOKEN"];
+  let status: "success" | "failed" = "failed";
+  let errorMessage: string | null = null;
+
+  if (!token_api) {
+    errorMessage = "FONNTE_TOKEN belum dikonfigurasi";
+  } else {
+    try {
+      const r = await fetch("https://api.fonnte.com/send", {
+        method: "POST",
+        headers: { Authorization: token_api, "Content-Type": "application/json" },
+        body: JSON.stringify({ target: phone, message }),
+      });
+      const body = await r.json().catch(() => ({})) as Record<string, unknown>;
+      if (r.ok && body["status"] !== false) {
+        status = "success";
+      } else {
+        errorMessage = String(body["reason"] ?? body["detail"] ?? "Gagal mengirim WA");
+      }
+    } catch (e) {
+      errorMessage = e instanceof Error ? e.message : "Network error";
+    }
+  }
+
+  await db.execute(sql`
+    INSERT INTO draft_agreements_wa_log
+      (draft_agreement_id, phone_number, status, sent_by, type, error_message)
+    VALUES
+      (${draftId}, ${phone}, ${status}, ${sentBy}, ${type}, ${errorMessage})
+  `).catch((logErr) => console.error("[wa-log] gagal simpan log:", logErr));
+
+  return status === "success" ? { ok: true } : { ok: false, error: errorMessage ?? "Gagal mengirim WA" };
+}
+
 // ── POST /api/draft-agreements/:id/remind ─────────────────────────────────────
 router.post("/draft-agreements/:id/remind", requireAnyRole("admin", "owner"), async (req: Request, res: Response) => {
   const id = parseInt(req.params["id"] as string);
@@ -340,30 +388,103 @@ router.post("/draft-agreements/:id/remind", requireAnyRole("admin", "owner"), as
       return;
     }
 
-    const token_api = process.env["FONNTE_TOKEN"];
-    if (!token_api) {
-      res.status(422).json({ error: "Konfigurasi WhatsApp belum diatur (FONNTE_TOKEN)" });
-      return;
-    }
-
     const baseUrl = await getBaseUrl().catch(() => undefined);
-    const docUrl = baseUrl
-      ? `${baseUrl}/dokumen/${row["token"]}`
-      : `/dokumen/${row["token"]}`;
-
+    const docUrl = baseUrl ? `${baseUrl}/dokumen/${row["token"]}` : `/dokumen/${row["token"]}`;
     const docLabel = row["doc_type"] === "perjanjian_sewa" ? "Perjanjian Sewa" : "Surat Minat Menyewa";
     const message = `📄 *${docLabel}*\n\nYth. ${row["tenant_name"]},\n\nBerikut link dokumen yang perlu Anda tinjau dan berikan persetujuan:\n\n${docUrl}\n\nSilakan buka link tersebut dan pilih *Setuju* atau *Tidak Setuju*.\n\nTerima kasih.`;
 
-    await fetch("https://api.fonnte.com/send", {
-      method: "POST",
-      headers: { Authorization: token_api, "Content-Type": "application/json" },
-      body: JSON.stringify({ target: row["phone"] as string, message }),
+    const sentBy = (req.user as { name?: string; username?: string } | undefined)?.name
+      ?? (req.user as { name?: string; username?: string } | undefined)?.username
+      ?? "system";
+
+    const { ok, error } = await sendWaAndLog({
+      draftId: id,
+      phone: row["phone"] as string,
+      message,
+      sentBy,
+      type: "auto",
     });
+
+    if (!ok) {
+      res.status(422).json({ error: error ?? "Gagal mengirim WA" });
+      return;
+    }
 
     res.json({ success: true, message: "Pengingat berhasil dikirim via WhatsApp" });
   } catch (err) {
     console.error("[draft-agreements] POST remind error:", err);
     res.status(500).json({ error: "Gagal mengirim pengingat" });
+  }
+});
+
+// ── POST /api/draft-agreements/:id/kirim-wa-manual ────────────────────────────
+router.post("/draft-agreements/:id/kirim-wa-manual", requireAnyRole("admin", "owner"), async (req: Request, res: Response) => {
+  const id = parseInt(req.params["id"] as string);
+  if (isNaN(id)) { res.status(400).json({ error: "ID tidak valid" }); return; }
+
+  const bodySchema = z.object({ phone: z.string().min(8, "Nomor WA tidak valid") });
+  const parsed = bodySchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.issues.map((i) => i.message).join("; ") });
+    return;
+  }
+
+  const targetPhone = parsed.data.phone.replace(/\D/g, "").replace(/^0/, "62");
+
+  try {
+    const result = await db.execute(
+      sql`SELECT * FROM tenant_draft_agreements WHERE id = ${id} LIMIT 1`
+    );
+    const row = (result as { rows: Record<string, unknown>[] }).rows[0];
+    if (!row) { res.status(404).json({ error: "Draf tidak ditemukan" }); return; }
+
+    const baseUrl = await getBaseUrl().catch(() => undefined);
+    const docUrl = baseUrl ? `${baseUrl}/dokumen/${row["token"]}` : `/dokumen/${row["token"]}`;
+    const docLabel = row["doc_type"] === "perjanjian_sewa" ? "Perjanjian Sewa" : "Surat Minat Menyewa";
+    const message = `📄 *${docLabel}*\n\nYth. ${row["tenant_name"]},\n\nBerikut link dokumen yang perlu Anda tinjau dan berikan persetujuan:\n\n${docUrl}\n\nSilakan buka link tersebut dan pilih *Setuju* atau *Tidak Setuju*.\n\nTerima kasih.`;
+
+    const sentBy = (req.user as { name?: string; username?: string } | undefined)?.name
+      ?? (req.user as { name?: string; username?: string } | undefined)?.username
+      ?? "admin";
+
+    const { ok, error } = await sendWaAndLog({
+      draftId: id,
+      phone: targetPhone,
+      message,
+      sentBy,
+      type: "manual",
+    });
+
+    if (!ok) {
+      res.status(422).json({ error: error ?? "Gagal mengirim WA" });
+      return;
+    }
+
+    res.json({ success: true, message: `WA berhasil dikirim ke ${targetPhone}` });
+  } catch (err) {
+    console.error("[draft-agreements] POST kirim-wa-manual error:", err);
+    res.status(500).json({ error: "Gagal mengirim WA" });
+  }
+});
+
+// ── GET /api/draft-agreements/:id/wa-log ──────────────────────────────────────
+router.get("/draft-agreements/:id/wa-log", requireAnyRole("admin", "owner"), async (req: Request, res: Response) => {
+  const id = parseInt(req.params["id"] as string);
+  if (isNaN(id)) { res.status(400).json({ error: "ID tidak valid" }); return; }
+
+  try {
+    const result = await db.execute(
+      sql`SELECT id, phone_number, sent_at, status, sent_by, type, error_message
+          FROM draft_agreements_wa_log
+          WHERE draft_agreement_id = ${id}
+          ORDER BY sent_at DESC
+          LIMIT 50`
+    );
+    const rows = (result as { rows: Record<string, unknown>[] }).rows.map(toCamel);
+    res.json({ success: true, logs: rows });
+  } catch (err) {
+    console.error("[draft-agreements] GET wa-log error:", err);
+    res.status(500).json({ error: "Gagal memuat riwayat WA" });
   }
 });
 

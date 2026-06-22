@@ -2106,4 +2106,19 @@ DO $$ BEGIN
   END IF;
 END $$;
   `.trim(),
+},
+{
+  name: "0049_draft_wa_log",
+  sql: `
+CREATE TABLE IF NOT EXISTS "draft_agreements_wa_log" (
+  "id" serial PRIMARY KEY NOT NULL,
+  "draft_agreement_id" integer NOT NULL REFERENCES "tenant_draft_agreements"("id") ON DELETE CASCADE,
+  "phone_number" text NOT NULL,
+  "sent_at" timestamptz NOT NULL DEFAULT NOW(),
+  "status" text NOT NULL DEFAULT 'pending',
+  "sent_by" text,
+  "type" text NOT NULL DEFAULT 'manual',
+  "error_message" text
+);
+  `.trim(),
 });

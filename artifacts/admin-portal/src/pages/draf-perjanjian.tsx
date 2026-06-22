@@ -74,6 +74,8 @@ import {
   X,
   Search,
   CalendarRange,
+  MessageSquare,
+  Phone,
 } from "lucide-react";
 
 // ── Tipe data ──────────────────────────────────────────────────────────────────
@@ -323,6 +325,16 @@ const BLANK_FORM: CreateForm = {
 };
 
 // ── Detail panel ──────────────────────────────────────────────────────────────
+interface WaLog {
+  id: number;
+  phoneNumber: string;
+  sentAt: string;
+  status: "success" | "failed" | "pending";
+  sentBy: string | null;
+  type: "auto" | "manual";
+  errorMessage: string | null;
+}
+
 function DetailPanel({
   draft,
   onClose,
@@ -341,8 +353,10 @@ function DetailPanel({
   onStatusChanged: () => void;
 }) {
   const { toast } = useToast();
+  const qcPanel = useQueryClient();
   const [, setLocation] = useLocation();
   const [showBookingDialog, setShowBookingDialog] = useState(false);
+  const [waPhone, setWaPhone] = useState(draft.phone ?? "");
   const [confirmDialog, setConfirmDialog] = useState<{
     open: boolean;
     type: "approved" | "rejected" | null;
@@ -357,6 +371,38 @@ function DetailPanel({
     areaName: draft.areaName ?? "",
     billingCycle: "monthly" as "monthly" | "quarterly" | "yearly",
     notes: "",
+  });
+
+  const waLogQuery = useQuery<WaLog[]>({
+    queryKey: ["draft-wa-log", draft.id],
+    queryFn: async () => {
+      const res = await apiFetch(`/api/draft-agreements/${draft.id}/wa-log`);
+      const body = await res.json() as { success: boolean; logs: WaLog[] };
+      if (!res.ok) throw new Error("Gagal memuat riwayat WA");
+      return body.logs;
+    },
+    staleTime: 30_000,
+  });
+
+  const kirimWaMutation = useMutation({
+    mutationFn: async (phone: string) => {
+      const res = await apiFetch(`/api/draft-agreements/${draft.id}/kirim-wa-manual`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phone }),
+      });
+      const body = await res.json() as { success?: boolean; error?: string; message?: string };
+      if (!res.ok) throw new Error(body.error ?? `Error ${res.status}`);
+      return body;
+    },
+    onSuccess: () => {
+      toast({ title: "WA berhasil dikirim!", description: `Pesan terkirim ke ${waPhone}` });
+      qcPanel.invalidateQueries({ queryKey: ["draft-wa-log", draft.id] });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Gagal kirim WA", description: err.message, variant: "destructive" });
+      qcPanel.invalidateQueries({ queryKey: ["draft-wa-log", draft.id] });
+    },
   });
 
   const statusMutation = useMutation({
@@ -497,12 +543,90 @@ function DetailPanel({
                   <ExternalLink className="h-3 w-3" />Buka
                 </a>
               </Button>
-              {draft.status === "pending" && (
-                <Button size="sm" variant="outline" className="h-7 text-xs gap-1" onClick={() => onRemind(draft.id)}>
-                  <Send className="h-3 w-3" />Kirim WA
-                </Button>
-              )}
             </div>
+          </div>
+
+          {/* Kirim WA Manual */}
+          <div className="rounded-lg border p-3 space-y-2">
+            <p className="font-medium text-xs text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
+              <MessageSquare className="h-3.5 w-3.5" />Kirim WhatsApp
+            </p>
+            <div className="flex gap-2">
+              <div className="relative flex-1">
+                <Phone className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+                <Input
+                  className="h-8 text-xs pl-8"
+                  placeholder="628xxxxxxxxx"
+                  value={waPhone}
+                  onChange={(e) => setWaPhone(e.target.value)}
+                />
+              </div>
+              <Button
+                size="sm"
+                className="h-8 gap-1.5 shrink-0"
+                disabled={kirimWaMutation.isPending || !waPhone.trim()}
+                onClick={() => kirimWaMutation.mutate(waPhone.trim())}
+              >
+                <Send className="h-3.5 w-3.5" />
+                {kirimWaMutation.isPending ? "Mengirim..." : "Kirim WA"}
+              </Button>
+            </div>
+            <p className="text-xs text-muted-foreground">Link dokumen akan dikirim ke nomor di atas via WhatsApp.</p>
+          </div>
+
+          {/* Riwayat Pengiriman WA */}
+          <div className="rounded-lg border p-3 space-y-2">
+            <div className="flex items-center justify-between">
+              <p className="font-medium text-xs text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
+                <Clock className="h-3.5 w-3.5" />Riwayat Pengiriman WA
+              </p>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-6 w-6 p-0"
+                onClick={() => qcPanel.invalidateQueries({ queryKey: ["draft-wa-log", draft.id] })}
+                title="Refresh"
+              >
+                <RefreshCw className={`h-3 w-3 ${waLogQuery.isFetching ? "animate-spin" : ""}`} />
+              </Button>
+            </div>
+            {waLogQuery.isLoading ? (
+              <p className="text-xs text-muted-foreground py-2 text-center">Memuat riwayat...</p>
+            ) : waLogQuery.data && waLogQuery.data.length > 0 ? (
+              <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
+                {waLogQuery.data.map((log) => (
+                  <div key={log.id} className="rounded border bg-background p-2 text-xs space-y-0.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-mono text-muted-foreground truncate">{log.phoneNumber}</span>
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        <span className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[10px] font-medium ${
+                          log.status === "success"
+                            ? "bg-emerald-100 text-emerald-700"
+                            : log.status === "failed"
+                            ? "bg-red-100 text-red-700"
+                            : "bg-amber-100 text-amber-700"
+                        }`}>
+                          {log.status === "success" ? <CheckCircle2 className="h-2.5 w-2.5" /> : log.status === "failed" ? <XCircle className="h-2.5 w-2.5" /> : <Clock className="h-2.5 w-2.5" />}
+                          {log.status === "success" ? "Berhasil" : log.status === "failed" ? "Gagal" : "Pending"}
+                        </span>
+                        <span className={`inline-flex px-1.5 py-0.5 rounded-full text-[10px] font-medium ${log.type === "manual" ? "bg-blue-100 text-blue-700" : "bg-gray-100 text-gray-600"}`}>
+                          {log.type === "manual" ? "Manual" : "Otomatis"}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="flex items-center justify-between text-muted-foreground">
+                      <span>{new Date(log.sentAt).toLocaleString("id-ID", { dateStyle: "short", timeStyle: "short" })}</span>
+                      {log.sentBy && <span>oleh {log.sentBy}</span>}
+                    </div>
+                    {log.errorMessage && (
+                      <p className="text-red-600 mt-0.5 bg-red-50 rounded px-1.5 py-0.5">{log.errorMessage}</p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-xs text-muted-foreground py-3 text-center">Belum ada pengiriman WA</p>
+            )}
           </div>
 
           {draft.picName && (
