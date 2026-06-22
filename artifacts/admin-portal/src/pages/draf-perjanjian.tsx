@@ -493,7 +493,7 @@ function DetailPanel({
       apiFetchJson(`/api/draft-agreements/${id}/kirim-wa-manual`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ targetPhone }),
+        body: JSON.stringify({ phone: targetPhone }),
       }),
     onSuccess: (data: { message?: string }) => {
       toast({ title: "WA Terkirim! ✅", description: data?.message ?? "Link dokumen berhasil dikirim via WhatsApp." });
