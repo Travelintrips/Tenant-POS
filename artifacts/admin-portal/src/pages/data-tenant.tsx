@@ -316,10 +316,15 @@ export default function DataTenant() {
     return allUnits;
   })();
 
+  const invalidateAll = () => {
+    void queryClient.invalidateQueries({ queryKey: ["/api/tenants"] });
+    void queryClient.invalidateQueries({ queryKey: ["/api/mall-units"] });
+  };
+
   const createMutation = useMutation({
     mutationFn: createTenant,
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["/api/tenants"] });
+      invalidateAll();
       toast({ title: "Berhasil", description: "Tenant baru berhasil ditambahkan." });
       setDialogOpen(false);
     },
@@ -329,7 +334,7 @@ export default function DataTenant() {
   const updateMutation = useMutation({
     mutationFn: ({ id, data }: { id: number; data: TenantForm }) => updateTenant(id, data),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["/api/tenants"] });
+      invalidateAll();
       toast({ title: "Berhasil", description: "Data tenant berhasil diperbarui." });
       setDialogOpen(false);
     },
@@ -339,7 +344,7 @@ export default function DataTenant() {
   const deleteMutation = useMutation({
     mutationFn: deleteTenant,
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["/api/tenants"] });
+      invalidateAll();
       toast({ title: "Berhasil", description: "Tenant berhasil dihapus." });
       setDeleteTarget(null);
     },
