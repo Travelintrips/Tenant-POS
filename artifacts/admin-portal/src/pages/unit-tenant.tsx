@@ -46,7 +46,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Plus, Search, Pencil, Trash2, LayoutGrid, Table2, RefreshCw,
-  Building2, MapPin, Package, X, Database,
+  Building2, MapPin, Package, X, Database, Lock, Unlock,
 } from "lucide-react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -836,6 +836,26 @@ export default function UnitTenant() {
     },
   });
 
+  const statusMutation = useMutation({
+    mutationFn: ({ id, status }: { id: number; status: string }) =>
+      apiFetchJson<MallUnit>(`/api/mall-units/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status }),
+      }),
+    onSuccess: (updated) => {
+      queryClient.invalidateQueries({ queryKey });
+      const label = updated.storedStatus === "available" ? "Kosong" : "Terisi";
+      toast({ title: `Unit ${updated.unitCode} ditandai ${label}` });
+      if (selectedUnit?.id === updated.id) {
+        setSelectedUnit(u => u ? { ...u, ...updated } : null);
+      }
+    },
+    onError: (err: Error) => {
+      toast({ title: "Gagal mengubah status unit", description: err.message, variant: "destructive" });
+    },
+  });
+
   function handleSaveForm(formData: UnitFormData) {
     const payload = {
       unitCode: formData.unitCode.trim(),
@@ -1099,6 +1119,25 @@ export default function UnitTenant() {
                           onClick={e => e.stopPropagation()}
                         >
                           <div className="flex gap-1 justify-end">
+                            {(u.storedStatus === "available" || (u.storedStatus === "occupied" && !u.tenantId)) && (
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                className={u.storedStatus === "available"
+                                  ? "h-7 w-7 text-amber-600 hover:text-amber-700 hover:bg-amber-50"
+                                  : "h-7 w-7 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50"}
+                                onClick={() => statusMutation.mutate({
+                                  id: u.id,
+                                  status: u.storedStatus === "available" ? "occupied" : "available",
+                                })}
+                                disabled={statusMutation.isPending}
+                                title={u.storedStatus === "available" ? "Tandai Terisi" : "Kosongkan Unit"}
+                              >
+                                {u.storedStatus === "available"
+                                  ? <Lock className="h-3.5 w-3.5" />
+                                  : <Unlock className="h-3.5 w-3.5" />}
+                              </Button>
+                            )}
                             <Button
                               size="icon"
                               variant="ghost"
