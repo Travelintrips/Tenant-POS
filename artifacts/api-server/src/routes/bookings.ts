@@ -7,7 +7,7 @@ import {
   waLogsTable,
   insertTenantBookingSchema,
 } from "@workspace/db/schema";
-import { eq, and, ne, lt, lte, gte, or } from "drizzle-orm";
+import { eq, and, ne, lt, lte, gte, or, sql } from "drizzle-orm";
 import { requireAnyRole } from "../middlewares/auth";
 import { logAudit } from "../lib/audit";
 import { sseBroker } from "../lib/sse-broker";

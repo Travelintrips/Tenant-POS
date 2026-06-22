@@ -81,6 +81,13 @@ import {
   CreditCard,
   Loader2,
   Phone,
+  History,
+  ChevronDown,
+  ChevronUp,
+  Users,
+  CheckCheck,
+  AlertCircle,
+  SkipForward,
 } from "lucide-react";
 
 // ── Tipe data ──────────────────────────────────────────────────────────────────
@@ -120,6 +127,19 @@ interface DraftAgreement {
   publicUrl: string;
   tenantId: number | null;
   bookingId: number | null;
+}
+
+interface BlastSessionLog {
+  id: number;
+  siteId: number | null;
+  blastType: string;
+  sentBy: string | null;
+  total: number;
+  sent: number;
+  failed: number;
+  skipped: number;
+  metadata: { unitCodes?: string[] } | null;
+  createdAt: string;
 }
 
 interface PaginatedResponse {
@@ -1092,6 +1112,7 @@ export default function DrafPerjanjian() {
   const [editDraft, setEditDraft] = useState<DraftAgreement | null>(null);
   const [editForm, setEditForm] = useState<CreateForm>(BLANK_FORM);
   const [kirimLinkWaPhone, setKirimLinkWaPhone] = useState("");
+  const [showBlastHistory, setShowBlastHistory] = useState(false);
 
   // ── Build API query string ─────────────────────────────────────────────────
   const apiQs = new URLSearchParams();
@@ -1292,6 +1313,17 @@ export default function DrafPerjanjian() {
     staleTime: 30_000,
   });
 
+  const blastHistoryQuery = useQuery<BlastSessionLog[]>({
+    queryKey: ["blast-session-logs"],
+    queryFn: async () => {
+      const res = await apiFetch("/api/calon-tenant/blast-history");
+      const body = await res.json() as { success: boolean; logs: BlastSessionLog[] };
+      if (!res.ok) throw new Error("Gagal memuat riwayat");
+      return body.logs;
+    },
+    staleTime: 30_000,
+  });
+
   const kirimWaApprovedMutation = useMutation({
     mutationFn: (id: number) => apiFetchJson(`/api/draft-agreements/${id}/kirim-wa-approved`, { method: "POST" }),
     onSuccess: (data: { skipped?: boolean }) => {
@@ -1343,6 +1375,7 @@ export default function DrafPerjanjian() {
     },
     onSuccess: (data) => {
       setShowBlastUnit(false);
+      qc.invalidateQueries({ queryKey: ["blast-session-logs"] });
       if (data.total === 0) {
         toast({ title: "Tidak ada penerima", description: data.message ?? "Tidak ada calon tenant pending saat ini." });
       } else if (data.failed === 0) {
@@ -1354,6 +1387,7 @@ export default function DrafPerjanjian() {
           variant: data.sent === 0 ? "destructive" : "default",
         });
       }
+      setShowBlastHistory(true);
     },
     onError: (err: Error) => {
       toast({ title: "Gagal blast notifikasi unit", description: err.message, variant: "destructive" });
@@ -1553,6 +1587,102 @@ export default function DrafPerjanjian() {
           </div>
         );
       })()}
+
+      {/* Riwayat Blast Notifikasi Unit */}
+      <div className="rounded-lg border border-sky-200 bg-sky-50/40">
+        <button
+          className="w-full flex items-center justify-between px-4 py-3 text-sm font-medium text-sky-800 hover:bg-sky-50 transition-colors rounded-lg"
+          onClick={() => setShowBlastHistory((v) => !v)}
+        >
+          <span className="flex items-center gap-2">
+            <History className="h-4 w-4 text-sky-600" />
+            Riwayat Blast Notifikasi Unit Kosong
+            {blastHistoryQuery.data && blastHistoryQuery.data.length > 0 && (
+              <span className="bg-sky-100 text-sky-700 border border-sky-200 text-xs font-semibold px-1.5 py-0.5 rounded-full leading-none">
+                {blastHistoryQuery.data.length}
+              </span>
+            )}
+          </span>
+          {showBlastHistory ? <ChevronUp className="h-4 w-4 text-sky-400" /> : <ChevronDown className="h-4 w-4 text-sky-400" />}
+        </button>
+
+        {showBlastHistory && (
+          <div className="px-4 pb-4">
+            {blastHistoryQuery.isLoading ? (
+              <div className="flex items-center justify-center py-6 text-sm text-muted-foreground gap-2">
+                <Loader2 className="h-4 w-4 animate-spin" />Memuat riwayat...
+              </div>
+            ) : !blastHistoryQuery.data || blastHistoryQuery.data.length === 0 ? (
+              <div className="py-6 text-center text-sm text-muted-foreground">
+                Belum ada riwayat blast notifikasi unit.
+              </div>
+            ) : (
+              <div className="overflow-x-auto rounded-lg border border-sky-200 bg-white">
+                <Table>
+                  <TableHeader>
+                    <TableRow className="bg-sky-50">
+                      <TableHead className="text-xs">Waktu</TableHead>
+                      <TableHead className="text-xs">Dikirim Oleh</TableHead>
+                      <TableHead className="text-xs text-center">
+                        <span className="flex items-center justify-center gap-1"><Users className="h-3 w-3" />Total</span>
+                      </TableHead>
+                      <TableHead className="text-xs text-center">
+                        <span className="flex items-center justify-center gap-1 text-green-700"><CheckCheck className="h-3 w-3" />Berhasil</span>
+                      </TableHead>
+                      <TableHead className="text-xs text-center">
+                        <span className="flex items-center justify-center gap-1 text-red-600"><AlertCircle className="h-3 w-3" />Gagal</span>
+                      </TableHead>
+                      <TableHead className="text-xs text-center">
+                        <span className="flex items-center justify-center gap-1 text-amber-600"><SkipForward className="h-3 w-3" />Dilewati</span>
+                      </TableHead>
+                      <TableHead className="text-xs">Unit Tersedia</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {blastHistoryQuery.data.map((log) => (
+                      <TableRow key={log.id} className="text-xs hover:bg-sky-50/50">
+                        <TableCell className="py-2 whitespace-nowrap">
+                          <div className="font-medium">{new Date(log.createdAt).toLocaleDateString("id-ID", { day: "2-digit", month: "short", year: "numeric" })}</div>
+                          <div className="text-muted-foreground">{new Date(log.createdAt).toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" })}</div>
+                        </TableCell>
+                        <TableCell className="py-2 text-muted-foreground">{log.sentBy ?? "—"}</TableCell>
+                        <TableCell className="py-2 text-center font-semibold">{log.total}</TableCell>
+                        <TableCell className="py-2 text-center">
+                          <span className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full font-semibold ${log.sent > 0 ? "bg-green-100 text-green-700" : "text-muted-foreground"}`}>
+                            {log.sent}
+                          </span>
+                        </TableCell>
+                        <TableCell className="py-2 text-center">
+                          <span className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full font-semibold ${log.failed > 0 ? "bg-red-100 text-red-700" : "text-muted-foreground"}`}>
+                            {log.failed}
+                          </span>
+                        </TableCell>
+                        <TableCell className="py-2 text-center">
+                          <span className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full font-semibold ${log.skipped > 0 ? "bg-amber-100 text-amber-700" : "text-muted-foreground"}`}>
+                            {log.skipped}
+                          </span>
+                        </TableCell>
+                        <TableCell className="py-2 max-w-[180px]">
+                          {log.metadata?.unitCodes && log.metadata.unitCodes.length > 0 ? (
+                            <div className="flex flex-wrap gap-1">
+                              {log.metadata.unitCodes.slice(0, 5).map((u) => (
+                                <span key={u} className="inline-block bg-sky-100 text-sky-700 border border-sky-200 px-1.5 py-0.5 rounded text-[10px] font-mono">{u}</span>
+                              ))}
+                              {log.metadata.unitCodes.length > 5 && (
+                                <span className="text-[10px] text-muted-foreground">+{log.metadata.unitCodes.length - 5} lagi</span>
+                              )}
+                            </div>
+                          ) : <span className="text-muted-foreground">—</span>}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
 
       {/* Filter Bar */}
       <div className="rounded-lg border bg-card p-3 space-y-3">

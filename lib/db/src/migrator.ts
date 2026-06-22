@@ -2186,4 +2186,30 @@ CREATE TABLE IF NOT EXISTS "registration_link_wa_log" (
   "site_id" integer
 );
   `.trim(),
+},
+{
+  name: "0054_blast_session_logs",
+  sql: `
+CREATE TABLE IF NOT EXISTS "blast_session_logs" (
+  "id" serial PRIMARY KEY NOT NULL,
+  "site_id" integer,
+  "blast_type" text NOT NULL,
+  "sent_by" text,
+  "total" integer NOT NULL DEFAULT 0,
+  "sent" integer NOT NULL DEFAULT 0,
+  "failed" integer NOT NULL DEFAULT 0,
+  "skipped" integer NOT NULL DEFAULT 0,
+  "metadata" text,
+  "created_at" timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS "bsl_site_id_idx" ON "blast_session_logs"("site_id");
+CREATE INDEX IF NOT EXISTS "bsl_blast_type_idx" ON "blast_session_logs"("blast_type");
+CREATE INDEX IF NOT EXISTS "bsl_created_at_idx" ON "blast_session_logs"("created_at" DESC);
+  `.trim(),
+},
+{
+  name: "0054_fix_wa_send_logs_table_ref",
+  sql: `
+SELECT 1;
+  `.trim(),
 });

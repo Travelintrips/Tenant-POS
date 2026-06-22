@@ -7,6 +7,7 @@ import { registrationRateLimiter } from "../middlewares/rate-limit";
 import { requireAuth, requireAnyRole } from "../middlewares/auth";
 import { sendCalonTenantApproved, sendCalonTenantRejected, sendCalonTenantReminder, sendCalonTenantUnitAvailable, getSiteCompanyName, sendBookingConfirmation } from "../lib/whatsapp";
 import { logAudit } from "../lib/audit";
+import { blastSessionLogsTable } from "@workspace/db/schema";
 
 const router: IRouter = Router();
 
@@ -523,7 +524,7 @@ router.post(
           )
         ORDER BY mu.unit_code
       `);
-      const availableUnitCodes = (unitResult as { rows: { unit_code: string }[] }).rows
+      const availableUnitCodes = (unitResult as unknown as { rows: { unit_code: string }[] }).rows
         .map((r) => r.unit_code)
         .filter(Boolean);
 
@@ -608,12 +609,24 @@ router.post(
           results.push({ id: calon["id"] as number, phone, status: "failed", error: waResult.error });
         }
 
-        // Simpan ke wa_logs
+        // Simpan ke wa_send_logs
         await db.execute(sql`
-          INSERT INTO wa_logs (site_id, phone, message_type, status, error_message, sent_by)
+          INSERT INTO wa_send_logs (site_id, phone, message_type, status, error_message, sent_by)
           VALUES (${siteId || null}, ${phone}, 'unit_available_blast', ${results.at(-1)!.status}, ${results.at(-1)!.error ?? null}, ${sentBy})
         `).catch(() => {});
       }
+
+      // Simpan ringkasan sesi blast
+      await db.insert(blastSessionLogsTable).values({
+        siteId: siteId || null,
+        blastType: "unit_tersedia",
+        sentBy,
+        total: calonList.length,
+        sent,
+        failed,
+        skipped,
+        metadata: JSON.stringify({ unitCodes: targetUnitCodes }),
+      }).catch(() => {});
 
       logAudit(req, {
         action: "blast_unit_tersedia_wa",
@@ -634,6 +647,46 @@ router.post(
     } catch (err) {
       console.error("[calon-tenant] POST /blast-unit-tersedia error:", err);
       res.status(500).json({ error: "Gagal menjalankan blast notifikasi" });
+    }
+  }
+);
+
+// ── GET /api/calon-tenant/blast-history ───────────────────────────────────────
+// Riwayat sesi blast notifikasi unit tersedia
+router.get(
+  "/calon-tenant/blast-history",
+  requireAuth,
+  requireAnyRole("admin", "owner"),
+  async (req: Request, res: Response) => {
+    const siteId = (req as Request & { siteId?: number }).siteId ?? 0;
+    try {
+      const result = await db.execute(sql`
+        SELECT id, site_id, blast_type, sent_by, total, sent, failed, skipped, metadata, created_at
+        FROM blast_session_logs
+        WHERE (${siteId} = 0 OR site_id = ${siteId} OR site_id IS NULL)
+          AND blast_type = 'unit_tersedia'
+        ORDER BY created_at DESC
+        LIMIT 50
+      `);
+      const rows = ((result as unknown as { rows?: unknown[] }).rows ?? (result as unknown as unknown[])).map((r: unknown) => {
+        const row = r as Record<string, unknown>;
+        return {
+          id: row["id"],
+          siteId: row["site_id"],
+          blastType: row["blast_type"],
+          sentBy: row["sent_by"],
+          total: row["total"],
+          sent: row["sent"],
+          failed: row["failed"],
+          skipped: row["skipped"],
+          metadata: row["metadata"] ? (() => { try { return JSON.parse(row["metadata"] as string); } catch { return null; } })() : null,
+          createdAt: row["created_at"],
+        };
+      });
+      res.json({ success: true, logs: rows });
+    } catch (err) {
+      console.error("[calon-tenant] GET /blast-history error:", err);
+      res.status(500).json({ error: "Gagal memuat riwayat blast" });
     }
   }
 );
