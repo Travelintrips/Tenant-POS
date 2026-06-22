@@ -421,6 +421,22 @@ function DetailPanel({
     },
   });
 
+  const generateInvoiceMutation = useMutation({
+    mutationFn: async (bookingId: number) => {
+      const res = await apiFetch(`/api/tenant-invoices/generate-from-booking/${bookingId}`, { method: "POST" });
+      const body = await res.json();
+      if (!res.ok) throw new Error((body as { error?: string }).error ?? `Error ${res.status}`);
+      return body as { id: number; invoiceNumber: string };
+    },
+    onSuccess: () => {
+      toast({ title: "Invoice berhasil dibuat!", description: "Mengarahkan ke halaman Invoice & Pembayaran..." });
+      setTimeout(() => setLocation("/tenant-invoices"), 800);
+    },
+    onError: (err: Error) => {
+      toast({ title: "Gagal buat invoice", description: err.message, variant: "destructive" });
+    },
+  });
+
   function copyLink() {
     navigator.clipboard.writeText(draft.publicUrl).then(() => {
       toast({ title: "Link disalin!", description: draft.publicUrl });
@@ -467,22 +483,36 @@ function DetailPanel({
                   <p className="text-xs text-emerald-700">WA notifikasi kontrak otomatis dikirim ke tenant.</p>
                 </div>
               </div>
-              <div className="flex gap-2 flex-wrap">
+              <div className="flex flex-col gap-2">
                 <Button
                   size="sm"
-                  className="gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white"
-                  onClick={() => setLocation(`/tenant-invoices`)}
+                  className="gap-1.5 bg-sky-600 hover:bg-sky-700 text-white w-full justify-start"
+                  onClick={() => generateInvoiceMutation.mutate(postBookingResult.bookingId)}
+                  disabled={generateInvoiceMutation.isPending}
                 >
-                  <CreditCard className="h-3.5 w-3.5" />Lanjut ke Pembayaran / Invoice
+                  {generateInvoiceMutation.isPending
+                    ? <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                    : <CreditCard className="h-3.5 w-3.5" />}
+                  Buat Invoice Pertama &amp; Lanjut ke Pembayaran
                 </Button>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="gap-1.5 border-violet-300 text-violet-700 hover:bg-violet-50"
-                  onClick={() => setLocation("/booking-tenant")}
-                >
-                  <BookmarkCheck className="h-3.5 w-3.5" />Lihat Booking
-                </Button>
+                <div className="flex gap-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="gap-1.5 border-emerald-300 text-emerald-700 hover:bg-emerald-100 flex-1"
+                    onClick={() => setLocation("/tenant-invoices")}
+                  >
+                    <CreditCard className="h-3 w-3" />Invoice
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="gap-1.5 border-violet-300 text-violet-700 hover:bg-violet-50 flex-1"
+                    onClick={() => setLocation("/booking-tenant")}
+                  >
+                    <BookmarkCheck className="h-3 w-3" />Booking
+                  </Button>
+                </div>
               </div>
             </div>
           )}

@@ -71,10 +71,12 @@ router.post("/calon-tenant/daftar", registrationRateLimiter, async (req: Request
 
       if (adminPhone) {
         const msg = `📋 *Pendaftaran Calon Tenant Baru*\n\nNama PIC: ${d.picName}\nBrand/Usaha: ${d.brandName}\nJenis Usaha: ${d.businessType}\nWhatsApp: ${d.phone}${d.interestedUnit ? `\nUnit Diminati: ${d.interestedUnit}` : ""}${d.notes ? `\nCatatan: ${d.notes}` : ""}\n\nSilakan buka portal admin untuk meninjau dan membuat dokumen surat minat.`;
+        const adminDigits = String(adminPhone).replace(/\D/g, "");
+        const adminTarget = adminDigits.startsWith("0") ? "62" + adminDigits.slice(1) : adminDigits.startsWith("62") ? adminDigits : "62" + adminDigits;
         fetch("https://api.fonnte.com/send", {
           method: "POST",
-          headers: { Authorization: fonnteToken, "Content-Type": "application/json" },
-          body: JSON.stringify({ target: adminPhone, message: msg }),
+          headers: { Authorization: fonnteToken, "Content-Type": "application/x-www-form-urlencoded" },
+          body: new URLSearchParams({ target: adminTarget, message: msg, delay: "2" }).toString(),
         }).catch(() => {});
       }
     }

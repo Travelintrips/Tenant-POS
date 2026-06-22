@@ -399,11 +399,22 @@ router.post("/draft-agreements/:id/remind", requireAnyRole("admin", "owner"), as
     const docLabel = row["doc_type"] === "perjanjian_sewa" ? "Perjanjian Sewa" : "Surat Minat Menyewa";
     const message = `📄 *${docLabel}*\n\nYth. ${row["tenant_name"]},\n\nBerikut link dokumen yang perlu Anda tinjau dan berikan persetujuan:\n\n${docUrl}\n\nSilakan buka link tersebut dan pilih *Setuju* atau *Tidak Setuju*.\n\nTerima kasih.`;
 
-    await fetch("https://api.fonnte.com/send", {
+    const rawPhone = String(row["phone"] ?? "");
+    const digits = rawPhone.replace(/\D/g, "");
+    const target = digits.startsWith("0") ? "62" + digits.slice(1) : digits.startsWith("62") ? digits : "62" + digits;
+
+    const fonnteRes = await fetch("https://api.fonnte.com/send", {
       method: "POST",
-      headers: { Authorization: token_api, "Content-Type": "application/json" },
-      body: JSON.stringify({ target: row["phone"] as string, message }),
+      headers: { Authorization: token_api, "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ target, message, delay: "2" }).toString(),
     });
+
+    const fonnteData = await fonnteRes.json() as Record<string, unknown>;
+    if (!fonnteRes.ok || fonnteData["status"] === false) {
+      const reason = String(fonnteData["reason"] ?? fonnteData["message"] ?? "Gagal kirim WA");
+      res.status(502).json({ error: reason });
+      return;
+    }
 
     res.json({ success: true, message: "Pengingat berhasil dikirim via WhatsApp" });
   } catch (err) {
