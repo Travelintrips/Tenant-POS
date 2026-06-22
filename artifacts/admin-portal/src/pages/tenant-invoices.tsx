@@ -1,6 +1,7 @@
 import * as XLSX from "xlsx";
 import { apiFetch as apiFetchBase } from "@/lib/api";
 import { useState, useMemo, useRef } from "react";
+import { useSite } from "@/contexts/site-context";
 import { PaymentHistoryModal } from "@/components/payment-history-modal";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
@@ -269,7 +270,7 @@ function fmtRp(v: string | number | null | undefined): string {
   return n.toLocaleString("id-ID");
 }
 
-async function exportInvoicesToPDF(rows: ExportableInvoice[], filename: string, filterLabel?: string) {
+async function exportInvoicesToPDF(rows: ExportableInvoice[], filename: string, filterLabel?: string, companyName?: string) {
   const { default: jsPDF } = await import("jspdf");
   const { default: autoTable } = await import("jspdf-autotable");
 
@@ -285,7 +286,7 @@ async function exportInvoicesToPDF(rows: ExportableInvoice[], filename: string, 
 
   doc.setFont("helvetica", "normal");
   doc.setFontSize(9);
-  doc.text("Manajemen CST", 148, 20, { align: "center" });
+  doc.text(companyName ?? "Manajemen CST", 148, 20, { align: "center" });
   if (filterLabel) doc.text(`Filter: ${filterLabel}`, 148, 25, { align: "center" });
   doc.text(`Dicetak: ${tgl}, ${jam}  |  Total: ${rows.length} invoice`, 148, filterLabel ? 30 : 25, { align: "center" });
 
@@ -356,7 +357,7 @@ async function exportInvoicesToPDF(rows: ExportableInvoice[], filename: string, 
       doc.setFontSize(7);
       doc.setTextColor(150);
       doc.text(`Halaman ${pgN} dari ${pgCount}`, doc.internal.pageSize.getWidth() - 10, doc.internal.pageSize.getHeight() - 5, { align: "right" });
-      doc.text("Manajemen CST — Laporan Invoice Tenant", 10, doc.internal.pageSize.getHeight() - 5);
+      doc.text(`${companyName ?? "Manajemen CST"} — Laporan Invoice Tenant`, 10, doc.internal.pageSize.getHeight() - 5);
     },
   });
 
@@ -747,6 +748,7 @@ type GenerateForm = { bookingId: string; notes: string };
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function TenantInvoices() {
+  const { activeSite } = useSite();
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const printRef = useRef<Invoice | null>(null);
@@ -1394,7 +1396,7 @@ export default function TenantInvoices() {
               if (filterStatus !== "all") parts.push(`Status: ${STATUS_LABEL[filterStatus] ?? filterStatus}`);
               if (search) parts.push(`Cari: "${search}"`);
               const filterLabel = parts.length ? parts.join("  •  ") : undefined;
-              void exportInvoicesToPDF(filteredInvoices, `laporan-invoice-${stamp}.pdf`, filterLabel);
+              void exportInvoicesToPDF(filteredInvoices, `laporan-invoice-${stamp}.pdf`, filterLabel, activeSite?.companyName);
             }}
             title={filteredInvoices.length === 0 ? "Tidak ada data untuk diekspor" : `Ekspor ${filteredInvoices.length} invoice ke PDF`}
           >

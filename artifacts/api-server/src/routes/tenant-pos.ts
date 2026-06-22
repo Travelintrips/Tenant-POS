@@ -18,7 +18,7 @@ import { sseBroker } from "../lib/sse-broker";
 import { writePaymentEvent, normalizePaymentMethod } from "../lib/payment-events";
 import { generateReceiptHtml, saveReceiptFile } from "../lib/pos-receipt";
 import { postPosPaymentJournal } from "../lib/pos-journal";
-import { sendPosPaymentSuccess } from "../lib/whatsapp";
+import { sendPosPaymentSuccess, getSiteCompanyName } from "../lib/whatsapp";
 import { recordPayment, LedgerError } from "../lib/payment-ledger";
 import { getBaseUrl } from "../lib/app-url";
 
@@ -715,6 +715,7 @@ router.post("/tenant-pos/payments", paymentRateLimiter, async (req, res) => {
           try {
             const baseUrl = await getBaseUrl();
             const fullReceiptUrl = receiptUrl && baseUrl ? `${baseUrl}${receiptUrl}` : null;
+            const posCompanyName = await getSiteCompanyName(siteId);
             const waResult = await sendPosPaymentSuccess({
               ownerName: result.tenantData?.ownerName ?? "Tenant",
               businessName: result.tenantData?.businessName ?? "Tenant",
@@ -724,6 +725,7 @@ router.post("/tenant-pos/payments", paymentRateLimiter, async (req, res) => {
               receiptNumber: result.receiptNumber,
               receiptUrl: fullReceiptUrl,
               phone: tenantPhone,
+              companyName: posCompanyName,
             });
             waStatus = waResult.ok ? (waResult.skipped ? "skipped" : "sent") : "failed";
             waError = waResult.error ?? null;
@@ -913,7 +915,8 @@ router.post("/tenant-pos/manual-payment", paymentRateLimiter, async (req, res) =
           try {
             const baseUrl = await getBaseUrl();
             const fullReceiptUrl = receiptUrl && baseUrl ? `${baseUrl}${receiptUrl}` : null;
-            await sendPosPaymentSuccess({ ownerName: tenant.ownerName ?? "Tenant", businessName: tenant.businessName ?? "Tenant", invoiceNumber: null, amountPaid, paymentMethod, receiptNumber, receiptUrl: fullReceiptUrl, phone: tenant.phone });
+            const manualCompanyName = await getSiteCompanyName(req.siteId);
+            await sendPosPaymentSuccess({ ownerName: tenant.ownerName ?? "Tenant", businessName: tenant.businessName ?? "Tenant", invoiceNumber: null, amountPaid, paymentMethod, receiptNumber, receiptUrl: fullReceiptUrl, phone: tenant.phone, companyName: manualCompanyName });
           } catch (waErr) {
             logger.error({ err: waErr, paymentId }, "[pos-manual] Gagal kirim WA");
           }

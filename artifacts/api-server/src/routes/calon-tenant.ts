@@ -5,7 +5,7 @@ import { z } from "zod";
 import crypto from "crypto";
 import { registrationRateLimiter } from "../middlewares/rate-limit";
 import { requireAuth, requireAnyRole } from "../middlewares/auth";
-import { sendCalonTenantApproved, sendCalonTenantRejected, sendCalonTenantReminder } from "../lib/whatsapp";
+import { sendCalonTenantApproved, sendCalonTenantRejected, sendCalonTenantReminder, getSiteCompanyName } from "../lib/whatsapp";
 import { logAudit } from "../lib/audit";
 
 const router: IRouter = Router();
@@ -183,9 +183,10 @@ router.patch(
       const brandName = (row.brand_name as string | null) ?? (row.tenant_name as string | null) ?? undefined;
 
       if (phone) {
+        const calonCompanyName = await getSiteCompanyName(req.siteId).catch(() => undefined);
         const waResult = status === "approved"
-          ? await sendCalonTenantApproved(phone, brandName ?? undefined)
-          : await sendCalonTenantRejected(phone, brandName ?? undefined);
+          ? await sendCalonTenantApproved(phone, brandName ?? undefined, calonCompanyName)
+          : await sendCalonTenantRejected(phone, brandName ?? undefined, calonCompanyName);
         waSent = waResult.ok && !waResult.skipped;
       }
 
@@ -245,7 +246,8 @@ router.post(
         const brandName = (row.brand_name as string | null) ?? (row.tenant_name as string | null) ?? undefined;
 
         try {
-          const waResult = await sendCalonTenantReminder(phone, brandName);
+          const reminderCompanyName = await getSiteCompanyName(req.siteId).catch(() => undefined);
+          const waResult = await sendCalonTenantReminder(phone, brandName, reminderCompanyName);
           if (waResult.ok) {
             sent++;
             results.push({ id, brandName: brandName ?? phone, phone, ok: true });

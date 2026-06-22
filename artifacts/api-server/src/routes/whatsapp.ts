@@ -8,6 +8,7 @@ import {
   sendInvoiceNotification,
   sendPaymentConfirmation,
   sendOverdueReminder,
+  getSiteCompanyName,
 } from "../lib/whatsapp";
 
 async function logWa(params: {
@@ -120,6 +121,7 @@ router.post("/whatsapp/invoice/:id/send", async (req, res) => {
       ? `${_baseUrl}/bayar/${invoice.paymentToken}`
       : undefined;
 
+    const companyName = await getSiteCompanyName(req.siteId);
     const result = await sendInvoiceNotification({
       ownerName: invoice.ownerName,
       businessName: invoice.businessName,
@@ -129,6 +131,7 @@ router.post("/whatsapp/invoice/:id/send", async (req, res) => {
       dueDate: dueStr,
       phone: invoice.phone,
       paymentLink,
+      companyName,
     });
 
     const sentBy = (req.user as { email?: string } | undefined)?.email ?? null;
@@ -193,6 +196,7 @@ router.post("/whatsapp/invoice/:id/overdue-reminder", async (req, res) => {
       ? Math.max(0, Math.floor((Date.now() - dueDate.getTime()) / 86400000))
       : 0;
 
+    const companyNameOverdue = await getSiteCompanyName(req.siteId);
     const result = await sendOverdueReminder({
       ownerName: invoice.ownerName,
       businessName: invoice.businessName,
@@ -201,6 +205,7 @@ router.post("/whatsapp/invoice/:id/overdue-reminder", async (req, res) => {
       outstandingAmount: invoice.outstandingAmount ?? invoice.totalAmount,
       daysOverdue,
       phone: invoice.phone,
+      companyName: companyNameOverdue,
     });
 
     const sentBy = (req.user as { email?: string } | undefined)?.email ?? null;
@@ -271,6 +276,7 @@ router.post("/whatsapp/blast-overdue", async (req, res) => {
         ? Math.max(0, Math.floor((Date.now() - dueDate.getTime()) / 86400000))
         : 0;
 
+      const blastCompanyName = await getSiteCompanyName(req.siteId);
       const result = await sendOverdueReminder({
         ownerName: invoice.ownerName,
         businessName: invoice.businessName,
@@ -279,6 +285,7 @@ router.post("/whatsapp/blast-overdue", async (req, res) => {
         outstandingAmount: invoice.outstandingAmount ?? invoice.totalAmount,
         daysOverdue,
         phone: invoice.phone,
+        companyName: blastCompanyName,
       });
 
       if (result.skipped) {
@@ -373,6 +380,7 @@ router.post("/whatsapp/blast-link-unpaid", async (req, res) => {
         ? `${appDomain}/bayar/${invoice.paymentToken}`
         : undefined;
 
+      const linkCompanyName = await getSiteCompanyName(siteId);
       const result = await sendInvoiceNotification({
         ownerName: invoice.ownerName,
         businessName: invoice.businessName,
@@ -382,6 +390,7 @@ router.post("/whatsapp/blast-link-unpaid", async (req, res) => {
         dueDate: dueStr,
         phone: invoice.phone,
         paymentLink,
+        companyName: linkCompanyName,
       });
 
       if (result.skipped) {

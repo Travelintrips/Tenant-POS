@@ -1,9 +1,10 @@
 import { Router, type IRouter } from "express";
 import { db } from "@workspace/db";
 import { systemSettingsTable } from "@workspace/db/schema";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { requireAuth, requireAnyRole } from "../middlewares/auth";
 import { invalidateBaseUrlCache } from "../lib/app-url";
+import { getSiteCompanyName, clearCompanyNameCache } from "../lib/whatsapp";
 
 const router: IRouter = Router();
 
@@ -19,25 +20,16 @@ const DEFAULT_SETTINGS = {
   taxRate: 0,
   currency: "IDR",
   logoUrl: "",
-  // Nomor WA admin yang menerima notifikasi bukti bayar dari tenant.
-  // Format: 08xxx atau 628xxx. Bisa di-override via env ADMIN_WHATSAPP.
   adminPhone: "",
-  // Nomor HP pengirim WA (device Fonnte yang digunakan kirim ke tenant).
-  // Isi dengan nomor HP yang sudah di-scan QR di Fonnte, format 628xxx.
-  // Kosongkan untuk menggunakan device default akun Fonnte.
   waSenderPhone: "",
-  // Nama/label device Fonnte (informasi saja, untuk identifikasi)
   waSenderLabel: "",
-  // Domain publik untuk link pembayaran tenant (mis. https://tenant.travelintrips.co.id)
-  // Jika diisi, menimpa env var APP_URL. Link bayar: {paymentDomain}/bayar/{token}
   paymentDomain: "",
-  // Desain invoice
   invoiceColor: "#1e3a5f",
   invoiceFooterNote: "",
   invoiceSignerName: "",
 };
 
-router.get("/settings", requireAuth, requireAnyRole("owner", "admin", "finance"), async (_req, res) => {
+router.get("/settings", requireAuth, requireAnyRole("owner", "admin", "finance"), async (req, res) => {
   try {
     const [row] = await db
       .select()
@@ -45,7 +37,8 @@ router.get("/settings", requireAuth, requireAnyRole("owner", "admin", "finance")
       .where(eq(systemSettingsTable.key, SETTINGS_KEY));
 
     const value = (row?.value as Record<string, unknown>) ?? {};
-    res.json({ ...DEFAULT_SETTINGS, ...value });
+    const companyName = await getSiteCompanyName(req.siteId);
+    res.json({ ...DEFAULT_SETTINGS, ...value, companyName });
   } catch {
     res.json(DEFAULT_SETTINGS);
   }
@@ -75,6 +68,13 @@ router.put("/settings", requireAuth, requireAnyRole("owner"), async (req, res) =
         .returning();
       invalidateBaseUrlCache();
       res.json({ ...(created.value as object) });
+    }
+
+    if (payload.companyName && req.siteId > 0) {
+      try {
+        await db.execute(sql`UPDATE mall_sites SET company_name = ${String(payload.companyName)} WHERE id = ${req.siteId}`);
+        clearCompanyNameCache(req.siteId);
+      } catch { /* abaikan */ }
     }
   } catch (err) {
     res.status(500).json({ error: "Gagal menyimpan pengaturan" });

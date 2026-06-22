@@ -2136,4 +2136,12 @@ CREATE INDEX IF NOT EXISTS "oe_tenant_id_idx" ON "operational_expenses"("tenant_
 CREATE INDEX IF NOT EXISTS "oe_category_idx" ON "operational_expenses"("category");
 CREATE INDEX IF NOT EXISTS "oe_paid_at_idx" ON "operational_expenses"("paid_at");
   `.trim(),
+},
+{
+  name: "0050_mall_sites_company_name",
+  sql: `
+ALTER TABLE mall_sites ADD COLUMN IF NOT EXISTS company_name TEXT NOT NULL DEFAULT 'Manajemen CST';
+UPDATE mall_sites SET company_name = 'PT ELMIRA RATU ABADI' WHERE code = 'TOD_M1_BANDARA';
+UPDATE mall_sites SET company_name = 'PT CAHAYA SEJATI TEKNOLOGI' WHERE code = 'SPORT_CENTER_BANDARA';
+  `.trim(),
 });
