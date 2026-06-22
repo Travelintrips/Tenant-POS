@@ -37,7 +37,10 @@ function computeUnitStatus(opts: {
   const todayStr = today();
 
   if (storedStatus === "maintenance") return "maintenance";
-  if (!hasBooking) return "available";
+  if (!hasBooking) {
+    if (storedStatus === "occupied") return "occupied";
+    return "available";
+  }
 
   const endDate = bookingEndDate ?? "";
   const dueDate = bookingDueDate ?? "";
