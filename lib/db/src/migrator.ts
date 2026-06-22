@@ -2168,6 +2168,12 @@ ALTER TABLE tenant_draft_agreements ADD COLUMN IF NOT EXISTS disagreement_reason
   `.trim(),
 },
 {
+  name: "0053_draft_lease_duration",
+  sql: `
+ALTER TABLE tenant_draft_agreements ADD COLUMN IF NOT EXISTS lease_duration_months integer;
+  `.trim(),
+},
+{
   name: "0051_registration_link_wa_log",
   sql: `
 CREATE TABLE IF NOT EXISTS "registration_link_wa_log" (

@@ -108,6 +108,7 @@ interface DraftAgreement {
   notes: string | null;
   agreementStatus: "setuju" | "tidak_setuju" | null;
   disagreementReason: string | null;
+  leaseDurationMonths: number | null;
   status: "pending" | "approved" | "rejected";
   respondedAt: string | null;
   respondedName: string | null;
@@ -793,6 +794,9 @@ function DetailPanel({
                 </p>
               )}
             </div>
+          )}
+          {draft.leaseDurationMonths && (
+            <div><p className="text-xs text-muted-foreground">Preferensi Durasi Sewa</p><p className="font-medium">{draft.leaseDurationMonths} bulan</p></div>
           )}
           <div className="grid grid-cols-2 gap-x-4 gap-y-2">
             <div><p className="text-xs text-muted-foreground">Email</p><p className="font-medium">{draft.email || "—"}</p></div>

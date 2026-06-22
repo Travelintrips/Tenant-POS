@@ -36,6 +36,7 @@ interface RegisterForm {
   notes: string;
   agreementStatus: "setuju" | "tidak_setuju" | "";
   disagreementReason: string;
+  leaseDurationMonths: string;
 }
 
 const BLANK: RegisterForm = {
@@ -49,6 +50,7 @@ const BLANK: RegisterForm = {
   notes: "",
   agreementStatus: "",
   disagreementReason: "",
+  leaseDurationMonths: "",
 };
 
 const KETENTUAN = [
@@ -57,7 +59,17 @@ const KETENTUAN = [
   "Persetujuan pendaftaran tidak berarti otomatis diterima sebagai tenant — keputusan akhir ada di tangan manajemen.",
   "Besaran biaya sewa, deposit, masa sewa, dan ketentuan operasional lainnya akan dibahas lebih lanjut setelah seleksi.",
   "Tenant wajib mengikuti aturan kebersihan, jam operasional yang berlaku, kelengkapan perizinan usaha, dan larangan menjalankan usaha ilegal.",
+  "Tenant dapat memilih opsi sewa bulanan sesuai kesepakatan dengan manajemen.",
   "Manajemen berhak menolak pendaftaran apabila calon tenant tidak memenuhi persyaratan atau bertentangan dengan ketentuan yang berlaku.",
+];
+
+const DURASI_OPTIONS = [
+  { value: "1", label: "1 bulan" },
+  { value: "3", label: "3 bulan" },
+  { value: "6", label: "6 bulan" },
+  { value: "12", label: "12 bulan (1 tahun)" },
+  { value: "24", label: "24 bulan (2 tahun)" },
+  { value: "36", label: "36 bulan (3 tahun)" },
 ];
 
 export default function TenantRegister() {
@@ -84,6 +96,7 @@ export default function TenantRegister() {
           notes: f.notes.trim() || undefined,
           agreementStatus: f.agreementStatus,
           disagreementReason: f.disagreementReason.trim() || undefined,
+          leaseDurationMonths: f.leaseDurationMonths ? Number(f.leaseDurationMonths) : undefined,
         }),
       });
       const body = await res.json();
@@ -346,6 +359,32 @@ export default function TenantRegister() {
                 </div>
               </label>
             </div>
+
+            {/* Pilihan Durasi Sewa Bulanan (opsional) */}
+            {form.agreementStatus === "setuju" && (
+              <div className="space-y-2 animate-in fade-in slide-in-from-top-2 duration-200">
+                <Label className="text-sm font-medium text-slate-700">
+                  Preferensi Durasi Sewa <span className="text-xs font-normal text-muted-foreground">(opsional)</span>
+                </Label>
+                <div className="grid grid-cols-3 gap-2">
+                  {DURASI_OPTIONS.map((opt) => (
+                    <button
+                      key={opt.value}
+                      type="button"
+                      onClick={() => setField("leaseDurationMonths", form.leaseDurationMonths === opt.value ? "" : opt.value)}
+                      className={`py-2 px-3 rounded-lg border-2 text-sm font-medium transition-all text-center ${
+                        form.leaseDurationMonths === opt.value
+                          ? "border-primary bg-primary/10 text-primary"
+                          : "border-slate-200 bg-white text-slate-600 hover:border-slate-300"
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+                <p className="text-xs text-muted-foreground">Pilih estimasi durasi sewa yang Anda inginkan. Durasi final akan dibahas bersama manajemen.</p>
+              </div>
+            )}
 
             {/* Textarea Alasan (muncul hanya jika tidak setuju) */}
             {form.agreementStatus === "tidak_setuju" && (
