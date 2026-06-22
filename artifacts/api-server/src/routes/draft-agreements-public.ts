@@ -3,6 +3,7 @@ import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
 import { z } from "zod";
 import { getBaseUrl } from "../lib/app-url";
+import { getSiteCompanyName, sendBookingConfirmation } from "../lib/whatsapp";
 
 const router: IRouter = Router();
 
@@ -191,6 +192,129 @@ router.post("/dokumen/:token/setuju", async (req: Request, res: Response) => {
         updated_at = NOW()
       WHERE token = ${token}
     `);
+
+    // ── Auto-create Tenant + Booking setelah tenant setujui dokumen ─────────────
+    void (async () => {
+      try {
+        if (draft.bookingId) return; // sudah pernah dikonversi, skip
+
+        const phone = (draft.phone as string | null);
+        if (!phone) return;
+
+        const siteId = Number(draft.siteId ?? draft.site_id ?? 0);
+        const rentAmount = String(Number(draft.rentAmount ?? draft.rent_amount ?? 0));
+        const depositAmount = String(Number(draft.depositAmount ?? draft.deposit_amount ?? 0));
+        const unitCode = (draft.unitCode ?? draft.unit_code ?? null) as string | null;
+        const areaName = ((draft.areaName ?? draft.area_name ?? "") as string);
+        const durationMonths = Number(draft.durationMonths ?? draft.duration_months ?? 12);
+
+        const today = new Date();
+        const defaultStart = today.toISOString().split("T")[0]!;
+        const endDateCalc = new Date(today);
+        endDateCalc.setMonth(endDateCalc.getMonth() + durationMonths);
+        const defaultEnd = endDateCalc.toISOString().split("T")[0]!;
+
+        const startDate = ((draft.startDate ?? draft.start_date ?? defaultStart) as string);
+        const endDateFinal = ((draft.endDate ?? draft.end_date ?? defaultEnd) as string);
+
+        // Cek apakah tenant sudah ada berdasarkan nomor HP + site
+        const existingTenantResult = await db.execute(
+          sql`SELECT id FROM tenants WHERE phone = ${phone} AND site_id = ${siteId} LIMIT 1`
+        );
+        const existingTenant = (existingTenantResult as unknown as { rows: { id: number }[] }).rows[0];
+
+        let tenantId: number;
+        const brandName = ((draft.brandName ?? draft.brand_name ?? draft.tenantName ?? draft.tenant_name ?? "") as string);
+        const tenantName = ((draft.tenantName ?? draft.tenant_name ?? "") as string);
+
+        if (existingTenant) {
+          tenantId = existingTenant.id;
+        } else {
+          const tenantInsert = await db.execute(sql`
+            INSERT INTO tenants (
+              site_id, business_name, owner_name, phone, email,
+              business_category, area_name, address, status,
+              default_rent_amount
+            ) VALUES (
+              ${siteId},
+              ${brandName || tenantName},
+              ${tenantName},
+              ${phone},
+              ${(draft.email ?? draft.responded_email ?? null) as string | null},
+              ${(draft.businessType ?? draft.business_type ?? null) as string | null},
+              ${areaName},
+              ${(draft.address ?? null) as string | null},
+              'active',
+              ${rentAmount}
+            )
+            RETURNING id
+          `);
+          tenantId = (tenantInsert as unknown as { rows: { id: number }[] }).rows[0].id;
+        }
+
+        const orderNumber = `ORD-${Date.now().toString(36).toUpperCase()}`;
+        const bookingInsert = await db.execute(sql`
+          INSERT INTO tenant_bookings (
+            site_id, tenant_id, order_number,
+            unit_code, floor, billing_cycle,
+            start_date, end_date,
+            duration_months,
+            rent_amount, deposit_amount,
+            notes, booking_status, contract_status,
+            payment_status
+          ) VALUES (
+            ${siteId},
+            ${tenantId},
+            ${orderNumber},
+            ${unitCode},
+            ${areaName || null},
+            'monthly',
+            ${startDate},
+            ${endDateFinal},
+            ${durationMonths},
+            ${rentAmount},
+            ${depositAmount},
+            ${(draft.notes ?? null) as string | null},
+            'aktif',
+            'active',
+            'UNPAID'
+          )
+          RETURNING id
+        `);
+        const bookingId = (bookingInsert as unknown as { rows: { id: number }[] }).rows[0].id;
+
+        // Update draft dengan tenant_id dan booking_id
+        await db.execute(sql`
+          UPDATE tenant_draft_agreements
+          SET tenant_id = ${tenantId}, booking_id = ${bookingId}, updated_at = NOW()
+          WHERE token = ${token}
+        `);
+
+        // Kirim WA konfirmasi booking ke tenant (fire-and-forget)
+        void (async () => {
+          try {
+            const companyName = await getSiteCompanyName(siteId).catch(() => undefined);
+            await sendBookingConfirmation({
+              ownerName: tenantName,
+              businessName: brandName || tenantName,
+              orderNumber,
+              unitCode: unitCode ?? areaName ?? "—",
+              floor: areaName || null,
+              startDate,
+              endDate: endDateFinal,
+              durationMonths,
+              rentAmount,
+              phone,
+              companyName,
+            });
+          } catch { /* tidak perlu throw */ }
+        })();
+
+        console.log(`[draft-public] Auto-booking created: tenantId=${tenantId}, bookingId=${bookingId}, orderNumber=${orderNumber}`);
+      } catch (autoErr) {
+        console.error("[draft-public] Auto-booking error (non-fatal):", autoErr);
+      }
+    })();
 
     // Notifikasi async
     const baseUrl = await getBaseUrl().catch(() => undefined);
