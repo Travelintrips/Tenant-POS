@@ -14,7 +14,7 @@ import {
   SidebarInset,
   SidebarTrigger
 } from "@/components/ui/sidebar";
-import { Building2, Store, CalendarRange, Calculator, BarChart3, LogOut, FileText, Shield, ChevronDown, GitCompare, Dumbbell, MapPin, Check, Layers, ClipboardCheck, LayoutGrid, Users, Bell, AlertTriangle, Clock, LayoutDashboard, Settings, MessageCircle, BookTemplate, ClipboardList, FileSpreadsheet, Landmark, Database, FileSignature, BookOpen, TrendingDown } from "lucide-react";
+import { Building2, Store, CalendarRange, Calculator, BarChart3, LogOut, FileText, Shield, ChevronDown, GitCompare, Dumbbell, MapPin, Check, Layers, ClipboardCheck, LayoutGrid, Users, Bell, AlertTriangle, Clock, LayoutDashboard, Settings, MessageCircle, BookTemplate, ClipboardList, FileSpreadsheet, Landmark, Database, FileSignature, BookOpen, TrendingDown, History } from "lucide-react";
 import { Separator } from "@/components/ui/separator";
 import { useAuth, useLogout, ROLE_LABELS, type UserRole } from "@/hooks/use-auth";
 import { Button } from "@/components/ui/button";
@@ -358,6 +358,20 @@ export function SidebarLayout({ children }: { children: React.ReactNode }) {
                             {pendingCount}
                           </Badge>
                         )}
+                      </Link>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                )}
+                {can("owner", "admin", "finance") && (
+                  <SidebarMenuItem>
+                    <SidebarMenuButton
+                      asChild
+                      isActive={location === "/riwayat-pembayaran"}
+                      data-testid="nav-riwayat-pembayaran"
+                    >
+                      <Link href="/riwayat-pembayaran">
+                        <History className="mr-2 h-4 w-4" />
+                        <span>Riwayat Pembayaran</span>
                       </Link>
                     </SidebarMenuButton>
                   </SidebarMenuItem>

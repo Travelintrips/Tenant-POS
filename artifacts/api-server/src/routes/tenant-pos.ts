@@ -350,6 +350,108 @@ router.get("/tenant-pos/tenants/:tenantId/payments", async (req, res) => {
   }
 });
 
+// ─── GET /api/tenant-pos/payments-history ────────────────────────────────────
+router.get("/tenant-pos/payments-history", async (req, res) => {
+  try {
+    const search = (req.query.search as string | undefined)?.trim() ?? "";
+    const method = (req.query.method as string | undefined) ?? "";
+    const statusFilter = (req.query.status as string | undefined) ?? "";
+    const sourceFilter = (req.query.source as string | undefined) ?? "";
+    const fromDate = req.query.from as string | undefined;
+    const toDate = req.query.to as string | undefined;
+    const page = Math.max(1, Number(req.query.page ?? 1));
+    const pageSize = Math.min(100, Math.max(1, Number(req.query.pageSize ?? 20)));
+    const offset = (page - 1) * pageSize;
+
+    const conditions = [];
+    if (req.siteId > 0) conditions.push(eq(tenantPaymentsTable.siteId, req.siteId));
+    if (method) conditions.push(eq(tenantPaymentsTable.paymentMethod, method));
+    if (sourceFilter) conditions.push(eq(tenantPaymentsTable.sourceType, sourceFilter));
+    if (fromDate) conditions.push(gte(tenantPaymentsTable.paidAt, new Date(fromDate)));
+    if (toDate) {
+      const toEnd = new Date(toDate);
+      toEnd.setHours(23, 59, 59, 999);
+      conditions.push(lte(tenantPaymentsTable.paidAt, toEnd));
+    }
+    if (statusFilter === "voided") {
+      conditions.push(eq(tenantPaymentsTable.isVoided, true));
+    } else if (statusFilter) {
+      conditions.push(eq(tenantPaymentsTable.approvalStatus, statusFilter));
+      conditions.push(eq(tenantPaymentsTable.isVoided, false));
+    }
+    if (search) {
+      conditions.push(
+        or(
+          ilike(tenantPaymentsTable.paymentNumber, `%${search}%`),
+          ilike(tenantPaymentsTable.receiptNumber, `%${search}%`),
+          ilike(tenantsTable.businessName, `%${search}%`),
+          ilike(tenantsTable.ownerName, `%${search}%`),
+        )
+      );
+    }
+
+    const where = conditions.length > 0 ? and(...conditions) : undefined;
+
+    const [countRow] = await db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(tenantPaymentsTable)
+      .leftJoin(tenantBookingsTable, eq(tenantPaymentsTable.bookingId, tenantBookingsTable.id))
+      .leftJoin(tenantsTable, eq(tenantPaymentsTable.tenantId, tenantsTable.id))
+      .where(where);
+
+    const rows = await db
+      .select({
+        id: tenantPaymentsTable.id,
+        paymentNumber: tenantPaymentsTable.paymentNumber,
+        receiptNumber: tenantPaymentsTable.receiptNumber,
+        amount: tenantPaymentsTable.amount,
+        discountAmount: tenantPaymentsTable.discountAmount,
+        penaltyAmount: tenantPaymentsTable.penaltyAmount,
+        paymentMethod: tenantPaymentsTable.paymentMethod,
+        approvalStatus: tenantPaymentsTable.approvalStatus,
+        isVoided: tenantPaymentsTable.isVoided,
+        voidReason: tenantPaymentsTable.voidReason,
+        voidedAt: tenantPaymentsTable.voidedAt,
+        voidedBy: tenantPaymentsTable.voidedBy,
+        paidAt: tenantPaymentsTable.paidAt,
+        sourceType: tenantPaymentsTable.sourceType,
+        notes: tenantPaymentsTable.notes,
+        referenceNumber: tenantPaymentsTable.referenceNumber,
+        invoiceId: tenantPaymentsTable.invoiceId,
+        bookingId: tenantPaymentsTable.bookingId,
+        refundAmount: tenantPaymentsTable.refundAmount,
+        refundReason: tenantPaymentsTable.refundReason,
+        tenantName: tenantsTable.businessName,
+        boothNumber: tenantsTable.boothNumber,
+        orderNumber: tenantBookingsTable.orderNumber,
+        periodLabel: tenantBookingsTable.periodLabel,
+      })
+      .from(tenantPaymentsTable)
+      .leftJoin(tenantBookingsTable, eq(tenantPaymentsTable.bookingId, tenantBookingsTable.id))
+      .leftJoin(tenantsTable, eq(tenantPaymentsTable.tenantId, tenantsTable.id))
+      .where(where)
+      .orderBy(desc(tenantPaymentsTable.paidAt))
+      .limit(pageSize)
+      .offset(offset);
+
+    res.json({
+      data: rows.map((r) => ({
+        ...r,
+        amount: Number(r.amount),
+        discountAmount: Number(r.discountAmount ?? 0),
+        penaltyAmount: Number(r.penaltyAmount ?? 0),
+        refundAmount: Number(r.refundAmount ?? 0),
+      })),
+      total: countRow?.count ?? 0,
+      page,
+      pageSize,
+    });
+  } catch (err) {
+    req.log.error(err, "Failed to get payment history");
+    res.status(500).json({ error: "Gagal mengambil riwayat pembayaran" });
+  }
+});
+
 // ─── GET /api/tenant-pos/recent-payments ─────────────────────────────────────
 router.get("/tenant-pos/recent-payments", async (req, res) => {
   try {

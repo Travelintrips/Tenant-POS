@@ -36,6 +36,7 @@ import TenantRegister from "@/pages/tenant-register";
 import BukuJurnal from "@/pages/buku-jurnal";
 import KelolaCoa from "@/pages/kelola-coa";
 import PengeluaranOperasional from "@/pages/pengeluaran-operasional";
+import RiwayatPembayaran from "@/pages/riwayat-pembayaran";
 // Legacy module kept for rollback — DO NOT import Rekonsiliasi as a rendered route
 // import Rekonsiliasi from "@/pages/rekonsiliasi";
 
@@ -234,6 +235,13 @@ function Router() {
         <AuthGuard roles={["owner", "admin", "finance"]}>
           <SidebarLayout>
             <TinjauPembayaran />
+          </SidebarLayout>
+        </AuthGuard>
+      </Route>
+      <Route path="/riwayat-pembayaran">
+        <AuthGuard roles={["owner", "admin", "finance"]}>
+          <SidebarLayout>
+            <RiwayatPembayaran />
           </SidebarLayout>
         </AuthGuard>
       </Route>
