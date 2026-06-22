@@ -350,16 +350,17 @@ async function sendWaAndLog({
     errorMessage = "FONNTE_TOKEN belum dikonfigurasi";
   } else {
     try {
+      const formBody = new URLSearchParams({ target: phone, message });
       const r = await fetch("https://api.fonnte.com/send", {
         method: "POST",
-        headers: { Authorization: token_api, "Content-Type": "application/json" },
-        body: JSON.stringify({ target: phone, message }),
+        headers: { Authorization: token_api, "Content-Type": "application/x-www-form-urlencoded" },
+        body: formBody.toString(),
       });
-      const body = await r.json().catch(() => ({})) as Record<string, unknown>;
-      if (r.ok && body["status"] !== false) {
+      const respBody = await r.json().catch(() => ({})) as Record<string, unknown>;
+      if (r.ok && respBody["status"] !== false) {
         status = "success";
       } else {
-        errorMessage = String(body["reason"] ?? body["detail"] ?? "Gagal mengirim WA");
+        errorMessage = String(respBody["reason"] ?? respBody["detail"] ?? "Gagal mengirim WA");
       }
     } catch (e) {
       errorMessage = e instanceof Error ? e.message : "Network error";
