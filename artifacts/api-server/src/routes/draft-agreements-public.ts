@@ -192,6 +192,110 @@ router.post("/dokumen/:token/setuju", async (req: Request, res: Response) => {
       WHERE token = ${token}
     `);
 
+    // ── Auto-create Tenant + Booking saat tenant setuju ──────────────────────
+    void (async () => {
+      try {
+        // Refresh draft karena baru saja di-update
+        const freshDraft = await getDraftByToken(token);
+        if (!freshDraft || freshDraft.bookingId) return; // sudah ada booking, skip
+
+        const siteId = (freshDraft.siteId as number | null) ?? 0;
+        const phone = (freshDraft.phone as string | null)
+          ?? (respondedPhone ? respondedPhone.replace(/\D/g, "").replace(/^0/, "62") : null);
+        const brandName = (freshDraft.brandName as string | null) ?? (freshDraft.tenantName as string | null);
+        const tenantName = (freshDraft.tenantName as string | null) ?? respondedName;
+        const rentAmount = String(Number(freshDraft.rentAmount ?? 0));
+        const depositAmount = String(Number(freshDraft.depositAmount ?? 0));
+        const unitCode = (freshDraft.unitCode as string | null) ?? null;
+        const areaName = (freshDraft.areaName as string | null) ?? "";
+        const durationMonths = (freshDraft.durationMonths as number | null) ?? 12;
+
+        const today = new Date();
+        const defaultStart = today.toISOString().split("T")[0]!;
+        const endDateObj = new Date(today);
+        endDateObj.setMonth(endDateObj.getMonth() + durationMonths);
+        const startDate = (freshDraft.startDate as string | null) ?? defaultStart;
+        const endDateFinal = (freshDraft.endDate as string | null) ?? endDateObj.toISOString().split("T")[0];
+
+        // Cek apakah tenant sudah ada (by phone + site)
+        let tenantId: number | null = null;
+        if (phone) {
+          const existingResult = await db.execute(
+            sql`SELECT id FROM tenants WHERE phone = ${phone} AND site_id = ${siteId} LIMIT 1`
+          );
+          const existing = (existingResult as unknown as { rows: { id: number }[] }).rows[0];
+          if (existing) {
+            tenantId = existing.id;
+          }
+        }
+
+        if (!tenantId) {
+          const insertResult = await db.execute(sql`
+            INSERT INTO tenants (
+              site_id, business_name, owner_name, phone, email,
+              business_category, area_name, address, status, default_rent_amount
+            ) VALUES (
+              ${siteId},
+              ${brandName ?? tenantName},
+              ${tenantName},
+              ${phone ?? null},
+              ${(freshDraft.email as string | null) ?? null},
+              ${(freshDraft.businessType as string | null) ?? null},
+              ${areaName},
+              ${(freshDraft.address as string | null) ?? null},
+              'active',
+              ${rentAmount}
+            )
+            RETURNING id
+          `);
+          tenantId = (insertResult as unknown as { rows: { id: number }[] }).rows[0]?.id ?? null;
+        }
+
+        if (!tenantId) return;
+
+        const orderNumber = `ORD-${Date.now().toString(36).toUpperCase()}`;
+        const bookingResult = await db.execute(sql`
+          INSERT INTO tenant_bookings (
+            site_id, tenant_id, order_number,
+            unit_code, floor, billing_cycle,
+            start_date, end_date, duration_months,
+            rent_amount, deposit_amount,
+            notes, booking_status, contract_status, payment_status
+          ) VALUES (
+            ${siteId},
+            ${tenantId},
+            ${orderNumber},
+            ${unitCode},
+            ${areaName || null},
+            'monthly',
+            ${startDate},
+            ${endDateFinal},
+            ${durationMonths},
+            ${rentAmount},
+            ${depositAmount},
+            ${(freshDraft.notes as string | null) ?? null},
+            'aktif',
+            'active',
+            'UNPAID'
+          )
+          RETURNING id
+        `);
+        const bookingId = (bookingResult as unknown as { rows: { id: number }[] }).rows[0]?.id ?? null;
+        if (!bookingId) return;
+
+        // Update draft dengan tenant_id dan booking_id
+        await db.execute(sql`
+          UPDATE tenant_draft_agreements
+          SET tenant_id = ${tenantId}, booking_id = ${bookingId}, updated_at = NOW()
+          WHERE token = ${token}
+        `);
+
+        console.log(`[draft-public] Auto-booking created: bookingId=${bookingId} tenantId=${tenantId} for draft token=${token}`);
+      } catch (err) {
+        console.error("[draft-public] Auto-booking error (non-fatal):", err);
+      }
+    })();
+
     // Notifikasi async
     const baseUrl = await getBaseUrl().catch(() => undefined);
     const docUrl = baseUrl ? `${baseUrl}/dokumen/${token}` : `/dokumen/${token}`;
@@ -215,7 +319,7 @@ router.post("/dokumen/:token/setuju", async (req: Request, res: Response) => {
 
     res.json({
       success: true,
-      message: "Terima kasih! Persetujuan Anda telah kami catat. Tim kami akan segera menghubungi Anda.",
+      message: "Terima kasih! Persetujuan Anda telah kami catat. Booking tenant Anda sudah otomatis dibuat.",
       status: "approved",
     });
   } catch (err) {

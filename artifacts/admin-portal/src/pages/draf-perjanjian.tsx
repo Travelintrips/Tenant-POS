@@ -979,10 +979,12 @@ function DetailPanel({
 
           {(draft.status === "pending" || (draft.status === "approved" && !draft.bookingId)) && (
             <div className={`rounded-lg border p-3 space-y-2 ${draft.status === "approved" ? "border-emerald-200 bg-emerald-50" : "border-amber-200 bg-amber-50"}`}>
-              <p className={`text-xs font-semibold ${draft.status === "approved" ? "text-emerald-800" : "text-amber-800"}`}>Tindakan Admin</p>
+              <p className={`text-xs font-semibold ${draft.status === "approved" ? "text-emerald-800" : "text-amber-800"}`}>
+                {draft.status === "approved" ? "⚡ Buat Booking Otomatis" : "Tindakan Admin"}
+              </p>
               <p className={`text-xs ${draft.status === "approved" ? "text-emerald-700" : "text-amber-700"}`}>
                 {draft.status === "approved"
-                  ? "Tenant telah menandatangani dokumen. Setujui untuk membuat booking otomatis."
+                  ? "Tenant sudah menandatangani dokumen. Klik tombol di bawah untuk membuat data Tenant & Booking secara otomatis."
                   : "Setujui atau tolak pendaftaran calon tenant ini. Notifikasi WhatsApp akan dikirim otomatis."}
               </p>
               <div className="flex gap-2">
@@ -992,17 +994,21 @@ function DetailPanel({
                   onClick={() => setConfirmDialog({ open: true, type: "approved", note: "" })}
                   disabled={statusMutation.isPending}
                 >
-                  <ThumbsUp className="h-3.5 w-3.5" />Setujui
+                  {draft.status === "approved"
+                    ? <><BookmarkCheck className="h-3.5 w-3.5" />Buat Booking</>
+                    : <><ThumbsUp className="h-3.5 w-3.5" />Setujui</>}
                 </Button>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="gap-1.5 border-red-300 text-red-700 hover:bg-red-50 flex-1"
-                  onClick={() => setConfirmDialog({ open: true, type: "rejected", note: "" })}
-                  disabled={statusMutation.isPending}
-                >
-                  <ThumbsDown className="h-3.5 w-3.5" />Tolak
-                </Button>
+                {draft.status === "pending" && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="gap-1.5 border-red-300 text-red-700 hover:bg-red-50 flex-1"
+                    onClick={() => setConfirmDialog({ open: true, type: "rejected", note: "" })}
+                    disabled={statusMutation.isPending}
+                  >
+                    <ThumbsDown className="h-3.5 w-3.5" />Tolak
+                  </Button>
+                )}
               </div>
             </div>
           )}
@@ -1037,12 +1043,16 @@ function DetailPanel({
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               {confirmDialog.type === "approved"
-                ? <><ThumbsUp className="h-4 w-4 text-emerald-600" />Setujui Calon Tenant?</>
+                ? draft.status === "approved"
+                  ? <><BookmarkCheck className="h-4 w-4 text-emerald-600" />Buat Booking Otomatis?</>
+                  : <><ThumbsUp className="h-4 w-4 text-emerald-600" />Setujui Calon Tenant?</>
                 : <><ThumbsDown className="h-4 w-4 text-red-600" />Tolak Calon Tenant?</>}
             </DialogTitle>
             <DialogDescription>
               {confirmDialog.type === "approved"
-                ? <>Pendaftaran <strong>{draft.brandName}</strong> akan disetujui. Notifikasi WA akan dikirim ke calon tenant.</>
+                ? draft.status === "approved"
+                  ? <>Tenant <strong>{draft.brandName}</strong> sudah menandatangani. Booking akan dibuat otomatis di Booking Tenant.</>
+                  : <>Pendaftaran <strong>{draft.brandName}</strong> akan disetujui. Notifikasi WA akan dikirim ke calon tenant.</>
                 : <>Pendaftaran <strong>{draft.brandName}</strong> akan ditolak. Notifikasi WA akan dikirim ke calon tenant.</>}
             </DialogDescription>
           </DialogHeader>

@@ -204,12 +204,14 @@ router.patch(
       `);
 
       // Kirim notifikasi WA ke calon tenant (fire-and-forget tapi tunggu hasilnya untuk response)
+      // Skip WA jika draft sudah 'approved' sebelumnya (tenant sudah tahu, hanya buat booking)
       let waSent = false;
       const phone = row["phone"] as string | null;
       const brandName = (row["brand_name"] as string | null) ?? (row["tenant_name"] as string | null) ?? undefined;
       const siteId = (req as Request & { siteId?: number }).siteId ?? (row["site_id"] as number) ?? 0;
+      const alreadyApproved = row["status"] === "approved";
 
-      if (phone) {
+      if (phone && !alreadyApproved) {
         const calonCompanyName = await getSiteCompanyName(siteId).catch(() => undefined);
         const waResult = status === "approved"
           ? await sendCalonTenantApproved(phone, brandName ?? undefined, calonCompanyName)
