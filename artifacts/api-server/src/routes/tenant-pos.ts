@@ -535,6 +535,7 @@ router.post("/tenant-pos/payments", paymentRateLimiter, async (req, res) => {
             status: "PAID",
             approvalStatus: "approved",
             receiptNumber,
+            paymentNumber: receiptNumber,
             referenceNumber: referenceNumber ?? null,
             referenceId: posReferenceId,
             sourceType: "pos",

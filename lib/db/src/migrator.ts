@@ -2212,4 +2212,16 @@ CREATE INDEX IF NOT EXISTS "bsl_created_at_idx" ON "blast_session_logs"("created
   sql: `
 SELECT 1;
   `.trim(),
+},
+{
+  name: "0055_backfill_payment_number",
+  sql: `
+UPDATE tenant_payments
+SET payment_number = receipt_number
+WHERE payment_number IS NULL AND receipt_number IS NOT NULL;
+
+UPDATE tenant_bookings
+SET order_number = 'ORD-' || UPPER(TO_HEX(EXTRACT(EPOCH FROM created_at)::bigint)) || '-' || UPPER(SUBSTR(MD5(id::text), 1, 4))
+WHERE (order_number IS NULL OR order_number = '');
+  `.trim(),
 });

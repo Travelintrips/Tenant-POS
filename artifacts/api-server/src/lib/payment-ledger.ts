@@ -213,6 +213,7 @@ export async function recordPayment(
       status: "PAID",
       approvalStatus: "approved",
       receiptNumber: params.receiptNumber,
+      paymentNumber: params.receiptNumber,
       referenceId: params.referenceId ?? null,
       referenceNumber: params.referenceNumber ?? null,
       sourceType: params.sourceType,
