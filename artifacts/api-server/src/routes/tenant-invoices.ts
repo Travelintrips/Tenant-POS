@@ -97,6 +97,7 @@ function calcAmounts(data: {
   discountAmount?: string | number | null;
   penaltyAmount?: string | number | null;
   paidAmount?: string | number | null;
+  usePpn?: boolean | null;
 }) {
   const rent = Number(data.rentAmount ?? 0);
   const service = Number(data.serviceChargeAmount ?? 0);
@@ -109,7 +110,7 @@ function calcAmounts(data: {
   const paid = Number(data.paidAmount ?? 0);
 
   const subtotal = rent + service + elec + water + other + trash - discount + penalty;
-  const taxAmt = Math.round(subtotal * PPN_RATE);
+  const taxAmt = (data.usePpn !== false) ? Math.round(subtotal * PPN_RATE) : 0;
   const total = subtotal + taxAmt;
   const outstanding = Math.max(total - paid, 0);
 
@@ -533,6 +534,7 @@ const createInvoiceSchema = z.object({
   discountAmount: z.union([z.string(), z.number()]).optional().nullable(),
   penaltyAmount: z.union([z.string(), z.number()]).optional().nullable(),
   taxAmount: z.union([z.string(), z.number()]).optional().nullable(),
+  usePpn: z.boolean().optional(),
   notes: z.string().optional().nullable(),
   status: z.enum(["draft", "unpaid", "partial", "paid", "overdue", "cancelled"]).optional(),
 });

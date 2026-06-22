@@ -90,7 +90,7 @@ router.get("/settings/sites", requireAuth, requireAnyRole("owner", "admin", "fin
       FROM mall_sites
       ORDER BY id ASC
     `);
-    const data = (rows as { rows: { siteId: number; siteName: string; companyName: string | null }[] }).rows;
+    const data = (rows as unknown as { rows: { siteId: number; siteName: string; companyName: string | null }[] }).rows;
     res.json(data.map(r => ({ siteId: r.siteId, siteName: r.siteName, companyName: r.companyName ?? "" })));
   } catch {
     res.status(500).json({ error: "Gagal mengambil data site" });

@@ -1611,13 +1611,13 @@ export default function TenantInvoices() {
                               Salin Link
                             </Button>
                           )}
-                          {inv.status === "overdue" && inv.phone && (
+                          {inv.status !== "paid" && inv.status !== "cancelled" && inv.phone && (
                             <Button
                               size="sm" variant="ghost"
-                              className="h-7 w-7 p-0 text-red-500 hover:text-red-600"
-                              title="Kirim pengingat overdue via WA"
+                              className={`h-7 w-7 p-0 ${inv.status === "overdue" ? "text-red-500 hover:text-red-600" : "text-emerald-600 hover:text-emerald-700"}`}
+                              title={inv.status === "overdue" ? "Kirim pengingat overdue via WA" : "Kirim ulang notifikasi tagihan via WA"}
                               disabled={waSendMutation.isPending}
-                              onClick={() => waSendMutation.mutate({ id: inv.id, type: "overdue-reminder" })}
+                              onClick={() => waSendMutation.mutate({ id: inv.id, type: inv.status === "overdue" ? "overdue-reminder" : "send" })}
                             >
                               <MessageCircle className="h-3.5 w-3.5" />
                             </Button>

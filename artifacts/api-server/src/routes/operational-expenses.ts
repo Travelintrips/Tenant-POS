@@ -52,7 +52,7 @@ router.get("/operational-expenses/monthly-summary", async (req, res) => {
       const entry = map.get(r.month_key)!;
       const cat = r.category as keyof typeof entry;
       if (cat in entry && cat !== "label") {
-        (entry as Record<string, number>)[cat] = Number(r.total);
+        (entry as unknown as Record<string, number>)[cat] = Number(r.total);
       }
     }
 
