@@ -363,7 +363,6 @@ function DetailPanel({
   const [showBookingDialog, setShowBookingDialog] = useState(false);
   const [waPhone, setWaPhone] = useState(draft.phone ?? "");
   const [postBookingResult, setPostBookingResult] = useState<{ tenantId: number; bookingId: number } | null>(null);
-  const [waPhone, setWaPhone] = useState(draft.phone || "");
 
   const kirimWaManualMutation = useMutation({
     mutationFn: ({ id, targetPhone }: { id: number; targetPhone: string }) =>
@@ -1233,9 +1232,34 @@ export default function DrafPerjanjian() {
     onSuccess: () => {
       toast({ title: "WA terkirim!", description: `Link pendaftaran berhasil dikirim ke ${kirimLinkWaPhone}` });
       setKirimLinkWaPhone("");
+      qc.invalidateQueries({ queryKey: ["link-wa-log"] });
     },
     onError: (err: Error) => {
       toast({ title: "Gagal kirim WA", description: err.message, variant: "destructive" });
+      qc.invalidateQueries({ queryKey: ["link-wa-log"] });
+    },
+  });
+
+  interface LinkWaLog {
+    id: number;
+    phoneNumber: string;
+    sentAt: string;
+    status: "success" | "failed" | "pending";
+    sentBy: string | null;
+    errorMessage: string | null;
+  }
+
+  const linkWaLogQuery = useQuery<LinkWaLog[]>({
+    queryKey: ["link-wa-log"],
+    queryFn: async () => {
+      const res = await apiFetch("/api/calon-tenant/link-wa-log");
+      const body = await res.json() as { success: boolean; logs: LinkWaLog[] };
+      if (!res.ok) throw new Error("Gagal memuat riwayat");
+      return body.logs;
+    },
+    staleTime: 30_000,
+  });
+
   const kirimWaApprovedMutation = useMutation({
     mutationFn: (id: number) => apiFetchJson(`/api/draft-agreements/${id}/kirim-wa-approved`, { method: "POST" }),
     onSuccess: (data: { skipped?: boolean }) => {
