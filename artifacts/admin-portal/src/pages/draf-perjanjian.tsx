@@ -76,6 +76,8 @@ import {
   CalendarRange,
   MessageCircle,
   CreditCard,
+  Loader2,
+  Phone,
 } from "lucide-react";
 
 // ── Tipe data ──────────────────────────────────────────────────────────────────
@@ -348,6 +350,22 @@ function DetailPanel({
   const [, setLocation] = useLocation();
   const [showBookingDialog, setShowBookingDialog] = useState(false);
   const [postBookingResult, setPostBookingResult] = useState<{ tenantId: number; bookingId: number } | null>(null);
+  const [waPhone, setWaPhone] = useState(draft.phone || "");
+
+  const kirimWaManualMutation = useMutation({
+    mutationFn: ({ id, targetPhone }: { id: number; targetPhone: string }) =>
+      apiFetchJson(`/api/draft-agreements/${id}/kirim-wa-manual`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ targetPhone }),
+      }),
+    onSuccess: (data: { message?: string }) => {
+      toast({ title: "WA Terkirim! ✅", description: data?.message ?? "Link dokumen berhasil dikirim via WhatsApp." });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Gagal Kirim WA", description: err.message, variant: "destructive" });
+    },
+  });
   const [confirmDialog, setConfirmDialog] = useState<{
     open: boolean;
     type: "approved" | "rejected" | null;
@@ -595,6 +613,33 @@ function DetailPanel({
                   <MessageCircle className="h-3 w-3" />Kirim WA Notif
                 </Button>
               )}
+            </div>
+            {/* Kirim ke nomor WA manual */}
+            <div className="pt-1 border-t border-muted-foreground/20">
+              <p className="text-[10px] text-muted-foreground mb-1.5 flex items-center gap-1">
+                <Phone className="h-3 w-3" />Kirim link ke nomor WA lain
+              </p>
+              <div className="flex gap-2">
+                <Input
+                  type="tel"
+                  placeholder="Contoh: 08123456789"
+                  value={waPhone}
+                  onChange={(e) => setWaPhone(e.target.value)}
+                  className="h-8 text-xs flex-1 bg-background"
+                />
+                <Button
+                  size="sm"
+                  className="h-8 text-xs gap-1.5 bg-green-600 hover:bg-green-700 text-white shrink-0"
+                  disabled={kirimWaManualMutation.isPending || waPhone.trim().length < 8}
+                  onClick={() => kirimWaManualMutation.mutate({ id: draft.id, targetPhone: waPhone.trim() })}
+                >
+                  {kirimWaManualMutation.isPending
+                    ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    : <Send className="h-3.5 w-3.5" />
+                  }
+                  {kirimWaManualMutation.isPending ? "Mengirim..." : "Kirim WA"}
+                </Button>
+              </div>
             </div>
           </div>
 
