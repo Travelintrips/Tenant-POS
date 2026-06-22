@@ -435,15 +435,18 @@ function DetailPanel({
       });
       const body = await res.json();
       if (!res.ok) throw new Error((body as { error?: string }).error ?? `Error ${res.status}`);
-      return body as { success: boolean; status: string; waSent: boolean };
+      return body as { success: boolean; status: string; waSent: boolean; bookingId?: number | null; tenantId?: number | null };
     },
     onSuccess: (result) => {
       const isApproved = result.status === "approved";
+      const bookingCreated = isApproved && result.bookingId;
       toast({
         title: isApproved ? "Calon tenant disetujui!" : "Calon tenant ditolak",
-        description: result.waSent
-          ? "Notifikasi WhatsApp telah dikirim ke calon tenant."
-          : "Status berhasil diperbarui.",
+        description: bookingCreated
+          ? `Booking tenant otomatis dibuat (ID: ${result.bookingId}). ${result.waSent ? "Notifikasi WA terkirim." : ""}`
+          : result.waSent
+            ? "Notifikasi WhatsApp telah dikirim ke calon tenant."
+            : "Status berhasil diperbarui.",
       });
       setConfirmDialog({ open: false, type: null, note: "" });
       onStatusChanged();

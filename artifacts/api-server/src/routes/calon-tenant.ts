@@ -5,7 +5,7 @@ import { z } from "zod";
 import crypto from "crypto";
 import { registrationRateLimiter } from "../middlewares/rate-limit";
 import { requireAuth, requireAnyRole } from "../middlewares/auth";
-import { sendCalonTenantApproved, sendCalonTenantRejected, sendCalonTenantReminder, getSiteCompanyName } from "../lib/whatsapp";
+import { sendCalonTenantApproved, sendCalonTenantRejected, sendCalonTenantReminder, getSiteCompanyName, sendBookingConfirmation } from "../lib/whatsapp";
 import { logAudit } from "../lib/audit";
 
 const router: IRouter = Router();
@@ -144,9 +144,9 @@ router.patch(
     const { status, note } = parsed.data;
 
     try {
-      // Cek record exists
+      // Cek record exists — ambil semua field yang dibutuhkan untuk auto-booking
       const existingResult = await db.execute(
-        sql`SELECT id, status, phone, brand_name, tenant_name FROM tenant_draft_agreements WHERE id = ${id} LIMIT 1`
+        sql`SELECT * FROM tenant_draft_agreements WHERE id = ${id} LIMIT 1`
       );
       const row = (existingResult as { rows: Record<string, unknown>[] }).rows[0];
 
@@ -181,15 +181,134 @@ router.patch(
 
       // Kirim notifikasi WA ke calon tenant (fire-and-forget tapi tunggu hasilnya untuk response)
       let waSent = false;
-      const phone = row.phone as string | null;
-      const brandName = (row.brand_name as string | null) ?? (row.tenant_name as string | null) ?? undefined;
+      const phone = row["phone"] as string | null;
+      const brandName = (row["brand_name"] as string | null) ?? (row["tenant_name"] as string | null) ?? undefined;
+      const siteId = (req as Request & { siteId?: number }).siteId ?? (row["site_id"] as number) ?? 0;
 
       if (phone) {
-        const calonCompanyName = await getSiteCompanyName(req.siteId).catch(() => undefined);
+        const calonCompanyName = await getSiteCompanyName(siteId).catch(() => undefined);
         const waResult = status === "approved"
           ? await sendCalonTenantApproved(phone, brandName ?? undefined, calonCompanyName)
           : await sendCalonTenantRejected(phone, brandName ?? undefined, calonCompanyName);
         waSent = waResult.ok && !waResult.skipped;
+      }
+
+      // ── Auto-create Tenant + Booking saat disetujui ───────────────────────────
+      let tenantId: number | null = null;
+      let bookingId: number | null = null;
+
+      if (status === "approved" && !row["booking_id"]) {
+        try {
+          const rentAmount = String(Number(row["rent_amount"] ?? 0));
+          const depositAmount = String(Number(row["deposit_amount"] ?? 0));
+          const unitCode = (row["unit_code"] as string | null) ?? null;
+          const areaName = (row["area_name"] as string | null) ?? "";
+          const durationMonths = (row["duration_months"] as number | null) ?? 12;
+
+          // Default tanggal: hari ini s/d selesai berdasarkan durasi
+          const today = new Date();
+          const defaultStart = today.toISOString().split("T")[0];
+          const endDate = new Date(today);
+          endDate.setMonth(endDate.getMonth() + durationMonths);
+          const defaultEnd = endDate.toISOString().split("T")[0];
+
+          const startDate = (row["start_date"] as string | null) ?? defaultStart;
+          const endDateFinal = (row["end_date"] as string | null) ?? defaultEnd;
+
+          // Cek tenant sudah ada berdasarkan nomor HP
+          const existingTenantResult = await db.execute(
+            sql`SELECT id FROM tenants WHERE phone = ${phone} AND site_id = ${siteId} LIMIT 1`
+          );
+          const existingTenant = (existingTenantResult as unknown as { rows: { id: number }[] }).rows[0];
+
+          if (existingTenant) {
+            tenantId = existingTenant.id;
+          } else {
+            const tenantInsert = await db.execute(sql`
+              INSERT INTO tenants (
+                site_id, business_name, owner_name, phone, email,
+                business_category, area_name, address, status,
+                default_rent_amount
+              ) VALUES (
+                ${siteId},
+                ${(row["brand_name"] as string) || (row["tenant_name"] as string)},
+                ${row["tenant_name"] as string},
+                ${phone},
+                ${(row["email"] as string | null) ?? null},
+                ${(row["business_type"] as string | null) ?? null},
+                ${areaName},
+                ${(row["address"] as string | null) ?? null},
+                'active',
+                ${rentAmount}
+              )
+              RETURNING id
+            `);
+            tenantId = (tenantInsert as unknown as { rows: { id: number }[] }).rows[0].id;
+          }
+
+          const orderNumber = `ORD-${Date.now().toString(36).toUpperCase()}`;
+          const bookingInsert = await db.execute(sql`
+            INSERT INTO tenant_bookings (
+              site_id, tenant_id, order_number,
+              unit_code, floor, billing_cycle,
+              start_date, end_date,
+              duration_months,
+              rent_amount, deposit_amount,
+              notes, booking_status, contract_status,
+              payment_status
+            ) VALUES (
+              ${siteId},
+              ${tenantId},
+              ${orderNumber},
+              ${unitCode},
+              ${areaName || null},
+              'monthly',
+              ${startDate},
+              ${endDateFinal},
+              ${durationMonths},
+              ${rentAmount},
+              ${depositAmount},
+              ${(row["notes"] as string | null) ?? null},
+              'aktif',
+              'active',
+              'UNPAID'
+            )
+            RETURNING id
+          `);
+          bookingId = (bookingInsert as unknown as { rows: { id: number }[] }).rows[0].id;
+
+          // Update draft dengan tenant_id dan booking_id
+          await db.execute(sql`
+            UPDATE tenant_draft_agreements
+            SET tenant_id = ${tenantId}, booking_id = ${bookingId}, updated_at = NOW()
+            WHERE id = ${id}
+          `);
+
+          // Kirim WA konfirmasi booking (fire-and-forget)
+          void (async () => {
+            try {
+              if (!phone) return;
+              const companyName = await getSiteCompanyName(siteId).catch(() => undefined);
+              await sendBookingConfirmation({
+                ownerName: (row["tenant_name"] as string) ?? "",
+                businessName: brandName ?? "",
+                orderNumber,
+                unitCode: unitCode ?? areaName ?? "—",
+                floor: areaName || null,
+                startDate,
+                endDate: endDateFinal,
+                durationMonths,
+                rentAmount,
+                phone,
+                companyName,
+              });
+            } catch { /* tidak perlu throw */ }
+          })();
+
+        } catch (bookingErr) {
+          console.error("[calon-tenant] Auto-booking error (non-fatal):", bookingErr);
+          // Gagal buat booking tidak menggagalkan approval
+        }
       }
 
       // Audit log (fire-and-forget)
@@ -197,10 +316,10 @@ router.patch(
         action: status === "approved" ? "calon_tenant_approved" : "calon_tenant_rejected",
         entityType: "tenant_draft_agreement",
         entityId: id,
-        afterData: { status, note: note ?? null, waSent, adminName },
+        afterData: { status, note: note ?? null, waSent, adminName, tenantId, bookingId },
       });
 
-      res.json({ success: true, id, status, waSent });
+      res.json({ success: true, id, status, waSent, tenantId, bookingId });
     } catch (err) {
       console.error("[calon-tenant] PATCH /:id/status error:", err);
       res.status(500).json({ error: "Terjadi kesalahan server saat memperbarui status" });
