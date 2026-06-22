@@ -4,6 +4,7 @@ title = "Admin Portal"
 version = "1.0.0"
 id = "artifacts/admin-portal"
 router = "path"
+restrictSecretAccess = false
 
 [[integratedSkills]]
 name = "react-vite"
