@@ -64,6 +64,8 @@ import {
   ThumbsUp,
   ThumbsDown,
   BellRing,
+  Megaphone,
+  DoorOpen,
   ChevronLeft,
   ChevronRight,
   ChevronsLeft,
@@ -1083,6 +1085,7 @@ export default function DrafPerjanjian() {
   const [searchInput, setSearchInput] = useState(search);
   const [showCreate, setShowCreate] = useState(false);
   const [showBulkReminder, setShowBulkReminder] = useState(false);
+  const [showBlastUnit, setShowBlastUnit] = useState(false);
   const [form, setForm] = useState<CreateForm>(BLANK_FORM);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [deleteId, setDeleteId] = useState<number | null>(null);
@@ -1331,6 +1334,32 @@ export default function DrafPerjanjian() {
     },
   });
 
+  const blastUnitMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiFetch("/api/calon-tenant/blast-unit-tersedia", { method: "POST" });
+      const body = await res.json();
+      if (!res.ok) throw new Error((body as { error?: string }).error ?? `Error ${res.status}`);
+      return body as { success: boolean; total: number; sent: number; failed: number; skipped: number; availableUnits?: string[]; message?: string };
+    },
+    onSuccess: (data) => {
+      setShowBlastUnit(false);
+      if (data.total === 0) {
+        toast({ title: "Tidak ada penerima", description: data.message ?? "Tidak ada calon tenant pending saat ini." });
+      } else if (data.failed === 0) {
+        toast({ title: `Notifikasi terkirim ke ${data.sent} calon tenant`, description: `${data.skipped} dilewati (unit tidak cocok). Unit tersedia: ${(data.availableUnits ?? []).join(", ")}` });
+      } else {
+        toast({
+          title: `Blast dikirim: ${data.sent} berhasil, ${data.failed} gagal, ${data.skipped} dilewati`,
+          description: `dari total ${data.total} calon tenant.`,
+          variant: data.sent === 0 ? "destructive" : "default",
+        });
+      }
+    },
+    onError: (err: Error) => {
+      toast({ title: "Gagal blast notifikasi unit", description: err.message, variant: "destructive" });
+    },
+  });
+
   function setField(key: keyof CreateForm, value: string) {
     setForm((f) => ({ ...f, [key]: value }));
   }
@@ -1382,6 +1411,17 @@ export default function DrafPerjanjian() {
           </p>
         </div>
         <div className="flex gap-2 shrink-0">
+          <Button
+            variant="outline"
+            className="gap-2 border-sky-300 text-sky-700 hover:bg-sky-50"
+            onClick={() => setShowBlastUnit(true)}
+            disabled={blastUnitMutation.isPending}
+          >
+            {blastUnitMutation.isPending
+              ? <RefreshCw className="h-4 w-4 animate-spin" />
+              : <DoorOpen className="h-4 w-4" />}
+            Notif Unit Kosong
+          </Button>
           <Button
             variant="outline"
             className="gap-2"
@@ -1820,6 +1860,45 @@ export default function DrafPerjanjian() {
               {bulkReminderMutation.isPending
                 ? <><RefreshCw className="h-3.5 w-3.5 animate-spin" />Mengirim...</>
                 : <><BellRing className="h-3.5 w-3.5" />Ya, Kirim Reminder</>}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Dialog: Blast Notif Unit Kosong */}
+      <Dialog open={showBlastUnit} onOpenChange={(open) => !blastUnitMutation.isPending && setShowBlastUnit(open)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <DoorOpen className="h-4 w-4 text-sky-600" />Notifikasi Unit Kosong
+            </DialogTitle>
+            <DialogDescription>
+              Sistem akan mengirimkan WhatsApp ke semua calon tenant yang masih
+              <span className="font-semibold text-sky-700"> menunggu (pending)</span> dan belum mendapat unit,
+              memberitahu bahwa ada unit yang kini kosong dan siap disewa.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="rounded-lg bg-sky-50 border border-sky-200 p-3 text-xs text-sky-800 space-y-1">
+            <p className="font-semibold">Cara kerja:</p>
+            <ul className="list-disc pl-4 space-y-0.5">
+              <li>Calon tenant yang mencantumkan unit minat → hanya dikirimi jika unit itu kosong</li>
+              <li>Calon tenant tanpa minat unit → dikirimi semua unit yang kosong</li>
+              <li>Delay 400ms per pesan agar tidak dianggap spam</li>
+              <li>Juga berjalan otomatis saat booking diterminasi</li>
+            </ul>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowBlastUnit(false)} disabled={blastUnitMutation.isPending}>
+              Batal
+            </Button>
+            <Button
+              className="gap-2 bg-sky-600 hover:bg-sky-700"
+              onClick={() => blastUnitMutation.mutate()}
+              disabled={blastUnitMutation.isPending}
+            >
+              {blastUnitMutation.isPending
+                ? <><RefreshCw className="h-3.5 w-3.5 animate-spin" />Mengirim...</>
+                : <><Megaphone className="h-3.5 w-3.5" />Ya, Kirim Notifikasi</>}
             </Button>
           </DialogFooter>
         </DialogContent>

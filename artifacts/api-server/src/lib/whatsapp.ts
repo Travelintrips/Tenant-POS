@@ -662,6 +662,34 @@ export async function sendCalonTenantRejected(phone: string, brandName?: string,
   return sendMessage(phone, message);
 }
 
+/**
+ * Kirim notifikasi ke calon tenant bahwa ada unit yang kini kosong / tersedia
+ */
+export async function sendCalonTenantUnitAvailable(
+  phone: string,
+  picName: string | undefined,
+  unitCodes: string[],
+  companyName?: string,
+): Promise<WaResult> {
+  const company = companyName ?? "Manajemen CST";
+  const salam = picName ? `Halo *${picName}*,` : "Halo,";
+  const unitList = unitCodes.map((u) => `  • *${u}*`).join("\n");
+  const unitSection =
+    unitCodes.length === 1
+      ? `Unit yang kini tersedia:\n  • *${unitCodes[0]}*`
+      : `Unit-unit yang kini tersedia:\n${unitList}`;
+  const message =
+    `🏪 *Kabar Baik — Unit Tersedia!*\n` +
+    `━━━━━━━━━━━━━━━━━━━━━\n\n` +
+    `${salam}\n\n` +
+    `Kami ingin memberitahukan bahwa saat ini ada unit yang *kosong dan siap disewa* di mall kami.\n\n` +
+    `${unitSection}\n\n` +
+    `Jika Anda masih tertarik, segera hubungi tim manajemen kami untuk informasi lebih lanjut dan proses sewa.\n\n` +
+    `Jangan lewatkan kesempatan ini! 🙏\n` +
+    `_${company}_`;
+  return sendMessage(phone, message);
+}
+
 export interface PosPaymentSuccessParams {
   ownerName: string;
   businessName: string;

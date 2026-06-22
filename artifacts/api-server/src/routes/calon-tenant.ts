@@ -5,7 +5,7 @@ import { z } from "zod";
 import crypto from "crypto";
 import { registrationRateLimiter } from "../middlewares/rate-limit";
 import { requireAuth, requireAnyRole } from "../middlewares/auth";
-import { sendCalonTenantApproved, sendCalonTenantRejected, sendCalonTenantReminder, getSiteCompanyName, sendBookingConfirmation } from "../lib/whatsapp";
+import { sendCalonTenantApproved, sendCalonTenantRejected, sendCalonTenantReminder, sendCalonTenantUnitAvailable, getSiteCompanyName, sendBookingConfirmation } from "../lib/whatsapp";
 import { logAudit } from "../lib/audit";
 
 const router: IRouter = Router();
@@ -492,6 +492,148 @@ router.post(
       res.json({ success: true, message: `Link registrasi berhasil dikirim ke ${rawPhone}` });
     } else {
       res.status(422).json({ error: errorMessage ?? "Gagal mengirim WA" });
+    }
+  }
+);
+
+// ── POST /api/calon-tenant/blast-unit-tersedia ────────────────────────────────
+// Kirim notifikasi WA ke semua calon tenant (status pending/approved-no-booking)
+// yang unit minatnya cocok dengan unit yang kini kosong.
+// Body opsional: { unitCodes: string[] } — jika kosong, kirim ke SEMUA pending calon tenant
+// dengan daftar semua unit kosong saat ini.
+router.post(
+  "/calon-tenant/blast-unit-tersedia",
+  requireAuth,
+  requireAnyRole("admin", "owner"),
+  async (req: Request, res: Response) => {
+    const siteId = (req as Request & { siteId?: number }).siteId ?? 0;
+
+    try {
+      // Ambil semua unit yang kosong (tidak ada booking aktif)
+      const unitResult = await db.execute(sql`
+        SELECT mu.unit_code
+        FROM mall_units mu
+        WHERE (${siteId} = 0 OR mu.site_id = ${siteId})
+          AND NOT EXISTS (
+            SELECT 1 FROM tenant_bookings tb
+            WHERE tb.unit_code = mu.unit_code
+              AND (${siteId} = 0 OR tb.site_id = ${siteId})
+              AND tb.booking_status IN ('aktif','active')
+              AND (tb.contract_status IS NULL OR tb.contract_status NOT IN ('terminated','expired','cancelled'))
+          )
+        ORDER BY mu.unit_code
+      `);
+      const availableUnitCodes = (unitResult as { rows: { unit_code: string }[] }).rows
+        .map((r) => r.unit_code)
+        .filter(Boolean);
+
+      if (availableUnitCodes.length === 0) {
+        res.json({ success: true, total: 0, sent: 0, failed: 0, skipped: 0, message: "Tidak ada unit kosong saat ini" });
+        return;
+      }
+
+      // Filter dari body jika admin memilih unit tertentu
+      const bodyUnitCodes = Array.isArray(req.body?.unitCodes) ? (req.body.unitCodes as string[]) : [];
+      const targetUnitCodes = bodyUnitCodes.length > 0
+        ? availableUnitCodes.filter((u) => bodyUnitCodes.includes(u))
+        : availableUnitCodes;
+
+      if (targetUnitCodes.length === 0) {
+        res.json({ success: true, total: 0, sent: 0, failed: 0, skipped: 0, message: "Unit yang dipilih tidak tersedia saat ini" });
+        return;
+      }
+
+      // Ambil semua calon tenant yang pending / approved tapi belum punya booking
+      // Prioritaskan yang unit minatnya cocok, tapi juga kirim ke yang tidak cantumkan unit
+      const calonResult = await db.execute(sql`
+        SELECT id, pic_name, brand_name, phone, interested_unit, site_id
+        FROM tenant_draft_agreements
+        WHERE status IN ('pending', 'approved')
+          AND booking_id IS NULL
+          AND phone IS NOT NULL
+          AND TRIM(phone) <> ''
+          AND (${siteId} = 0 OR site_id = ${siteId} OR site_id = 0)
+        ORDER BY created_at ASC
+      `);
+      const calonList = (calonResult as { rows: Record<string, unknown>[] }).rows;
+
+      if (calonList.length === 0) {
+        res.json({ success: true, total: 0, sent: 0, failed: 0, skipped: 0, message: "Tidak ada calon tenant pending" });
+        return;
+      }
+
+      const companyName = await getSiteCompanyName(siteId).catch(() => undefined);
+      const sentBy = (req.user as { email?: string } | undefined)?.email ?? "admin";
+
+      let sent = 0, failed = 0, skipped = 0;
+      const results: Array<{ id: number; phone: string; status: string; error?: string }> = [];
+
+      for (const calon of calonList) {
+        const phone = calon["phone"] as string;
+        const picName = (calon["brand_name"] as string | null) ?? (calon["pic_name"] as string | null) ?? undefined;
+        const interestedUnit = (calon["interested_unit"] as string | null)?.trim();
+
+        // Tentukan unit yang relevan untuk calon ini
+        let relevantUnits: string[];
+        if (interestedUnit && interestedUnit.length > 0) {
+          // Cek apakah unit minatnya ada di daftar yang tersedia
+          const matchedUnit = targetUnitCodes.find(
+            (u) => u.toLowerCase() === interestedUnit.toLowerCase()
+          );
+          if (matchedUnit) {
+            relevantUnits = [matchedUnit];
+          } else {
+            // Unit minat tidak tersedia — skip (unit yang dia minta masih terisi atau tidak cocok)
+            skipped++;
+            results.push({ id: calon["id"] as number, phone, status: "skipped_unit_not_available" });
+            continue;
+          }
+        } else {
+          // Tidak cantumkan unit → kirim semua unit tersedia
+          relevantUnits = targetUnitCodes;
+        }
+
+        await new Promise((r) => setTimeout(r, 400)); // delay anti-spam
+        const waResult = await sendCalonTenantUnitAvailable(phone, picName, relevantUnits, companyName)
+          .catch((err: Error) => ({ ok: false, error: err.message }));
+
+        if (waResult.ok && !(waResult as { skipped?: boolean }).skipped) {
+          sent++;
+          results.push({ id: calon["id"] as number, phone, status: "sent" });
+        } else if ((waResult as { skipped?: boolean }).skipped) {
+          skipped++;
+          results.push({ id: calon["id"] as number, phone, status: "skipped_no_token" });
+        } else {
+          failed++;
+          results.push({ id: calon["id"] as number, phone, status: "failed", error: waResult.error });
+        }
+
+        // Simpan ke wa_logs
+        await db.execute(sql`
+          INSERT INTO wa_logs (site_id, phone, message_type, status, error_message, sent_by)
+          VALUES (${siteId || null}, ${phone}, 'unit_available_blast', ${results.at(-1)!.status}, ${results.at(-1)!.error ?? null}, ${sentBy})
+        `).catch(() => {});
+      }
+
+      logAudit(req, {
+        action: "blast_unit_tersedia_wa",
+        entityType: "calon_tenant",
+        entityId: 0,
+        afterData: { unitCodes: targetUnitCodes, sent, failed, skipped, total: calonList.length },
+      });
+
+      res.json({
+        success: true,
+        total: calonList.length,
+        sent,
+        failed,
+        skipped,
+        availableUnits: targetUnitCodes,
+        results,
+      });
+    } catch (err) {
+      console.error("[calon-tenant] POST /blast-unit-tersedia error:", err);
+      res.status(500).json({ error: "Gagal menjalankan blast notifikasi" });
     }
   }
 );

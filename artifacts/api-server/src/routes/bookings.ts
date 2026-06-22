@@ -16,6 +16,7 @@ import {
   sendContractActivated,
   sendContractExpiringSoon,
   sendContractTerminated,
+  sendCalonTenantUnitAvailable,
   getSiteCompanyName,
 } from "../lib/whatsapp";
 import { z } from "zod";
@@ -526,6 +527,41 @@ router.post("/bookings/:id/terminate", requireAnyRole("owner", "admin"), async (
           } catch { /* abaikan error logging */ }
         }).catch(() => {});
       }
+    }
+
+    // Auto-blast notif ke calon tenant antrean yang berminat pada unit ini (fire-and-forget)
+    const freedUnitCode = before.unitCode;
+    if (freedUnitCode) {
+      void (async () => {
+        try {
+          const siteId = before.siteId ?? 0;
+          const calonResult = await db.execute(
+            sql`SELECT id, pic_name, brand_name, phone, interested_unit
+                FROM tenant_draft_agreements
+                WHERE status IN ('pending', 'approved')
+                  AND booking_id IS NULL
+                  AND phone IS NOT NULL
+                  AND TRIM(phone) <> ''
+                  AND (${siteId} = 0 OR site_id = ${siteId} OR site_id = 0)
+                  AND (
+                    interested_unit IS NULL
+                    OR TRIM(interested_unit) = ''
+                    OR LOWER(interested_unit) = LOWER(${freedUnitCode})
+                  )
+                ORDER BY created_at ASC`
+          );
+          const calonList = (calonResult as { rows: Record<string, unknown>[] }).rows;
+          if (calonList.length === 0) return;
+
+          const blastCompanyName = await getSiteCompanyName(siteId).catch(() => undefined);
+          for (const calon of calonList) {
+            const phone = calon["phone"] as string;
+            const picName = (calon["brand_name"] as string | null) ?? (calon["pic_name"] as string | null) ?? undefined;
+            await new Promise((r) => setTimeout(r, 400));
+            await sendCalonTenantUnitAvailable(phone, picName, [freedUnitCode], blastCompanyName).catch(() => {});
+          }
+        } catch { /* abaikan error blast */ }
+      })();
     }
   } catch (err) {
     req.log.error(err, "Failed to terminate booking");
