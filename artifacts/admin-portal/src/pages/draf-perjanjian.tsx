@@ -1225,7 +1225,10 @@ export default function DrafPerjanjian() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ phone }),
       });
-      const body = await res.json() as { success?: boolean; error?: string; message?: string };
+      if (res.status === 401) throw new Error("Sesi telah berakhir, silakan login kembali");
+      const text = await res.text();
+      let body: { success?: boolean; error?: string; message?: string };
+      try { body = JSON.parse(text); } catch { throw new Error("Server tidak merespons dengan benar, coba beberapa saat lagi"); }
       if (!res.ok) throw new Error(body.error ?? `Error ${res.status}`);
       return body;
     },
