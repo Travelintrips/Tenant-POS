@@ -2371,49 +2371,68 @@ ALTER TABLE accounting_entry_lines ADD COLUMN IF NOT EXISTS description text;
 {
   name: "0057_accounting_double_entry_seed",
   sql: `
--- Pastikan kolom ada dulu (idempoten, aman dijalankan berulang)
-ALTER TABLE companies              ADD COLUMN IF NOT EXISTS company_name text;
-ALTER TABLE chart_of_accounts      ADD COLUMN IF NOT EXISTS account_type text NOT NULL DEFAULT 'other';
-ALTER TABLE chart_of_accounts      ADD COLUMN IF NOT EXISTS is_active boolean NOT NULL DEFAULT true;
-ALTER TABLE accounting_journals    ADD COLUMN IF NOT EXISTS type text NOT NULL DEFAULT 'cash';
-ALTER TABLE accounting_journals    ADD COLUMN IF NOT EXISTS default_debit_account_id integer;
-ALTER TABLE accounting_entries     ADD COLUMN IF NOT EXISTS ref text;
-ALTER TABLE accounting_entries     ADD COLUMN IF NOT EXISTS description text;
-ALTER TABLE accounting_entries     ADD COLUMN IF NOT EXISTS status text NOT NULL DEFAULT 'draft';
-ALTER TABLE accounting_entries     ADD COLUMN IF NOT EXISTS source text;
-ALTER TABLE accounting_entries     ADD COLUMN IF NOT EXISTS source_id integer;
-ALTER TABLE accounting_entries     ADD COLUMN IF NOT EXISTS total_debit numeric NOT NULL DEFAULT 0;
-ALTER TABLE accounting_entries     ADD COLUMN IF NOT EXISTS total_credit numeric NOT NULL DEFAULT 0;
-ALTER TABLE accounting_entries     ADD COLUMN IF NOT EXISTS company_id integer;
-ALTER TABLE accounting_entries     ADD COLUMN IF NOT EXISTS correlation_id text;
-ALTER TABLE accounting_entry_lines ADD COLUMN IF NOT EXISTS description text;
+-- Pastikan kolom opsional ada (idempoten, aman di semua versi DB)
+ALTER TABLE companies           ADD COLUMN IF NOT EXISTS company_name text;
+ALTER TABLE companies           ADD COLUMN IF NOT EXISTS code text NOT NULL DEFAULT '';
+ALTER TABLE accounting_journals ADD COLUMN IF NOT EXISTS default_debit_account_id integer;
+ALTER TABLE accounting_entries  ADD COLUMN IF NOT EXISTS correlation_id text;
 
--- Seed: default company CST
-INSERT INTO companies (code, name, company_name) VALUES
-  ('CST', 'Mall Admin', 'Mall Admin')
-ON CONFLICT (code) DO NOTHING;
+-- Seed company CST (gunakan kolom minimal yang pasti ada)
+INSERT INTO companies (code, name)
+SELECT 'CST', 'Mall Admin'
+WHERE NOT EXISTS (SELECT 1 FROM companies WHERE code = 'CST');
 
--- Seed: COA untuk company CST
-INSERT INTO chart_of_accounts (company_id, code, name, account_type)
-SELECT id, '1-1001', 'Kas dan Bank', 'kas' FROM companies WHERE code = 'CST'
-ON CONFLICT (company_id, code) DO NOTHING;
+-- COA seed: pakai DO $$ untuk deteksi skema lalu gunakan nilai enum yang valid
+-- DEV DB: type adalah enum(asset/liability/equity/revenue/expense)
+-- local DB: account_type adalah text bebas
+DO $$
+DECLARE
+  cst_id integer;
+  type_col_udt text;
+BEGIN
+  SELECT id INTO cst_id FROM companies WHERE code = 'CST' LIMIT 1;
+  IF cst_id IS NULL THEN RETURN; END IF;
 
-INSERT INTO chart_of_accounts (company_id, code, name, account_type)
-SELECT id, '4-1010-CST', 'Pendapatan Sewa Tenant', 'pendapatan' FROM companies WHERE code = 'CST'
-ON CONFLICT (company_id, code) DO NOTHING;
+  -- Cek apakah kolom type adalah enum atau text
+  SELECT udt_name INTO type_col_udt
+  FROM information_schema.columns
+  WHERE table_schema = 'public'
+    AND table_name = 'chart_of_accounts'
+    AND column_name = 'type'
+  LIMIT 1;
 
--- Seed: accounting journals kas dan bank untuk CST
-INSERT INTO accounting_journals (company_id, code, name, type, default_debit_account_id)
-SELECT c.id, 'CSH-CST', 'Jurnal Kas CST', 'cash',
-  (SELECT coa.id FROM chart_of_accounts coa WHERE coa.company_id = c.id AND coa.code = '1-1001')
-FROM companies c WHERE c.code = 'CST'
-ON CONFLICT (code) DO NOTHING;
+  IF type_col_udt IS NOT NULL THEN
+    -- DB DEV: kolom 'type' dengan enum, gunakan 'asset' dan 'revenue'
+    INSERT INTO chart_of_accounts (company_id, code, name, type)
+    VALUES (cst_id, '1-1001', 'Kas dan Bank', 'asset'::account_type)
+    ON CONFLICT (company_id, code) DO NOTHING;
 
-INSERT INTO accounting_journals (company_id, code, name, type, default_debit_account_id)
-SELECT c.id, 'BNK-CST', 'Jurnal Bank CST', 'bank',
-  (SELECT coa.id FROM chart_of_accounts coa WHERE coa.company_id = c.id AND coa.code = '1-1001')
-FROM companies c WHERE c.code = 'CST'
-ON CONFLICT (code) DO NOTHING;
+    INSERT INTO chart_of_accounts (company_id, code, name, type)
+    VALUES (cst_id, '4-1010-CST', 'Pendapatan Sewa Tenant', 'revenue'::account_type)
+    ON CONFLICT (company_id, code) DO NOTHING;
+  ELSE
+    -- local DB: kolom 'account_type' text bebas
+    INSERT INTO chart_of_accounts (company_id, code, name, account_type)
+    VALUES (cst_id, '1-1001', 'Kas dan Bank', 'kas')
+    ON CONFLICT (company_id, code) DO NOTHING;
+
+    INSERT INTO chart_of_accounts (company_id, code, name, account_type)
+    VALUES (cst_id, '4-1010-CST', 'Pendapatan Sewa Tenant', 'pendapatan')
+    ON CONFLICT (company_id, code) DO NOTHING;
+  END IF;
+
+  -- Seed journals (idempoten — skip jika sudah ada)
+  INSERT INTO accounting_journals (company_id, code, name, type, default_debit_account_id)
+  SELECT cst_id, 'CSH-CST', 'Jurnal Kas CST', 'cash',
+    (SELECT id FROM chart_of_accounts WHERE company_id = cst_id AND code = '1-1001')
+  WHERE NOT EXISTS (SELECT 1 FROM accounting_journals WHERE code = 'CSH-CST');
+
+  INSERT INTO accounting_journals (company_id, code, name, type, default_debit_account_id)
+  SELECT cst_id, 'BNK-CST', 'Jurnal Bank CST', 'bank',
+    (SELECT id FROM chart_of_accounts WHERE company_id = cst_id AND code = '1-1001')
+  WHERE NOT EXISTS (SELECT 1 FROM accounting_journals WHERE code = 'BNK-CST');
+END
+$$;
   `.trim(),
 },
 {
