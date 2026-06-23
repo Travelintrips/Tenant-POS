@@ -330,6 +330,9 @@ function UnitPickerRow({
   availableUnits: MallUnitInfo[];
   loadingUnits: boolean;
 }) {
+  // Cek apakah unitCode saat ini ada di daftar available units
+  const selectedFromDropdown = availableUnits.some((u) => u.unitCode === unitCode);
+
   function handleSelect(val: string) {
     const unit = availableUnits.find((u) => u.unitCode === val);
     if (!unit) return;
@@ -338,6 +341,11 @@ function UnitPickerRow({
     if (onRentAmount && unit.defaultRentAmount) {
       onRentAmount(String(unit.defaultRentAmount));
     }
+  }
+
+  function handleClear() {
+    onUnitCode("");
+    onAreaName("");
   }
 
   const placeholder = loadingUnits
@@ -358,6 +366,7 @@ function UnitPickerRow({
           )}
         </Label>
         <Select
+          value={selectedFromDropdown ? unitCode : ""}
           onValueChange={handleSelect}
           disabled={loadingUnits || availableUnits.length === 0}
         >
@@ -380,26 +389,42 @@ function UnitPickerRow({
             ))}
           </SelectContent>
         </Select>
-        <p className="text-xs text-muted-foreground">
-          Memilih unit akan otomatis mengisi Kode Unit dan Nama Area di bawah.
-        </p>
       </div>
-      <div className="space-y-1.5">
-        <Label>Kode Unit</Label>
-        <Input
-          placeholder="misal: SC-01"
-          value={unitCode}
-          onChange={(e) => onUnitCode(e.target.value)}
-        />
-      </div>
-      <div className="space-y-1.5">
-        <Label>Nama Area/Lokasi</Label>
-        <Input
-          placeholder="misal: Sport Center Lantai 1"
-          value={areaName}
-          onChange={(e) => onAreaName(e.target.value)}
-        />
-      </div>
+
+      {/* Jika unit dipilih dari dropdown → tampilkan ringkasan, bukan input manual */}
+      {selectedFromDropdown ? (
+        <div className="col-span-2 flex items-center gap-2 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm">
+          <CheckCheck className="h-4 w-4 text-emerald-600 shrink-0" />
+          <span className="text-emerald-800 font-medium">{unitCode}</span>
+          {areaName && <span className="text-emerald-700">· {areaName}</span>}
+          <button
+            type="button"
+            onClick={handleClear}
+            className="ml-auto text-xs text-muted-foreground underline hover:text-destructive"
+          >
+            Hapus pilihan
+          </button>
+        </div>
+      ) : (
+        <>
+          <div className="space-y-1.5">
+            <Label>Kode Unit</Label>
+            <Input
+              placeholder="misal: SC-01"
+              value={unitCode}
+              onChange={(e) => onUnitCode(e.target.value)}
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label>Nama Area/Lokasi</Label>
+            <Input
+              placeholder="misal: Sport Center Lantai 1"
+              value={areaName}
+              onChange={(e) => onAreaName(e.target.value)}
+            />
+          </div>
+        </>
+      )}
     </>
   );
 }
