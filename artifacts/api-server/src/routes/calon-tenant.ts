@@ -488,14 +488,17 @@ router.post(
       });
       const body = await r.json().catch(() => ({})) as Record<string, unknown>;
 
-      console.log("[kirim-link-wa] Fonnte response:", JSON.stringify(body));
+      const fonnteLog = `Fonnte: ${JSON.stringify(body)}`;
+      console.log("[kirim-link-wa] Fonnte response:", fonnteLog);
 
       const statusFailed = body["status"] === false || body["status"] === "false";
       const processFailed = body["process"] === false || body["process"] === "false";
       if (!r.ok || statusFailed || processFailed) {
-        errorMessage = String(body["reason"] ?? body["detail"] ?? body["message"] ?? "Gagal mengirim WA");
+        errorMessage = `${String(body["reason"] ?? body["detail"] ?? body["message"] ?? "Gagal mengirim WA")} | ${fonnteLog}`;
         console.error("[kirim-link-wa] Fonnte error:", errorMessage);
       } else {
+        // Simpan detail respon Fonnte meski sukses (untuk debug)
+        errorMessage = fonnteLog;
         status = "success";
       }
     } catch (err) {
@@ -717,13 +720,17 @@ router.get(
   requireAnyRole("admin", "owner"),
   async (req: Request, res: Response) => {
     try {
-      const result = await db.execute(sql`
-        SELECT id, phone_number, sent_at, status, sent_by, error_message
-        FROM registration_link_wa_log
-        WHERE site_id = ${req.siteId} OR site_id IS NULL
-        ORDER BY sent_at DESC
-        LIMIT 30
-      `);
+      const sid = req.siteId && req.siteId > 0 ? req.siteId : null;
+      const result = sid
+        ? await db.execute(sql`
+            SELECT id, phone_number, sent_at, status, sent_by, error_message
+            FROM registration_link_wa_log
+            WHERE site_id = ${sid} OR site_id IS NULL
+            ORDER BY sent_at DESC LIMIT 30`)
+        : await db.execute(sql`
+            SELECT id, phone_number, sent_at, status, sent_by, error_message
+            FROM registration_link_wa_log
+            ORDER BY sent_at DESC LIMIT 30`);
       const rows = (result as { rows: Record<string, unknown>[] }).rows.map((r) => {
         const out: Record<string, unknown> = {};
         for (const [k, v] of Object.entries(r)) {
