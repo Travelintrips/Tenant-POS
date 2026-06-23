@@ -2281,4 +2281,90 @@ SELECT setval(
   COALESCE((SELECT MAX(id) FROM tenant_receipts), 1)
 );
   `.trim(),
+},
+{
+  name: "0057_accounting_double_entry_tables",
+  sql: `
+-- companies: lookup company dari mall_sites.company_name
+CREATE TABLE IF NOT EXISTS companies (
+  id serial PRIMARY KEY NOT NULL,
+  code text NOT NULL UNIQUE,
+  name text NOT NULL,
+  company_name text,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
+-- chart_of_accounts: COA per company
+CREATE TABLE IF NOT EXISTS chart_of_accounts (
+  id serial PRIMARY KEY NOT NULL,
+  company_id integer NOT NULL REFERENCES companies(id),
+  code text NOT NULL,
+  name text NOT NULL,
+  account_type text NOT NULL DEFAULT 'other',
+  is_active boolean NOT NULL DEFAULT true,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (company_id, code)
+);
+
+-- accounting_journals: kas/bank journal per company
+CREATE TABLE IF NOT EXISTS accounting_journals (
+  id serial PRIMARY KEY NOT NULL,
+  company_id integer NOT NULL REFERENCES companies(id),
+  code text NOT NULL UNIQUE,
+  name text NOT NULL,
+  type text NOT NULL DEFAULT 'cash',
+  default_debit_account_id integer REFERENCES chart_of_accounts(id),
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
+-- accounting_entries: header double-entry
+CREATE TABLE IF NOT EXISTS accounting_entries (
+  id serial PRIMARY KEY NOT NULL,
+  entry_number text NOT NULL UNIQUE,
+  journal_id integer NOT NULL REFERENCES accounting_journals(id),
+  date date NOT NULL,
+  ref text,
+  description text,
+  status text NOT NULL DEFAULT 'draft',
+  source text,
+  source_id integer,
+  total_debit numeric NOT NULL DEFAULT 0,
+  total_credit numeric NOT NULL DEFAULT 0,
+  company_id integer REFERENCES companies(id),
+  correlation_id text UNIQUE,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS ae_journal_id_idx     ON accounting_entries(journal_id);
+CREATE INDEX IF NOT EXISTS ae_date_idx           ON accounting_entries(date DESC);
+CREATE INDEX IF NOT EXISTS ae_correlation_id_idx ON accounting_entries(correlation_id);
+
+-- accounting_entry_lines: debit/credit lines
+CREATE TABLE IF NOT EXISTS accounting_entry_lines (
+  id serial PRIMARY KEY NOT NULL,
+  entry_id integer NOT NULL REFERENCES accounting_entries(id) ON DELETE CASCADE,
+  account_id integer REFERENCES chart_of_accounts(id),
+  description text,
+  debit numeric NOT NULL DEFAULT 0,
+  credit numeric NOT NULL DEFAULT 0,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS ael_entry_id_idx ON accounting_entry_lines(entry_id);
+
+-- Seed: default company CST
+INSERT INTO companies (code, name, company_name) VALUES
+  ('CST', 'Mall Admin', 'Mall Admin')
+ON CONFLICT (code) DO NOTHING;
+
+-- Seed: COA untuk company CST
+INSERT INTO chart_of_accounts (company_id, code, name, account_type) VALUES
+  (1, '1-1001', 'Kas dan Bank',     'kas'),
+  (1, '4-1010-CST', 'Pendapatan Sewa Tenant', 'pendapatan')
+ON CONFLICT (company_id, code) DO NOTHING;
+
+-- Seed: accounting journals kas dan bank untuk CST
+INSERT INTO accounting_journals (company_id, code, name, type, default_debit_account_id) VALUES
+  (1, 'CSH-CST', 'Jurnal Kas CST',  'cash', (SELECT id FROM chart_of_accounts WHERE company_id=1 AND code='1-1001')),
+  (1, 'BNK-CST', 'Jurnal Bank CST', 'bank', (SELECT id FROM chart_of_accounts WHERE company_id=1 AND code='1-1001'))
+ON CONFLICT (code) DO NOTHING;
+  `.trim(),
 });
