@@ -2625,4 +2625,13 @@ BEGIN
   END IF;
 END $$;
   `.trim(),
+},
+{
+  name: "0050_fill_missing_payment_tokens",
+  sql: `
+UPDATE "tenant_invoices"
+SET payment_token = substr(md5(random()::text || clock_timestamp()::text || id::text), 1, 12)
+WHERE payment_token IS NULL
+  AND status NOT IN ('cancelled', 'draft');
+  `.trim(),
 });

@@ -2,6 +2,7 @@ import { Router, type IRouter } from "express";
 import { db } from "@workspace/db";
 import { tenantInvoicesTable, tenantsTable, tenantBookingsTable, waLogsTable } from "@workspace/db/schema";
 import { eq, and, inArray, desc, sql } from "drizzle-orm";
+import crypto from "node:crypto";
 import { requireAnyRole, requireAuth } from "../middlewares/auth";
 import { getBaseUrl } from "../lib/app-url";
 import {
@@ -117,8 +118,19 @@ router.post("/whatsapp/invoice/:id/send", async (req, res) => {
       : "-";
 
     const _baseUrl = await getBaseUrl();
-    const paymentLink = invoice.paymentToken && _baseUrl
-      ? `${_baseUrl}/bayar/${invoice.paymentToken}`
+
+    // Jika invoice belum punya paymentToken, generate dan simpan sekarang
+    let paymentToken = invoice.paymentToken;
+    if (!paymentToken && _baseUrl) {
+      paymentToken = crypto.randomBytes(6).toString("hex"); // 12 hex chars
+      await db
+        .update(tenantInvoicesTable)
+        .set({ paymentToken })
+        .where(eq(tenantInvoicesTable.id, id));
+    }
+
+    const paymentLink = paymentToken && _baseUrl
+      ? `${_baseUrl}/bayar/${paymentToken}`
       : undefined;
 
     const companyName = await getSiteCompanyName(req.siteId);
@@ -376,8 +388,18 @@ router.post("/whatsapp/blast-link-unpaid", async (req, res) => {
         ? new Date(invoice.dueDate).toLocaleDateString("id-ID", { day: "numeric", month: "long", year: "numeric" })
         : "-";
 
-      const paymentLink = invoice.paymentToken && appDomain
-        ? `${appDomain}/bayar/${invoice.paymentToken}`
+      // Jika invoice belum punya paymentToken, generate dan simpan sekarang
+      let invoicePaymentToken = invoice.paymentToken;
+      if (!invoicePaymentToken && appDomain) {
+        invoicePaymentToken = crypto.randomBytes(6).toString("hex");
+        await db
+          .update(tenantInvoicesTable)
+          .set({ paymentToken: invoicePaymentToken })
+          .where(eq(tenantInvoicesTable.id, invoice.id));
+      }
+
+      const paymentLink = invoicePaymentToken && appDomain
+        ? `${appDomain}/bayar/${invoicePaymentToken}`
         : undefined;
 
       const linkCompanyName = await getSiteCompanyName(siteId);

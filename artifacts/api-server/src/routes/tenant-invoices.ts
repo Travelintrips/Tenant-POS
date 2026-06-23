@@ -156,6 +156,7 @@ const invoiceSelect = {
   outstandingAmount: tenantInvoicesTable.outstandingAmount,
   status: tenantInvoicesTable.status,
   notes: tenantInvoicesTable.notes,
+  paymentToken: tenantInvoicesTable.paymentToken,
   createdAt: tenantInvoicesTable.createdAt,
   updatedAt: tenantInvoicesTable.updatedAt,
   tenantName: tenantsTable.businessName,
@@ -895,8 +896,9 @@ router.post("/tenant-invoices/generate-from-booking/:bookingId", async (req, res
 
         const companyName = await getSiteCompanyName(req.siteId > 0 ? req.siteId : null).catch(() => undefined);
         const baseUrl = await getBaseUrl().catch(() => undefined);
-        const paymentLink = baseUrl
-          ? `${baseUrl}/bayar/${(withTenant as unknown as Record<string, unknown>)?.token ?? ""}`
+        const paymentToken = (withTenant as unknown as Record<string, unknown>)?.paymentToken as string | null | undefined;
+        const paymentLink = baseUrl && paymentToken
+          ? `${baseUrl}/bayar/${paymentToken}`
           : undefined;
 
         // Format periode label: "Januari 2026"
