@@ -8,6 +8,7 @@ import { LedgerError, recordPayment } from "../lib/payment-ledger";
 import { cashierShiftsTable } from "@workspace/db/schema";
 import { postPosPaymentJournal } from "../lib/pos-journal";
 import { writePaymentEvent, normalizePaymentMethod } from "../lib/payment-events";
+import { postTenantPaymentAccountingEntry } from "../lib/accounting-entry";
 
 const router: IRouter = Router();
 
@@ -160,7 +161,20 @@ router.post("/payments", async (req, res) => {
           sourceModule: "invoice_payment",
         });
 
-        // 3. Finance payment event (idempotent)
+        // 3. Accounting entry (accounting_entries + accounting_entry_lines)
+        await postTenantPaymentAccountingEntry({
+          paymentId: result.ledgerEntryId,
+          siteId: inv?.siteId ?? null,
+          invoiceNumber: inv?.invoiceNumber ?? null,
+          businessName: tenantRow?.businessName ?? null,
+          amountPaid: amount,
+          paymentMethod,
+          transactionDate: paidAt ? new Date(paidAt) : new Date(),
+          receiptNumber: result.receiptNumber,
+          sourceModule: "tenant_rent_payment",
+        });
+
+        // 4. Finance payment event (idempotent)
         await writePaymentEvent({
           sourceApp: "tenant_management",
           ownerApp: "tenant_management",
