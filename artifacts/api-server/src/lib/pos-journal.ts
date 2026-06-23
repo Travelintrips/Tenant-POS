@@ -20,6 +20,12 @@ export interface PostPosJournalOptions {
   kasirName?: string | null;
   siteId?: number | null;
   receiptNumber: string;
+  /** Override prefix journalId, default "POS" */
+  journalPrefix?: string;
+  /** Override sourceApp, default "tenant_pos" */
+  sourceApp?: string;
+  /** Override sourceModule, default "pos_payment" */
+  sourceModule?: string;
 }
 
 export interface PostPosJournalResult {
@@ -32,8 +38,9 @@ export interface PostPosJournalResult {
 export async function postPosPaymentJournal(
   opts: PostPosJournalOptions,
 ): Promise<PostPosJournalResult> {
+  const prefix = opts.journalPrefix ?? "POS";
   const datePart = opts.transactionDate.toISOString().slice(0, 10).replace(/-/g, "");
-  const journalId = `POS-${datePart}-${opts.paymentId}`;
+  const journalId = `${prefix}-${datePart}-${opts.paymentId}`;
 
   const [existing] = await db
     .select({ id: bankJournalEntriesTable.id })
@@ -50,7 +57,7 @@ export async function postPosPaymentJournal(
 
   const transactionDateStr = opts.transactionDate.toISOString().slice(0, 10);
   const description =
-    `POS Payment — ${opts.businessName ?? `Tenant #${opts.tenantId}`}` +
+    `${prefix} Payment — ${opts.businessName ?? `Tenant #${opts.tenantId}`}` +
     (opts.invoiceNumber ? ` — ${opts.invoiceNumber}` : "") +
     ` — ${opts.receiptNumber}`;
 
@@ -58,8 +65,8 @@ export async function postPosPaymentJournal(
     journalId,
     mutationId: null,
     ownerApp: "tenant_management",
-    sourceApp: "tenant_pos",
-    sourceModule: "pos_payment",
+    sourceApp: opts.sourceApp ?? "tenant_pos",
+    sourceModule: opts.sourceModule ?? "pos_payment",
     transactionDate: transactionDateStr,
     description,
     debitAccountId: COA_KAS.id,

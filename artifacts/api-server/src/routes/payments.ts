@@ -6,6 +6,8 @@ import { z } from "zod";
 import { logAudit } from "../lib/audit";
 import { LedgerError, recordPayment } from "../lib/payment-ledger";
 import { cashierShiftsTable } from "@workspace/db/schema";
+import { postPosPaymentJournal } from "../lib/pos-journal";
+import { writePaymentEvent, normalizePaymentMethod } from "../lib/payment-events";
 
 const router: IRouter = Router();
 
@@ -101,7 +103,7 @@ router.post("/payments", async (req, res) => {
       },
     });
 
-    // Generate receipt entry — fire-and-forget (non-blocking)
+    // Generate receipt + accounting journal + payment event — fire-and-forget
     void (async () => {
       try {
         const [inv] = await db
@@ -121,6 +123,7 @@ router.post("/payments", async (req, res) => {
               .then((r) => r[0])
           : null;
 
+        // 1. Receipt entry
         await db.insert(paymentReceiptsTable).values({
           paymentId: result.ledgerEntryId,
           invoiceId,
@@ -138,8 +141,43 @@ router.post("/payments", async (req, res) => {
           kasirName: req.user?.name ?? "Admin",
           waStatus: "skipped",
         }).onConflictDoNothing();
-      } catch {
-        // Non-critical
+
+        // 2. Accounting journal entry (idempotent via journalId PAY-YYYYMMDD-paymentId)
+        await postPosPaymentJournal({
+          paymentId: result.ledgerEntryId,
+          tenantId: inv?.tenantId ?? 0,
+          invoiceId,
+          invoiceNumber: inv?.invoiceNumber ?? null,
+          businessName: tenantRow?.businessName ?? null,
+          amountPaid: amount,
+          paymentMethod,
+          transactionDate: paidAt ? new Date(paidAt) : new Date(),
+          kasirName: req.user?.name ?? "Admin",
+          siteId: inv?.siteId ?? null,
+          receiptNumber: result.receiptNumber,
+          journalPrefix: "PAY",
+          sourceApp: "tenant_management",
+          sourceModule: "invoice_payment",
+        });
+
+        // 3. Finance payment event (idempotent)
+        await writePaymentEvent({
+          sourceApp: "tenant_management",
+          ownerApp: "tenant_management",
+          sourceModule: "invoice_payment",
+          sourceTable: "tenant_payments",
+          sourceId: result.ledgerEntryId,
+          tenantId: inv?.tenantId ?? null,
+          siteId: inv?.siteId ?? null,
+          invoiceId,
+          amount,
+          direction: "IN",
+          paymentMethod: normalizePaymentMethod(paymentMethod),
+          paymentReference: referenceId ?? null,
+          paymentStatus: "confirmed",
+        });
+      } catch (err) {
+        console.error("[POST /payments] post-commit side-effects gagal:", err);
       }
     })();
 

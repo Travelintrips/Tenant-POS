@@ -14,6 +14,7 @@ import { sendPaymentApproved, sendPaymentRejected } from "../lib/whatsapp";
 import { logAudit } from "../lib/audit";
 import { writePaymentEvent, normalizePaymentMethod } from "../lib/payment-events";
 import { approveExistingPayment, LedgerError } from "../lib/payment-ledger";
+import { postPosPaymentJournal } from "../lib/pos-journal";
 
 const router: IRouter = Router();
 
@@ -191,8 +192,26 @@ router.post("/pending-payments/:id/approve", async (req, res) => {
           kasirName: req.user?.name ?? "Admin",
           waStatus: "skipped",
         }).onConflictDoNothing();
-      } catch {
-        // Non-critical — pembayaran sudah berhasil
+
+        // Accounting journal entry (idempotent via journalId OCR-YYYYMMDD-paymentId)
+        await postPosPaymentJournal({
+          paymentId: p.id,
+          tenantId: p.tenantId ?? 0,
+          invoiceId: inv.id,
+          invoiceNumber: inv.invoiceNumber ?? null,
+          businessName: tenantRow?.businessName ?? null,
+          amountPaid: parseFloat(String(p.amount)),
+          paymentMethod: p.paymentMethod ?? "transfer",
+          transactionDate: p.paidAt ?? new Date(),
+          kasirName: req.user?.name ?? "Admin",
+          siteId: p.siteId ?? null,
+          receiptNumber: p.receiptNumber ?? `RCT-${p.id}`,
+          journalPrefix: "OCR",
+          sourceApp: "tenant_management",
+          sourceModule: "ocr_payment_approval",
+        });
+      } catch (err) {
+        console.error("[approve_payment] post-commit side-effects gagal:", err);
       }
     })();
 
