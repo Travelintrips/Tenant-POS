@@ -9,12 +9,12 @@ function resolveDbUrl(): string {
       (() => { throw new Error("SUPABASE_PG_URL_PROD harus diset di production"); })()
     );
   }
-  // Development (Replit): pakai SUPABASE_PG_URL (project Supabase dev)
+  // Development (Replit): pakai SUPABASE_PG_URL_DEV (project Supabase dev = xssrfshdrtdfupgqwfdw)
   // fallback ke local postgres jika belum diset
   return (
-    process.env["SUPABASE_PG_URL"] ??
+    process.env["SUPABASE_PG_URL_DEV"] ??
     process.env["DATABASE_URL"] ??
-    (() => { throw new Error("SUPABASE_PG_URL atau DATABASE_URL harus diset"); })()
+    (() => { throw new Error("SUPABASE_PG_URL_DEV atau DATABASE_URL harus diset"); })()
   );
 }
 
