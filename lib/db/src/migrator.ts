@@ -2503,20 +2503,20 @@ BEGIN
   END IF;
 END $$;
 
--- Upsert journals
+-- Upsert journals (pakai WHERE NOT EXISTS agar kompatibel dengan semua DB)
 INSERT INTO accounting_journals (company_id, code, name, type, default_debit_account_id)
 SELECT
   c.id, 'CSH-CST', 'Jurnal Kas CST', 'cash',
   (SELECT coa.id FROM chart_of_accounts coa WHERE coa.company_id=c.id AND coa.code='1-1001')
 FROM companies c WHERE c.code='CST'
-ON CONFLICT (code) DO NOTHING;
+AND NOT EXISTS (SELECT 1 FROM accounting_journals WHERE code = 'CSH-CST');
 
 INSERT INTO accounting_journals (company_id, code, name, type, default_debit_account_id)
 SELECT
   c.id, 'BNK-CST', 'Jurnal Bank CST', 'bank',
   (SELECT coa.id FROM chart_of_accounts coa WHERE coa.company_id=c.id AND coa.code='1-1001')
 FROM companies c WHERE c.code='CST'
-ON CONFLICT (code) DO NOTHING;
+AND NOT EXISTS (SELECT 1 FROM accounting_journals WHERE code = 'BNK-CST');
   `.trim(),
 },
 {
@@ -2562,45 +2562,24 @@ BEGIN
   END LOOP;
 END $$;
 
--- Seed journals menggunakan DO block agar tidak gagal saat parse
--- (kolom bisa 'type' atau 'journal_type' tergantung DB)
+-- Seed journals per company (selalu pakai kolom 'type', bukan journal_type)
 DO $$
 DECLARE
-  has_journal_type boolean;
   c_rec record;
   coa_id integer;
 BEGIN
-  SELECT EXISTS (
-    SELECT 1 FROM information_schema.columns
-    WHERE table_name = 'accounting_journals' AND column_name = 'journal_type'
-  ) INTO has_journal_type;
-
   FOR c_rec IN SELECT id, code FROM companies LOOP
     SELECT id INTO coa_id FROM chart_of_accounts
     WHERE company_id = c_rec.id AND code = '1-1001';
 
-    IF has_journal_type THEN
-      EXECUTE format(
-        'INSERT INTO accounting_journals (company_id, code, name, journal_type, default_debit_account_id)
-         VALUES (%L, %L, %L, %L, %L) ON CONFLICT DO NOTHING',
-        c_rec.id, 'CSH-' || c_rec.code, 'Jurnal Kas ' || c_rec.code, 'cash', coa_id
-      );
-      EXECUTE format(
-        'INSERT INTO accounting_journals (company_id, code, name, journal_type, default_debit_account_id)
-         VALUES (%L, %L, %L, %L, %L) ON CONFLICT DO NOTHING',
-        c_rec.id, 'BNK-' || c_rec.code, 'Jurnal Bank ' || c_rec.code, 'bank', coa_id
-      );
-    ELSE
-      EXECUTE format(
-        'INSERT INTO accounting_journals (company_id, code, name, type, default_debit_account_id)
-         VALUES (%L, %L, %L, %L, %L) ON CONFLICT DO NOTHING',
-        c_rec.id, 'CSH-' || c_rec.code, 'Jurnal Kas ' || c_rec.code, 'cash', coa_id
-      );
-      EXECUTE format(
-        'INSERT INTO accounting_journals (company_id, code, name, type, default_debit_account_id)
-         VALUES (%L, %L, %L, %L, %L) ON CONFLICT DO NOTHING',
-        c_rec.id, 'BNK-' || c_rec.code, 'Jurnal Bank ' || c_rec.code, 'bank', coa_id
-      );
+    IF NOT EXISTS (SELECT 1 FROM accounting_journals WHERE code = 'CSH-' || c_rec.code) THEN
+      INSERT INTO accounting_journals (company_id, code, name, type, default_debit_account_id)
+      VALUES (c_rec.id, 'CSH-' || c_rec.code, 'Jurnal Kas ' || c_rec.code, 'cash', coa_id);
+    END IF;
+
+    IF NOT EXISTS (SELECT 1 FROM accounting_journals WHERE code = 'BNK-' || c_rec.code) THEN
+      INSERT INTO accounting_journals (company_id, code, name, type, default_debit_account_id)
+      VALUES (c_rec.id, 'BNK-' || c_rec.code, 'Jurnal Bank ' || c_rec.code, 'bank', coa_id);
     END IF;
   END LOOP;
 END $$;
@@ -2615,9 +2594,35 @@ ALTER TABLE system_settings ADD COLUMN IF NOT EXISTS value jsonb;
 -- Pastikan kolom updated_at ada
 ALTER TABLE system_settings ADD COLUMN IF NOT EXISTS updated_at timestamptz NOT NULL DEFAULT now();
 
+-- Tambahkan kolom key jika belum ada (kompatibilitas Supabase yang punya schema berbeda)
+ALTER TABLE system_settings ADD COLUMN IF NOT EXISTS key text;
+
+-- Update key constraint: buat UNIQUE jika belum ada
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.table_constraints
+    WHERE table_name = 'system_settings' AND constraint_type = 'UNIQUE'
+    AND constraint_name LIKE '%key%'
+  ) THEN
+    ALTER TABLE system_settings ADD CONSTRAINT system_settings_key_unique UNIQUE (key);
+  END IF;
+EXCEPTION WHEN others THEN
+  NULL; -- abaikan jika constraint sudah ada dengan nama berbeda
+END $$;
+
 -- Upsert config default jika belum ada
-INSERT INTO system_settings (key, value)
-VALUES ('mall_config', '{"mallName":"Mall Admin","tagline":"Manajemen Tenant Mall","address":"","phone":"","email":"","invoicePrefix":"INV-TENANT","taxRate":0,"currency":"IDR","logoUrl":""}')
-ON CONFLICT (key) DO NOTHING;
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'system_settings' AND column_name = 'key'
+  ) THEN
+    IF NOT EXISTS (SELECT 1 FROM system_settings WHERE key = 'mall_config') THEN
+      INSERT INTO system_settings (key, value)
+      VALUES ('mall_config', '{"mallName":"Mall Admin","tagline":"Manajemen Tenant Mall","address":"","phone":"","email":"","invoicePrefix":"INV-TENANT","taxRate":0,"currency":"IDR","logoUrl":""}');
+    END IF;
+  END IF;
+END $$;
   `.trim(),
 });
