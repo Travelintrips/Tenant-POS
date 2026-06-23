@@ -9,6 +9,7 @@ import { sendCalonTenantApproved, sendCalonTenantRejected, sendCalonTenantRemind
 import { logAudit } from "../lib/audit";
 import { blastSessionLogsTable } from "@workspace/db/schema";
 import { createAllInvoicesForBooking } from "../lib/auto-invoice";
+import { getBaseUrl } from "../lib/app-url";
 
 const router: IRouter = Router();
 
@@ -446,6 +447,18 @@ router.post(
   }
 );
 
+// ── GET /api/calon-tenant/registration-url ────────────────────────────────────
+router.get(
+  "/calon-tenant/registration-url",
+  requireAuth,
+  requireAnyRole("admin", "owner"),
+  async (_req: Request, res: Response) => {
+    const baseUrl = await getBaseUrl().catch(() => undefined);
+    const url = baseUrl ? `${baseUrl}/tenant/register` : null;
+    res.json({ url });
+  }
+);
+
 // ── POST /api/calon-tenant/kirim-link-wa ──────────────────────────────────────
 router.post(
   "/calon-tenant/kirim-link-wa",
@@ -477,7 +490,9 @@ router.post(
     let errorMessage: string | null = null;
 
     try {
-      const appUrl = process.env["APP_URL"] ?? `${req.protocol}://${req.get("host")}`;
+      const appUrl = await getBaseUrl().catch(() => undefined)
+        ?? process.env["APP_URL"]
+        ?? `${req.protocol}://${req.get("host")}`;
       const registerUrl = `${appUrl}/tenant/register`;
       const message = `🏢 *Pendaftaran Calon Tenant*\n\nHalo,\n\nAnda diundang untuk mengisi formulir pendaftaran calon tenant melalui link berikut:\n\n${registerUrl}\n\nSilakan isi data dengan lengkap. Terima kasih.`;
 

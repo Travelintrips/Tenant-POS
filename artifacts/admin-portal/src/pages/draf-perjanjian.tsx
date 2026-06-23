@@ -1485,6 +1485,12 @@ export default function DrafPerjanjian() {
     staleTime: 30_000,
   });
 
+  const { data: registrationUrlData } = useQuery<{ url: string | null }>({
+    queryKey: ["registration-url"],
+    queryFn: () => apiFetchJson<{ url: string | null }>("/api/calon-tenant/registration-url"),
+    staleTime: 60_000,
+  });
+
   const blastHistoryQuery = useQuery<BlastSessionLog[]>({
     queryKey: ["blast-session-logs"],
     queryFn: async () => {
@@ -1671,7 +1677,7 @@ export default function DrafPerjanjian() {
 
       {/* Link Pendaftaran Mandiri */}
       {(() => {
-        const registerUrl = `${window.location.origin}/tenant/register`;
+        const registerUrl = registrationUrlData?.url ?? null;
         return (
           <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 space-y-2">
             <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
@@ -1681,24 +1687,28 @@ export default function DrafPerjanjian() {
               </div>
               <div className="flex-1 flex items-center gap-2 min-w-0">
                 <code className="text-xs bg-white border border-blue-200 rounded px-2 py-1 text-blue-800 truncate flex-1 block">
-                  {registerUrl}
+                  {registerUrl ?? <span className="text-gray-400 italic">Konfigurasi APP_URL di Secrets untuk menampilkan link</span>}
                 </code>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="shrink-0 h-7 px-2 border-blue-300 text-blue-700 hover:bg-blue-100"
-                  onClick={() => {
-                    navigator.clipboard.writeText(registerUrl);
-                    toast({ title: "Link disalin!", description: "Bagikan link ini kepada calon tenant untuk mendaftar sendiri." });
-                  }}
-                >
-                  <Copy className="h-3.5 w-3.5" />
-                </Button>
-                <a href={registerUrl} target="_blank" rel="noopener noreferrer">
-                  <Button variant="outline" size="sm" className="shrink-0 h-7 px-2 border-blue-300 text-blue-700 hover:bg-blue-100">
-                    <ExternalLink className="h-3.5 w-3.5" />
-                  </Button>
-                </a>
+                {registerUrl && (
+                  <>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="shrink-0 h-7 px-2 border-blue-300 text-blue-700 hover:bg-blue-100"
+                      onClick={() => {
+                        navigator.clipboard.writeText(registerUrl);
+                        toast({ title: "Link disalin!", description: "Bagikan link ini kepada calon tenant untuk mendaftar sendiri." });
+                      }}
+                    >
+                      <Copy className="h-3.5 w-3.5" />
+                    </Button>
+                    <a href={registerUrl} target="_blank" rel="noopener noreferrer">
+                      <Button variant="outline" size="sm" className="shrink-0 h-7 px-2 border-blue-300 text-blue-700 hover:bg-blue-100">
+                        <ExternalLink className="h-3.5 w-3.5" />
+                      </Button>
+                    </a>
+                  </>
+                )}
               </div>
             </div>
             {/* Kirim WA langsung */}
