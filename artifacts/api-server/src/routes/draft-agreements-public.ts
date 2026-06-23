@@ -3,7 +3,7 @@ import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
 import { z } from "zod";
 import { getBaseUrl } from "../lib/app-url";
-import { createInitialInvoiceForBooking } from "../lib/auto-invoice";
+import { createAllInvoicesForBooking } from "../lib/auto-invoice";
 
 const router: IRouter = Router();
 
@@ -291,14 +291,15 @@ router.post("/dokumen/:token/setuju", async (req: Request, res: Response) => {
           WHERE token = ${token}
         `);
 
-        // Auto-buat invoice pertama (fire-and-forget)
-        void createInitialInvoiceForBooking({
+        // Auto-buat invoice seluruh periode (fire-and-forget)
+        void createAllInvoicesForBooking({
           bookingId,
           siteId,
           tenantId,
           unitCode,
           rentAmount: Number(rentAmount),
-          billingCycle: "monthly",
+          startDate,
+          durationMonths,
         }).catch((err) => console.error("[draft-public] Auto-invoice error:", err));
 
         console.log(`[draft-public] Auto-booking created: bookingId=${bookingId} tenantId=${tenantId} for draft token=${token}`);

@@ -1,6 +1,6 @@
 /**
- * Helper: auto-buat invoice pertama setelah booking dibuat dari persetujuan draf perjanjian.
- * Dipanggil dari calon-tenant.ts dan draft-agreements-public.ts (fire-and-forget).
+ * auto-invoice.ts
+ * Buat invoice otomatis untuk seluruh periode sewa saat booking dibuat dari persetujuan draf.
  */
 import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
@@ -33,53 +33,36 @@ async function generateInvoiceNumber(): Promise<string> {
   return `${prefix}${nextSeq}`;
 }
 
-export async function createInitialInvoiceForBooking(opts: {
-  bookingId: number;
+function toDateStr(d: Date): string {
+  return d.toISOString().slice(0, 10);
+}
+
+/** Kembalikan tanggal awal bulan ke-N dari referensi bulan (0-indexed) */
+function addMonths(base: Date, months: number): Date {
+  const d = new Date(base.getFullYear(), base.getMonth() + months, 1);
+  return d;
+}
+
+/** Kembalikan tanggal akhir bulan */
+function endOfMonth(d: Date): Date {
+  return new Date(d.getFullYear(), d.getMonth() + 1, 0);
+}
+
+async function insertOneInvoice(opts: {
   siteId: number;
   tenantId: number;
+  bookingId: number;
   unitCode: string | null;
   rentAmount: number;
-  billingCycle?: string;
+  periodStartStr: string;
+  periodEndStr: string;
+  dueDateStr: string;
+  now: Date;
 }): Promise<number | null> {
-  const { bookingId, siteId, tenantId, unitCode, rentAmount, billingCycle = "monthly" } = opts;
-
-  const now = new Date();
-  let periodStart: Date;
-  let periodEnd: Date;
-  let dueDate: Date;
-
-  if (billingCycle === "quarterly") {
-    const q = Math.floor(now.getMonth() / 3);
-    periodStart = new Date(now.getFullYear(), q * 3, 1);
-    periodEnd = new Date(now.getFullYear(), q * 3 + 3, 0);
-    dueDate = new Date(periodEnd);
-    dueDate.setDate(dueDate.getDate() + 5);
-  } else {
-    periodStart = new Date(now.getFullYear(), now.getMonth(), 1);
-    periodEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0);
-    dueDate = new Date(now.getFullYear(), now.getMonth() + 1, 5);
-  }
-
-  const toDate = (d: Date) => d.toISOString().slice(0, 10);
-  const periodStartStr = toDate(periodStart);
-  const periodEndStr = toDate(periodEnd);
-  const dueDateStr = toDate(dueDate);
-
-  // Idempotency: skip jika sudah ada invoice untuk booking + periode ini
-  const existing = await db.execute(
-    sql`SELECT id FROM tenant_invoices
-        WHERE booking_id = ${bookingId} AND period_start = ${periodStartStr}
-        LIMIT 1`
-  );
-  const existingRows = (existing as { rows: { id: number }[] }).rows;
-  if (existingRows.length > 0) {
-    return existingRows[0]?.id ?? null;
-  }
-
+  const { siteId, tenantId, bookingId, unitCode, rentAmount, periodStartStr, periodEndStr, dueDateStr, now } = opts;
   const { subtotal, taxAmount, totalAmount, outstandingAmount } = calcAmounts(rentAmount);
   const status = new Date(dueDateStr) < now ? "overdue" : "unpaid";
 
-  // Retry jika invoice number collision (race condition)
   for (let attempt = 0; attempt < 3; attempt++) {
     const invoiceNumber = await generateInvoiceNumber();
     try {
@@ -102,7 +85,7 @@ export async function createInitialInvoiceForBooking(opts: {
         RETURNING id
       `);
       const id = (insertResult as { rows: { id: number }[] }).rows[0]?.id ?? null;
-      console.log(`[auto-invoice] Invoice ${invoiceNumber} dibuat (bookingId=${bookingId})`);
+      console.log(`[auto-invoice] Invoice ${invoiceNumber} (${periodStartStr}) dibuat (bookingId=${bookingId})`);
       return id;
     } catch (err: unknown) {
       const code = (err as { cause?: { code?: string } })?.cause?.code;
@@ -111,4 +94,90 @@ export async function createInitialInvoiceForBooking(opts: {
     }
   }
   return null;
+}
+
+/**
+ * Buat invoice untuk SELURUH periode sewa (1 invoice per bulan).
+ * Idempoten: bulan yang sudah ada invoice-nya dilewati.
+ *
+ * @returns array of created invoice IDs
+ */
+export async function createAllInvoicesForBooking(opts: {
+  bookingId: number;
+  siteId: number;
+  tenantId: number;
+  unitCode: string | null;
+  rentAmount: number;
+  startDate: string;      // "YYYY-MM-DD" — awal periode sewa
+  durationMonths: number; // jumlah bulan
+}): Promise<number[]> {
+  const { bookingId, siteId, tenantId, unitCode, rentAmount, startDate, durationMonths } = opts;
+
+  if (durationMonths <= 0 || rentAmount <= 0) return [];
+
+  const baseDate = new Date(startDate + "T00:00:00Z");
+  const now = new Date();
+  const createdIds: number[] = [];
+
+  // Ambil bulan yang sudah ada invoice untuk booking ini (idempotency)
+  const existingResult = await db.execute(
+    sql`SELECT period_start FROM tenant_invoices WHERE booking_id = ${bookingId}`
+  );
+  const existingMonths = new Set(
+    (existingResult as { rows: { period_start: string }[] }).rows.map((r) => r.period_start.slice(0, 7))
+  );
+
+  for (let i = 0; i < durationMonths; i++) {
+    const monthStart = addMonths(baseDate, i);
+    const monthEnd = endOfMonth(monthStart);
+    const dueDate = new Date(monthStart.getFullYear(), monthStart.getMonth() + 1, 5);
+
+    const periodStartStr = toDateStr(monthStart);
+    const periodEndStr = toDateStr(monthEnd);
+    const dueDateStr = toDateStr(dueDate);
+    const monthKey = periodStartStr.slice(0, 7);
+
+    if (existingMonths.has(monthKey)) {
+      console.log(`[auto-invoice] Invoice ${monthKey} sudah ada, dilewati (bookingId=${bookingId})`);
+      continue;
+    }
+
+    const id = await insertOneInvoice({
+      siteId, tenantId, bookingId, unitCode,
+      rentAmount, periodStartStr, periodEndStr, dueDateStr, now,
+    });
+    if (id) {
+      createdIds.push(id);
+      existingMonths.add(monthKey);
+    }
+  }
+
+  console.log(`[auto-invoice] Selesai: ${createdIds.length} invoice dibuat untuk bookingId=${bookingId} (${durationMonths} bulan)`);
+  return createdIds;
+}
+
+/**
+ * @deprecated Gunakan createAllInvoicesForBooking.
+ * Tetap tersedia untuk backward-compat.
+ */
+export async function createInitialInvoiceForBooking(opts: {
+  bookingId: number;
+  siteId: number;
+  tenantId: number;
+  unitCode: string | null;
+  rentAmount: number;
+  startDate?: string;
+  durationMonths?: number;
+  billingCycle?: string;
+}): Promise<number | null> {
+  const ids = await createAllInvoicesForBooking({
+    bookingId: opts.bookingId,
+    siteId: opts.siteId,
+    tenantId: opts.tenantId,
+    unitCode: opts.unitCode,
+    rentAmount: opts.rentAmount,
+    startDate: opts.startDate ?? new Date().toISOString().slice(0, 10),
+    durationMonths: opts.durationMonths ?? 1,
+  });
+  return ids[0] ?? null;
 }

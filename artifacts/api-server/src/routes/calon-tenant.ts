@@ -8,7 +8,7 @@ import { requireAuth, requireAnyRole } from "../middlewares/auth";
 import { sendCalonTenantApproved, sendCalonTenantRejected, sendCalonTenantReminder, sendCalonTenantUnitAvailable, getSiteCompanyName, sendBookingConfirmation } from "../lib/whatsapp";
 import { logAudit } from "../lib/audit";
 import { blastSessionLogsTable } from "@workspace/db/schema";
-import { createInitialInvoiceForBooking } from "../lib/auto-invoice";
+import { createAllInvoicesForBooking } from "../lib/auto-invoice";
 
 const router: IRouter = Router();
 
@@ -311,14 +311,15 @@ router.patch(
             WHERE id = ${id}
           `);
 
-          // Auto-buat invoice pertama (fire-and-forget)
-          void createInitialInvoiceForBooking({
+          // Auto-buat invoice seluruh periode (fire-and-forget)
+          void createAllInvoicesForBooking({
             bookingId,
             siteId,
             tenantId,
             unitCode,
             rentAmount: Number(rentAmount),
-            billingCycle: "monthly",
+            startDate,
+            durationMonths,
           }).catch((err) => console.error("[calon-tenant] Auto-invoice error:", err));
 
           // Kirim WA konfirmasi booking (fire-and-forget)
