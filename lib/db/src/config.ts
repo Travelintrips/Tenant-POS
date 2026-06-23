@@ -10,12 +10,11 @@ function resolveDbUrl(): string {
       (() => { throw new Error("SUPABASE_PG_URL_PROD harus diset di production"); })()
     );
   }
-  // Development: DATABASE_URL (heliumdb lokal) → SUPABASE_PG_URL_DEV → SUPABASE_PG_URL
+  // Development: SUPABASE_PG_URL_DEV → DATABASE_URL
   return (
-    process.env["DATABASE_URL"] ??
     process.env["SUPABASE_PG_URL_DEV"] ??
-    process.env["SUPABASE_PG_URL"] ??
-    (() => { throw new Error("DATABASE_URL atau SUPABASE_PG_URL_DEV harus diset di development"); })()
+    process.env["DATABASE_URL"] ??
+    (() => { throw new Error("SUPABASE_PG_URL_DEV atau DATABASE_URL harus diset di development"); })()
   );
 }
 
