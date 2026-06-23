@@ -108,8 +108,16 @@ async function sendMessage(phone: string, message: string): Promise<WaResult> {
 
     const data = await res.json() as Record<string, unknown>;
 
-    if (!res.ok || data["status"] === false) {
-      const rawReason = String(data["reason"] ?? data["message"] ?? "Gagal kirim WA");
+    console.log("[WA] Fonnte response:", JSON.stringify(data));
+
+    // Fonnte kadang return status sebagai string "false" atau boolean false
+    const statusFailed = data["status"] === false || data["status"] === "false";
+    // process: false → pesan diterima Fonnte tapi device offline/disconnected
+    const processedFailed = data["process"] === false || data["process"] === "false";
+
+    if (!res.ok || statusFailed || processedFailed) {
+      const rawReason = String(data["reason"] ?? data["message"] ?? data["detail"] ?? "Gagal kirim WA");
+      console.error("[WA] Fonnte error:", rawReason, "| full response:", JSON.stringify(data));
       return { ok: false, error: translateFonnteError(rawReason), response: data };
     }
 

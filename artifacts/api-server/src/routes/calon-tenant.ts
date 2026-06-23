@@ -480,15 +480,21 @@ router.post(
       const registerUrl = `${appUrl}/tenant/register`;
       const message = `🏢 *Pendaftaran Calon Tenant*\n\nHalo,\n\nAnda diundang untuk mengisi formulir pendaftaran calon tenant melalui link berikut:\n\n${registerUrl}\n\nSilakan isi data dengan lengkap. Terima kasih.`;
 
+      const fonnteBody = new URLSearchParams({ target: rawPhone, message, delay: "2" });
       const r = await fetch("https://api.fonnte.com/send", {
         method: "POST",
-        headers: { Authorization: token_api, "Content-Type": "application/json" },
-        body: JSON.stringify({ target: rawPhone, message }),
+        headers: { Authorization: token_api, "Content-Type": "application/x-www-form-urlencoded" },
+        body: fonnteBody.toString(),
       });
       const body = await r.json().catch(() => ({})) as Record<string, unknown>;
 
-      if (!r.ok || body["status"] === false) {
-        errorMessage = String(body["reason"] ?? body["detail"] ?? "Gagal mengirim WA");
+      console.log("[kirim-link-wa] Fonnte response:", JSON.stringify(body));
+
+      const statusFailed = body["status"] === false || body["status"] === "false";
+      const processFailed = body["process"] === false || body["process"] === "false";
+      if (!r.ok || statusFailed || processFailed) {
+        errorMessage = String(body["reason"] ?? body["detail"] ?? body["message"] ?? "Gagal mengirim WA");
+        console.error("[kirim-link-wa] Fonnte error:", errorMessage);
       } else {
         status = "success";
       }
