@@ -4,7 +4,7 @@ import {
   tenantPaymentsTable,
   tenantInvoicesTable,
   tenantsTable,
-  paymentReceiptsTable,
+  tenantReceiptsTable,
 } from "@workspace/db/schema";
 import { eq, and, inArray, desc } from "drizzle-orm";
 import { z } from "zod";
@@ -176,7 +176,7 @@ router.post("/pending-payments/:id/approve", async (req, res) => {
               .then((r) => r[0])
           : null;
 
-        await db.insert(paymentReceiptsTable).values({
+        await db.insert(tenantReceiptsTable).values({
           paymentId: p.id,
           invoiceId: inv.id,
           tenantId: p.tenantId ?? 0,

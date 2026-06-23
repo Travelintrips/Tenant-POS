@@ -21,5 +21,6 @@ export * from "./bank-recon-audit-logs";
 export * from "./bank-closing-periods";
 export * from "./bank-coa-rules";
 export * from "./payment-receipts";
+export * from "./tenant-receipts";
 export * from "./operational-expenses";
 export * from "./blast-session-logs";

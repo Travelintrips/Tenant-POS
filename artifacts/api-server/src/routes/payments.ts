@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { db } from "@workspace/db";
-import { tenantPaymentsTable, tenantInvoicesTable, tenantsTable, paymentReceiptsTable } from "@workspace/db/schema";
+import { tenantPaymentsTable, tenantInvoicesTable, tenantsTable, tenantReceiptsTable } from "@workspace/db/schema";
 import { eq, sql, desc, and, gte, lte } from "drizzle-orm";
 import { z } from "zod";
 import { logAudit } from "../lib/audit";
@@ -124,8 +124,8 @@ router.post("/payments", async (req, res) => {
               .then((r) => r[0])
           : null;
 
-        // 1. Receipt entry
-        await db.insert(paymentReceiptsTable).values({
+        // 1. Receipt entry → tenant_receipts (official table)
+        await db.insert(tenantReceiptsTable).values({
           paymentId: result.ledgerEntryId,
           invoiceId,
           tenantId: inv?.tenantId ?? 0,

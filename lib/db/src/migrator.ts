@@ -2224,4 +2224,61 @@ UPDATE tenant_bookings
 SET order_number = 'ORD-' || UPPER(TO_HEX(EXTRACT(EPOCH FROM created_at)::bigint)) || '-' || UPPER(SUBSTR(MD5(id::text), 1, 4))
 WHERE (order_number IS NULL OR order_number = '');
   `.trim(),
+},
+{
+  name: "0056_tenant_receipts",
+  sql: `
+CREATE TABLE IF NOT EXISTS "tenant_receipts" (
+  "id" serial PRIMARY KEY NOT NULL,
+  "payment_id" integer NOT NULL,
+  "invoice_id" integer,
+  "tenant_id" integer NOT NULL,
+  "site_id" integer REFERENCES mall_sites(id),
+  "receipt_number" text NOT NULL UNIQUE,
+  "file_url" text NOT NULL,
+  "invoice_number" text,
+  "business_name" text,
+  "owner_name" text,
+  "unit_code" text,
+  "amount_paid" text NOT NULL DEFAULT '0',
+  "tax_amount" text NOT NULL DEFAULT '0',
+  "net_amount" text NOT NULL DEFAULT '0',
+  "payment_method" text,
+  "kasir_name" text,
+  "journal_id" text,
+  "wa_status" text NOT NULL DEFAULT 'pending',
+  "wa_error" text,
+  "created_at" timestamptz NOT NULL DEFAULT now(),
+  "migrated_from_id" integer
+);
+CREATE INDEX IF NOT EXISTS "tr_payment_id_idx" ON "tenant_receipts"("payment_id");
+CREATE INDEX IF NOT EXISTS "tr_tenant_id_idx" ON "tenant_receipts"("tenant_id");
+CREATE INDEX IF NOT EXISTS "tr_site_id_idx" ON "tenant_receipts"("site_id");
+CREATE INDEX IF NOT EXISTS "tr_created_at_idx" ON "tenant_receipts"("created_at" DESC);
+
+INSERT INTO tenant_receipts (
+  id, payment_id, invoice_id, tenant_id, site_id,
+  receipt_number, file_url, invoice_number,
+  business_name, owner_name, unit_code,
+  amount_paid, tax_amount, net_amount,
+  payment_method, kasir_name, journal_id,
+  wa_status, wa_error, created_at,
+  migrated_from_id
+)
+SELECT
+  pr.id, pr.payment_id, pr.invoice_id, pr.tenant_id, pr.site_id,
+  pr.receipt_number, pr.file_url, pr.invoice_number,
+  pr.business_name, pr.owner_name, pr.unit_code,
+  pr.amount_paid, pr.tax_amount, pr.net_amount,
+  pr.payment_method, pr.kasir_name, pr.journal_id,
+  pr.wa_status, pr.wa_error, pr.created_at,
+  pr.id
+FROM payment_receipts pr
+ON CONFLICT (receipt_number) DO NOTHING;
+
+SELECT setval(
+  pg_get_serial_sequence('tenant_receipts', 'id'),
+  COALESCE((SELECT MAX(id) FROM tenant_receipts), 1)
+);
+  `.trim(),
 });

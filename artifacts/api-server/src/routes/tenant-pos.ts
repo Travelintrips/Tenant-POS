@@ -8,7 +8,7 @@ import {
   tenantPaymentsTable,
   tenantInvoicesTable,
   cashierShiftsTable,
-  paymentReceiptsTable,
+  tenantReceiptsTable,
 } from "@workspace/db/schema";
 import { eq, and, sql, desc, gte, lte, ilike, or } from "drizzle-orm";
 import { z } from "zod";
@@ -797,7 +797,7 @@ router.post("/tenant-pos/payments", paymentRateLimiter, async (req, res) => {
         let waError: string | null = null;
 
         try {
-          await db.insert(paymentReceiptsTable).values({
+          await db.insert(tenantReceiptsTable).values({
             paymentId,
             invoiceId: invoiceId ?? null,
             tenantId,
@@ -850,9 +850,9 @@ router.post("/tenant-pos/payments", paymentRateLimiter, async (req, res) => {
         // Update waStatus di DB
         try {
           await db
-            .update(paymentReceiptsTable)
+            .update(tenantReceiptsTable)
             .set({ waStatus, waError })
-            .where(eq(paymentReceiptsTable.receiptNumber, result.receiptNumber));
+            .where(eq(tenantReceiptsTable.receiptNumber, result.receiptNumber));
         } catch {
           // Non-critical
         }
@@ -1008,7 +1008,7 @@ router.post("/tenant-pos/manual-payment", paymentRateLimiter, async (req, res) =
         }
 
         try {
-          await db.insert(paymentReceiptsTable).values({
+          await db.insert(tenantReceiptsTable).values({
             paymentId, invoiceId: null, tenantId, siteId, receiptNumber,
             fileUrl: receiptUrl ?? "",
             invoiceNumber: null,
@@ -1052,8 +1052,8 @@ router.get("/tenant-pos/receipts/:paymentId", async (req, res) => {
   try {
     const [receipt] = await db
       .select()
-      .from(paymentReceiptsTable)
-      .where(eq(paymentReceiptsTable.paymentId, paymentId))
+      .from(tenantReceiptsTable)
+      .where(eq(tenantReceiptsTable.paymentId, paymentId))
       .limit(1);
 
     if (!receipt) {
@@ -1089,28 +1089,28 @@ router.get("/tenant-pos/receipts", async (req, res) => {
 
   if (dateFrom) {
     const d = new Date(dateFrom);
-    if (!isNaN(d.getTime())) conditions.push(gte(paymentReceiptsTable.createdAt, d));
+    if (!isNaN(d.getTime())) conditions.push(gte(tenantReceiptsTable.createdAt, d));
   }
   if (dateTo) {
     const d = new Date(dateTo);
     if (!isNaN(d.getTime())) {
       d.setHours(23, 59, 59, 999);
-      conditions.push(lte(paymentReceiptsTable.createdAt, d));
+      conditions.push(lte(tenantReceiptsTable.createdAt, d));
     }
   }
   if (waStatus && ["sent", "skipped", "failed", "pending"].includes(waStatus)) {
-    conditions.push(eq(paymentReceiptsTable.waStatus, waStatus));
+    conditions.push(eq(tenantReceiptsTable.waStatus, waStatus));
   }
   if (siteId && !isNaN(Number(siteId))) {
-    conditions.push(eq(paymentReceiptsTable.siteId, Number(siteId)));
+    conditions.push(eq(tenantReceiptsTable.siteId, Number(siteId)));
   }
   if (search) {
     conditions.push(
       or(
-        ilike(paymentReceiptsTable.businessName, `%${search}%`),
-        ilike(paymentReceiptsTable.receiptNumber, `%${search}%`),
-        ilike(paymentReceiptsTable.invoiceNumber, `%${search}%`),
-        ilike(paymentReceiptsTable.kasirName, `%${search}%`),
+        ilike(tenantReceiptsTable.businessName, `%${search}%`),
+        ilike(tenantReceiptsTable.receiptNumber, `%${search}%`),
+        ilike(tenantReceiptsTable.invoiceNumber, `%${search}%`),
+        ilike(tenantReceiptsTable.kasirName, `%${search}%`),
       )
     );
   }
@@ -1122,14 +1122,14 @@ router.get("/tenant-pos/receipts", async (req, res) => {
     const [rows, [{ total }]] = await Promise.all([
       db
         .select()
-        .from(paymentReceiptsTable)
+        .from(tenantReceiptsTable)
         .where(conditions.length ? and(...conditions) : undefined)
-        .orderBy(desc(paymentReceiptsTable.createdAt))
+        .orderBy(desc(tenantReceiptsTable.createdAt))
         .limit(limitN)
         .offset(offsetN),
       db
         .select({ total: sql<number>`count(*)::int` })
-        .from(paymentReceiptsTable)
+        .from(tenantReceiptsTable)
         .where(conditions.length ? and(...conditions) : undefined),
     ]);
 
