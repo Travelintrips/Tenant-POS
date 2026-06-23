@@ -1505,10 +1505,11 @@ export default function DrafPerjanjian() {
     staleTime: 30_000,
   });
 
-  const { data: registrationUrlData } = useQuery<{ url: string | null }>({
+  const { data: registrationUrlData, isLoading: registrationUrlLoading } = useQuery<{ url: string | null }>({
     queryKey: ["registration-url"],
     queryFn: () => apiFetchJson<{ url: string | null }>("/api/calon-tenant/registration-url"),
     staleTime: 60_000,
+    retry: 2,
   });
 
   const blastHistoryQuery = useQuery<BlastSessionLog[]>({
@@ -1707,7 +1708,11 @@ export default function DrafPerjanjian() {
               </div>
               <div className="flex-1 flex items-center gap-2 min-w-0">
                 <code className="text-xs bg-white border border-blue-200 rounded px-2 py-1 text-blue-800 truncate flex-1 block">
-                  {registerUrl ?? <span className="text-gray-400 italic">Konfigurasi APP_URL di Secrets untuk menampilkan link</span>}
+                  {registrationUrlLoading
+                    ? <span className="text-gray-400">Memuat...</span>
+                    : registerUrl
+                      ? registerUrl
+                      : <span className="text-gray-400 italic">Link tidak tersedia — hubungi administrator</span>}
                 </code>
                 {registerUrl && (
                   <>

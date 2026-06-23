@@ -451,7 +451,6 @@ router.post(
 router.get(
   "/calon-tenant/registration-url",
   requireAuth,
-  requireAnyRole("admin", "owner"),
   async (_req: Request, res: Response) => {
     const baseUrl = await getBaseUrl().catch(() => undefined);
     const url = baseUrl ? `${baseUrl}/tenant/register` : null;
