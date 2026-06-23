@@ -1,4 +1,4 @@
-import * as XLSX from "xlsx";
+import ExcelJS from "exceljs";
 import { apiFetch as apiFetchBase } from "@/lib/api";
 import { useState, useMemo, useRef } from "react";
 import { useSite } from "@/contexts/site-context";
@@ -2781,20 +2781,23 @@ export default function TenantInvoices() {
                   </Button>
                   <Button variant="outline" size="sm" className="h-8 gap-1 border-green-500 text-green-700"
                     disabled={ppnReport.rows.length === 0}
-                    onClick={() => {
-                      const wb = XLSX.utils.book_new();
+                    onClick={async () => {
+                      const wb = new ExcelJS.Workbook();
                       const judul = [[`LAPORAN PPN 11% PER BULAN`],[`Periode: ${ppnFrom} s/d ${ppnTo}`],[`Dicetak: ${new Date().toLocaleDateString("id-ID",{dateStyle:"long"})}`],[]];
                       const header = [["Bulan","Jumlah Invoice","Subtotal (DPP)","PPN 11%","Total Tagihan","Total Terbayar"]];
                       const dr = ppnReport.rows.map(r => [r.bulan, Number(r.jumlah_invoice), Number(r.total_subtotal), Number(r.total_ppn), Number(r.total_tagihan), Number(r.total_terbayar)]);
                       const t = ppnReport.totals;
                       dr.push(["TOTAL", Number(t.jumlah_invoice??0), Number(t.total_subtotal??0), Number(t.total_ppn??0), Number(t.total_tagihan??0), Number(t.total_terbayar??0)]);
-                      const ws = XLSX.utils.aoa_to_sheet([...judul,...header,...dr]);
-                      ws["!cols"] = [{wch:12},{wch:15},{wch:20},{wch:20},{wch:20},{wch:20}];
-                      ws["!merges"] = [{s:{r:0,c:0},e:{r:0,c:5}},{s:{r:1,c:0},e:{r:1,c:5}},{s:{r:2,c:0},e:{r:2,c:5}}];
-                      const start = judul.length + header.length;
-                      for (let row = start; row < start + dr.length; row++) for (let col = 2; col <= 5; col++) { const ref = XLSX.utils.encode_cell({r:row,c:col}); if (ws[ref]) ws[ref].z = '#,##0'; }
-                      XLSX.utils.book_append_sheet(wb, ws, "Per Bulan");
-                      XLSX.writeFile(wb, `ppn-per-bulan-${ppnFrom}-sd-${ppnTo}.xlsx`);
+                      const ws = wb.addWorksheet("Per Bulan");
+                      ws.addRows([...judul,...header,...dr]);
+                      ws.columns = [{width:12},{width:15},{width:20},{width:20},{width:20},{width:20}];
+                      ws.mergeCells(1,1,1,6); ws.mergeCells(2,1,2,6); ws.mergeCells(3,1,3,6);
+                      const startRow = judul.length + header.length + 1;
+                      for (let row = startRow; row < startRow + dr.length; row++) for (let col = 3; col <= 6; col++) { ws.getCell(row, col).numFmt = '#,##0'; }
+                      const buf = await wb.xlsx.writeBuffer();
+                      const blob = new Blob([buf], {type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"});
+                      const url = URL.createObjectURL(blob);
+                      const a = document.createElement("a"); a.href = url; a.download = `ppn-per-bulan-${ppnFrom}-sd-${ppnTo}.xlsx`; a.click(); URL.revokeObjectURL(url);
                     }}>
                     <FileSpreadsheet className="h-3.5 w-3.5" /> Excel
                   </Button>
@@ -2866,30 +2869,33 @@ export default function TenantInvoices() {
                   </Button>
                   <Button variant="outline" size="sm" className="h-8 gap-1 border-green-500 text-green-700"
                     disabled={ppnReport.byTenant.length === 0}
-                    onClick={() => {
-                      const wb = XLSX.utils.book_new();
+                    onClick={async () => {
+                      const wb = new ExcelJS.Workbook();
                       const judul = [[`LAPORAN PPN 11% PER TENANT`],[`Periode: ${ppnFrom} s/d ${ppnTo}`],[`Dicetak: ${new Date().toLocaleDateString("id-ID",{dateStyle:"long"})}`],[]];
                       const header = [["Nama Tenant","Pemilik","Unit","Jml Invoice","Subtotal (DPP)","PPN 11%","Total Tagihan","Total Terbayar"]];
                       const dr = ppnReport.byTenant.map(r => [r.nama_tenant??"",r.nama_pemilik??"",r.unit,Number(r.jumlah_invoice),Number(r.total_subtotal),Number(r.total_ppn),Number(r.total_tagihan),Number(r.total_terbayar)]);
                       const t = ppnReport.totals;
                       dr.push([`TOTAL (${ppnReport.byTenant.length} tenant)`,"","",Number(t.jumlah_invoice??0),Number(t.total_subtotal??0),Number(t.total_ppn??0),Number(t.total_tagihan??0),Number(t.total_terbayar??0)]);
-                      const ws = XLSX.utils.aoa_to_sheet([...judul,...header,...dr]);
-                      ws["!cols"] = [{wch:22},{wch:18},{wch:10},{wch:12},{wch:20},{wch:20},{wch:20},{wch:18}];
-                      ws["!merges"] = [{s:{r:0,c:0},e:{r:0,c:7}},{s:{r:1,c:0},e:{r:1,c:7}},{s:{r:2,c:0},e:{r:2,c:7}}];
-                      const start = judul.length + header.length;
-                      for (let row = start; row < start + dr.length; row++) for (let col = 4; col <= 7; col++) { const ref = XLSX.utils.encode_cell({r:row,c:col}); if (ws[ref]) ws[ref].z = '#,##0'; }
-                      XLSX.utils.book_append_sheet(wb, ws, "Per Tenant");
+                      const ws = wb.addWorksheet("Per Tenant");
+                      ws.addRows([...judul,...header,...dr]);
+                      ws.columns = [{width:22},{width:18},{width:10},{width:12},{width:20},{width:20},{width:20},{width:18}];
+                      ws.mergeCells(1,1,1,8); ws.mergeCells(2,1,2,8); ws.mergeCells(3,1,3,8);
+                      const startRow = judul.length + header.length + 1;
+                      for (let row = startRow; row < startRow + dr.length; row++) for (let col = 5; col <= 8; col++) { ws.getCell(row, col).numFmt = '#,##0'; }
                       // sheet gabungan kedua tab
                       const drB = ppnReport.rows.map(r => [r.bulan, Number(r.jumlah_invoice), Number(r.total_subtotal), Number(r.total_ppn), Number(r.total_tagihan), Number(r.total_terbayar)]);
                       const judulB = [[`LAPORAN PPN 11% PER BULAN`],[`Periode: ${ppnFrom} s/d ${ppnTo}`],[`Dicetak: ${new Date().toLocaleDateString("id-ID",{dateStyle:"long"})}`],[]];
                       const headerB = [["Bulan","Jumlah Invoice","Subtotal (DPP)","PPN 11%","Total Tagihan","Total Terbayar"]];
                       const tb = ppnReport.totals;
                       drB.push(["TOTAL",Number(tb.jumlah_invoice??0),Number(tb.total_subtotal??0),Number(tb.total_ppn??0),Number(tb.total_tagihan??0),Number(tb.total_terbayar??0)]);
-                      const wsB = XLSX.utils.aoa_to_sheet([...judulB,...headerB,...drB]);
-                      wsB["!cols"] = [{wch:12},{wch:15},{wch:20},{wch:20},{wch:20},{wch:20}];
-                      wsB["!merges"] = [{s:{r:0,c:0},e:{r:0,c:5}},{s:{r:1,c:0},e:{r:1,c:5}},{s:{r:2,c:0},e:{r:2,c:5}}];
-                      XLSX.utils.book_append_sheet(wb, wsB, "Per Bulan");
-                      XLSX.writeFile(wb, `ppn-lengkap-${ppnFrom}-sd-${ppnTo}.xlsx`);
+                      const wsB = wb.addWorksheet("Per Bulan");
+                      wsB.addRows([...judulB,...headerB,...drB]);
+                      wsB.columns = [{width:12},{width:15},{width:20},{width:20},{width:20},{width:20}];
+                      wsB.mergeCells(1,1,1,6); wsB.mergeCells(2,1,2,6); wsB.mergeCells(3,1,3,6);
+                      const buf = await wb.xlsx.writeBuffer();
+                      const blob = new Blob([buf], {type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"});
+                      const url = URL.createObjectURL(blob);
+                      const a = document.createElement("a"); a.href = url; a.download = `ppn-lengkap-${ppnFrom}-sd-${ppnTo}.xlsx`; a.click(); URL.revokeObjectURL(url);
                     }}>
                     <FileSpreadsheet className="h-3.5 w-3.5" /> Excel (+ Per Bulan)
                   </Button>
