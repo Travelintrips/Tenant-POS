@@ -21,6 +21,7 @@ import { postPosPaymentJournal } from "../lib/pos-journal";
 import { sendPosPaymentSuccess, getSiteCompanyName } from "../lib/whatsapp";
 import { recordPayment, LedgerError } from "../lib/payment-ledger";
 import { getBaseUrl } from "../lib/app-url";
+import { postTenantPaymentAccountingEntry } from "../lib/accounting-entry";
 
 const router: IRouter = Router();
 
@@ -765,6 +766,21 @@ router.post("/tenant-pos/payments", paymentRateLimiter, async (req, res) => {
         if (journalResult.alreadyPosted) {
           logger.info({ paymentId, journalId: journalResult.journalId }, "[pos] Jurnal sudah ada, dilewati");
         }
+
+        // 1b. Accounting entry (accounting_entries + accounting_entry_lines)
+        void postTenantPaymentAccountingEntry({
+          paymentId,
+          siteId,
+          invoiceNumber,
+          businessName: result.tenantData?.businessName ?? null,
+          amountPaid,
+          paymentMethod,
+          transactionDate: new Date(paidAt),
+          receiptNumber: result.receiptNumber,
+          sourceModule: "tenant_pos",
+        }).catch((err) => {
+          logger.error({ err, paymentId }, "[pos] Gagal posting accounting_entry — non-fatal");
+        });
 
         // 2. Generate dan simpan receipt HTML
         let receiptUrl: string | null = null;

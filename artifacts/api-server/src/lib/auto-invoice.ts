@@ -27,7 +27,7 @@ async function generateInvoiceNumber(): Promise<string> {
     ORDER BY seq DESC
     LIMIT 1
   `);
-  const rows = (result as { rows: { seq: number | null }[] }).rows;
+  const rows = (result as unknown as { rows: { seq: number | null }[] }).rows;
   const lastSeq = rows[0]?.seq ?? 0;
   const nextSeq = String((lastSeq || 0) + 1).padStart(4, "0");
   return `${prefix}${nextSeq}`;
@@ -84,7 +84,7 @@ async function insertOneInvoice(opts: {
         )
         RETURNING id
       `);
-      const id = (insertResult as { rows: { id: number }[] }).rows[0]?.id ?? null;
+      const id = (insertResult as unknown as { rows: { id: number }[] }).rows[0]?.id ?? null;
       console.log(`[auto-invoice] Invoice ${invoiceNumber} (${periodStartStr}) dibuat (bookingId=${bookingId})`);
       return id;
     } catch (err: unknown) {
@@ -124,7 +124,7 @@ export async function createAllInvoicesForBooking(opts: {
     sql`SELECT period_start FROM tenant_invoices WHERE booking_id = ${bookingId}`
   );
   const existingMonths = new Set(
-    (existingResult as { rows: { period_start: string }[] }).rows.map((r) => r.period_start.slice(0, 7))
+    (existingResult as unknown as { rows: { period_start: string }[] }).rows.map((r) => r.period_start.slice(0, 7))
   );
 
   for (let i = 0; i < durationMonths; i++) {
