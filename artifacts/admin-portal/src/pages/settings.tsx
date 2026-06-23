@@ -770,7 +770,16 @@ export default function SettingsPage() {
     },
   });
 
-  const onSubmit = (data: MallConfig) => mutation.mutate(data);
+  const onSubmit = (data: MallConfig) => {
+    if (data.paymentDomain) {
+      try {
+        data.paymentDomain = new URL(data.paymentDomain.trim()).origin;
+      } catch {
+        data.paymentDomain = data.paymentDomain.trim().replace(/\/$/, "").replace(/\/.*$/, "");
+      }
+    }
+    mutation.mutate(data);
+  };
 
   return (
     <div className="space-y-6 max-w-2xl">
