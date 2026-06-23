@@ -1,14 +1,22 @@
 const isProduction = (process.env["NODE_ENV"] ?? "development") === "production";
 
 function resolveDbUrl(): string {
-  // Semua environment: utamakan SUPABASE_PG_URL_PROD (project nzdweipzckfszczzqtuw)
-  // Fallback ke SUPABASE_PG_URL (project lama xssrfshdrtdfupgqwfdw) lalu local postgres
+  if (isProduction) {
+    // Production: wajib pakai SUPABASE_PG_URL_PROD (nzdweipzckfszczzqtuw)
+    return (
+      process.env["SUPABASE_PG_URL_PROD"] ??
+      process.env["SUPABASE_PG_URL"] ??
+      process.env["DATABASE_URL"] ??
+      (() => { throw new Error("SUPABASE_PG_URL_PROD harus diset di production"); })()
+    );
+  }
+  // Development: pakai SUPABASE_PG_URL (project dev/testing xssrfshdrtdfupgqwfdw)
+  // fallback ke local postgres (DATABASE_URL)
   return (
-    process.env["SUPABASE_PG_URL_PROD"] ??
     process.env["SUPABASE_PG_URL"] ??
     process.env["SUPABASE_DATABASE_URL"] ??
     process.env["DATABASE_URL"] ??
-    (() => { throw new Error("SUPABASE_PG_URL_PROD atau DATABASE_URL harus diset"); })()
+    (() => { throw new Error("SUPABASE_PG_URL atau DATABASE_URL harus diset"); })()
   );
 }
 
