@@ -2,18 +2,20 @@ const isProduction = (process.env["NODE_ENV"] ?? "development") === "production"
 
 function resolveDbUrl(): string {
   if (isProduction) {
-    // Production: SUPABASE_PG_URL → DATABASE_URL
+    // Production: SUPABASE_PG_URL_PROD → SUPABASE_PG_URL → DATABASE_URL
     return (
+      process.env["SUPABASE_PG_URL_PROD"] ??
       process.env["SUPABASE_PG_URL"] ??
       process.env["DATABASE_URL"] ??
-      (() => { throw new Error("SUPABASE_PG_URL harus diset di production"); })()
+      (() => { throw new Error("SUPABASE_PG_URL_PROD harus diset di production"); })()
     );
   }
-  // Development: SUPABASE_PG_URL_DEV → DATABASE_URL
+  // Development: DATABASE_URL (heliumdb lokal) → SUPABASE_PG_URL_DEV → SUPABASE_PG_URL
   return (
-    process.env["SUPABASE_PG_URL_DEV"] ??
     process.env["DATABASE_URL"] ??
-    (() => { throw new Error("SUPABASE_PG_URL_DEV atau DATABASE_URL harus diset di development"); })()
+    process.env["SUPABASE_PG_URL_DEV"] ??
+    process.env["SUPABASE_PG_URL"] ??
+    (() => { throw new Error("DATABASE_URL atau SUPABASE_PG_URL_DEV harus diset di development"); })()
   );
 }
 

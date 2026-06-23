@@ -35,6 +35,7 @@ import {
 import { writePaymentEvent, normalizePaymentMethod } from "../lib/payment-events";
 import { postAccountingJournal } from "../lib/accounting-journal";
 import { recordPayment, LedgerError } from "../lib/payment-ledger";
+import { postTenantPaymentAccountingEntry } from "../lib/accounting-entry";
 import { appContextMiddleware, type AppContext } from "../middlewares/app-context";
 
 const router: IRouter = Router();
@@ -1081,6 +1082,19 @@ router.post("/bank-reconciliation/:mutationId/approve", async (req, res) => {
         approvedBy: req.user?.name ?? req.user?.email ?? "Admin",
         ownerTenantId: ctx.ownerTenantId,
       },
+    });
+
+    // Accounting entry (accounting_entries + accounting_entry_lines) — fire-and-forget
+    void postTenantPaymentAccountingEntry({
+      paymentId: newPaymentId,
+      siteId: mutation.siteId ?? null,
+      invoiceNumber: null,
+      businessName: null,
+      amountPaid: parseFloat(String(mutation.amount)),
+      paymentMethod: "transfer",
+      transactionDate: new Date(mutation.transactionDate),
+      receiptNumber: `REKON-PAY-${mutationId}`,
+      sourceModule: "bank_reconciliation",
     });
   }
 
