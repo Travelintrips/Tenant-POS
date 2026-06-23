@@ -2350,21 +2350,134 @@ CREATE TABLE IF NOT EXISTS accounting_entry_lines (
 );
 CREATE INDEX IF NOT EXISTS ael_entry_id_idx ON accounting_entry_lines(entry_id);
 
+-- Pastikan kolom yang mungkin hilang jika tabel sudah ada sebelumnya
+ALTER TABLE companies         ADD COLUMN IF NOT EXISTS company_name text;
+ALTER TABLE chart_of_accounts ADD COLUMN IF NOT EXISTS account_type text NOT NULL DEFAULT 'other';
+ALTER TABLE chart_of_accounts ADD COLUMN IF NOT EXISTS is_active boolean NOT NULL DEFAULT true;
+ALTER TABLE accounting_journals ADD COLUMN IF NOT EXISTS type text NOT NULL DEFAULT 'cash';
+ALTER TABLE accounting_journals ADD COLUMN IF NOT EXISTS default_debit_account_id integer;
+ALTER TABLE accounting_entries ADD COLUMN IF NOT EXISTS ref text;
+ALTER TABLE accounting_entries ADD COLUMN IF NOT EXISTS description text;
+ALTER TABLE accounting_entries ADD COLUMN IF NOT EXISTS status text NOT NULL DEFAULT 'draft';
+ALTER TABLE accounting_entries ADD COLUMN IF NOT EXISTS source text;
+ALTER TABLE accounting_entries ADD COLUMN IF NOT EXISTS source_id integer;
+ALTER TABLE accounting_entries ADD COLUMN IF NOT EXISTS total_debit numeric NOT NULL DEFAULT 0;
+ALTER TABLE accounting_entries ADD COLUMN IF NOT EXISTS total_credit numeric NOT NULL DEFAULT 0;
+ALTER TABLE accounting_entries ADD COLUMN IF NOT EXISTS company_id integer;
+ALTER TABLE accounting_entries ADD COLUMN IF NOT EXISTS correlation_id text;
+ALTER TABLE accounting_entry_lines ADD COLUMN IF NOT EXISTS description text;
+  `.trim(),
+},
+{
+  name: "0057_accounting_double_entry_seed",
+  sql: `
+-- Pastikan kolom ada dulu (idempoten, aman dijalankan berulang)
+ALTER TABLE companies              ADD COLUMN IF NOT EXISTS company_name text;
+ALTER TABLE chart_of_accounts      ADD COLUMN IF NOT EXISTS account_type text NOT NULL DEFAULT 'other';
+ALTER TABLE chart_of_accounts      ADD COLUMN IF NOT EXISTS is_active boolean NOT NULL DEFAULT true;
+ALTER TABLE accounting_journals    ADD COLUMN IF NOT EXISTS type text NOT NULL DEFAULT 'cash';
+ALTER TABLE accounting_journals    ADD COLUMN IF NOT EXISTS default_debit_account_id integer;
+ALTER TABLE accounting_entries     ADD COLUMN IF NOT EXISTS ref text;
+ALTER TABLE accounting_entries     ADD COLUMN IF NOT EXISTS description text;
+ALTER TABLE accounting_entries     ADD COLUMN IF NOT EXISTS status text NOT NULL DEFAULT 'draft';
+ALTER TABLE accounting_entries     ADD COLUMN IF NOT EXISTS source text;
+ALTER TABLE accounting_entries     ADD COLUMN IF NOT EXISTS source_id integer;
+ALTER TABLE accounting_entries     ADD COLUMN IF NOT EXISTS total_debit numeric NOT NULL DEFAULT 0;
+ALTER TABLE accounting_entries     ADD COLUMN IF NOT EXISTS total_credit numeric NOT NULL DEFAULT 0;
+ALTER TABLE accounting_entries     ADD COLUMN IF NOT EXISTS company_id integer;
+ALTER TABLE accounting_entries     ADD COLUMN IF NOT EXISTS correlation_id text;
+ALTER TABLE accounting_entry_lines ADD COLUMN IF NOT EXISTS description text;
+
 -- Seed: default company CST
 INSERT INTO companies (code, name, company_name) VALUES
   ('CST', 'Mall Admin', 'Mall Admin')
 ON CONFLICT (code) DO NOTHING;
 
 -- Seed: COA untuk company CST
-INSERT INTO chart_of_accounts (company_id, code, name, account_type) VALUES
-  (1, '1-1001', 'Kas dan Bank',     'kas'),
-  (1, '4-1010-CST', 'Pendapatan Sewa Tenant', 'pendapatan')
+INSERT INTO chart_of_accounts (company_id, code, name, account_type)
+SELECT id, '1-1001', 'Kas dan Bank', 'kas' FROM companies WHERE code = 'CST'
+ON CONFLICT (company_id, code) DO NOTHING;
+
+INSERT INTO chart_of_accounts (company_id, code, name, account_type)
+SELECT id, '4-1010-CST', 'Pendapatan Sewa Tenant', 'pendapatan' FROM companies WHERE code = 'CST'
 ON CONFLICT (company_id, code) DO NOTHING;
 
 -- Seed: accounting journals kas dan bank untuk CST
-INSERT INTO accounting_journals (company_id, code, name, type, default_debit_account_id) VALUES
-  (1, 'CSH-CST', 'Jurnal Kas CST',  'cash', (SELECT id FROM chart_of_accounts WHERE company_id=1 AND code='1-1001')),
-  (1, 'BNK-CST', 'Jurnal Bank CST', 'bank', (SELECT id FROM chart_of_accounts WHERE company_id=1 AND code='1-1001'))
+INSERT INTO accounting_journals (company_id, code, name, type, default_debit_account_id)
+SELECT c.id, 'CSH-CST', 'Jurnal Kas CST', 'cash',
+  (SELECT coa.id FROM chart_of_accounts coa WHERE coa.company_id = c.id AND coa.code = '1-1001')
+FROM companies c WHERE c.code = 'CST'
 ON CONFLICT (code) DO NOTHING;
+
+INSERT INTO accounting_journals (company_id, code, name, type, default_debit_account_id)
+SELECT c.id, 'BNK-CST', 'Jurnal Bank CST', 'bank',
+  (SELECT coa.id FROM chart_of_accounts coa WHERE coa.company_id = c.id AND coa.code = '1-1001')
+FROM companies c WHERE c.code = 'CST'
+ON CONFLICT (code) DO NOTHING;
+  `.trim(),
+},
+{
+  name: "0059_accounting_tables_alter_fix",
+  sql: `
+-- Fix: kolom mungkin hilang di DB DEV karena tabel sudah ada sebelum migration 0057
+ALTER TABLE companies         ADD COLUMN IF NOT EXISTS company_name text;
+ALTER TABLE chart_of_accounts ADD COLUMN IF NOT EXISTS account_type text NOT NULL DEFAULT 'other';
+ALTER TABLE chart_of_accounts ADD COLUMN IF NOT EXISTS is_active boolean NOT NULL DEFAULT true;
+ALTER TABLE accounting_journals ADD COLUMN IF NOT EXISTS type text NOT NULL DEFAULT 'cash';
+ALTER TABLE accounting_journals ADD COLUMN IF NOT EXISTS default_debit_account_id integer;
+ALTER TABLE accounting_entries ADD COLUMN IF NOT EXISTS ref text;
+ALTER TABLE accounting_entries ADD COLUMN IF NOT EXISTS description text;
+ALTER TABLE accounting_entries ADD COLUMN IF NOT EXISTS status text NOT NULL DEFAULT 'draft';
+ALTER TABLE accounting_entries ADD COLUMN IF NOT EXISTS source text;
+ALTER TABLE accounting_entries ADD COLUMN IF NOT EXISTS source_id integer;
+ALTER TABLE accounting_entries ADD COLUMN IF NOT EXISTS total_debit numeric NOT NULL DEFAULT 0;
+ALTER TABLE accounting_entries ADD COLUMN IF NOT EXISTS total_credit numeric NOT NULL DEFAULT 0;
+ALTER TABLE accounting_entries ADD COLUMN IF NOT EXISTS company_id integer;
+ALTER TABLE accounting_entries ADD COLUMN IF NOT EXISTS correlation_id text;
+ALTER TABLE accounting_entry_lines ADD COLUMN IF NOT EXISTS description text;
+
+-- Upsert seed company CST
+INSERT INTO companies (code, name, company_name) VALUES
+  ('CST', 'Mall Admin', 'Mall Admin')
+ON CONFLICT (code) DO NOTHING;
+
+-- Upsert COA
+INSERT INTO chart_of_accounts (company_id, code, name, account_type)
+SELECT id, '1-1001', 'Kas dan Bank', 'kas' FROM companies WHERE code='CST'
+ON CONFLICT (company_id, code) DO NOTHING;
+
+INSERT INTO chart_of_accounts (company_id, code, name, account_type)
+SELECT id, '4-1010-CST', 'Pendapatan Sewa Tenant', 'pendapatan' FROM companies WHERE code='CST'
+ON CONFLICT (company_id, code) DO NOTHING;
+
+-- Upsert journals
+INSERT INTO accounting_journals (company_id, code, name, type, default_debit_account_id)
+SELECT
+  c.id, 'CSH-CST', 'Jurnal Kas CST', 'cash',
+  (SELECT coa.id FROM chart_of_accounts coa WHERE coa.company_id=c.id AND coa.code='1-1001')
+FROM companies c WHERE c.code='CST'
+ON CONFLICT (code) DO NOTHING;
+
+INSERT INTO accounting_journals (company_id, code, name, type, default_debit_account_id)
+SELECT
+  c.id, 'BNK-CST', 'Jurnal Bank CST', 'bank',
+  (SELECT coa.id FROM chart_of_accounts coa WHERE coa.company_id=c.id AND coa.code='1-1001')
+FROM companies c WHERE c.code='CST'
+ON CONFLICT (code) DO NOTHING;
+  `.trim(),
+},
+{
+  name: "0058_system_settings_fix",
+  sql: `
+-- Pastikan tabel system_settings punya kolom value (jsonb) — fix untuk DB DEV
+ALTER TABLE system_settings ADD COLUMN IF NOT EXISTS value jsonb;
+
+-- Pastikan kolom updated_at ada
+ALTER TABLE system_settings ADD COLUMN IF NOT EXISTS updated_at timestamptz NOT NULL DEFAULT now();
+
+-- Upsert config default jika belum ada
+INSERT INTO system_settings (key, value)
+VALUES ('mall_config', '{"mallName":"Mall Admin","tagline":"Manajemen Tenant Mall","address":"","phone":"","email":"","invoicePrefix":"INV-TENANT","taxRate":0,"currency":"IDR","logoUrl":""}')
+ON CONFLICT (key) DO NOTHING;
   `.trim(),
 });
