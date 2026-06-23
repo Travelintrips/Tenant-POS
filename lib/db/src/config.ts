@@ -9,12 +9,12 @@ function resolveDbUrl(): string {
       (() => { throw new Error("SUPABASE_PG_URL_PROD harus diset di production"); })()
     );
   }
-  // Development (Replit): coba SUPABASE_PG_URL_DEV dulu, fallback ke local postgres
-  // Jika SUPABASE_PG_URL_DEV password salah/expired, local postgres (DATABASE_URL) akan dipakai
+  // Development (Replit): pakai SUPABASE_PG_URL_DEV (project Supabase dev = xssrfshdrtdfupgqwfdw)
+  // fallback ke local postgres jika tidak diset
   return (
-    process.env["DATABASE_URL"] ??
     process.env["SUPABASE_PG_URL_DEV"] ??
-    (() => { throw new Error("DATABASE_URL atau SUPABASE_PG_URL_DEV harus diset"); })()
+    process.env["DATABASE_URL"] ??
+    (() => { throw new Error("SUPABASE_PG_URL_DEV atau DATABASE_URL harus diset"); })()
   );
 }
 
