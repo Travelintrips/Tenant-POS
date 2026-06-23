@@ -747,6 +747,48 @@ export async function sendPosPaymentSuccess(params: PosPaymentSuccessParams): Pr
   return sendMessage(params.phone, message);
 }
 
+export interface AdminPosPaymentAlertParams {
+  adminName: string;
+  adminPhone: string;
+  businessName: string;
+  ownerName: string;
+  receiptNumber: string;
+  invoiceNumber?: string | null;
+  amountPaid: string | number;
+  paymentMethod: string;
+  kasirName: string;
+  siteName?: string | null;
+}
+
+/**
+ * Kirim notifikasi ke admin/owner saat kasir mencatat pembayaran POS baru.
+ */
+export async function sendAdminPosPaymentAlert(params: AdminPosPaymentAlertParams): Promise<WaResult> {
+  const methodLabel: Record<string, string> = {
+    transfer: "Transfer Bank",
+    tunai: "Tunai / Cash",
+    qris: "QRIS",
+    edc: "EDC / Debit",
+    other: "Lainnya",
+  };
+  const invoiceLine = params.invoiceNumber ? `• No. Invoice  : *${params.invoiceNumber}*\n` : "";
+  const siteLine = params.siteName ? `• Lokasi       : ${params.siteName}\n` : "";
+  const message =
+    `🏪 *Pembayaran POS Baru Diterima*\n` +
+    `━━━━━━━━━━━━━━━━━━━━━\n\n` +
+    `Yth. *${params.adminName}*,\n\n` +
+    `Ada pembayaran baru yang dicatat oleh kasir:\n\n` +
+    `• Tenant       : *${params.businessName}* (${params.ownerName})\n` +
+    invoiceLine +
+    `• No. Kuitansi : *${params.receiptNumber}*\n` +
+    `• Jumlah       : *${formatRupiah(params.amountPaid)}*\n` +
+    `• Metode       : ${methodLabel[params.paymentMethod] ?? params.paymentMethod}\n` +
+    `• Kasir        : ${params.kasirName}\n` +
+    siteLine +
+    `\n_Sistem Manajemen Mall_`;
+  return sendMessage(params.adminPhone, message);
+}
+
 export async function sendOverdueReminder(params: OverdueReminderParams): Promise<WaResult> {
   const company = params.companyName ?? "Manajemen CST";
   const message =

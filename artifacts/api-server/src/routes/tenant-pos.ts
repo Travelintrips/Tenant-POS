@@ -9,8 +9,10 @@ import {
   tenantInvoicesTable,
   cashierShiftsTable,
   tenantReceiptsTable,
+  usersTable,
+  systemSettingsTable,
 } from "@workspace/db/schema";
-import { eq, and, sql, desc, gte, lte, ilike, or } from "drizzle-orm";
+import { eq, and, sql, desc, gte, lte, ilike, or, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { requireAnyRole } from "../middlewares/auth";
 import { logAudit } from "../lib/audit";
@@ -18,7 +20,7 @@ import { sseBroker } from "../lib/sse-broker";
 import { writePaymentEvent, normalizePaymentMethod } from "../lib/payment-events";
 import { generateReceiptHtml, saveReceiptFile } from "../lib/pos-receipt";
 import { postPosPaymentJournal } from "../lib/pos-journal";
-import { sendPosPaymentSuccess, getSiteCompanyName } from "../lib/whatsapp";
+import { sendPosPaymentSuccess, getSiteCompanyName, sendAdminPosPaymentAlert } from "../lib/whatsapp";
 import { recordPayment, LedgerError } from "../lib/payment-ledger";
 import { getBaseUrl } from "../lib/app-url";
 import { postTenantPaymentAccountingEntry } from "../lib/accounting-entry";
@@ -871,6 +873,56 @@ router.post("/tenant-pos/payments", paymentRateLimiter, async (req, res) => {
             .where(eq(tenantReceiptsTable.receiptNumber, result.receiptNumber));
         } catch {
           // Non-critical
+        }
+
+        // 5. Kirim notifikasi WA ke admin/owner
+        try {
+          const adminRows = await db
+            .select({ name: usersTable.name, phoneNumber: usersTable.phoneNumber })
+            .from(usersTable)
+            .where(
+              and(
+                inArray(usersTable.role, ["owner", "admin"]),
+                eq(usersTable.status, "active"),
+                sql`phone_number IS NOT NULL AND phone_number != ''`,
+              ),
+            );
+          let adminPhones: Array<{ name: string; phone: string }> = adminRows
+            .filter((u) => u.phoneNumber)
+            .map((u) => ({ name: u.name, phone: u.phoneNumber! }));
+
+          if (adminPhones.length === 0) {
+            const envPhone = process.env.ADMIN_WHATSAPP ?? process.env.FONNTE_ADMIN_WA;
+            if (envPhone) adminPhones = [{ name: "Admin", phone: envPhone }];
+            else {
+              const [settingRow] = await db
+                .select({ value: systemSettingsTable.value })
+                .from(systemSettingsTable)
+                .where(eq(systemSettingsTable.key, "mall_config"));
+              const phone = (settingRow?.value as Record<string, unknown> | undefined)?.adminPhone;
+              if (typeof phone === "string" && phone.length > 0) adminPhones = [{ name: "Admin", phone }];
+            }
+          }
+
+          const posCompanyName = await getSiteCompanyName(siteId);
+          await Promise.allSettled(
+            adminPhones.map((admin) =>
+              sendAdminPosPaymentAlert({
+                adminName: admin.name,
+                adminPhone: admin.phone,
+                businessName: result.tenantData?.businessName ?? "Tenant",
+                ownerName: result.tenantData?.ownerName ?? "-",
+                receiptNumber: result.receiptNumber,
+                invoiceNumber,
+                amountPaid,
+                paymentMethod,
+                kasirName,
+                siteName: posCompanyName ?? null,
+              }),
+            ),
+          );
+        } catch (adminWaErr) {
+          logger.error({ err: adminWaErr, paymentId }, "[pos] Gagal kirim WA ke admin — non-fatal");
         }
 
         logger.info(
