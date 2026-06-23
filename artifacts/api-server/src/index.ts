@@ -11,28 +11,19 @@ function validateProductionEnv(): void {
   const errors: string[] = [];
   const warnings: string[] = [];
 
-  const pgUrlProd = process.env["SUPABASE_PG_URL_PROD"];
-  const pgUrlFallback = process.env["SUPABASE_PG_URL"];
+  const pgUrl = process.env["SUPABASE_PG_URL"];
   const pgUrlDatabase = process.env["DATABASE_URL"];
 
-  const effectivePgUrl = pgUrlProd ?? pgUrlFallback ?? pgUrlDatabase;
+  const effectivePgUrl = pgUrl ?? pgUrlDatabase;
 
   if (!effectivePgUrl) {
-    // Tidak ada URL DB sama sekali — tolak start
     errors.push(
-      "Tidak ada DB URL yang tersedia (SUPABASE_PG_URL_PROD, SUPABASE_PG_URL, maupun DATABASE_URL tidak diset). " +
+      "Tidak ada DB URL yang tersedia (SUPABASE_PG_URL maupun DATABASE_URL tidak diset). " +
       "Server tidak dapat terhubung ke database."
     );
-  } else if (pgUrlProd) {
-    const devProjectId = "xssrfshdrtdfupgqwfdw";
-    if (pgUrlProd.includes(devProjectId)) {
-      errors.push(
-        `SUPABASE_PG_URL_PROD mengandung project ID development (${devProjectId}). ` +
-        "Pastikan SUPABASE_PG_URL_PROD mengarah ke database production yang berbeda."
-      );
-    }
-    if (pgUrlProd.trimEnd() !== pgUrlProd) {
-      warnings.push("SUPABASE_PG_URL_PROD memiliki trailing whitespace — bisa menyebabkan koneksi gagal.");
+  } else if (pgUrl) {
+    if (pgUrl.trimEnd() !== pgUrl) {
+      warnings.push("SUPABASE_PG_URL memiliki trailing whitespace — bisa menyebabkan koneksi gagal.");
     }
   }
 

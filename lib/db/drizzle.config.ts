@@ -1,17 +1,21 @@
 import { defineConfig } from "drizzle-kit";
 import path from "path";
 
-let url =
-  process.env.SUPABASE_PG_URL ||
-  process.env.SUPABASE_DATABASE_URL ||
-  process.env.SUPABASE_DATABASE_URL_DEV ||
-  process.env.DATABASE_URL;
+const isProduction = (process.env["NODE_ENV"] ?? "development") === "production";
+
+let url = isProduction
+  ? (process.env["SUPABASE_PG_URL"] ?? process.env["DATABASE_URL"])
+  : (process.env["SUPABASE_PG_URL_DEV"] ?? process.env["DATABASE_URL"]);
 
 if (!url) {
-  throw new Error("SUPABASE_PG_URL or DATABASE_URL must be set");
+  throw new Error(
+    isProduction
+      ? "SUPABASE_PG_URL atau DATABASE_URL harus diset di production"
+      : "SUPABASE_PG_URL_DEV atau DATABASE_URL harus diset di development"
+  );
 }
 
-const isSupabase = url.includes("supabase");
+const isSupabase = url.includes("supabase") || url.includes("pooler");
 
 // drizzle-kit push requires session pooler (port 5432), not transaction pooler (port 6543)
 if (isSupabase && url.includes(":6543")) {

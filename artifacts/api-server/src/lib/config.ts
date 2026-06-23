@@ -1,11 +1,22 @@
-function required(key: string): string {
-  const value = process.env[key];
-  if (!value) throw new Error(`Environment variable "${key}" harus diset`);
-  return value;
-}
+const isProduction = (process.env["NODE_ENV"] ?? "development") === "production";
 
 function optional(key: string, fallback?: string): string | undefined {
   return process.env[key] ?? fallback;
+}
+
+function resolveDbUrl(): string {
+  if (isProduction) {
+    return (
+      process.env["SUPABASE_DATABASE_URL"] ??
+      process.env["DATABASE_URL"] ??
+      (() => { throw new Error("SUPABASE_DATABASE_URL atau DATABASE_URL harus diset di production"); })()
+    );
+  }
+  return (
+    process.env["SUPABASE_DATABASE_URL_DEV"] ??
+    process.env["DATABASE_URL"] ??
+    (() => { throw new Error("SUPABASE_DATABASE_URL_DEV atau DATABASE_URL harus diset di development"); })()
+  );
 }
 
 export const config = {
@@ -17,12 +28,7 @@ export const config = {
   logLevel: optional("LOG_LEVEL", "info") as string,
 
   db: {
-    url:
-      process.env["DATABASE_URL"] ??
-      process.env["SUPABASE_DATABASE_URL"] ??
-      (() => {
-        throw new Error("SUPABASE_DATABASE_URL atau DATABASE_URL harus diset");
-      })(),
+    url: resolveDbUrl(),
   },
 
   auth: {

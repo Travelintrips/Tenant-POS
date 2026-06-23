@@ -2,19 +2,18 @@ const isProduction = (process.env["NODE_ENV"] ?? "development") === "production"
 
 function resolveDbUrl(): string {
   if (isProduction) {
-    // Production (Cloud Run): pakai SUPABASE_PG_URL_PROD
+    // Production: SUPABASE_PG_URL → DATABASE_URL
     return (
-      process.env["SUPABASE_PG_URL_PROD"] ??
+      process.env["SUPABASE_PG_URL"] ??
       process.env["DATABASE_URL"] ??
-      (() => { throw new Error("SUPABASE_PG_URL_PROD harus diset di production"); })()
+      (() => { throw new Error("SUPABASE_PG_URL harus diset di production"); })()
     );
   }
-  // Development (Replit): pakai SUPABASE_PG_URL_DEV (project Supabase dev = xssrfshdrtdfupgqwfdw)
-  // fallback ke local postgres jika tidak diset
+  // Development: SUPABASE_PG_URL_DEV → DATABASE_URL
   return (
     process.env["SUPABASE_PG_URL_DEV"] ??
     process.env["DATABASE_URL"] ??
-    (() => { throw new Error("SUPABASE_PG_URL_DEV atau DATABASE_URL harus diset"); })()
+    (() => { throw new Error("SUPABASE_PG_URL_DEV atau DATABASE_URL harus diset di development"); })()
   );
 }
 
