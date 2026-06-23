@@ -2486,6 +2486,94 @@ ON CONFLICT (code) DO NOTHING;
   `.trim(),
 },
 {
+  name: "0060_seed_accounting_journals_per_company",
+  sql: `
+-- Seed COA 1-1001 (Kas dan Bank) untuk setiap company yang belum punya
+-- Gunakan text bebas jika kolom account_type ada, atau enum jika kolom type adalah enum
+INSERT INTO chart_of_accounts (company_id, code, name, account_type)
+SELECT c.id, '1-1001', 'Kas dan Bank', 'kas'
+FROM companies c
+WHERE NOT EXISTS (
+  SELECT 1 FROM chart_of_accounts WHERE company_id = c.id AND code = '1-1001'
+)
+AND EXISTS (
+  SELECT 1 FROM information_schema.columns
+  WHERE table_name = 'chart_of_accounts' AND column_name = 'account_type'
+);
+
+-- Seed journal Kas (cash) per company
+INSERT INTO accounting_journals (company_id, code, name, journal_type, default_debit_account_id)
+SELECT
+  c.id,
+  'CSH-' || c.code,
+  'Jurnal Kas ' || c.code,
+  'cash',
+  (SELECT id FROM chart_of_accounts WHERE company_id = c.id AND code = '1-1001')
+FROM companies c
+WHERE NOT EXISTS (
+  SELECT 1 FROM accounting_journals WHERE code = 'CSH-' || c.code
+)
+AND EXISTS (
+  SELECT 1 FROM information_schema.columns
+  WHERE table_name = 'accounting_journals' AND column_name = 'journal_type'
+)
+ON CONFLICT DO NOTHING;
+
+-- Seed journal Bank per company
+INSERT INTO accounting_journals (company_id, code, name, journal_type, default_debit_account_id)
+SELECT
+  c.id,
+  'BNK-' || c.code,
+  'Jurnal Bank ' || c.code,
+  'bank',
+  (SELECT id FROM chart_of_accounts WHERE company_id = c.id AND code = '1-1001')
+FROM companies c
+WHERE NOT EXISTS (
+  SELECT 1 FROM accounting_journals WHERE code = 'BNK-' || c.code
+)
+AND EXISTS (
+  SELECT 1 FROM information_schema.columns
+  WHERE table_name = 'accounting_journals' AND column_name = 'journal_type'
+)
+ON CONFLICT DO NOTHING;
+
+-- Untuk DB lokal (heliumdb) yang pakai kolom type bukan journal_type
+INSERT INTO accounting_journals (company_id, code, name, type, default_debit_account_id)
+SELECT
+  c.id,
+  'CSH-' || c.code,
+  'Jurnal Kas ' || c.code,
+  'cash',
+  (SELECT id FROM chart_of_accounts WHERE company_id = c.id AND code = '1-1001')
+FROM companies c
+WHERE NOT EXISTS (
+  SELECT 1 FROM accounting_journals WHERE code = 'CSH-' || c.code
+)
+AND NOT EXISTS (
+  SELECT 1 FROM information_schema.columns
+  WHERE table_name = 'accounting_journals' AND column_name = 'journal_type'
+)
+ON CONFLICT DO NOTHING;
+
+INSERT INTO accounting_journals (company_id, code, name, type, default_debit_account_id)
+SELECT
+  c.id,
+  'BNK-' || c.code,
+  'Jurnal Bank ' || c.code,
+  'bank',
+  (SELECT id FROM chart_of_accounts WHERE company_id = c.id AND code = '1-1001')
+FROM companies c
+WHERE NOT EXISTS (
+  SELECT 1 FROM accounting_journals WHERE code = 'BNK-' || c.code
+)
+AND NOT EXISTS (
+  SELECT 1 FROM information_schema.columns
+  WHERE table_name = 'accounting_journals' AND column_name = 'journal_type'
+)
+ON CONFLICT DO NOTHING;
+  `.trim(),
+},
+{
   name: "0058_system_settings_fix",
   sql: `
 -- Pastikan tabel system_settings punya kolom value (jsonb) — fix untuk DB DEV

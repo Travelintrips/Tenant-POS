@@ -110,8 +110,10 @@ export async function postTenantPaymentAccountingEntry(
     }
 
     // --- Generate entry_number sequential ---
+    // Gunakan full journalCode sebagai prefix agar unique antar company
+    // e.g. "CSH-CST/2026/0001", bukan "CSH/2026/0001" (bisa collision antar company)
     const year = transactionDate.getFullYear();
-    const journalPrefix = journalCode.split("-")[0]; // "CSH" dari "CSH-CST"
+    const journalPrefix = journalCode; // e.g. "CSH-CST" (full code, bukan split)
     const likePattern = `${journalPrefix}/${year}/%`;
 
     const maxRow = await db.execute(sql`
