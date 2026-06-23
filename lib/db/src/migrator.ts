@@ -2460,14 +2460,48 @@ INSERT INTO companies (code, name, company_name) VALUES
   ('CST', 'Mall Admin', 'Mall Admin')
 ON CONFLICT (code) DO NOTHING;
 
--- Upsert COA
-INSERT INTO chart_of_accounts (company_id, code, name, account_type)
-SELECT id, '1-1001', 'Kas dan Bank', 'kas' FROM companies WHERE code='CST'
-ON CONFLICT (company_id, code) DO NOTHING;
+-- Upsert COA (gunakan DO block agar kompatibel dengan DB yang punya kolom type NOT NULL)
+DO $$
+DECLARE
+  has_type_col boolean;
+  cst_id integer;
+BEGIN
+  SELECT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'chart_of_accounts' AND column_name = 'type'
+  ) INTO has_type_col;
 
-INSERT INTO chart_of_accounts (company_id, code, name, account_type)
-SELECT id, '4-1010-CST', 'Pendapatan Sewa Tenant', 'pendapatan' FROM companies WHERE code='CST'
-ON CONFLICT (company_id, code) DO NOTHING;
+  SELECT id INTO cst_id FROM companies WHERE code = 'CST';
+  IF cst_id IS NULL THEN RETURN; END IF;
+
+  IF has_type_col THEN
+    IF NOT EXISTS (SELECT 1 FROM chart_of_accounts WHERE company_id = cst_id AND code = '1-1001') THEN
+      EXECUTE format(
+        'INSERT INTO chart_of_accounts (company_id, code, name, type, account_type) VALUES (%L, %L, %L, %L, %L)',
+        cst_id, '1-1001', 'Kas dan Bank', 'asset', 'kas'
+      );
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM chart_of_accounts WHERE company_id = cst_id AND code = '4-1010-CST') THEN
+      EXECUTE format(
+        'INSERT INTO chart_of_accounts (company_id, code, name, type, account_type) VALUES (%L, %L, %L, %L, %L)',
+        cst_id, '4-1010-CST', 'Pendapatan Sewa Tenant', 'revenue', 'pendapatan'
+      );
+    END IF;
+  ELSE
+    IF NOT EXISTS (SELECT 1 FROM chart_of_accounts WHERE company_id = cst_id AND code = '1-1001') THEN
+      EXECUTE format(
+        'INSERT INTO chart_of_accounts (company_id, code, name, account_type) VALUES (%L, %L, %L, %L)',
+        cst_id, '1-1001', 'Kas dan Bank', 'kas'
+      );
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM chart_of_accounts WHERE company_id = cst_id AND code = '4-1010-CST') THEN
+      EXECUTE format(
+        'INSERT INTO chart_of_accounts (company_id, code, name, account_type) VALUES (%L, %L, %L, %L)',
+        cst_id, '4-1010-CST', 'Pendapatan Sewa Tenant', 'pendapatan'
+      );
+    END IF;
+  END IF;
+END $$;
 
 -- Upsert journals
 INSERT INTO accounting_journals (company_id, code, name, type, default_debit_account_id)
@@ -2489,16 +2523,44 @@ ON CONFLICT (code) DO NOTHING;
   name: "0060_seed_accounting_journals_per_company",
   sql: `
 -- Seed COA 1-1001 (Kas dan Bank) untuk setiap company yang belum punya
-INSERT INTO chart_of_accounts (company_id, code, name, account_type)
-SELECT c.id, '1-1001', 'Kas dan Bank', 'kas'
-FROM companies c
-WHERE NOT EXISTS (
-  SELECT 1 FROM chart_of_accounts WHERE company_id = c.id AND code = '1-1001'
-)
-AND EXISTS (
-  SELECT 1 FROM information_schema.columns
-  WHERE table_name = 'chart_of_accounts' AND column_name = 'account_type'
-);
+-- Gunakan DO block agar kompatibel dengan tabel yang punya kolom type (NOT NULL) dan/atau account_type
+DO $$
+DECLARE
+  has_account_type boolean;
+  has_type_col boolean;
+  c_rec record;
+BEGIN
+  SELECT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'chart_of_accounts' AND column_name = 'account_type'
+  ) INTO has_account_type;
+
+  SELECT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'chart_of_accounts' AND column_name = 'type'
+  ) INTO has_type_col;
+
+  FOR c_rec IN SELECT id FROM companies LOOP
+    IF NOT EXISTS (SELECT 1 FROM chart_of_accounts WHERE company_id = c_rec.id AND code = '1-1001') THEN
+      IF has_account_type AND has_type_col THEN
+        EXECUTE format(
+          'INSERT INTO chart_of_accounts (company_id, code, name, type, account_type) VALUES (%L, %L, %L, %L, %L) ON CONFLICT DO NOTHING',
+          c_rec.id, '1-1001', 'Kas dan Bank', 'asset', 'kas'
+        );
+      ELSIF has_account_type THEN
+        EXECUTE format(
+          'INSERT INTO chart_of_accounts (company_id, code, name, account_type) VALUES (%L, %L, %L, %L) ON CONFLICT DO NOTHING',
+          c_rec.id, '1-1001', 'Kas dan Bank', 'kas'
+        );
+      ELSIF has_type_col THEN
+        EXECUTE format(
+          'INSERT INTO chart_of_accounts (company_id, code, name, type) VALUES (%L, %L, %L, %L) ON CONFLICT DO NOTHING',
+          c_rec.id, '1-1001', 'Kas dan Bank', 'asset'
+        );
+      END IF;
+    END IF;
+  END LOOP;
+END $$;
 
 -- Seed journals menggunakan DO block agar tidak gagal saat parse
 -- (kolom bisa 'type' atau 'journal_type' tergantung DB)
