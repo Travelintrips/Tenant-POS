@@ -1265,7 +1265,26 @@ export default function DrafPerjanjian() {
   const [editDraft, setEditDraft] = useState<DraftAgreement | null>(null);
   const [editForm, setEditForm] = useState<CreateForm>(BLANK_FORM);
   const [kirimLinkWaPhone, setKirimLinkWaPhone] = useState("");
+  const [kirimLinkWaTouched, setKirimLinkWaTouched] = useState(false);
   const [showBlastHistory, setShowBlastHistory] = useState(false);
+
+  // ── Helpers validasi nomor WA ──────────────────────────────────────────────
+  const normalizePhone = (raw: string): string => {
+    const digits = raw.replace(/\D/g, "");
+    if (digits.startsWith("0")) return "62" + digits.slice(1);
+    if (digits.startsWith("8")) return "62" + digits;
+    return digits;
+  };
+  const phoneError = (() => {
+    if (!kirimLinkWaPhone.trim()) return "Nomor WA wajib diisi";
+    const normalized = normalizePhone(kirimLinkWaPhone);
+    if (!normalized.startsWith("62")) return "Nomor harus diawali 62, 08, atau 8";
+    if (normalized.length < 10) return "Nomor terlalu pendek (min 10 digit)";
+    if (normalized.length > 15) return "Nomor terlalu panjang (maks 15 digit)";
+    return null;
+  })();
+  const phoneIsValid = phoneError === null;
+  const phoneNormalized = phoneIsValid ? normalizePhone(kirimLinkWaPhone) : null;
 
   // ── Build API query string ─────────────────────────────────────────────────
   const apiQs = new URLSearchParams();
@@ -1455,8 +1474,9 @@ export default function DrafPerjanjian() {
       return body;
     },
     onSuccess: () => {
-      toast({ title: "WA terkirim!", description: `Link pendaftaran berhasil dikirim ke ${kirimLinkWaPhone}` });
+      toast({ title: "WA terkirim!", description: `Link pendaftaran berhasil dikirim ke ${phoneNormalized ?? kirimLinkWaPhone}` });
       setKirimLinkWaPhone("");
+      setKirimLinkWaTouched(false);
       qc.invalidateQueries({ queryKey: ["link-wa-log"] });
     },
     onError: (err: Error) => {
@@ -1712,33 +1732,53 @@ export default function DrafPerjanjian() {
               </div>
             </div>
             {/* Kirim WA langsung */}
-            <div className="flex items-center gap-2 pt-1 border-t border-blue-200">
-              <MessageSquare className="h-4 w-4 text-blue-600 shrink-0" />
-              <div className="relative flex-1">
-                <Phone className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-blue-400" />
-                <Input
-                  className="h-8 text-xs pl-8 bg-white border-blue-200 focus:border-blue-400"
-                  placeholder="Nomor WA tujuan (cth: 628123456789)"
-                  value={kirimLinkWaPhone}
-                  onChange={(e) => setKirimLinkWaPhone(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" && kirimLinkWaPhone.trim() && !kirimLinkWaMutation.isPending) {
-                      kirimLinkWaMutation.mutate(kirimLinkWaPhone.trim());
-                    }
+            <div className="space-y-1 pt-1 border-t border-blue-200">
+              <div className="flex items-center gap-2">
+                <MessageSquare className="h-4 w-4 text-blue-600 shrink-0" />
+                <div className="relative flex-1">
+                  <Phone className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-blue-400" />
+                  <Input
+                    className={`h-8 text-xs pl-8 bg-white focus:border-blue-400 ${kirimLinkWaTouched && !phoneIsValid ? "border-red-400 focus:border-red-500" : "border-blue-200"}`}
+                    placeholder="Nomor WA tujuan (cth: 628123456789 / 08xxx)"
+                    value={kirimLinkWaPhone}
+                    onChange={(e) => {
+                      setKirimLinkWaPhone(e.target.value);
+                      setKirimLinkWaTouched(true);
+                    }}
+                    onBlur={() => {
+                      setKirimLinkWaTouched(true);
+                      if (kirimLinkWaPhone.trim() && phoneIsValid && phoneNormalized) {
+                        setKirimLinkWaPhone(phoneNormalized);
+                      }
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && phoneIsValid && !kirimLinkWaMutation.isPending) {
+                        kirimLinkWaMutation.mutate(phoneNormalized!);
+                      }
+                    }}
+                  />
+                </div>
+                <Button
+                  size="sm"
+                  className="h-8 gap-1.5 shrink-0 bg-green-600 hover:bg-green-700 text-white disabled:opacity-50"
+                  disabled={kirimLinkWaMutation.isPending || !phoneIsValid}
+                  onClick={() => {
+                    setKirimLinkWaTouched(true);
+                    if (phoneIsValid && phoneNormalized) kirimLinkWaMutation.mutate(phoneNormalized);
                   }}
-                />
+                >
+                  <Send className="h-3.5 w-3.5" />
+                  {kirimLinkWaMutation.isPending ? "Mengirim..." : "Kirim WA"}
+                </Button>
               </div>
-              <Button
-                size="sm"
-                className="h-8 gap-1.5 shrink-0 bg-green-600 hover:bg-green-700 text-white"
-                disabled={kirimLinkWaMutation.isPending || !kirimLinkWaPhone.trim()}
-                onClick={() => kirimLinkWaMutation.mutate(kirimLinkWaPhone.trim())}
-              >
-                <Send className="h-3.5 w-3.5" />
-                {kirimLinkWaMutation.isPending ? "Mengirim..." : "Kirim WA"}
-              </Button>
+              {kirimLinkWaTouched && !phoneIsValid && kirimLinkWaPhone.trim() ? (
+                <p className="text-xs text-red-500 pl-6">{phoneError}</p>
+              ) : phoneIsValid && phoneNormalized && phoneNormalized !== kirimLinkWaPhone ? (
+                <p className="text-xs text-green-600 pl-6">Akan dikirim ke: <strong>{phoneNormalized}</strong></p>
+              ) : (
+                <p className="text-xs text-blue-500">Masukkan nomor WA calon tenant dan klik <strong>Kirim WA</strong> — link formulir pendaftaran akan langsung dikirim.</p>
+              )}
             </div>
-            <p className="text-xs text-blue-500">Masukkan nomor WA calon tenant dan klik <strong>Kirim WA</strong> — link formulir pendaftaran akan langsung dikirim.</p>
             {/* Riwayat pengiriman link WA */}
             {linkWaLogQuery.data && linkWaLogQuery.data.length > 0 && (
               <div className="pt-2 border-t border-blue-200">
