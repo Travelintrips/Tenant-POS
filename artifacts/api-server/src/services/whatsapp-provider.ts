@@ -6,11 +6,11 @@ export interface SendOtpResult {
 }
 
 async function sendViaFonnte(phoneNumber: string, otp: string): Promise<SendOtpResult> {
-  const apiKey = process.env.FONNTE_API_KEY;
+  const apiKey = process.env.FONNTE_API_KEY ?? process.env.FONNTE_TOKEN;
   const sender = process.env.FONNTE_SENDER ?? "";
 
   if (!apiKey) {
-    return { sent: false, error: "FONNTE_API_KEY tidak dikonfigurasi" };
+    return { sent: false, error: "FONNTE_API_KEY atau FONNTE_TOKEN tidak dikonfigurasi" };
   }
 
   const message = `Kode OTP Portal Admin Mall Anda: *${otp}*\n\nBerlaku ${process.env.OTP_EXPIRY_MINUTES ?? "5"} menit. Jangan bagikan kode ini kepada siapapun.`;
@@ -47,26 +47,18 @@ export async function sendOtpWhatsapp(
   phoneNumber: string,
   otp: string,
 ): Promise<SendOtpResult> {
-  const isProduction = process.env.NODE_ENV === "production";
-
-  if (!isProduction) {
-    logger.info({ phoneNumber }, "[whatsapp-provider] Dev mode — OTP tidak dikirim via WA");
-    return { sent: true };
-  }
-
   if (!otp) {
     logger.error("[whatsapp-provider] OTP kosong — tidak dikirim");
     return { sent: false, error: "OTP tidak boleh kosong" };
   }
 
-  if (process.env.FONNTE_API_KEY) {
-    return sendViaFonnte(phoneNumber, otp);
+  const hasToken = !!(process.env.FONNTE_API_KEY ?? process.env.FONNTE_TOKEN);
+
+  if (!hasToken) {
+    // Tidak ada token → skip (dev tanpa Fonnte)
+    logger.info({ phoneNumber }, "[whatsapp-provider] Tidak ada FONNTE token — OTP tidak dikirim via WA");
+    return { sent: true };
   }
 
-  logger.error("[whatsapp-provider] Tidak ada provider WhatsApp yang dikonfigurasi untuk production");
-  return {
-    sent: false,
-    error:
-      "Provider WhatsApp belum dikonfigurasi. Set FONNTE_API_KEY untuk mengaktifkan pengiriman OTP.",
-  };
+  return sendViaFonnte(phoneNumber, otp);
 }
