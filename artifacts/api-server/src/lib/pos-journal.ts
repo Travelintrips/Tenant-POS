@@ -92,7 +92,7 @@ export async function postPosPaymentJournal(
     VALUES
       (${entryNumber}, ${journalDbId}, ${transactionDateStr}::date,
        ${opts.receiptNumber}, ${description}, 'draft',
-       ${opts.sourceApp ?? "tenant_pos"},
+       ${opts.sourceApp ?? "tenant_rent_payment"},
        ${srcModule}, ${"tenant_payments"}, ${opts.paymentId},
        ${opts.amountPaid}, ${opts.amountPaid},
        ${companyId}, ${correlationId}, NOW())
