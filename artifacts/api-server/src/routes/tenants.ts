@@ -3,7 +3,7 @@ import { db } from "@workspace/db";
 import {
   tenantsTable, insertTenantSchema,
   tenantBookingsTable, tenantInvoicesTable, tenantPaymentsTable, mallSitesTable,
-  financePaymentEventsTable, tenantUserAccessTable,
+  financePaymentEventsTable, tenantUserAccessTable, mallUnitsTable,
 } from "@workspace/db/schema";
 import { eq, asc, desc, and, inArray, sql } from "drizzle-orm";
 import { requireAnyRole } from "../middlewares/auth";
@@ -191,6 +191,43 @@ router.put("/tenants/:id", async (req, res) => {
       res.status(404).json({ error: "Tenant tidak ditemukan" });
       return;
     }
+
+    // Sync harga sewa ke mall_units jika defaultRentAmount berubah
+    const oldRent = before?.defaultRentAmount ?? "0";
+    const newRent = parsed.data.defaultRentAmount ?? "0";
+    if (newRent !== oldRent && Number(newRent) > 0) {
+      try {
+        // Cari booking aktif tenant ini untuk mendapat unit_code
+        const [activeBooking] = await db
+          .select({ unitCode: tenantBookingsTable.unitCode, siteId: tenantBookingsTable.siteId })
+          .from(tenantBookingsTable)
+          .where(
+            and(
+              eq(tenantBookingsTable.tenantId, id),
+              inArray(tenantBookingsTable.contractStatus, ["active", "aktif", "expiring_soon"]),
+            ),
+          )
+          .orderBy(desc(tenantBookingsTable.id))
+          .limit(1);
+
+        if (activeBooking?.unitCode) {
+          const unitSiteId = activeBooking.siteId ?? tenant.siteId;
+          const conditions = [eq(mallUnitsTable.unitCode, activeBooking.unitCode)];
+          if (unitSiteId && unitSiteId > 0) {
+            conditions.push(eq(mallUnitsTable.siteId, unitSiteId));
+          }
+          await db
+            .update(mallUnitsTable)
+            .set({ defaultRentAmount: newRent, updatedAt: new Date() })
+            .where(and(...conditions));
+          sseBroker.publish("unit_updated", { unitCode: activeBooking.unitCode });
+        }
+      } catch (syncErr) {
+        // Sync gagal tidak membatalkan update tenant
+        req.log.warn(syncErr, "Gagal sync harga sewa ke mall_units");
+      }
+    }
+
     logAudit(req, {
       action: "update_tenant",
       entityType: "tenant",
