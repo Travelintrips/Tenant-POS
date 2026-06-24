@@ -779,7 +779,7 @@ router.post("/tenant-pos/payments", paymentRateLimiter, async (req, res) => {
           paymentMethod,
           transactionDate: new Date(paidAt),
           receiptNumber: result.receiptNumber,
-          sourceModule: "tenant_pos",
+          sourceModule: "tenant_rent_payment",
         }).catch((err) => {
           logger.error({ err, paymentId }, "[pos] Gagal posting accounting_entry — non-fatal");
         });

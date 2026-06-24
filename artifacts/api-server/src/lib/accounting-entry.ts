@@ -1,5 +1,6 @@
 import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
+import { logger } from "./logger";
 
 interface AccountingEntryParams {
   paymentId: number;
@@ -78,7 +79,7 @@ export async function postTenantPaymentAccountingEntry(
     `);
     const journal = (journalRow as any).rows?.[0];
     if (!journal) {
-      console.warn(
+      logger.warn(
         `[accounting_entry] Tidak ada journal type="${journalType}" untuk company_id=${companyId}`
       );
       return;
@@ -103,7 +104,7 @@ export async function postTenantPaymentAccountingEntry(
     const creditAccountCode: string = (coaRow as any).rows?.[0]?.code ?? "?";
 
     if (!creditAccountId) {
-      console.warn(
+      logger.warn(
         `[accounting_entry] COA pendapatan '4-1010-%' tidak ditemukan untuk company_id=${companyId}, skip`
       );
       return;
@@ -155,7 +156,7 @@ export async function postTenantPaymentAccountingEntry(
         ? Number((entryResult as any).rows[0].id)
         : null;
     if (!entryId) {
-      console.warn("[accounting_entry] Insert accounting_entries gagal (tidak ada RETURNING id)");
+      logger.warn("[accounting_entry] Insert accounting_entries gagal (tidak ada RETURNING id)");
       return;
     }
 
@@ -182,6 +183,6 @@ export async function postTenantPaymentAccountingEntry(
     );
   } catch (err) {
     // Non-critical — jangan block payment flow utama
-    console.error("[accounting_entry] Gagal posting ke accounting_entries:", err);
+    logger.error({ err }, "[accounting_entry] Gagal posting ke accounting_entries");
   }
 }
