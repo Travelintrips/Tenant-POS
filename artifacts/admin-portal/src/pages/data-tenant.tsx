@@ -27,7 +27,7 @@ import {
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, Pencil, Trash2, Search, Upload, X, ImageIcon, Building2, Dumbbell, Eye, CalendarClock, Download, Filter, Tag, Check, ChevronsUpDown, DoorOpen, ChevronDown, ChevronUp } from "lucide-react";
+import { Plus, Pencil, Trash2, Search, Upload, X, ImageIcon, Building2, Dumbbell, Eye, CalendarClock, Download, Filter, Tag, Check, ChevronsUpDown, DoorOpen, ChevronDown, ChevronUp, Sheet, RefreshCw, AlertCircle, ArrowDownToLine, ArrowUpFromLine, Settings2 } from "lucide-react";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
@@ -247,6 +247,94 @@ async function bulkDeleteTenants(ids: number[]): Promise<{ deleted: number }> {
   return res.json() as Promise<{ deleted: number }>;
 }
 
+type SheetSyncConfig = {
+  enabled: boolean;
+  spreadsheetId: string;
+  sheetName: string;
+  intervalMinutes: number;
+  lastSyncAt?: string;
+  lastSyncResult?: { success: boolean; newRows: number; totalRows: number; error?: string | null; at: string };
+};
+
+type PreviewTenantRow = {
+  businessName: string;
+  ownerName: string;
+  phone: string | null;
+  email: string | null;
+  category: string | null;
+  boothNumber: string | null;
+  areaName: string;
+  status: string;
+  defaultRentAmount: string;
+  contractStartDate: string | null;
+  contractEndDate: string | null;
+  notes: string | null;
+  isNew: boolean;
+};
+
+async function fetchSheetSyncConfig(): Promise<SheetSyncConfig> {
+  const res = await apiFetch(`${BASE}/api/tenant-sheet-sync/config`, { credentials: "include" });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json() as Promise<SheetSyncConfig>;
+}
+
+async function fetchSheetSyncInfo(): Promise<{ serviceAccountEmail: string }> {
+  const res = await apiFetch(`${BASE}/api/tenant-sheet-sync/info`, { credentials: "include" });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json() as Promise<{ serviceAccountEmail: string }>;
+}
+
+async function previewFromSheet(spreadsheetId: string, sheetName: string): Promise<{ tenants: PreviewTenantRow[]; totalRows: number }> {
+  const res = await apiFetch(`${BASE}/api/tenant-sheet-sync/preview`, {
+    method: "POST", credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ spreadsheetId, sheetName }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error((err as { error?: string }).error ?? "Gagal membaca sheet");
+  }
+  return res.json() as Promise<{ tenants: PreviewTenantRow[]; totalRows: number }>;
+}
+
+async function importFromSheet(spreadsheetId: string, sheetName: string, mode: "upsert" | "insert_only"): Promise<{ inserted: number; updated: number; skipped: number; totalRows: number }> {
+  const res = await apiFetch(`${BASE}/api/tenant-sheet-sync/import`, {
+    method: "POST", credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ spreadsheetId, sheetName, mode }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error((err as { error?: string }).error ?? "Gagal mengimpor data");
+  }
+  return res.json() as Promise<{ inserted: number; updated: number; skipped: number; totalRows: number }>;
+}
+
+async function exportToSheet(spreadsheetId: string, sheetTitle?: string): Promise<{ exported: number }> {
+  const res = await apiFetch(`${BASE}/api/tenant-sheet-sync/export`, {
+    method: "POST", credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ spreadsheetId, sheetTitle }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error((err as { error?: string }).error ?? "Gagal mengekspor data");
+  }
+  return res.json() as Promise<{ exported: number }>;
+}
+
+async function saveSheetSyncConfig(config: Partial<SheetSyncConfig>): Promise<void> {
+  const res = await apiFetch(`${BASE}/api/tenant-sheet-sync/config`, {
+    method: "POST", credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(config),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error((err as { error?: string }).error ?? "Gagal menyimpan konfigurasi");
+  }
+}
+
 async function uploadLogoFile(file: File): Promise<string> {
   const fd = new FormData();
   fd.append("file", file);
@@ -284,6 +372,19 @@ export default function DataTenant() {
   // ─── Bulk selection state ────────────────────────────────────────────────────
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
+
+  // ─── Google Sheets Sync state ─────────────────────────────────────────────
+  const [sheetSyncOpen, setSheetSyncOpen] = useState(false);
+  const [sheetSyncTab, setSheetSyncTab] = useState<"import" | "export" | "config">("import");
+  const [sheetId, setSheetId] = useState("");
+  const [sheetName, setSheetName] = useState("");
+  const [exportSheetId, setExportSheetId] = useState("");
+  const [importMode, setImportMode] = useState<"upsert" | "insert_only">("upsert");
+  const [previewData, setPreviewData] = useState<PreviewTenantRow[] | null>(null);
+  const [isPreviewing, setIsPreviewing] = useState(false);
+  const [configForm, setConfigForm] = useState<SheetSyncConfig>({
+    enabled: false, spreadsheetId: "", sheetName: "", intervalMinutes: 30,
+  });
 
   const { data: tenants, isLoading, isError } = useQuery<Tenant[]>({
     queryKey: ["/api/tenants"],
@@ -379,6 +480,65 @@ export default function DataTenant() {
       setBulkDeleteOpen(false);
     },
   });
+
+  const { data: sheetSyncConfig } = useQuery<SheetSyncConfig>({
+    queryKey: ["/api/tenant-sheet-sync/config"],
+    queryFn: fetchSheetSyncConfig,
+    enabled: sheetSyncOpen,
+  });
+
+  const { data: sheetSyncInfo } = useQuery<{ serviceAccountEmail: string }>({
+    queryKey: ["/api/tenant-sheet-sync/info"],
+    queryFn: fetchSheetSyncInfo,
+    enabled: sheetSyncOpen,
+  });
+
+  const importMutation = useMutation({
+    mutationFn: ({ spreadsheetId, sheetName: sn, mode }: { spreadsheetId: string; sheetName: string; mode: "upsert" | "insert_only" }) =>
+      importFromSheet(spreadsheetId, sn, mode),
+    onSuccess: (result) => {
+      invalidateAll();
+      setPreviewData(null);
+      toast({
+        title: "Import Selesai",
+        description: `${result.inserted} tenant baru ditambahkan, ${result.updated} diperbarui, ${result.skipped} dilewati dari total ${result.totalRows} baris.`,
+      });
+    },
+    onError: (e: Error) => toast({ title: "Gagal Import", description: e.message, variant: "destructive" }),
+  });
+
+  const exportMutation = useMutation({
+    mutationFn: ({ spreadsheetId: sid, sheetTitle }: { spreadsheetId: string; sheetTitle?: string }) =>
+      exportToSheet(sid, sheetTitle),
+    onSuccess: (result) => {
+      toast({ title: "Export Selesai", description: `${result.exported} tenant berhasil diekspor ke Google Sheets.` });
+    },
+    onError: (e: Error) => toast({ title: "Gagal Export", description: e.message, variant: "destructive" }),
+  });
+
+  const saveConfigMutation = useMutation({
+    mutationFn: saveSheetSyncConfig,
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["/api/tenant-sheet-sync/config"] });
+      toast({ title: "Konfigurasi Disimpan", description: "Auto-sync Google Sheets berhasil dikonfigurasi." });
+    },
+    onError: (e: Error) => toast({ title: "Gagal", description: e.message, variant: "destructive" }),
+  });
+
+  async function handlePreview() {
+    if (!sheetId) { toast({ title: "ID Sheet wajib diisi", variant: "destructive" }); return; }
+    setIsPreviewing(true);
+    setPreviewData(null);
+    try {
+      const result = await previewFromSheet(sheetId, sheetName);
+      setPreviewData(result.tenants);
+      if (result.tenants.length === 0) toast({ title: "Tidak ada data", description: "Sheet kosong atau tidak ada baris yang valid." });
+    } catch (e: unknown) {
+      toast({ title: "Gagal Preview", description: (e as Error).message, variant: "destructive" });
+    } finally {
+      setIsPreviewing(false);
+    }
+  }
 
   function openAdd() {
     setEditTarget(null);
@@ -836,6 +996,26 @@ export default function DataTenant() {
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-9 gap-1.5 text-green-700 border-green-300 hover:bg-green-50"
+                onClick={() => {
+                  setSheetSyncOpen(true);
+                  setPreviewData(null);
+                  if (sheetSyncConfig) {
+                    setSheetId(sheetSyncConfig.spreadsheetId ?? "");
+                    setSheetName(sheetSyncConfig.sheetName ?? "");
+                    setConfigForm(sheetSyncConfig);
+                  }
+                }}
+              >
+                <Sheet className="h-4 w-4" />
+                Sheets Sync
+                {sheetSyncConfig?.enabled && (
+                  <span className="ml-0.5 h-1.5 w-1.5 rounded-full bg-green-500" />
+                )}
+              </Button>
             </div>
           </div>
         </CardHeader>
@@ -1385,6 +1565,280 @@ export default function DataTenant() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* ── Google Sheets Sync Dialog ──────────────────────────────── */}
+      <Dialog open={sheetSyncOpen} onOpenChange={(o) => { setSheetSyncOpen(o); if (!o) setPreviewData(null); }}>
+        <DialogContent className="max-w-2xl max-h-[90vh] flex flex-col">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Sheet className="h-5 w-5 text-green-600" />
+              Sinkronisasi Google Sheets
+            </DialogTitle>
+          </DialogHeader>
+
+          {/* Tab switcher */}
+          <div className="flex gap-1 border-b pb-2">
+            {(["import", "export", "config"] as const).map((tab) => (
+              <button
+                key={tab}
+                onClick={() => setSheetSyncTab(tab)}
+                className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+                  sheetSyncTab === tab
+                    ? "bg-primary text-primary-foreground"
+                    : "text-muted-foreground hover:text-foreground hover:bg-muted"
+                }`}
+              >
+                {tab === "import" && <span className="flex items-center gap-1.5"><ArrowDownToLine className="h-3.5 w-3.5" />Import</span>}
+                {tab === "export" && <span className="flex items-center gap-1.5"><ArrowUpFromLine className="h-3.5 w-3.5" />Export</span>}
+                {tab === "config" && <span className="flex items-center gap-1.5"><Settings2 className="h-3.5 w-3.5" />Auto-Sync</span>}
+              </button>
+            ))}
+          </div>
+
+          <ScrollArea className="flex-1 min-h-0">
+            <div className="space-y-4 pr-2">
+
+              {/* ── Info service account ── */}
+              {sheetSyncInfo && (
+                <div className="rounded-md bg-blue-50 border border-blue-200 px-3 py-2 text-xs text-blue-700">
+                  <span className="font-medium">Bagikan spreadsheet ke:</span>{" "}
+                  <span className="font-mono select-all">{sheetSyncInfo.serviceAccountEmail}</span>
+                </div>
+              )}
+
+              {/* ─────────── TAB: IMPORT ─────────── */}
+              {sheetSyncTab === "import" && (
+                <div className="space-y-4">
+                  <div className="grid gap-3">
+                    <div>
+                      <Label className="text-xs font-medium">ID / URL Google Spreadsheet</Label>
+                      <Input
+                        className="mt-1 h-9"
+                        placeholder="https://docs.google.com/spreadsheets/d/... atau ID saja"
+                        value={sheetId}
+                        onChange={(e) => { setSheetId(e.target.value); setPreviewData(null); }}
+                      />
+                    </div>
+                    <div>
+                      <Label className="text-xs font-medium">Nama Sheet (opsional)</Label>
+                      <Input
+                        className="mt-1 h-9"
+                        placeholder='Kosong = sheet pertama, atau tulis mis. "Data Tenant"'
+                        value={sheetName}
+                        onChange={(e) => { setSheetName(e.target.value); setPreviewData(null); }}
+                      />
+                    </div>
+                    <div>
+                      <Label className="text-xs font-medium">Mode Import</Label>
+                      <Select value={importMode} onValueChange={(v) => setImportMode(v as "upsert" | "insert_only")}>
+                        <SelectTrigger className="mt-1 h-9">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="upsert">Upsert — tambah baru + perbarui yang sudah ada</SelectItem>
+                          <SelectItem value="insert_only">Insert only — hanya tambah tenant baru</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+
+                  <div className="text-xs text-muted-foreground bg-muted/40 rounded-md p-3 space-y-1">
+                    <p className="font-medium text-foreground">Format kolom yang dikenali:</p>
+                    <p>Baris pertama harus header. Kolom wajib: <strong>Nama Usaha</strong>, <strong>Nama Pemilik</strong>.</p>
+                    <p>Kolom opsional: No HP, Email, Kategori, Nomor Booth, Area, Status, Sewa Default (Rp), Mulai/Akhir Kontrak, Catatan.</p>
+                  </div>
+
+                  <div className="flex gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-9 gap-1.5"
+                      onClick={handlePreview}
+                      disabled={isPreviewing || !sheetId}
+                    >
+                      {isPreviewing ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Eye className="h-3.5 w-3.5" />}
+                      {isPreviewing ? "Membaca..." : "Preview"}
+                    </Button>
+                    {previewData && previewData.length > 0 && (
+                      <Button
+                        size="sm"
+                        className="h-9 gap-1.5 bg-green-600 hover:bg-green-700 text-white"
+                        onClick={() => importMutation.mutate({ spreadsheetId: sheetId, sheetName, mode: importMode })}
+                        disabled={importMutation.isPending}
+                      >
+                        {importMutation.isPending ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <ArrowDownToLine className="h-3.5 w-3.5" />}
+                        {importMutation.isPending ? "Mengimpor..." : `Import ${previewData.length} Tenant`}
+                      </Button>
+                    )}
+                  </div>
+
+                  {/* Preview table */}
+                  {previewData && previewData.length > 0 && (
+                    <div className="rounded-md border">
+                      <div className="px-3 py-2 border-b flex items-center justify-between bg-muted/30">
+                        <span className="text-xs font-medium">{previewData.length} baris ditemukan</span>
+                        <div className="flex gap-3 text-xs">
+                          <span className="text-green-600 font-medium">{previewData.filter((r) => r.isNew).length} baru</span>
+                          <span className="text-amber-600 font-medium">{previewData.filter((r) => !r.isNew).length} akan diperbarui</span>
+                        </div>
+                      </div>
+                      <div className="overflow-x-auto max-h-48">
+                        <table className="w-full text-xs">
+                          <thead className="bg-muted/50 sticky top-0">
+                            <tr>
+                              <th className="text-left px-3 py-1.5 font-medium text-muted-foreground">Status</th>
+                              <th className="text-left px-3 py-1.5 font-medium text-muted-foreground">Nama Usaha</th>
+                              <th className="text-left px-3 py-1.5 font-medium text-muted-foreground">Pemilik</th>
+                              <th className="text-left px-3 py-1.5 font-medium text-muted-foreground">No HP</th>
+                              <th className="text-left px-3 py-1.5 font-medium text-muted-foreground">Kategori</th>
+                              <th className="text-left px-3 py-1.5 font-medium text-muted-foreground">Booth</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y">
+                            {previewData.map((row, i) => (
+                              <tr key={i} className={row.isNew ? "bg-green-50/50" : "bg-amber-50/30"}>
+                                <td className="px-3 py-1.5">
+                                  <span className={`inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-medium border ${
+                                    row.isNew
+                                      ? "bg-green-100 text-green-700 border-green-200"
+                                      : "bg-amber-100 text-amber-700 border-amber-200"
+                                  }`}>
+                                    {row.isNew ? "Baru" : "Update"}
+                                  </span>
+                                </td>
+                                <td className="px-3 py-1.5 font-medium">{row.businessName}</td>
+                                <td className="px-3 py-1.5 text-muted-foreground">{row.ownerName}</td>
+                                <td className="px-3 py-1.5 text-muted-foreground">{row.phone ?? "—"}</td>
+                                <td className="px-3 py-1.5 text-muted-foreground">{row.category ?? "—"}</td>
+                                <td className="px-3 py-1.5 text-muted-foreground">{row.boothNumber ?? "—"}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+
+                  {previewData && previewData.length === 0 && (
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground bg-muted/30 rounded-md p-3">
+                      <AlertCircle className="h-4 w-4 shrink-0" />
+                      Tidak ada baris yang valid ditemukan di sheet ini.
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* ─────────── TAB: EXPORT ─────────── */}
+              {sheetSyncTab === "export" && (
+                <div className="space-y-4">
+                  <div className="grid gap-3">
+                    <div>
+                      <Label className="text-xs font-medium">ID / URL Google Spreadsheet</Label>
+                      <Input
+                        className="mt-1 h-9"
+                        placeholder="https://docs.google.com/spreadsheets/d/... atau ID saja"
+                        value={exportSheetId}
+                        onChange={(e) => setExportSheetId(e.target.value)}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="rounded-md bg-muted/40 border p-3 text-xs text-muted-foreground space-y-1">
+                    <p>Export akan menulis <strong>{tenants?.length ?? 0} tenant</strong> ke sheet bernama <strong>"Data Tenant"</strong> di spreadsheet yang dipilih.</p>
+                    <p>Jika sheet sudah ada, isinya akan ditimpa. Pastikan service account sudah diberi akses <strong>Editor</strong> ke spreadsheet.</p>
+                  </div>
+
+                  <Button
+                    size="sm"
+                    className="h-9 gap-1.5"
+                    onClick={() => exportMutation.mutate({ spreadsheetId: exportSheetId })}
+                    disabled={exportMutation.isPending || !exportSheetId || !tenants?.length}
+                  >
+                    {exportMutation.isPending ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <ArrowUpFromLine className="h-3.5 w-3.5" />}
+                    {exportMutation.isPending ? "Mengekspor..." : `Export ${tenants?.length ?? 0} Tenant ke Sheets`}
+                  </Button>
+                </div>
+              )}
+
+              {/* ─────────── TAB: CONFIG / AUTO-SYNC ─────────── */}
+              {sheetSyncTab === "config" && (
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between rounded-md border p-3">
+                    <div>
+                      <p className="text-sm font-medium">Auto-Sync Aktif</p>
+                      <p className="text-xs text-muted-foreground">Otomatis import tenant dari sheet setiap interval tertentu</p>
+                    </div>
+                    <button
+                      onClick={() => setConfigForm((c) => ({ ...c, enabled: !c.enabled }))}
+                      className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors focus-visible:outline-none ${
+                        configForm.enabled ? "bg-green-500" : "bg-gray-300"
+                      }`}
+                    >
+                      <span className={`pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow transition-transform ${configForm.enabled ? "translate-x-4" : "translate-x-0"}`} />
+                    </button>
+                  </div>
+
+                  <div className="grid gap-3">
+                    <div>
+                      <Label className="text-xs font-medium">ID / URL Google Spreadsheet</Label>
+                      <Input
+                        className="mt-1 h-9"
+                        placeholder="https://docs.google.com/spreadsheets/d/..."
+                        value={configForm.spreadsheetId}
+                        onChange={(e) => setConfigForm((c) => ({ ...c, spreadsheetId: e.target.value }))}
+                      />
+                    </div>
+                    <div>
+                      <Label className="text-xs font-medium">Nama Sheet</Label>
+                      <Input
+                        className="mt-1 h-9"
+                        placeholder='Kosong = sheet pertama, mis. "Data Tenant"'
+                        value={configForm.sheetName}
+                        onChange={(e) => setConfigForm((c) => ({ ...c, sheetName: e.target.value }))}
+                      />
+                    </div>
+                    <div>
+                      <Label className="text-xs font-medium">Interval Sync (menit)</Label>
+                      <Input
+                        type="number"
+                        min={5}
+                        max={1440}
+                        className="mt-1 h-9"
+                        value={configForm.intervalMinutes}
+                        onChange={(e) => setConfigForm((c) => ({ ...c, intervalMinutes: Number(e.target.value) }))}
+                      />
+                    </div>
+                  </div>
+
+                  {sheetSyncConfig?.lastSyncResult && (
+                    <div className={`rounded-md border px-3 py-2 text-xs ${sheetSyncConfig.lastSyncResult.success ? "bg-green-50 border-green-200 text-green-700" : "bg-red-50 border-red-200 text-red-700"}`}>
+                      <span className="font-medium">Sync terakhir:</span>{" "}
+                      {sheetSyncConfig.lastSyncResult.success
+                        ? `Berhasil — ${sheetSyncConfig.lastSyncResult.newRows} tenant baru dari ${sheetSyncConfig.lastSyncResult.totalRows} baris`
+                        : `Gagal — ${sheetSyncConfig.lastSyncResult.error}`}
+                      {sheetSyncConfig.lastSyncAt && (
+                        <span className="ml-2 text-[10px] opacity-70">
+                          {new Date(sheetSyncConfig.lastSyncAt).toLocaleString("id-ID")}
+                        </span>
+                      )}
+                    </div>
+                  )}
+
+                  <Button
+                    size="sm"
+                    className="h-9 gap-1.5"
+                    onClick={() => saveConfigMutation.mutate(configForm)}
+                    disabled={saveConfigMutation.isPending}
+                  >
+                    {saveConfigMutation.isPending ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Settings2 className="h-3.5 w-3.5" />}
+                    {saveConfigMutation.isPending ? "Menyimpan..." : "Simpan Konfigurasi"}
+                  </Button>
+                </div>
+              )}
+            </div>
+          </ScrollArea>
+        </DialogContent>
+      </Dialog>
 
       {/* Konfirmasi Hapus Massal */}
       <AlertDialog open={bulkDeleteOpen} onOpenChange={setBulkDeleteOpen}>
