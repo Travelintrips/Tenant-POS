@@ -155,6 +155,7 @@ const FLOOR_COLORS: Record<string, { bg: string; border: string; text: string }>
 
 const EDITABLE_STATUSES = [
   { value: "available",   label: "Tersedia" },
+  { value: "occupied",    label: "Terisi" },
   { value: "maintenance", label: "Perawatan" },
 ];
 
