@@ -1967,6 +1967,10 @@ export async function runMigrations(): Promise<void> {
 
   await client.connect();
 
+  // PgBouncer transaction mode (port 6543) tidak menyimpan search_path session
+  // Selalu set eksplisit agar CREATE/SELECT tanpa prefix schema bisa jalan
+  await client.query("SET search_path TO public");
+
   try {
     await client.query(`
       CREATE TABLE IF NOT EXISTS "${MIGRATIONS_TABLE}" (
