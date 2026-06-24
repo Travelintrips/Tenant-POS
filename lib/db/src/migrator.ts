@@ -2728,8 +2728,9 @@ SET payment_token = substr(md5(random()::text || clock_timestamp()::text || id::
 WHERE payment_token IS NULL
   AND status NOT IN ('cancelled', 'draft');
   `.trim(),
-},
-{
+});
+
+MIGRATIONS.push({
   name: "0061_accounting_entry_source_enum_and_coa_sewa",
   sql: `
 -- Fix 2: Pastikan enum accounting_entry_source ada dan punya nilai tenant payment
@@ -2802,5 +2803,4 @@ BEGIN
   END LOOP;
 END $$;
   `.trim(),
-},
-];
+});
