@@ -1955,100 +1955,6 @@ ALTER TABLE tenant_invoices ADD COLUMN IF NOT EXISTS trash_charge_amount numeric
 ALTER TABLE tenant_invoices ADD COLUMN IF NOT EXISTS use_ppn boolean NOT NULL DEFAULT true;
     `.trim(),
   },
-  {
-    name: "0057_accounting_hub_consolidation",
-    sql: `
--- 1. Tambah kolom yang kurang di accounting_entries
-ALTER TABLE accounting_entries
-  ADD COLUMN IF NOT EXISTS source_module text,
-  ADD COLUMN IF NOT EXISTS source_table  text,
-  ADD COLUMN IF NOT EXISTS branch_id     integer,
-  ADD COLUMN IF NOT EXISTS division_id   integer;
-
--- 2. Tambah kolom yang kurang di accounting_entry_lines
-ALTER TABLE accounting_entry_lines
-  ADD COLUMN IF NOT EXISTS company_id    integer,
-  ADD COLUMN IF NOT EXISTS branch_id     integer,
-  ADD COLUMN IF NOT EXISTS division_id   integer,
-  ADD COLUMN IF NOT EXISTS source_module text,
-  ADD COLUMN IF NOT EXISTS source_table  text,
-  ADD COLUMN IF NOT EXISTS source_id     integer;
-
--- 3. Buat tabel accounting_payments (canonical payment hub)
-CREATE TABLE IF NOT EXISTS accounting_payments (
-  id              serial PRIMARY KEY,
-  entry_id        integer,
-  company_id      integer,
-  branch_id       integer,
-  division_id     integer,
-  source_module   text,
-  source_table    text,
-  source_id       integer,
-  payment_method  text NOT NULL DEFAULT 'cash',
-  amount          numeric NOT NULL DEFAULT 0,
-  currency        text NOT NULL DEFAULT 'IDR',
-  paid_at         timestamptz NOT NULL DEFAULT now(),
-  ref             text,
-  description     text,
-  status          text NOT NULL DEFAULT 'completed',
-  correlation_id  text UNIQUE,
-  created_at      timestamptz NOT NULL DEFAULT now(),
-  updated_at      timestamptz NOT NULL DEFAULT now()
-);
-CREATE INDEX IF NOT EXISTS ap_company_id_idx     ON accounting_payments(company_id);
-CREATE INDEX IF NOT EXISTS ap_source_module_idx  ON accounting_payments(source_module);
-CREATE INDEX IF NOT EXISTS ap_paid_at_idx        ON accounting_payments(paid_at DESC);
-
--- 4. Buat tabel tax_transactions (canonical pajak hub)
-CREATE TABLE IF NOT EXISTS tax_transactions (
-  id              serial PRIMARY KEY,
-  company_id      integer,
-  branch_id       integer,
-  division_id     integer,
-  source_module   text,
-  source_table    text,
-  source_id       integer,
-  tax_type        text NOT NULL,
-  tax_rate        numeric NOT NULL DEFAULT 0,
-  taxable_amount  numeric NOT NULL DEFAULT 0,
-  tax_amount      numeric NOT NULL DEFAULT 0,
-  direction       text NOT NULL DEFAULT 'out',
-  period          text,
-  status          text NOT NULL DEFAULT 'draft',
-  correlation_id  text UNIQUE,
-  ref             text,
-  description     text,
-  created_at      timestamptz NOT NULL DEFAULT now(),
-  updated_at      timestamptz NOT NULL DEFAULT now()
-);
-CREATE INDEX IF NOT EXISTS tt_company_id_idx    ON tax_transactions(company_id);
-CREATE INDEX IF NOT EXISTS tt_tax_type_idx      ON tax_transactions(tax_type);
-CREATE INDEX IF NOT EXISTS tt_period_idx        ON tax_transactions(period);
-CREATE INDEX IF NOT EXISTS tt_created_at_idx    ON tax_transactions(created_at DESC);
-
--- 5. Buat tabel tax_settings (konfigurasi pajak per company/branch)
-CREATE TABLE IF NOT EXISTS tax_settings (
-  id              serial PRIMARY KEY,
-  company_id      integer,
-  branch_id       integer,
-  division_id     integer,
-  tax_type        text NOT NULL,
-  rate            numeric NOT NULL DEFAULT 0,
-  is_active       boolean NOT NULL DEFAULT true,
-  effective_from  date,
-  effective_to    date,
-  notes           text,
-  created_at      timestamptz NOT NULL DEFAULT now(),
-  updated_at      timestamptz NOT NULL DEFAULT now()
-);
-CREATE INDEX IF NOT EXISTS ts_company_id_idx ON tax_settings(company_id);
-CREATE INDEX IF NOT EXISTS ts_tax_type_idx   ON tax_settings(tax_type);
-
--- 6. Drop tabel duplikat yang kosong
-DROP TABLE IF EXISTS bank_journal_entries CASCADE;
-DROP TABLE IF EXISTS payment_receipts;
-    `.trim(),
-  },
 ];
 
 const MIGRATIONS_TABLE = "schema_migrations";
@@ -2462,6 +2368,100 @@ ALTER TABLE accounting_entries ADD COLUMN IF NOT EXISTS correlation_id text;
 ALTER TABLE accounting_entry_lines ADD COLUMN IF NOT EXISTS description text;
   `.trim(),
 },
+  {
+    name: "0057_accounting_hub_consolidation",
+    sql: `
+-- 1. Tambah kolom yang kurang di accounting_entries (tabel dibuat di 0057_accounting_double_entry_tables)
+ALTER TABLE accounting_entries
+  ADD COLUMN IF NOT EXISTS source_module text,
+  ADD COLUMN IF NOT EXISTS source_table  text,
+  ADD COLUMN IF NOT EXISTS branch_id     integer,
+  ADD COLUMN IF NOT EXISTS division_id   integer;
+
+-- 2. Tambah kolom yang kurang di accounting_entry_lines
+ALTER TABLE accounting_entry_lines
+  ADD COLUMN IF NOT EXISTS company_id    integer,
+  ADD COLUMN IF NOT EXISTS branch_id     integer,
+  ADD COLUMN IF NOT EXISTS division_id   integer,
+  ADD COLUMN IF NOT EXISTS source_module text,
+  ADD COLUMN IF NOT EXISTS source_table  text,
+  ADD COLUMN IF NOT EXISTS source_id     integer;
+
+-- 3. Buat tabel accounting_payments (canonical payment hub)
+CREATE TABLE IF NOT EXISTS accounting_payments (
+  id              serial PRIMARY KEY,
+  entry_id        integer,
+  company_id      integer,
+  branch_id       integer,
+  division_id     integer,
+  source_module   text,
+  source_table    text,
+  source_id       integer,
+  payment_method  text NOT NULL DEFAULT 'cash',
+  amount          numeric NOT NULL DEFAULT 0,
+  currency        text NOT NULL DEFAULT 'IDR',
+  paid_at         timestamptz NOT NULL DEFAULT now(),
+  ref             text,
+  description     text,
+  status          text NOT NULL DEFAULT 'completed',
+  correlation_id  text UNIQUE,
+  created_at      timestamptz NOT NULL DEFAULT now(),
+  updated_at      timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS ap_company_id_idx     ON accounting_payments(company_id);
+CREATE INDEX IF NOT EXISTS ap_source_module_idx  ON accounting_payments(source_module);
+CREATE INDEX IF NOT EXISTS ap_paid_at_idx        ON accounting_payments(paid_at DESC);
+
+-- 4. Buat tabel tax_transactions (canonical pajak hub)
+CREATE TABLE IF NOT EXISTS tax_transactions (
+  id              serial PRIMARY KEY,
+  company_id      integer,
+  branch_id       integer,
+  division_id     integer,
+  source_module   text,
+  source_table    text,
+  source_id       integer,
+  tax_type        text NOT NULL,
+  tax_rate        numeric NOT NULL DEFAULT 0,
+  taxable_amount  numeric NOT NULL DEFAULT 0,
+  tax_amount      numeric NOT NULL DEFAULT 0,
+  direction       text NOT NULL DEFAULT 'out',
+  period          text,
+  status          text NOT NULL DEFAULT 'draft',
+  correlation_id  text UNIQUE,
+  ref             text,
+  description     text,
+  created_at      timestamptz NOT NULL DEFAULT now(),
+  updated_at      timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS tt_company_id_idx    ON tax_transactions(company_id);
+CREATE INDEX IF NOT EXISTS tt_tax_type_idx      ON tax_transactions(tax_type);
+CREATE INDEX IF NOT EXISTS tt_period_idx        ON tax_transactions(period);
+CREATE INDEX IF NOT EXISTS tt_created_at_idx    ON tax_transactions(created_at DESC);
+
+-- 5. Buat tabel tax_settings (konfigurasi pajak per company/branch)
+CREATE TABLE IF NOT EXISTS tax_settings (
+  id              serial PRIMARY KEY,
+  company_id      integer,
+  branch_id       integer,
+  division_id     integer,
+  tax_type        text NOT NULL,
+  rate            numeric NOT NULL DEFAULT 0,
+  is_active       boolean NOT NULL DEFAULT true,
+  effective_from  date,
+  effective_to    date,
+  notes           text,
+  created_at      timestamptz NOT NULL DEFAULT now(),
+  updated_at      timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS ts_company_id_idx ON tax_settings(company_id);
+CREATE INDEX IF NOT EXISTS ts_tax_type_idx   ON tax_settings(tax_type);
+
+-- 6. Drop tabel duplikat yang kosong
+DROP TABLE IF EXISTS bank_journal_entries CASCADE;
+DROP TABLE IF EXISTS payment_receipts;
+    `.trim(),
+  },
 {
   name: "0057_accounting_double_entry_seed",
   sql: `
