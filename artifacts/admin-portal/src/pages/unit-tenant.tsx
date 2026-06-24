@@ -737,6 +737,7 @@ export default function UnitTenant() {
   const [filterArea, setFilterArea] = useState("all");
   const [filterType, setFilterType] = useState("all");
   const [filterStatus, setFilterStatus] = useState("all");
+  const [filterExpiry, setFilterExpiry] = useState("all");
   const [search, setSearch] = useState("");
   const [selectedUnit, setSelectedUnit] = useState<MallUnit | null>(null);
   const [editingUnit, setEditingUnit] = useState<MallUnit | null>(null);
@@ -985,10 +986,22 @@ export default function UnitTenant() {
   }
 
   const filtered = useMemo(() => {
+    const todayMs = Date.now();
     let result = units;
     if (filterArea !== "all") result = result.filter(u => u.areaKantin === filterArea);
     if (filterType !== "all") result = result.filter(u => u.unitType === filterType);
     if (filterStatus !== "all") result = result.filter(u => u.status === filterStatus);
+    if (filterExpiry !== "all") {
+      result = result.filter(u => {
+        if (!u.endDate) return false;
+        const endMs = new Date(u.endDate).getTime();
+        const diffDays = Math.floor((endMs - todayMs) / 86_400_000);
+        if (filterExpiry === "expired")      return diffDays < 0;
+        if (filterExpiry === "expiring_30")  return diffDays >= 0 && diffDays <= 30;
+        if (filterExpiry === "expiring_60")  return diffDays >= 0 && diffDays <= 60;
+        return true;
+      });
+    }
     if (search.trim()) {
       const q = search.toLowerCase();
       result = result.filter(u =>
@@ -998,7 +1011,7 @@ export default function UnitTenant() {
       );
     }
     return result;
-  }, [units, filterArea, filterType, filterStatus, search]);
+  }, [units, filterArea, filterType, filterStatus, filterExpiry, search]);
 
   const isSaving = createMutation.isPending || updateMutation.isPending;
   const isDev = !import.meta.env.PROD;
@@ -1192,6 +1205,18 @@ export default function UnitTenant() {
             </SelectContent>
           </Select>
 
+          <Select value={filterExpiry} onValueChange={setFilterExpiry}>
+            <SelectTrigger className={`h-8 w-44 text-xs ${filterExpiry !== "all" ? "border-orange-400 text-orange-700 bg-orange-50" : ""}`}>
+              <SelectValue placeholder="Semua Kontrak" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Semua Kontrak</SelectItem>
+              <SelectItem value="expiring_30">⚠️ Habis dalam 30 hari</SelectItem>
+              <SelectItem value="expiring_60">📅 Habis dalam 60 hari</SelectItem>
+              <SelectItem value="expired">🔴 Kontrak sudah habis</SelectItem>
+            </SelectContent>
+          </Select>
+
         </div>
 
         {/* ── Status filter pills ── */}
@@ -1336,14 +1361,39 @@ export default function UnitTenant() {
                       </TableCell>
                       <TableCell className="py-2.5 text-xs">
                         {u.businessName
-                          ? (
-                            <div>
-                              <span className="font-medium">{u.businessName}</span>
-                              {u.status === "expired" && (
-                                <span className="ml-1 text-[10px] text-gray-400 italic">(kontrak habis)</span>
-                              )}
-                            </div>
-                          )
+                          ? (() => {
+                              const today = Date.now();
+                              const endMs = u.endDate ? new Date(u.endDate).getTime() : null;
+                              const diffDays = endMs !== null ? Math.floor((endMs - today) / 86_400_000) : null;
+                              const isExpired    = diffDays !== null && diffDays < 0;
+                              const isExpiring30 = diffDays !== null && diffDays >= 0 && diffDays <= 30;
+                              const isExpiring60 = diffDays !== null && diffDays > 30 && diffDays <= 60;
+                              return (
+                                <div>
+                                  <span className="font-medium">{u.businessName}</span>
+                                  {isExpired && (
+                                    <span className="ml-1.5 inline-flex items-center px-1 py-0.5 rounded text-[10px] font-semibold bg-gray-100 text-gray-600">
+                                      kontrak habis
+                                    </span>
+                                  )}
+                                  {isExpiring30 && (
+                                    <span className="ml-1.5 inline-flex items-center px-1 py-0.5 rounded text-[10px] font-semibold bg-red-100 text-red-700">
+                                      ⚠ {diffDays}h lagi
+                                    </span>
+                                  )}
+                                  {isExpiring60 && (
+                                    <span className="ml-1.5 inline-flex items-center px-1 py-0.5 rounded text-[10px] font-semibold bg-amber-100 text-amber-700">
+                                      📅 {diffDays}h lagi
+                                    </span>
+                                  )}
+                                  {u.endDate && (
+                                    <div className="text-[10px] text-muted-foreground mt-0.5">
+                                      s/d {new Date(u.endDate).toLocaleDateString("id-ID", { day:"2-digit", month:"short", year:"numeric" })}
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })()
                           : u.storedStatus === "occupied"
                             ? <span className="text-amber-600 italic text-[11px]">Ditandai terisi manual</span>
                             : <span className="text-muted-foreground">—</span>}
