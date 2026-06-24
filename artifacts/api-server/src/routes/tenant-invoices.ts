@@ -6,6 +6,7 @@ import {
   tenantBookingsTable,
   tenantsTable,
   tenantPaymentsTable,
+  mallSitesTable,
 } from "@workspace/db/schema";
 import { eq, and, sql, desc, ilike, or, lte, gte, notInArray } from "drizzle-orm";
 import { z } from "zod";
@@ -21,17 +22,60 @@ router.use("/tenant-invoices", requireAnyRole("owner", "admin", "finance"));
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 /**
- * Generate invoice number format: INV-TENANT/YYYYMM/NNNNN
+ * Mengambil inisial nama perusahaan dari format "PT NAMA PERUSAHAAN".
+ * Contoh:
+ *   "PT ELMIRA RATU ABADI"       → "ERA"
+ *   "PT CAHAYA SEJATI TEKNOLOGI" → "CST"
+ *   "Manajemen Gedung Utama"     → "MGU"
+ */
+export function getCompanyInitials(companyName: string): string {
+  const cleaned = companyName
+    .trim()
+    .toUpperCase()
+    .replace(/^PT\.?\s+/i, ""); // hapus "PT " atau "PT. " di awal
+  const words = cleaned.split(/\s+/).filter(Boolean);
+  if (words.length === 0) return "INV";
+  return words.map((w) => w[0]).join("");
+}
+
+/** Cache sederhana siteId → prefix agar tidak query DB setiap generate */
+const prefixCache = new Map<number, string>();
+
+async function getSiteInvoicePrefix(siteId: number): Promise<string> {
+  if (prefixCache.has(siteId)) return prefixCache.get(siteId)!;
+  try {
+    const [site] = await db
+      .select({ companyName: mallSitesTable.companyName, invoicePrefix: mallSitesTable.invoicePrefix })
+      .from(mallSitesTable)
+      .where(eq(mallSitesTable.id, siteId))
+      .limit(1);
+    if (site) {
+      // Prioritas: derive dari companyName → fallback ke invoicePrefix di DB → fallback "INV"
+      const derived = site.companyName ? getCompanyInitials(site.companyName) : null;
+      const prefix = derived ?? site.invoicePrefix ?? "INV";
+      prefixCache.set(siteId, prefix);
+      return prefix;
+    }
+  } catch {
+    // ignore — gunakan fallback
+  }
+  return "INV";
+}
+
+/**
+ * Generate invoice number format: {INISIAL_PT}/{YYYYMM}/{NNNNN}
+ * Contoh: ERA/202506/00001, CST/202506/00001
  *
  * Menggunakan MAX sequence (bukan COUNT) agar tidak bentrok ketika ada gap
  * (invoice dihapus) atau pemanggilan bersamaan. Caller yang melakukan INSERT
  * harus menangkap unique constraint violation (code "23505") dan memanggil
  * ulang fungsi ini sekali lagi — lihat insertInvoiceSafe().
  */
-async function generateInvoiceNumber(): Promise<string> {
+async function generateInvoiceNumber(siteId?: number): Promise<string> {
   const now = new Date();
   const yyyymm = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}`;
-  const prefix = `INV-TENANT/${yyyymm}/`;
+  const initials = siteId ? await getSiteInvoicePrefix(siteId) : "INV";
+  const prefix = `${initials}/${yyyymm}/`;
 
   // Gunakan SUBSTR(str, pos) — sintaks posisional eksplisit.
   // SUBSTRING(str FROM n) di PostgreSQL diinterpretasikan sebagai regex extraction,
@@ -57,10 +101,11 @@ async function generateInvoiceNumber(): Promise<string> {
  */
 async function insertInvoiceSafe(
   values: Parameters<typeof db.insert>[0] extends infer T ? (T extends any ? any : never) : never,
+  siteId?: number,
   maxRetries = 3,
 ): Promise<typeof tenantInvoicesTable.$inferSelect> {
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
-    const invoiceNumber = await generateInvoiceNumber();
+    const invoiceNumber = await generateInvoiceNumber(siteId);
 
     try {
       const [inserted] = await db
@@ -475,29 +520,32 @@ router.post("/tenant-invoices/bulk", async (req, res) => {
       const { subtotal, taxAmount: calcedTax, totalAmount, outstandingAmount } = calcAmounts(item);
       const status = item.status ?? resolveStatus(Number(totalAmount), 0, item.dueDate ?? null);
 
-      const invoice = await insertInvoiceSafe({
-        ...(req.siteId > 0 ? { siteId: req.siteId } : {}),
-        tenantId: item.tenantId,
-        unitCode: item.unitCode ?? null,
-        periodStart: item.periodStart ?? null,
-        periodEnd: item.periodEnd ?? null,
-        dueDate: item.dueDate ?? null,
-        rentAmount: String(item.rentAmount ?? "0"),
-        serviceChargeAmount: String(item.serviceChargeAmount ?? "0"),
-        electricityChargeAmount: String(item.electricityChargeAmount ?? "0"),
-        waterChargeAmount: String(item.waterChargeAmount ?? "0"),
-        otherChargeAmount: String(item.otherChargeAmount ?? "0"),
-        trashChargeAmount: String(item.trashChargeAmount ?? "0"),
-        discountAmount: String(item.discountAmount ?? "0"),
-        penaltyAmount: String(item.penaltyAmount ?? "0"),
-        taxAmount: calcedTax,
-        subtotal,
-        totalAmount,
-        paidAmount: "0",
-        outstandingAmount,
-        status,
-        notes: item.notes ?? null,
-      });
+      const invoice = await insertInvoiceSafe(
+        {
+          ...(req.siteId > 0 ? { siteId: req.siteId } : {}),
+          tenantId: item.tenantId,
+          unitCode: item.unitCode ?? null,
+          periodStart: item.periodStart ?? null,
+          periodEnd: item.periodEnd ?? null,
+          dueDate: item.dueDate ?? null,
+          rentAmount: String(item.rentAmount ?? "0"),
+          serviceChargeAmount: String(item.serviceChargeAmount ?? "0"),
+          electricityChargeAmount: String(item.electricityChargeAmount ?? "0"),
+          waterChargeAmount: String(item.waterChargeAmount ?? "0"),
+          otherChargeAmount: String(item.otherChargeAmount ?? "0"),
+          trashChargeAmount: String(item.trashChargeAmount ?? "0"),
+          discountAmount: String(item.discountAmount ?? "0"),
+          penaltyAmount: String(item.penaltyAmount ?? "0"),
+          taxAmount: calcedTax,
+          subtotal,
+          totalAmount,
+          paidAmount: "0",
+          outstandingAmount,
+          status,
+          notes: item.notes ?? null,
+        },
+        req.siteId > 0 ? req.siteId : undefined,
+      );
 
       logAudit(req, {
         action: "create_invoice",
@@ -559,31 +607,34 @@ router.post("/tenant-invoices", async (req, res) => {
   );
 
   try {
-    const invoice = await insertInvoiceSafe({
-      ...(req.siteId > 0 ? { siteId: req.siteId } : {}),
-      tenantId: data.tenantId,
-      bookingId: data.bookingId ?? null,
-      unitCode: data.unitCode ?? null,
-      periodStart: data.periodStart ?? null,
-      periodEnd: data.periodEnd ?? null,
-      dueDate: data.dueDate ?? null,
-      rentAmount: String(data.rentAmount ?? "0"),
-      serviceChargeAmount: String(data.serviceChargeAmount ?? "0"),
-      electricityChargeAmount: String(data.electricityChargeAmount ?? "0"),
-      waterChargeAmount: String(data.waterChargeAmount ?? "0"),
-      otherChargeAmount: String(data.otherChargeAmount ?? "0"),
-      trashChargeAmount: String(data.trashChargeAmount ?? "0"),
-      discountAmount: String(data.discountAmount ?? "0"),
-      penaltyAmount: String(data.penaltyAmount ?? "0"),
-      usePpn,
-      taxAmount: calcedTax,
-      subtotal,
-      totalAmount,
-      paidAmount: "0",
-      outstandingAmount,
-      status,
-      notes: data.notes ?? null,
-    });
+    const invoice = await insertInvoiceSafe(
+      {
+        ...(req.siteId > 0 ? { siteId: req.siteId } : {}),
+        tenantId: data.tenantId,
+        bookingId: data.bookingId ?? null,
+        unitCode: data.unitCode ?? null,
+        periodStart: data.periodStart ?? null,
+        periodEnd: data.periodEnd ?? null,
+        dueDate: data.dueDate ?? null,
+        rentAmount: String(data.rentAmount ?? "0"),
+        serviceChargeAmount: String(data.serviceChargeAmount ?? "0"),
+        electricityChargeAmount: String(data.electricityChargeAmount ?? "0"),
+        waterChargeAmount: String(data.waterChargeAmount ?? "0"),
+        otherChargeAmount: String(data.otherChargeAmount ?? "0"),
+        trashChargeAmount: String(data.trashChargeAmount ?? "0"),
+        discountAmount: String(data.discountAmount ?? "0"),
+        penaltyAmount: String(data.penaltyAmount ?? "0"),
+        usePpn,
+        taxAmount: calcedTax,
+        subtotal,
+        totalAmount,
+        paidAmount: "0",
+        outstandingAmount,
+        status,
+        notes: data.notes ?? null,
+      },
+      req.siteId > 0 ? req.siteId : undefined,
+    );
 
     const [withTenant] = await db
       .select(invoiceSelect)
@@ -844,30 +895,32 @@ router.post("/tenant-invoices/generate-from-booking/:bookingId", async (req, res
     });
 
     // Gunakan insertInvoiceSafe agar tidak 500 jika ada race condition pada invoice number
-    const invoice = await insertInvoiceSafe({
-      ...(req.siteId > 0 ? { siteId: req.siteId } : {}),
-      siteId: req.siteId > 0 ? req.siteId : undefined,
-      tenantId: booking.tenantId,
-      bookingId,
-      unitCode: booking.unitCode ?? null,
-      periodStart: periodStartStr,
-      periodEnd: periodEndStr,
-      dueDate: dueDateStr,
-      rentAmount: String(rent),
-      serviceChargeAmount: String(service),
-      electricityChargeAmount: String(elec),
-      waterChargeAmount: String(water),
-      otherChargeAmount: "0",
-      discountAmount: "0",
-      penaltyAmount: "0",
-      taxAmount: calcedTax,
-      subtotal: subtotalStr,
-      totalAmount: totalStr,
-      paidAmount: "0",
-      outstandingAmount: outstandingStr,
-      status: new Date(dueDateStr) < now ? "overdue" : "unpaid",
-      notes: (req.body as Record<string, unknown>).notes as string ?? null,
-    });
+    const invoice = await insertInvoiceSafe(
+      {
+        ...(req.siteId > 0 ? { siteId: req.siteId } : {}),
+        tenantId: booking.tenantId,
+        bookingId,
+        unitCode: booking.unitCode ?? null,
+        periodStart: periodStartStr,
+        periodEnd: periodEndStr,
+        dueDate: dueDateStr,
+        rentAmount: String(rent),
+        serviceChargeAmount: String(service),
+        electricityChargeAmount: String(elec),
+        waterChargeAmount: String(water),
+        otherChargeAmount: "0",
+        discountAmount: "0",
+        penaltyAmount: "0",
+        taxAmount: calcedTax,
+        subtotal: subtotalStr,
+        totalAmount: totalStr,
+        paidAmount: "0",
+        outstandingAmount: outstandingStr,
+        status: new Date(dueDateStr) < now ? "overdue" : "unpaid",
+        notes: (req.body as Record<string, unknown>).notes as string ?? null,
+      },
+      req.siteId > 0 ? req.siteId : undefined,
+    );
 
     const [withTenant] = await db
       .select(invoiceSelect)
