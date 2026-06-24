@@ -1,7 +1,7 @@
 import { useState, useRef } from "react";
 import { useParams } from "wouter";
 import { useQuery } from "@tanstack/react-query";
-import { Building2, Upload, CheckCircle, XCircle, FileImage, Loader2, Sparkles, Info } from "lucide-react";
+import { Building2, Upload, CheckCircle, XCircle, FileImage, Loader2, Sparkles, Info, Phone, Mail, MessageCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -50,6 +50,13 @@ interface ScanResult {
   rawText: string;
 }
 
+interface MallInfo {
+  mallName: string;
+  phone: string | null;
+  email: string | null;
+  address: string | null;
+}
+
 export default function PaymentProofUpload() {
   const params = useParams<{ token: string }>();
   const token = params.token;
@@ -82,6 +89,16 @@ export default function PaymentProofUpload() {
     },
     enabled: !!token,
     retry: false,
+  });
+
+  const { data: mallInfo } = useQuery<MallInfo>({
+    queryKey: ["pay-mall-info"],
+    queryFn: async () => {
+      const res = await fetch("/api/pay/mall-info");
+      if (!res.ok) return { mallName: "Manajemen Mall", phone: null, email: null, address: null };
+      return res.json();
+    },
+    staleTime: 5 * 60 * 1000,
   });
 
   async function scanProof(file: File) {
@@ -175,17 +192,74 @@ export default function PaymentProofUpload() {
   }
 
   if (error || !invoice) {
+    const phone = mallInfo?.phone;
+    const waPhone = phone?.replace(/^0/, "62").replace(/\D/g, "");
+    const waLink = waPhone
+      ? `https://wa.me/${waPhone}?text=${encodeURIComponent("Halo, link pembayaran saya tidak valid. Mohon bantuan.")}`
+      : null;
+
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-50 p-4">
-        <Card className="w-full max-w-md">
-          <CardContent className="pt-8 pb-8 text-center">
-            <XCircle className="h-12 w-12 text-destructive mx-auto mb-4" />
-            <h2 className="text-lg font-semibold mb-2">Link Tidak Valid</h2>
-            <p className="text-muted-foreground text-sm">
-              {(error as Error)?.message ?? "Link pembayaran tidak ditemukan atau sudah tidak aktif."}
-            </p>
-          </CardContent>
-        </Card>
+        <div className="w-full max-w-md space-y-4">
+          <Card>
+            <CardContent className="pt-8 pb-6 text-center">
+              <XCircle className="h-12 w-12 text-destructive mx-auto mb-4" />
+              <h2 className="text-lg font-semibold mb-2">Link Tidak Valid</h2>
+              <p className="text-muted-foreground text-sm mb-4">
+                {(error as Error)?.message ?? "Link pembayaran tidak ditemukan atau sudah tidak aktif."}
+              </p>
+              <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-left">
+                <p className="text-xs text-amber-800 font-medium mb-1">Kemungkinan penyebab:</p>
+                <ul className="text-xs text-amber-700 space-y-1 list-disc list-inside">
+                  <li>Link sudah kadaluarsa atau telah diganti</li>
+                  <li>Link dikirim dari sistem yang berbeda</li>
+                  <li>Invoice sudah dibatalkan</li>
+                </ul>
+              </div>
+            </CardContent>
+          </Card>
+
+          {(mallInfo?.phone || mallInfo?.email) && (
+            <Card>
+              <CardContent className="pt-4 pb-4">
+                <p className="text-sm font-medium text-slate-700 mb-3 text-center">
+                  Hubungi {mallInfo?.mallName ?? "Pengelola Mall"} untuk link baru
+                </p>
+                <div className="space-y-2">
+                  {phone && waLink && (
+                    <a
+                      href={waLink}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-2 w-full bg-green-500 hover:bg-green-600 text-white rounded-lg px-4 py-2.5 text-sm font-medium transition-colors"
+                    >
+                      <MessageCircle className="h-4 w-4 flex-shrink-0" />
+                      <span>Chat WhatsApp ({phone})</span>
+                    </a>
+                  )}
+                  {phone && !waLink && (
+                    <a
+                      href={`tel:${phone}`}
+                      className="flex items-center gap-2 w-full border rounded-lg px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50 transition-colors"
+                    >
+                      <Phone className="h-4 w-4 flex-shrink-0" />
+                      <span>{phone}</span>
+                    </a>
+                  )}
+                  {mallInfo?.email && (
+                    <a
+                      href={`mailto:${mallInfo.email}`}
+                      className="flex items-center gap-2 w-full border rounded-lg px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50 transition-colors"
+                    >
+                      <Mail className="h-4 w-4 flex-shrink-0" />
+                      <span>{mallInfo.email}</span>
+                    </a>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+        </div>
       </div>
     );
   }

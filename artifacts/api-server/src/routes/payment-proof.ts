@@ -60,6 +60,29 @@ async function buildReviewLink(): Promise<string> {
 
 const router: IRouter = Router();
 
+// ─── GET /api/pay/mall-info ───────────────────────────────────────────────────
+// Public — kembalikan info kontak mall (nama, phone) untuk ditampilkan di halaman
+// pembayaran, termasuk saat token tidak valid. Data diambil dari system_settings.
+router.get("/pay/mall-info", async (_req, res) => {
+  try {
+    const [row] = await db
+      .select({ value: systemSettingsTable.value })
+      .from(systemSettingsTable)
+      .where(eq(systemSettingsTable.key, "mall_config"))
+      .limit(1);
+
+    const cfg = (row?.value ?? {}) as Record<string, unknown>;
+    res.json({
+      mallName: (cfg.mallName as string | undefined) ?? "Manajemen Mall",
+      phone: (cfg.phone as string | undefined) ?? (cfg.adminPhone as string | undefined) ?? null,
+      email: (cfg.email as string | undefined) ?? null,
+      address: (cfg.address as string | undefined) ?? null,
+    });
+  } catch {
+    res.json({ mallName: "Manajemen Mall", phone: null, email: null, address: null });
+  }
+});
+
 const PROOF_ALLOWED_MIME = new Set([
   "image/jpeg",
   "image/jpg",
