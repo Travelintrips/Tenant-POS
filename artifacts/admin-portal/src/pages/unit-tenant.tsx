@@ -1413,7 +1413,7 @@ export default function UnitTenant() {
                           onClick={e => e.stopPropagation()}
                         >
                           <div className="flex gap-1 justify-end items-center">
-                            {(u.storedStatus === "available" ||
+                            {((u.storedStatus === "available" && !(u.status === "occupied" && u.tenantId)) ||
                               (u.storedStatus === "occupied" && (!u.tenantId || u.status === "expired" || u.status === "available"))) && (
                               <Button
                                 size="sm"
