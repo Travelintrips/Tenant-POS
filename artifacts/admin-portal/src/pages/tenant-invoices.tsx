@@ -407,6 +407,7 @@ async function apiPatch<T>(url: string, body: object): Promise<T> {
 
 interface MallInvoiceConfig {
   mallName: string;
+  companyName?: string;
   tagline: string;
   address: string;
   phone: string;
@@ -419,6 +420,7 @@ interface MallInvoiceConfig {
 
 const DEFAULT_INVOICE_CONFIG: MallInvoiceConfig = {
   mallName: "Mall Admin",
+  companyName: "",
   tagline: "Manajemen Tenant Mall",
   address: "",
   phone: "",
@@ -443,16 +445,18 @@ async function fetchInvoiceConfig(): Promise<MallInvoiceConfig> {
 function buildInvoiceHtml(inv: Invoice, cfg: MallInvoiceConfig): string {
   const accent = cfg.invoiceColor || "#1e3a5f";
   const accentLight = accent + "14";
+  // Gunakan companyName (per-site) jika tersedia, fallback ke mallName (global)
+  const displayName = (cfg.companyName && cfg.companyName.trim()) ? cfg.companyName.trim() : cfg.mallName;
 
   const brandBlock = cfg.logoUrl
     ? `<div style="display:flex;align-items:center;gap:14px">
          <img src="${cfg.logoUrl}" alt="Logo" style="height:56px;width:56px;object-fit:contain;flex-shrink:0" crossorigin="anonymous" />
          <div>
-           <div style="font-size:20px;font-weight:700;color:${accent};line-height:1.2">${cfg.mallName}</div>
+           <div style="font-size:20px;font-weight:700;color:${accent};line-height:1.2">${displayName}</div>
            <div style="font-size:11px;color:#777;margin-top:3px;letter-spacing:0.02em">${cfg.tagline}</div>
          </div>
        </div>`
-    : `<div style="font-size:22px;font-weight:700;color:${accent}">${cfg.mallName}</div>
+    : `<div style="font-size:22px;font-weight:700;color:${accent}">${displayName}</div>
        <div style="font-size:12px;color:#666;margin-top:2px">${cfg.tagline}</div>`;
 
   const addressLine = cfg.address ? `<div style="margin-bottom:2px">${cfg.address}</div>` : "";
@@ -560,7 +564,7 @@ function buildInvoiceHtml(inv: Invoice, cfg: MallInvoiceConfig): string {
   ${signerHtml}
   <div class="footer">
     ${footerNote}
-    <div>Dokumen ini dibuat secara otomatis oleh sistem ${cfg.mallName}. Harap simpan sebagai bukti pembayaran.</div>
+    <div>Dokumen ini dibuat secara otomatis oleh sistem ${displayName}. Harap simpan sebagai bukti pembayaran.</div>
   </div>
 </body>
 </html>`;
