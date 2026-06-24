@@ -4,7 +4,7 @@ import { db } from "@workspace/db";
 import {
   bankMutationsTable,
   bankReconciliationMatchesTable,
-  bankJournalEntriesTable,
+  accountingEntriesTable,
   bankAccountBalancesTable,
   bankReconAuditLogsTable,
   bankClosingPeriodsTable,
@@ -1430,9 +1430,10 @@ router.get("/bank-reconciliation/audit", async (req, res) => {
     ),
 
     db.execute<{ journal_id: string; cnt: number }>(
-      sql`SELECT journal_id, count(*)::int AS cnt
-          FROM bank_journal_entries
-          GROUP BY journal_id
+      sql`SELECT correlation_id AS journal_id, count(*)::int AS cnt
+          FROM accounting_entries
+          WHERE source_module IN ('bank_reconciliation', 'pos_payment')
+          GROUP BY correlation_id
           HAVING count(*) > 1
           LIMIT 50`
     ),
@@ -1462,9 +1463,10 @@ router.get("/bank-reconciliation/audit", async (req, res) => {
     ),
 
     db.execute<{ id: number; journal_id: string }>(
-      sql`SELECT id, journal_id
-          FROM bank_journal_entries
-          WHERE company_id IS NULL
+      sql`SELECT id, correlation_id AS journal_id
+          FROM accounting_entries
+          WHERE source_module IN ('bank_reconciliation', 'pos_payment')
+            AND company_id IS NULL
           LIMIT 50`
     ),
 
@@ -1597,8 +1599,8 @@ router.post("/bank-reconciliation/export-google-sheet", async (req, res) => {
     FROM bank_mutations bm
     LEFT JOIN bank_reconciliation_matches brm
       ON brm.mutation_id = bm.id AND brm.status = 'approved'
-    LEFT JOIN bank_journal_entries bje
-      ON bje.mutation_id = bm.id
+    LEFT JOIN accounting_entries bje
+      ON bje.source_id = bm.id AND bje.source_module = 'bank_reconciliation'
     LEFT JOIN tenant_invoices ti
       ON ti.id = bm.matched_order_id
     LEFT JOIN tenants t
@@ -2097,34 +2099,33 @@ router.get("/bank-reconciliation/journal-entries", async (req, res) => {
     const limit = Math.min(200, Math.max(1, parseInt(limitStr, 10) || 50));
     const offset = (page - 1) * limit;
 
-    const conditions: any[] = [];
+    const conditions: any[] = [
+      sql`${accountingEntriesTable.sourceModule} IN ('bank_reconciliation', 'pos_payment')`,
+    ];
 
     if (ctx.ownerTenantId != null) {
       conditions.push(
-        or(
-          isNull(bankJournalEntriesTable.mutationId),
-          sql`EXISTS (
-            SELECT 1 FROM bank_mutations bm
-            WHERE bm.id = ${bankJournalEntriesTable.mutationId}
-              AND bm.owner_tenant_id = ${ctx.ownerTenantId}
-          )`
-        ) as any
+        sql`EXISTS (
+          SELECT 1 FROM bank_mutations bm
+          WHERE bm.id = ${accountingEntriesTable.sourceId}
+            AND bm.owner_tenant_id = ${ctx.ownerTenantId}
+        )` as any
       );
     }
 
-    if (date_from) conditions.push(sql`${bankJournalEntriesTable.transactionDate} >= ${date_from}` as any);
-    if (date_to) conditions.push(sql`${bankJournalEntriesTable.transactionDate} <= ${date_to}` as any);
+    if (date_from) conditions.push(sql`${accountingEntriesTable.date}::text >= ${date_from}` as any);
+    if (date_to) conditions.push(sql`${accountingEntriesTable.date}::text <= ${date_to}` as any);
 
-    const whereClause = conditions.length ? and(...conditions) : undefined;
+    const whereClause = and(...conditions);
 
     const [rows, countResult] = await Promise.all([
-      db.select().from(bankJournalEntriesTable)
+      db.select().from(accountingEntriesTable)
         .where(whereClause)
-        .orderBy(desc(bankJournalEntriesTable.createdAt))
+        .orderBy(desc(accountingEntriesTable.createdAt))
         .limit(limit)
         .offset(offset),
       db.select({ count: sql<number>`count(*)::int` })
-        .from(bankJournalEntriesTable)
+        .from(accountingEntriesTable)
         .where(whereClause),
     ]);
 
@@ -2377,19 +2378,21 @@ router.get("/bank-reconciliation/journal-entries", async (req, res) => {
     const limit = Math.min(200, Math.max(1, parseInt(limitStr ?? "50", 10) || 50));
     const offset = (page - 1) * limit;
 
-    const conditions = [];
-    if (from) conditions.push(gte(bankJournalEntriesTable.transactionDate, from));
-    if (to) conditions.push(lte(bankJournalEntriesTable.transactionDate, to));
+    const conditions: any[] = [
+      sql`${accountingEntriesTable.sourceModule} IN ('bank_reconciliation', 'pos_payment')`,
+    ];
+    if (from) conditions.push(sql`${accountingEntriesTable.date}::text >= ${from}`);
+    if (to) conditions.push(sql`${accountingEntriesTable.date}::text <= ${to}`);
 
-    const where = conditions.length > 0 ? and(...conditions) : undefined;
+    const where = and(...conditions);
 
     const [rows, [{ count }]] = await Promise.all([
-      db.select().from(bankJournalEntriesTable)
+      db.select().from(accountingEntriesTable)
         .where(where)
-        .orderBy(desc(bankJournalEntriesTable.transactionDate), desc(bankJournalEntriesTable.id))
+        .orderBy(desc(accountingEntriesTable.date), desc(accountingEntriesTable.id))
         .limit(limit)
         .offset(offset),
-      db.select({ count: sql<number>`count(*)::int` }).from(bankJournalEntriesTable).where(where),
+      db.select({ count: sql<number>`count(*)::int` }).from(accountingEntriesTable).where(where),
     ]);
 
     res.json({ data: rows, total: count, page, limit });
