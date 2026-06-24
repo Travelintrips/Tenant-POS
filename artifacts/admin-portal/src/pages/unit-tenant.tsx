@@ -943,7 +943,11 @@ export default function UnitTenant() {
   }
 
   function toggleSelectAll() {
-    const editableFiltered = filtered.filter(u => u.storedStatus === "available" || (u.storedStatus === "occupied" && !u.tenantId) || u.storedStatus === "maintenance");
+    const editableFiltered = filtered.filter(u =>
+      u.storedStatus === "available" ||
+      (u.storedStatus === "occupied" && (!u.tenantId || u.status === "expired")) ||
+      u.storedStatus === "maintenance"
+    );
     const allSelected = editableFiltered.every(u => selectedIds.has(u.id));
     if (allSelected) {
       setSelectedIds(new Set());
@@ -1331,8 +1335,17 @@ export default function UnitTenant() {
                       </TableCell>
                       <TableCell className="py-2.5 text-xs">
                         {u.businessName
-                          ? <span className="font-medium">{u.businessName}</span>
-                          : <span className="text-muted-foreground">—</span>}
+                          ? (
+                            <div>
+                              <span className="font-medium">{u.businessName}</span>
+                              {u.status === "expired" && (
+                                <span className="ml-1 text-[10px] text-gray-400 italic">(kontrak habis)</span>
+                              )}
+                            </div>
+                          )
+                          : u.storedStatus === "occupied"
+                            ? <span className="text-amber-600 italic text-[11px]">Ditandai terisi manual</span>
+                            : <span className="text-muted-foreground">—</span>}
                       </TableCell>
                       <TableCell className="py-2.5">
                         {u.paymentStatus ? (
@@ -1349,7 +1362,8 @@ export default function UnitTenant() {
                           onClick={e => e.stopPropagation()}
                         >
                           <div className="flex gap-1 justify-end items-center">
-                            {(u.storedStatus === "available" || (u.storedStatus === "occupied" && !u.tenantId)) && (
+                            {(u.storedStatus === "available" ||
+                              (u.storedStatus === "occupied" && (!u.tenantId || u.status === "expired" || u.status === "available"))) && (
                               <Button
                                 size="sm"
                                 variant="outline"
@@ -1361,6 +1375,9 @@ export default function UnitTenant() {
                                   status: u.storedStatus === "available" ? "occupied" : "available",
                                 })}
                                 disabled={statusMutation.isPending}
+                                title={u.storedStatus === "available"
+                                  ? "Tandai unit ini sedang terisi (tidak ada penyewa baru dulu)"
+                                  : "Kosongkan unit ini agar bisa disewa kembali"}
                               >
                                 {u.storedStatus === "available" ? "Tandai Terisi" : "Kosongkan"}
                               </Button>
