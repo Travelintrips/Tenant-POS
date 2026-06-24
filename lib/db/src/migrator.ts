@@ -2731,6 +2731,13 @@ WHERE payment_token IS NULL
 });
 
 MIGRATIONS.push({
+  name: "0062_mall_sites_invoice_prefix",
+  sql: `
+ALTER TABLE mall_sites ADD COLUMN IF NOT EXISTS invoice_prefix text NOT NULL DEFAULT 'INV';
+  `.trim(),
+});
+
+MIGRATIONS.push({
   name: "0061_accounting_entry_source_enum_and_coa_sewa",
   sql: `
 -- Fix 2: Pastikan enum accounting_entry_source ada dan punya nilai tenant payment
