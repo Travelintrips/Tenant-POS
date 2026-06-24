@@ -89,12 +89,16 @@ export async function postTenantPaymentAccountingEntry(
     const journalCode: string = String(journal.code); // e.g. "CSH-CST"
     const debitAccountId: number = Number(journal.default_debit_account_id);
 
-    // --- Lookup credit account (pendapatan sewa 4-1010-*) per company ---
-    // Pakai LIKE '4-1010-%' karena suffix COA tidak selalu sama dengan company.code
+    // --- Lookup credit account: 4-1021-{code} (Pendapatan Sewa Tenant) ---
+    // Migration 0061 menyeed 4-1021-{company_code} per company.
+    // Fallback: pakai 4-1025-% (Pendapatan Tenant) jika 4-1021 belum ada.
     const coaRow = await db.execute(sql`
       SELECT id, code FROM chart_of_accounts
-      WHERE company_id = ${companyId} AND code LIKE '4-1010-%'
-      ORDER BY id
+      WHERE company_id = ${companyId}
+        AND (code LIKE '4-1021-%' OR code LIKE '4-1025-%')
+      ORDER BY
+        CASE WHEN code LIKE '4-1021-%' THEN 0 ELSE 1 END,
+        id
       LIMIT 1
     `);
     const creditAccountId: number | null =
@@ -105,7 +109,7 @@ export async function postTenantPaymentAccountingEntry(
 
     if (!creditAccountId) {
       logger.warn(
-        `[accounting_entry] COA pendapatan '4-1010-%' tidak ditemukan untuk company_id=${companyId}, skip`
+        `[accounting_entry] COA pendapatan sewa (4-1021-* / 4-1025-*) tidak ditemukan untuk company_id=${companyId}, skip`
       );
       return;
     }

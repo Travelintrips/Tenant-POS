@@ -1,6 +1,40 @@
 import {
-  pgTable, serial, integer, text, numeric, date, timestamp, boolean,
+  pgTable, serial, integer, text, numeric, date, timestamp, boolean, pgEnum,
 } from "drizzle-orm/pg-core";
+
+// Fix 1: Enum schema untuk accounting_entry_source
+// Nilai-nilai valid yang harus ada di PostgreSQL enum (termasuk tenant payment)
+export const accountingEntrySource = pgEnum("accounting_entry_source", [
+  "manual",
+  "sales_invoice",
+  "purchase_bill",
+  "sales_payment",
+  "purchase_payment",
+  "pos_sale",
+  "ecommerce_order",
+  "stock_received",
+  "manual_payment",
+  "reversal",
+  "cogs_delivery",
+  "purchase_return",
+  "sales_return",
+  "opname_adjust",
+  "damage_adjust",
+  "grn_receipt",
+  "sport_center_booking",
+  "sport_center_refund",
+  "sport_center_membership",
+  "sport_center_booking_refund",
+  "sport_center_operational_expense",
+  "sport_center_booking_reversal",
+  "logistic_vendor_cost",
+  "bank_mutation_import",
+  "payroll",
+  "tenant_rent_payment",
+  "tenant_sc_payment",
+]);
+
+export type AccountingEntrySourceType = typeof accountingEntrySource.enumValues[number];
 
 export const accountingEntriesTable = pgTable("accounting_entries", {
   id: serial("id").primaryKey(),

@@ -2728,4 +2728,79 @@ SET payment_token = substr(md5(random()::text || clock_timestamp()::text || id::
 WHERE payment_token IS NULL
   AND status NOT IN ('cancelled', 'draft');
   `.trim(),
-});
+},
+{
+  name: "0061_accounting_entry_source_enum_and_coa_sewa",
+  sql: `
+-- Fix 2: Pastikan enum accounting_entry_source ada dan punya nilai tenant payment
+-- Untuk DB yang belum punya enum ini (dev/fresh), buat dulu dengan semua nilai
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'accounting_entry_source') THEN
+    EXECUTE '
+      CREATE TYPE accounting_entry_source AS ENUM (
+        ''manual'', ''sales_invoice'', ''purchase_bill'', ''sales_payment'', ''purchase_payment'',
+        ''pos_sale'', ''ecommerce_order'', ''stock_received'', ''manual_payment'', ''reversal'',
+        ''cogs_delivery'', ''purchase_return'', ''sales_return'', ''opname_adjust'', ''damage_adjust'',
+        ''grn_receipt'', ''sport_center_booking'', ''sport_center_refund'', ''sport_center_membership'',
+        ''sport_center_booking_refund'', ''sport_center_operational_expense'', ''sport_center_booking_reversal'',
+        ''logistic_vendor_cost'', ''bank_mutation_import'', ''payroll'',
+        ''tenant_rent_payment'', ''tenant_sc_payment''
+      )
+    ';
+  END IF;
+END $$;
+
+-- Fix 3: Tambah COA 4-1021 (Pendapatan Sewa Tenant) per company
+-- Code spesifik per company: 4-1021-{company_code}
+DO $$
+DECLARE
+  has_account_type boolean;
+  has_type_col     boolean;
+  c_rec            record;
+  coa_code         text;
+BEGIN
+  SELECT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'chart_of_accounts' AND column_name = 'account_type'
+  ) INTO has_account_type;
+
+  SELECT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'chart_of_accounts' AND column_name = 'type'
+  ) INTO has_type_col;
+
+  FOR c_rec IN SELECT id, code FROM companies LOOP
+    coa_code := '4-1021-' || c_rec.code;
+
+    IF NOT EXISTS (
+      SELECT 1 FROM chart_of_accounts
+      WHERE company_id = c_rec.id AND code = coa_code
+    ) THEN
+      IF has_account_type AND has_type_col THEN
+        EXECUTE format(
+          'INSERT INTO chart_of_accounts (company_id, code, name, type, account_type) VALUES (%L, %L, %L, %L, %L) ON CONFLICT DO NOTHING',
+          c_rec.id, coa_code, 'Pendapatan Sewa Tenant', 'revenue', 'pendapatan'
+        );
+      ELSIF has_account_type THEN
+        EXECUTE format(
+          'INSERT INTO chart_of_accounts (company_id, code, name, account_type) VALUES (%L, %L, %L, %L) ON CONFLICT DO NOTHING',
+          c_rec.id, coa_code, 'Pendapatan Sewa Tenant', 'pendapatan'
+        );
+      ELSIF has_type_col THEN
+        EXECUTE format(
+          'INSERT INTO chart_of_accounts (company_id, code, name, type) VALUES (%L, %L, %L, %L) ON CONFLICT DO NOTHING',
+          c_rec.id, coa_code, 'Pendapatan Sewa Tenant', 'revenue'
+        );
+      ELSE
+        EXECUTE format(
+          'INSERT INTO chart_of_accounts (company_id, code, name) VALUES (%L, %L, %L) ON CONFLICT DO NOTHING',
+          c_rec.id, coa_code, 'Pendapatan Sewa Tenant'
+        );
+      END IF;
+    END IF;
+  END LOOP;
+END $$;
+  `.trim(),
+},
+];
