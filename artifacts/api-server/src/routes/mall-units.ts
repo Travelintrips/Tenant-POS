@@ -427,6 +427,30 @@ router.patch("/mall-units/:id", requireAnyRole("owner", "admin"), async (req, re
 
     if (!updated) { res.status(404).json({ error: "Unit tidak ditemukan" }); return; }
 
+    // ── Sync harga sewa ke tenant jika defaultRentAmount unit berubah ──
+    const oldUnitRent = Number(before.defaultRentAmount ?? 0);
+    const newUnitRent = Number(updated.defaultRentAmount ?? 0);
+    if (newUnitRent > 0 && newUnitRent !== oldUnitRent) {
+      try {
+        // Cari tenant yang booth_number-nya cocok dengan unit_code ini
+        const tenantConditions = [eq(tenantsTable.boothNumber, updated.unitCode)];
+        if (updated.siteId && updated.siteId > 0) {
+          tenantConditions.push(eq(tenantsTable.siteId, updated.siteId));
+        }
+        const syncedTenants = await db
+          .update(tenantsTable)
+          .set({ defaultRentAmount: String(newUnitRent), updatedAt: new Date() })
+          .where(and(...tenantConditions))
+          .returning({ id: tenantsTable.id });
+
+        if (syncedTenants.length > 0) {
+          sseBroker.publish("tenant_updated", { tenantIds: syncedTenants.map(t => t.id), action: "rent_synced" });
+        }
+      } catch (syncErr) {
+        req.log.warn(syncErr, "Gagal sync harga sewa ke tenant dari unit");
+      }
+    }
+
     logAudit(req, {
       action: auditAction,
       entityType: "mall_unit",

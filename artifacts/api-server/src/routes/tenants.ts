@@ -193,11 +193,27 @@ router.put("/tenants/:id", async (req, res) => {
     }
 
     // Sync harga sewa ke mall_units jika defaultRentAmount berubah
-    const oldRent = before?.defaultRentAmount ?? "0";
-    const newRent = parsed.data.defaultRentAmount ?? "0";
-    if (newRent !== oldRent && Number(newRent) > 0) {
+    const oldRent = Number(before?.defaultRentAmount ?? 0);
+    const newRent = Number(parsed.data.defaultRentAmount ?? 0);
+    if (newRent > 0 && newRent !== oldRent) {
       try {
-        // Cari booking aktif tenant ini untuk mendapat unit_code
+        const syncedUnitCodes = new Set<string>();
+
+        // ── Jalur 1 (Utama): sync via booth_number tenant (tanpa perlu booking) ──
+        if (tenant.boothNumber) {
+          const boothConditions = [eq(mallUnitsTable.unitCode, tenant.boothNumber)];
+          if (tenant.siteId && tenant.siteId > 0) {
+            boothConditions.push(eq(mallUnitsTable.siteId, tenant.siteId));
+          }
+          await db
+            .update(mallUnitsTable)
+            .set({ defaultRentAmount: String(newRent), updatedAt: new Date() })
+            .where(and(...boothConditions));
+          syncedUnitCodes.add(tenant.boothNumber);
+          req.log.info({ unitCode: tenant.boothNumber, newRent }, "Sync harga via booth_number");
+        }
+
+        // ── Jalur 2 (Tambahan): sync via booking aktif (jika unit_code berbeda dari booth_number) ──
         const [activeBooking] = await db
           .select({ unitCode: tenantBookingsTable.unitCode, siteId: tenantBookingsTable.siteId })
           .from(tenantBookingsTable)
@@ -210,17 +226,21 @@ router.put("/tenants/:id", async (req, res) => {
           .orderBy(desc(tenantBookingsTable.id))
           .limit(1);
 
-        if (activeBooking?.unitCode) {
+        if (activeBooking?.unitCode && !syncedUnitCodes.has(activeBooking.unitCode)) {
           const unitSiteId = activeBooking.siteId ?? tenant.siteId;
-          const conditions = [eq(mallUnitsTable.unitCode, activeBooking.unitCode)];
+          const bookingConditions = [eq(mallUnitsTable.unitCode, activeBooking.unitCode)];
           if (unitSiteId && unitSiteId > 0) {
-            conditions.push(eq(mallUnitsTable.siteId, unitSiteId));
+            bookingConditions.push(eq(mallUnitsTable.siteId, unitSiteId));
           }
           await db
             .update(mallUnitsTable)
-            .set({ defaultRentAmount: newRent, updatedAt: new Date() })
-            .where(and(...conditions));
-          sseBroker.publish("unit_updated", { unitCode: activeBooking.unitCode });
+            .set({ defaultRentAmount: String(newRent), updatedAt: new Date() })
+            .where(and(...bookingConditions));
+          syncedUnitCodes.add(activeBooking.unitCode);
+        }
+
+        if (syncedUnitCodes.size > 0) {
+          sseBroker.publish("unit_updated", { unitCodes: [...syncedUnitCodes] });
         }
       } catch (syncErr) {
         // Sync gagal tidak membatalkan update tenant
