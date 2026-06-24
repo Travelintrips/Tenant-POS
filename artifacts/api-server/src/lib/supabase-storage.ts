@@ -3,13 +3,19 @@ import fs from "fs";
 
 const isProduction = process.env["NODE_ENV"] === "production";
 
+// Dev: coba URL/KEY versi _DEV dulu, fallback ke versi PROD agar tidak jatuh ke local disk
+// Prod: pakai URL/KEY tanpa suffix (wajib diset)
 const supabaseUrl = isProduction
   ? (process.env["SUPABASE_URL"] ?? "")
   : (process.env["SUPABASE_URL_DEV"] ?? process.env["SUPABASE_URL"] ?? "");
 
 const supabaseKey = isProduction
   ? (process.env["SUPABASE_SERVICE_ROLE_KEY"] ?? "")
-  : (process.env["SUPABASE_SERVICE_ROLE_KEY_DEV"] ?? process.env["SUPABASE_SERVICE_ROLE_KEY"] ?? "");
+  : (
+      process.env["SUPABASE_SERVICE_ROLE_KEY_DEV"] ??
+      process.env["SUPABASE_SERVICE_ROLE_KEY"] ??
+      ""
+    );
 
 const useSupabase = Boolean(supabaseUrl && supabaseKey);
 
