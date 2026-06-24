@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useAuth } from "@/hooks/use-auth";
 
 export interface MallSite {
   id: number;
@@ -39,10 +40,12 @@ const SiteContext = createContext<SiteContextValue>({
 
 export function SiteProvider({ children }: { children: React.ReactNode }) {
   const queryClient = useQueryClient();
+  const { data: user } = useAuth();
 
   const { data: sites = [], isLoading } = useQuery<MallSite[]>({
     queryKey: ["sites"],
-    queryFn: () => fetch("/api/sites").then((r) => {
+    enabled: !!user,
+    queryFn: () => fetch("/api/sites", { credentials: "include" }).then((r) => {
       if (!r.ok) return [];
       return r.json().then((d: unknown) =>
         Array.isArray(d) ? (d as MallSite[]).filter((s) => s.status === "active") : []
