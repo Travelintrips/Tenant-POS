@@ -15,21 +15,49 @@ function calcAmounts(rentAmount: number) {
   };
 }
 
-async function generateInvoiceNumber(): Promise<string> {
+/**
+ * Mengambil inisial nama perusahaan dari format "PT NAMA PERUSAHAAN".
+ * Contoh: "PT ELMIRA RATU ABADI" → "ERA"
+ */
+function getCompanyInitials(companyName: string): string {
+  const cleaned = companyName.trim().toUpperCase().replace(/^PT\.?\s+/i, "");
+  const words = cleaned.split(/\s+/).filter(Boolean);
+  if (words.length === 0) return "INV";
+  return words.map((w) => w[0]).join("");
+}
+
+async function getSitePrefix(siteId: number): Promise<string> {
+  try {
+    const result = await db.execute(sql`
+      SELECT company_name, invoice_prefix FROM mall_sites WHERE id = ${siteId} LIMIT 1
+    `);
+    const rows = (result as unknown as { rows: { company_name: string | null; invoice_prefix: string | null }[] }).rows;
+    const site = rows[0];
+    if (site?.company_name) return getCompanyInitials(site.company_name);
+    if (site?.invoice_prefix) return site.invoice_prefix;
+  } catch {
+    // fallback
+  }
+  return "INV";
+}
+
+async function generateInvoiceNumber(siteId: number): Promise<string> {
   const now = new Date();
   const yyyymm = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}`;
-  const prefix = `INV-TENANT/${yyyymm}/`;
+  const initials = await getSitePrefix(siteId);
+  const prefix = `${initials}/${yyyymm}/`;
 
   const result = await db.execute(sql`
     SELECT CAST(SUBSTR(invoice_number, ${prefix.length + 1}) AS INTEGER) AS seq
     FROM tenant_invoices
     WHERE invoice_number LIKE ${prefix + "%"}
+      AND LENGTH(invoice_number) = ${prefix.length + 5}
     ORDER BY seq DESC
     LIMIT 1
   `);
   const rows = (result as unknown as { rows: { seq: number | null }[] }).rows;
   const lastSeq = rows[0]?.seq ?? 0;
-  const nextSeq = String((lastSeq || 0) + 1).padStart(4, "0");
+  const nextSeq = String((lastSeq || 0) + 1).padStart(5, "0");
   return `${prefix}${nextSeq}`;
 }
 
@@ -64,7 +92,7 @@ async function insertOneInvoice(opts: {
   const status = new Date(dueDateStr) < now ? "overdue" : "unpaid";
 
   for (let attempt = 0; attempt < 3; attempt++) {
-    const invoiceNumber = await generateInvoiceNumber();
+    const invoiceNumber = await generateInvoiceNumber(siteId);
     try {
       const insertResult = await db.execute(sql`
         INSERT INTO tenant_invoices (
