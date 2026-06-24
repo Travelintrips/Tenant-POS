@@ -62,13 +62,38 @@ export async function postPosPaymentJournal(
     (opts.invoiceNumber ? ` — ${opts.invoiceNumber}` : "") +
     ` — ${opts.receiptNumber}`;
 
-  // Lookup journal kas untuk company ini
-  const journalRow = await db.execute<{ id: number }>(
-    sql`SELECT id FROM accounting_journals WHERE company_id = ${companyId} AND type = 'cash' LIMIT 1`
+  // Lookup journal kas untuk company ini (+ default_debit_account_id untuk Kas)
+  const journalRow = await db.execute(
+    sql`SELECT id, default_debit_account_id FROM accounting_journals WHERE company_id = ${companyId} AND type = 'cash' LIMIT 1`
   );
   const journalDbId = (journalRow as any).rows?.[0]?.id
     ? Number((journalRow as any).rows[0].id)
     : 1;
+  const kasAccountId: number | null = (journalRow as any).rows?.[0]?.default_debit_account_id
+    ? Number((journalRow as any).rows[0].default_debit_account_id)
+    : null;
+
+  // Lookup COA Pendapatan Sewa: 4-1021-{code} (migration 0061), fallback 4-1025-%
+  const pendapatanRow = await db.execute(sql`
+    SELECT id FROM chart_of_accounts
+    WHERE company_id = ${companyId}
+      AND (code LIKE '4-1021-%' OR code LIKE '4-1025-%')
+    ORDER BY CASE WHEN code LIKE '4-1021-%' THEN 0 ELSE 1 END, id
+    LIMIT 1
+  `);
+  const pendapatanAccountId: number | null = (pendapatanRow as any).rows?.[0]?.id
+    ? Number((pendapatanRow as any).rows[0].id)
+    : null;
+
+  // Lookup COA PPN Keluaran: 2-1020-{code}
+  const ppnRow = await db.execute(sql`
+    SELECT id FROM chart_of_accounts
+    WHERE company_id = ${companyId} AND code LIKE '2-1020-%'
+    LIMIT 1
+  `);
+  const ppnAccountId: number | null = (ppnRow as any).rows?.[0]?.id
+    ? Number((ppnRow as any).rows[0].id)
+    : null;
 
   const year = transactionDateStr.slice(0, 4);
   const maxRow = await db.execute<{ max_num: string | null }>(
@@ -103,13 +128,18 @@ export async function postPosPaymentJournal(
     : null;
 
   if (entryId) {
+    // account_id wajib NOT NULL — gunakan hasil lookup; jika null pakai 0 (invalid tapi tidak crash)
+    const kasId    = kasAccountId    ?? 0;
+    const pendId   = pendapatanAccountId ?? 0;
+    const ppnId    = ppnAccountId    ?? 0;
+
     await db.execute(sql`
       INSERT INTO accounting_entry_lines
-        (entry_id, description, debit, credit, source_module, source_id, company_id)
+        (entry_id, account_id, description, debit, credit, source_module, source_id, company_id)
       VALUES
-        (${entryId}, ${COA_KAS.name}, ${opts.amountPaid}, 0, ${srcModule}, ${opts.paymentId}, ${companyId}),
-        (${entryId}, ${COA_PENDAPATAN.name}, 0, ${netAmount}, ${srcModule}, ${opts.paymentId}, ${companyId}),
-        (${entryId}, ${COA_PPN.name}, 0, ${taxAmount}, ${srcModule}, ${opts.paymentId}, ${companyId})
+        (${entryId}, ${kasId},  ${COA_KAS.name},        ${opts.amountPaid}, 0,           ${srcModule}, ${opts.paymentId}, ${companyId}),
+        (${entryId}, ${pendId}, ${COA_PENDAPATAN.name}, 0,                  ${netAmount}, ${srcModule}, ${opts.paymentId}, ${companyId}),
+        (${entryId}, ${ppnId},  ${COA_PPN.name},        0,                  ${taxAmount}, ${srcModule}, ${opts.paymentId}, ${companyId})
     `);
     await db.execute(sql`UPDATE accounting_entries SET status = 'posted' WHERE id = ${entryId}`);
   }
