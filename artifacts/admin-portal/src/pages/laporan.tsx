@@ -1029,6 +1029,8 @@ function RekapTransaksiSection({ filter, tahun }: { filter: FilterState; tahun: 
     const csv = toCsv(rows, {
       paymentDate: "Tanggal",
       receiptNumber: "No. Receipt",
+      siteName: "Lokasi",
+      companyName: "PT Pengelola",
       businessName: "Nama Bisnis",
       ownerName: "Pemilik",
       boothNumber: "Booth",
@@ -1088,7 +1090,7 @@ function RekapTransaksiSection({ filter, tahun }: { filter: FilterState; tahun: 
                 <thead>
                   <tr className="bg-slate-50 border-b">
                     {[
-                      "Tanggal", "No. Receipt", "Nama Bisnis", "Pemilik", "Booth", "Lantai",
+                      "Tanggal", "No. Receipt", "Lokasi / PT", "Nama Bisnis", "Pemilik", "Booth", "Lantai",
                       "Periode", "Metode", "Nominal", "Refund", "Bersih", "Status",
                       ...(showJurnal ? ["Jurnal"] : []),
                     ].map((h) => (
@@ -1108,6 +1110,10 @@ function RekapTransaksiSection({ filter, tahun }: { filter: FilterState; tahun: 
                           <Receipt className="w-3 h-3 text-slate-400 shrink-0" />
                           <span className="font-mono text-xs text-slate-600">{row.receiptNumber}</span>
                         </div>
+                      </td>
+                      <td className="px-3 py-2.5 whitespace-nowrap">
+                        <div className="font-medium text-slate-700 text-xs truncate max-w-[120px]">{row.siteName !== "-" ? row.siteName : "—"}</div>
+                        <div className="text-[10px] text-slate-400 truncate max-w-[120px]">{row.companyName !== "-" ? row.companyName : ""}</div>
                       </td>
                       <td className="px-3 py-2.5">
                         <div className="font-medium text-slate-800 truncate max-w-[130px]">{row.businessName}</div>
@@ -1165,7 +1171,7 @@ function RekapTransaksiSection({ filter, tahun }: { filter: FilterState; tahun: 
                 </tbody>
                 <tfoot>
                   <tr className="bg-slate-50 border-t">
-                    <td colSpan={showJurnal ? 8 : 7} className="px-3 py-2.5 text-xs font-semibold text-slate-600">
+                    <td colSpan={showJurnal ? 9 : 8} className="px-3 py-2.5 text-xs font-semibold text-slate-600">
                       Total ({rekap?.pagination.total ?? 0} transaksi)
                     </td>
                     <td className="px-3 py-2.5 text-right font-bold text-sm tabular-nums text-slate-700">

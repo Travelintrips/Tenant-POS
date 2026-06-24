@@ -486,10 +486,13 @@ router.get("/laporan/rekap-payments", async (req, res) => {
       te.owner_name,
       te.booth_number,
       te.area_name,
-      te.category
+      te.category,
+      ms.name AS site_name,
+      ms.company_name AS company_name
     FROM tenant_payments tp
     LEFT JOIN tenant_bookings tb ON tb.id = tp.booking_id
     LEFT JOIN tenants te ON te.id = tp.tenant_id
+    LEFT JOIN mall_sites ms ON ms.id = tp.site_id
     WHERE ${whereClause}
     ORDER BY tp.paid_at DESC
     LIMIT ${limit} OFFSET ${offset}
@@ -519,6 +522,8 @@ router.get("/laporan/rekap-payments", async (req, res) => {
     floor: r.floor ?? "-",
     category: r.category ?? "-",
     periodLabel: r.period_label ?? "-",
+    siteName: r.site_name ?? "-",
+    companyName: r.company_name ?? "-",
     paymentMethod: r.payment_method ?? "other",
     amountPaid: Number(r.amount ?? 0),
     discountAmount: Number(r.discount_amount ?? 0),
