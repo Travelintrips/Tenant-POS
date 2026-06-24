@@ -45,7 +45,16 @@ const parsedUrl = isSupabase ? parseDbUrl(rawUrl) : null;
 export const dbConfig = {
   url: rawUrl,
   parsed: parsedUrl
-    ? { host: parsedUrl.host, port: parsedUrl.port, user: parsedUrl.user, password: parsedUrl.password, database: parsedUrl.database }
+    ? {
+        host: parsedUrl.host,
+        port: parsedUrl.port,
+        user: parsedUrl.user,
+        password: parsedUrl.password,
+        database: parsedUrl.database,
+        // Supabase Transaction Pooler (port 6543) tidak otomatis set search_path=public
+        // Tanpa ini, query seperti `SELECT FROM users` gagal dengan "relation does not exist"
+        options: "-c search_path=public",
+      }
     : { connectionString: rawUrl },
   ssl: isSupabase ? ({ rejectUnauthorized: false } as const) : (false as const),
   env: isProduction ? "production" : "development",
