@@ -88,6 +88,7 @@ router.get("/settings/sites", requireAuth, requireAnyRole("owner", "admin", "fin
     const rows = await db.execute(sql`
       SELECT id AS "siteId", name AS "siteName", company_name AS "companyName"
       FROM mall_sites
+      WHERE code NOT LIKE 'KANTIN%'
       ORDER BY id ASC
     `);
     const data = (rows as unknown as { rows: { siteId: number; siteName: string; companyName: string | null }[] }).rows;
