@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { apiFetch } from "@/lib/api";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -59,29 +60,29 @@ export default function PemasukanLain() {
 
   const { data, isLoading, isError } = useQuery<ApiResponse>({
     queryKey: ["other-income", filterCategory, filterDateFrom, filterDateTo, offset],
-    queryFn: async () => { const res = await fetch(`${BASE}/api/other-income?${params}`); if (!res.ok) throw new Error("Gagal memuat data"); return res.json(); },
+    queryFn: async () => { const res = await apiFetch(`${BASE}/api/other-income?${params}`); if (!res.ok) throw new Error("Gagal memuat data"); return res.json(); },
   });
 
   const { data: summaryData } = useQuery<{ success: boolean; data: { totalAmount: number; totalCount: number; byCategory: { category: string; total: number; count: number }[] } }>({
     queryKey: ["other-income-summary", filterDateFrom, filterDateTo],
-    queryFn: async () => { const p = new URLSearchParams(); if (filterDateFrom) p.set("dateFrom", filterDateFrom); if (filterDateTo) p.set("dateTo", filterDateTo); const res = await fetch(`${BASE}/api/other-income/summary?${p}`); if (!res.ok) throw new Error(); return res.json(); },
+    queryFn: async () => { const p = new URLSearchParams(); if (filterDateFrom) p.set("dateFrom", filterDateFrom); if (filterDateTo) p.set("dateTo", filterDateTo); const res = await apiFetch(`${BASE}/api/other-income/summary?${p}`); if (!res.ok) throw new Error(); return res.json(); },
   });
 
   const { data: coaData } = useQuery<{ success: boolean; data: CoaAccount[] }>({
     queryKey: ["other-income-coa"],
-    queryFn: async () => { const res = await fetch(`${BASE}/api/other-income/coa-accounts`); if (!res.ok) throw new Error(); return res.json(); },
+    queryFn: async () => { const res = await apiFetch(`${BASE}/api/other-income/coa-accounts`); if (!res.ok) throw new Error(); return res.json(); },
     enabled: showForm,
   });
 
   const { data: tenantsData } = useQuery<{ success: boolean; data: Tenant[] }>({
     queryKey: ["tenants-list"],
-    queryFn: async () => { const res = await fetch(`${BASE}/api/tenants`); if (!res.ok) throw new Error(); return res.json(); },
+    queryFn: async () => { const res = await apiFetch(`${BASE}/api/tenants`); if (!res.ok) throw new Error(); return res.json(); },
     enabled: showForm,
   });
 
   const createMutation = useMutation({
     mutationFn: async (body: object) => {
-      const res = await fetch(`${BASE}/api/other-income`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      const res = await apiFetch(`${BASE}/api/other-income`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
       if (!res.ok) { const err = await res.json().catch(() => ({})); throw new Error(err.error ?? "Gagal menyimpan"); }
       return res.json();
     },
@@ -90,7 +91,7 @@ export default function PemasukanLain() {
   });
 
   const deleteMutation = useMutation({
-    mutationFn: async (id: number) => { const res = await fetch(`${BASE}/api/other-income/${id}`, { method: "DELETE" }); if (!res.ok) throw new Error("Gagal menghapus"); return res.json(); },
+    mutationFn: async (id: number) => { const res = await apiFetch(`${BASE}/api/other-income/${id}`, { method: "DELETE" }); if (!res.ok) throw new Error("Gagal menghapus"); return res.json(); },
     onSuccess: () => { toast({ title: "Berhasil", description: "Pemasukan berhasil dihapus" }); qc.invalidateQueries({ queryKey: ["other-income"] }); qc.invalidateQueries({ queryKey: ["other-income-summary"] }); setDeleteId(null); },
     onError: () => { toast({ title: "Gagal", description: "Gagal menghapus", variant: "destructive" }); },
   });
