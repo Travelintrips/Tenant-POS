@@ -40,6 +40,9 @@ type Expense = {
   siteId: number | null;
   tenantId: number | null;
   category: string;
+  coaCode: string | null;
+  coaName: string | null;
+  coaAccountType: string | null;
   description: string | null;
   amount: string;
   paymentMethod: string;
@@ -60,29 +63,39 @@ type ApiResponse = {
 
 type Tenant = { id: number; businessName: string };
 
+type CoaAccount = {
+  id: number;
+  companyId: number;
+  code: string;
+  name: string;
+  accountType: string;
+};
+
+type CoaAccountsResponse = { success: boolean; data: CoaAccount[] };
+
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const LIMIT = 15;
 
-const CATEGORY_LABEL: Record<string, string> = {
-  listrik: "Listrik",
-  internet: "Internet",
-  perbaikan: "Perbaikan",
-  "lain-lain": "Lain-lain",
+const ACCT_TYPE_LABEL: Record<string, string> = {
+  expense: "Beban/Biaya",
+  asset: "Aset",
+  liability: "Kewajiban",
+  other: "Lainnya",
 };
 
-const CATEGORY_ICON: Record<string, React.ReactNode> = {
-  listrik: <Zap className="h-3.5 w-3.5" />,
-  internet: <Wifi className="h-3.5 w-3.5" />,
-  perbaikan: <Wrench className="h-3.5 w-3.5" />,
-  "lain-lain": <MoreHorizontal className="h-3.5 w-3.5" />,
+const ACCT_TYPE_ICON: Record<string, React.ReactNode> = {
+  expense: <TrendingDown className="h-3.5 w-3.5" />,
+  asset: <Zap className="h-3.5 w-3.5" />,
+  liability: <Wrench className="h-3.5 w-3.5" />,
+  other: <MoreHorizontal className="h-3.5 w-3.5" />,
 };
 
-const CATEGORY_CLASS: Record<string, string> = {
-  listrik: "bg-yellow-100 text-yellow-700 border-yellow-200",
-  internet: "bg-blue-100 text-blue-700 border-blue-200",
-  perbaikan: "bg-orange-100 text-orange-700 border-orange-200",
-  "lain-lain": "bg-slate-100 text-slate-600 border-slate-200",
+const ACCT_TYPE_CLASS: Record<string, string> = {
+  expense: "bg-orange-100 text-orange-700 border-orange-200",
+  asset: "bg-yellow-100 text-yellow-700 border-yellow-200",
+  liability: "bg-blue-100 text-blue-700 border-blue-200",
+  other: "bg-slate-100 text-slate-600 border-slate-200",
 };
 
 const METHOD_LABEL: Record<string, string> = {
@@ -120,10 +133,10 @@ async function apiFetch<T>(url: string, opts?: RequestInit): Promise<T> {
 
 type MonthData = {
   month: string;
-  listrik: number;
-  internet: number;
-  perbaikan: number;
-  lainLain: number;
+  expense: number;
+  asset: number;
+  liability: number;
+  other: number;
   total: number;
 };
 
@@ -131,16 +144,16 @@ type MonthlySummary = {
   success: boolean;
   year: number;
   months: MonthData[];
-  categoryTotals: { listrik: number; internet: number; perbaikan: number; lainLain: number };
+  categoryTotals: { expense: number; asset: number; liability: number; other: number };
 };
 
 // ─── Chart colors ─────────────────────────────────────────────────────────────
 
 const CAT_COLOR: Record<string, string> = {
-  listrik: "#f59e0b",
-  internet: "#3b82f6",
-  perbaikan: "#f97316",
-  lainLain: "#94a3b8",
+  expense: "#f97316",
+  asset: "#f59e0b",
+  liability: "#3b82f6",
+  other: "#94a3b8",
 };
 
 function fmtShort(v: number) {
@@ -153,7 +166,9 @@ function fmtShort(v: number) {
 
 type FormData = {
   tenantId: string;
-  category: string;
+  coaCode: string;
+  coaName: string;
+  coaAccountType: string;
   description: string;
   amount: string;
   paymentMethod: string;
@@ -170,7 +185,9 @@ type UploadState =
 
 const EMPTY_FORM: FormData = {
   tenantId: "",
-  category: "lain-lain",
+  coaCode: "",
+  coaName: "",
+  coaAccountType: "",
   description: "",
   amount: "",
   paymentMethod: "cash",
@@ -227,7 +244,13 @@ export default function PengeluaranOperasional() {
     queryFn: () => apiFetch<Tenant[]>(`${BASE}/api/tenants`),
   });
 
+  const { data: coaData } = useQuery<CoaAccountsResponse>({
+    queryKey: ["/api/operational-expenses/coa-accounts"],
+    queryFn: () => apiFetch<CoaAccountsResponse>(`${BASE}/api/operational-expenses/coa-accounts`),
+  });
+
   const tenants = tenantsData ?? [];
+  const coaAccounts = coaData?.data ?? [];
 
   const createMutation = useMutation({
     mutationFn: (body: Record<string, unknown>) =>
@@ -350,7 +373,9 @@ export default function PengeluaranOperasional() {
     setEditTarget(exp);
     setForm({
       tenantId: exp.tenantId ? String(exp.tenantId) : "",
-      category: exp.category,
+      coaCode: exp.coaCode ?? "",
+      coaName: exp.coaName ?? "",
+      coaAccountType: exp.coaAccountType ?? "",
       description: exp.description ?? "",
       amount: exp.amount,
       paymentMethod: exp.paymentMethod,
@@ -373,9 +398,15 @@ export default function PengeluaranOperasional() {
       toast({ title: "Nominal tidak valid", description: "Nominal harus lebih dari 0.", variant: "destructive" });
       return;
     }
+    if (!form.coaCode) {
+      toast({ title: "Akun COA belum dipilih", description: "Pilih akun COA untuk menentukan jenis pengeluaran.", variant: "destructive" });
+      return;
+    }
     const body = {
       tenantId: form.tenantId ? parseInt(form.tenantId, 10) : null,
-      category: form.category,
+      coaCode: form.coaCode || null,
+      coaName: form.coaName || null,
+      coaAccountType: form.coaAccountType || null,
       description: form.description || null,
       amount,
       paymentMethod: form.paymentMethod,
@@ -466,11 +497,11 @@ export default function PengeluaranOperasional() {
           {chartData && (
             <div className="flex flex-wrap gap-2 mt-2">
               {[
-                { key: "listrik", label: "Listrik", color: CAT_COLOR.listrik, val: chartData.categoryTotals.listrik },
-                { key: "internet", label: "Internet", color: CAT_COLOR.internet, val: chartData.categoryTotals.internet },
-                { key: "perbaikan", label: "Perbaikan", color: CAT_COLOR.perbaikan, val: chartData.categoryTotals.perbaikan },
-                { key: "lainLain", label: "Lain-lain", color: CAT_COLOR.lainLain, val: chartData.categoryTotals.lainLain },
-              ].map(({ key, label, color, val }) => (
+                { key: "expense", label: "Beban/Biaya", color: CAT_COLOR.expense, val: chartData.categoryTotals.expense },
+                { key: "asset", label: "Aset/Kasbon", color: CAT_COLOR.asset, val: chartData.categoryTotals.asset },
+                { key: "liability", label: "Kewajiban", color: CAT_COLOR.liability, val: chartData.categoryTotals.liability },
+                { key: "other", label: "Lainnya", color: CAT_COLOR.other, val: chartData.categoryTotals.other },
+              ].filter(({ val }) => val > 0).map(({ key, label, color, val }) => (
                 <span key={key} className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium border bg-background">
                   <span className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ backgroundColor: color }} />
                   {label}: <strong>{formatRupiah(val)}</strong>
@@ -502,20 +533,20 @@ export default function PengeluaranOperasional() {
                   width={48}
                 />
                 <Tooltip
-                  formatter={(val: number, name: string) => [formatRupiah(val), name === "lainLain" ? "Lain-lain" : name.charAt(0).toUpperCase() + name.slice(1)]}
+                  formatter={(val: number, name: string) => [formatRupiah(val), ACCT_TYPE_LABEL[name] ?? name]}
                   labelFormatter={(l) => `Bulan: ${l}`}
                   contentStyle={{ fontSize: 12, borderRadius: 8 }}
                 />
                 <Legend
                   iconType="square"
                   iconSize={10}
-                  formatter={(val) => val === "lainLain" ? "Lain-lain" : val.charAt(0).toUpperCase() + val.slice(1)}
+                  formatter={(val) => ACCT_TYPE_LABEL[val] ?? val}
                   wrapperStyle={{ fontSize: 12 }}
                 />
-                <Bar dataKey="listrik" stackId="a" fill={CAT_COLOR.listrik} radius={[0,0,0,0]} />
-                <Bar dataKey="internet" stackId="a" fill={CAT_COLOR.internet} />
-                <Bar dataKey="perbaikan" stackId="a" fill={CAT_COLOR.perbaikan} />
-                <Bar dataKey="lainLain" stackId="a" fill={CAT_COLOR.lainLain} radius={[4,4,0,0]} />
+                <Bar dataKey="expense" stackId="a" fill={CAT_COLOR.expense} radius={[0,0,0,0]} />
+                <Bar dataKey="asset" stackId="a" fill={CAT_COLOR.asset} />
+                <Bar dataKey="liability" stackId="a" fill={CAT_COLOR.liability} />
+                <Bar dataKey="other" stackId="a" fill={CAT_COLOR.other} radius={[4,4,0,0]} />
               </BarChart>
             </ResponsiveContainer>
           )}
@@ -543,15 +574,15 @@ export default function PengeluaranOperasional() {
                 onChange={(e) => { setDateTo(e.target.value); setOffset(0); }} />
             </div>
             <div className="flex flex-col gap-1">
-              <Label className="text-xs">Kategori</Label>
+              <Label className="text-xs">Tipe Akun</Label>
               <Select value={filterCategory} onValueChange={(v) => { setFilterCategory(v); setOffset(0); }}>
-                <SelectTrigger className="h-8 text-sm w-36"><SelectValue /></SelectTrigger>
+                <SelectTrigger className="h-8 text-sm w-40"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">Semua</SelectItem>
-                  <SelectItem value="listrik">Listrik</SelectItem>
-                  <SelectItem value="internet">Internet</SelectItem>
-                  <SelectItem value="perbaikan">Perbaikan</SelectItem>
-                  <SelectItem value="lain-lain">Lain-lain</SelectItem>
+                  <SelectItem value="expense">Beban/Biaya</SelectItem>
+                  <SelectItem value="asset">Aset/Kasbon</SelectItem>
+                  <SelectItem value="liability">Kewajiban</SelectItem>
+                  <SelectItem value="other">Lainnya</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -624,10 +655,18 @@ export default function PengeluaranOperasional() {
                         {row.siteName && <span className="text-xs text-muted-foreground ml-1">({row.siteName})</span>}
                       </TableCell>
                       <TableCell>
-                        <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium ${CATEGORY_CLASS[row.category] ?? CATEGORY_CLASS["lain-lain"]}`}>
-                          {CATEGORY_ICON[row.category]}
-                          {CATEGORY_LABEL[row.category] ?? row.category}
-                        </span>
+                        {row.coaCode ? (
+                          <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium ${ACCT_TYPE_CLASS[row.coaAccountType ?? "other"] ?? ACCT_TYPE_CLASS["other"]}`}>
+                            {ACCT_TYPE_ICON[row.coaAccountType ?? "other"]}
+                            <span className="font-mono">{row.coaCode}</span>
+                            <span className="max-w-[100px] truncate">{row.coaName}</span>
+                          </span>
+                        ) : (
+                          <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium ${ACCT_TYPE_CLASS["other"]}`}>
+                            {ACCT_TYPE_ICON["other"]}
+                            {row.category}
+                          </span>
+                        )}
                       </TableCell>
                       <TableCell className="text-sm max-w-[200px] truncate">
                         {row.description ?? <span className="text-muted-foreground text-xs">-</span>}
@@ -699,19 +738,54 @@ export default function PengeluaranOperasional() {
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-4 py-2">
+            <div className="flex flex-col gap-1.5">
+              <Label className="text-xs">Akun COA <span className="text-red-500">*</span></Label>
+              <Select
+                value={form.coaCode || ""}
+                onValueChange={(v) => {
+                  const acc = coaAccounts.find(a => a.code === v);
+                  setForm((f) => ({
+                    ...f,
+                    coaCode: acc?.code ?? "",
+                    coaName: acc?.name ?? "",
+                    coaAccountType: acc?.accountType ?? "",
+                  }));
+                }}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Pilih akun..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {["expense", "asset", "liability", "other"].map((type) => {
+                    const grouped = coaAccounts.filter(a => a.accountType === type);
+                    if (grouped.length === 0) return null;
+                    return (
+                      <div key={type}>
+                        <div className="px-2 py-1.5 text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">
+                          {ACCT_TYPE_LABEL[type] ?? type}
+                        </div>
+                        {grouped.map(a => (
+                          <SelectItem key={a.code} value={a.code}>
+                            <span className="font-mono text-xs text-muted-foreground mr-1.5">{a.code}</span>
+                            {a.name}
+                          </SelectItem>
+                        ))}
+                      </div>
+                    );
+                  })}
+                  {coaAccounts.length === 0 && (
+                    <div className="px-2 py-3 text-xs text-center text-muted-foreground">Memuat akun COA...</div>
+                  )}
+                </SelectContent>
+              </Select>
+              {form.coaCode && (
+                <p className="text-[11px] text-muted-foreground">
+                  Tipe: <strong>{ACCT_TYPE_LABEL[form.coaAccountType] ?? form.coaAccountType}</strong>
+                </p>
+              )}
+            </div>
+
             <div className="grid grid-cols-2 gap-3">
-              <div className="flex flex-col gap-1.5">
-                <Label className="text-xs">Kategori <span className="text-red-500">*</span></Label>
-                <Select value={form.category} onValueChange={(v) => setForm((f) => ({ ...f, category: v }))}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="listrik">⚡ Listrik</SelectItem>
-                    <SelectItem value="internet">🌐 Internet</SelectItem>
-                    <SelectItem value="perbaikan">🔧 Perbaikan</SelectItem>
-                    <SelectItem value="lain-lain">• Lain-lain</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
               <div className="flex flex-col gap-1.5">
                 <Label className="text-xs">Metode Bayar <span className="text-red-500">*</span></Label>
                 <Select value={form.paymentMethod} onValueChange={(v) => setForm((f) => ({ ...f, paymentMethod: v }))}>

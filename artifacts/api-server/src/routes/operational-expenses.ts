@@ -7,19 +7,73 @@ import { logAudit } from "../lib/audit";
 
 const router: IRouter = Router();
 
-const VALID_CATEGORIES = ["listrik", "internet", "perbaikan", "lain-lain"] as const;
 const VALID_METHODS = ["cash", "transfer", "e-wallet", "lainnya"] as const;
 
 const expenseSchema = z.object({
   siteId: z.number().int().positive().optional().nullable(),
   tenantId: z.number().int().positive().optional().nullable(),
-  category: z.enum(VALID_CATEGORIES).default("lain-lain"),
+  category: z.string().max(100).optional().nullable(),
+  coaCode: z.string().max(50).optional().nullable(),
+  coaName: z.string().max(200).optional().nullable(),
+  coaAccountType: z.string().max(50).optional().nullable(),
   description: z.string().max(500).optional().nullable(),
   amount: z.number().positive("Nominal harus lebih dari 0"),
   paymentMethod: z.enum(VALID_METHODS).default("cash"),
   paidAt: z.string().datetime().optional().nullable(),
   receiptUrl: z.string().url().optional().nullable(),
   notes: z.string().max(1000).optional().nullable(),
+});
+
+// ─── GET /api/operational-expenses/coa-accounts ───────────────────────────────
+router.get("/operational-expenses/coa-accounts", async (req, res) => {
+  const ctxSiteId = (req as unknown as { siteId?: number }).siteId;
+  try {
+    const rows = await db.execute<{
+      id: number;
+      company_id: number;
+      code: string;
+      name: string;
+      account_type: string;
+    }>(sql`
+      SELECT DISTINCT ON (coa.code)
+        coa.id,
+        coa.company_id,
+        coa.code,
+        coa.name,
+        coa.account_type
+      FROM chart_of_accounts coa
+      WHERE coa.is_active = true
+        AND coa.account_type IN (
+          'expense', 'biaya',
+          'asset', 'aset',
+          'liability', 'kewajiban',
+          'other'
+        )
+      ORDER BY coa.code, coa.id
+    `);
+
+    const accounts = (rows as unknown as { rows: Array<{ id: number; company_id: number; code: string; name: string; account_type: string }> }).rows ?? [];
+
+    const normalize = (t: string) => {
+      if (t === 'biaya') return 'expense';
+      if (t === 'aset') return 'asset';
+      if (t === 'kewajiban') return 'liability';
+      return t;
+    };
+
+    const result = accounts.map(a => ({
+      id: a.id,
+      companyId: a.company_id,
+      code: a.code,
+      name: a.name,
+      accountType: normalize(a.account_type),
+    }));
+
+    res.json({ success: true, data: result });
+  } catch (err) {
+    console.error("[GET /operational-expenses/coa-accounts]", err);
+    res.status(500).json({ error: "Gagal mengambil daftar akun COA" });
+  }
 });
 
 // ─── GET /api/operational-expenses/monthly-summary ────────────────────────────
@@ -32,49 +86,49 @@ router.get("/operational-expenses/monthly-summary", async (req, res) => {
       SELECT
         TO_CHAR(paid_at, 'YYYY-MM') AS month_key,
         TO_CHAR(paid_at, 'Mon YY')  AS month_label,
-        category,
-        COALESCE(SUM(amount), 0)::bigint AS total
+        COALESCE(coa_account_type, 'expense') AS account_type,
+        COALESCE(coa_name, category)           AS display_cat,
+        COALESCE(SUM(amount), 0)::bigint       AS total
       FROM operational_expenses
       WHERE EXTRACT(YEAR FROM paid_at) = ${year}
         ${ctxSiteId ? sql`AND site_id = ${ctxSiteId}` : sql``}
-      GROUP BY month_key, month_label, category
+      GROUP BY month_key, month_label, account_type, display_cat
       ORDER BY month_key
     `);
 
-    // Build a map: monthKey -> { monthLabel, listrik, internet, perbaikan, lain-lain }
-    type MonthRow = { month_key: string; month_label: string; category: string; total: string };
-    const map = new Map<string, { label: string; listrik: number; internet: number; perbaikan: number; "lain-lain": number }>();
+    type MonthRow = { month_key: string; month_label: string; account_type: string; display_cat: string; total: string };
 
-    for (const r of rows.rows as MonthRow[]) {
+    const map = new Map<string, { label: string; expense: number; asset: number; liability: number; other: number }>();
+
+    for (const r of (rows as unknown as { rows: MonthRow[] }).rows) {
       if (!map.has(r.month_key)) {
-        map.set(r.month_key, { label: r.month_label, listrik: 0, internet: 0, perbaikan: 0, "lain-lain": 0 });
+        map.set(r.month_key, { label: r.month_label, expense: 0, asset: 0, liability: 0, other: 0 });
       }
       const entry = map.get(r.month_key)!;
-      const cat = r.category as keyof typeof entry;
-      if (cat in entry && cat !== "label") {
-        (entry as unknown as Record<string, number>)[cat] = Number(r.total);
-      }
+      const t = r.account_type === 'biaya' ? 'expense'
+        : r.account_type === 'aset' ? 'asset'
+        : r.account_type === 'kewajiban' ? 'liability'
+        : r.account_type in entry ? r.account_type : 'other';
+      (entry as unknown as Record<string, number>)[t] = ((entry as unknown as Record<string, number>)[t] ?? 0) + Number(r.total);
     }
 
-    // Fill all 12 months even if no data
     const months = [];
     for (let m = 1; m <= 12; m++) {
       const key = `${year}-${String(m).padStart(2, "0")}`;
       const label = new Date(year, m - 1, 1).toLocaleDateString("id-ID", { month: "short" });
-      const entry = map.get(key) ?? { label, listrik: 0, internet: 0, perbaikan: 0, "lain-lain": 0 };
-      const total = entry.listrik + entry.internet + entry.perbaikan + entry["lain-lain"];
-      months.push({ month: label, listrik: entry.listrik, internet: entry.internet, perbaikan: entry.perbaikan, lainLain: entry["lain-lain"], total });
+      const entry = map.get(key) ?? { label, expense: 0, asset: 0, liability: 0, other: 0 };
+      const total = entry.expense + entry.asset + entry.liability + entry.other;
+      months.push({ month: label, expense: entry.expense, asset: entry.asset, liability: entry.liability, other: entry.other, total });
     }
 
-    // Category totals for the year
     const categoryTotals = months.reduce(
       (acc, m) => ({
-        listrik: acc.listrik + m.listrik,
-        internet: acc.internet + m.internet,
-        perbaikan: acc.perbaikan + m.perbaikan,
-        lainLain: acc.lainLain + m.lainLain,
+        expense: acc.expense + m.expense,
+        asset: acc.asset + m.asset,
+        liability: acc.liability + m.liability,
+        other: acc.other + m.other,
       }),
-      { listrik: 0, internet: 0, perbaikan: 0, lainLain: 0 },
+      { expense: 0, asset: 0, liability: 0, other: 0 },
     );
 
     res.json({ success: true, year, months, categoryTotals });
@@ -101,7 +155,11 @@ router.get("/operational-expenses", async (req, res) => {
     if (ctxSiteId) conditions.push(eq(operationalExpensesTable.siteId, ctxSiteId));
     else if (siteId) conditions.push(eq(operationalExpensesTable.siteId, siteId));
     if (tenantId) conditions.push(eq(operationalExpensesTable.tenantId, tenantId));
-    if (category) conditions.push(eq(operationalExpensesTable.category, category));
+    if (category && ["expense","asset","liability","other"].includes(category)) {
+      conditions.push(eq(operationalExpensesTable.coaAccountType, category));
+    } else if (category) {
+      conditions.push(eq(operationalExpensesTable.category, category));
+    }
     if (dateFrom) conditions.push(gte(operationalExpensesTable.paidAt, new Date(dateFrom)));
     if (dateTo) {
       const to = new Date(dateTo);
@@ -122,6 +180,9 @@ router.get("/operational-expenses", async (req, res) => {
         siteId: operationalExpensesTable.siteId,
         tenantId: operationalExpensesTable.tenantId,
         category: operationalExpensesTable.category,
+        coaCode: operationalExpensesTable.coaCode,
+        coaName: operationalExpensesTable.coaName,
+        coaAccountType: operationalExpensesTable.coaAccountType,
         description: operationalExpensesTable.description,
         amount: operationalExpensesTable.amount,
         paymentMethod: operationalExpensesTable.paymentMethod,
@@ -160,6 +221,106 @@ router.get("/operational-expenses", async (req, res) => {
   }
 });
 
+// ─── Helper: derive category string from COA account type ─────────────────────
+function deriveCategoryFromCoa(coaCode: string | null | undefined, coaAccountType: string | null | undefined, coaName: string | null | undefined): string {
+  if (!coaCode) return "lain-lain";
+  const t = coaAccountType ?? "";
+  if (t === "asset" || t === "aset") return "kasbon";
+  if (t === "liability" || t === "kewajiban") return "hutang";
+  const code = coaCode.toLowerCase();
+  if (code === "6101") return "listrik";
+  if (code === "6102") return "internet";
+  if (code === "6103") return "perbaikan";
+  return "lain-lain";
+}
+
+// ─── Helper: post journal entry for expense ────────────────────────────────────
+async function postExpenseJournal(opts: {
+  expenseId: number;
+  siteId: number | null;
+  amount: number;
+  description: string;
+  paidAt: Date;
+  coaCode: string;
+  coaName: string;
+  coaAccountType: string;
+}): Promise<void> {
+  try {
+    const { expenseId, siteId, amount, description, paidAt, coaCode, coaName, coaAccountType } = opts;
+
+    const companyRow = await db.execute<{ id: number }>(sql`
+      SELECT c.id FROM companies c
+      JOIN mall_sites ms ON ms.id = ${siteId}
+      WHERE LOWER(c.company_name) LIKE LOWER(CONCAT('%', SPLIT_PART(ms.name, ' ', 1), '%'))
+        OR c.id = 1
+      ORDER BY
+        CASE WHEN LOWER(c.company_name) LIKE LOWER(CONCAT('%', SPLIT_PART(ms.name, ' ', 1), '%')) THEN 0 ELSE 1 END
+      LIMIT 1
+    `).catch(() => ({ rows: [] as { id: number }[] }));
+
+    const companyId: number = (companyRow as unknown as { rows: { id: number }[] }).rows?.[0]?.id ?? 1;
+
+    const journalRow = await db.execute<{ id: number }>(sql`
+      SELECT id FROM accounting_journals WHERE company_id = ${companyId} ORDER BY id LIMIT 1
+    `).catch(() => ({ rows: [] as { id: number }[] }));
+
+    const journalId: number = (journalRow as unknown as { rows: { id: number }[] }).rows?.[0]?.id ?? 1;
+
+    const dateStr = paidAt.toISOString().slice(0, 10);
+    const entryNumber = `EXP-${dateStr.replace(/-/g, "")}-${expenseId}`;
+    const correlationId = `expense-${expenseId}`;
+
+    const isAsset = coaAccountType === "asset" || coaAccountType === "aset";
+    const isLiability = coaAccountType === "liability" || coaAccountType === "kewajiban";
+
+    let debitCode = coaCode;
+    let debitName = coaName;
+    let creditCode = "1-1001";
+    let creditName = "Kas dan Bank";
+
+    if (isLiability) {
+      debitCode = "6104";
+      debitName = "Biaya Operasional Lainnya";
+      creditCode = coaCode;
+      creditName = coaName;
+    }
+
+    const expenseCoaRow = await db.execute<{ id: number }>(sql`
+      SELECT id FROM chart_of_accounts WHERE company_id = ${companyId} AND code = ${debitCode} LIMIT 1
+    `).catch(() => ({ rows: [] as { id: number }[] }));
+
+    const kasCoaRow = await db.execute<{ id: number }>(sql`
+      SELECT id FROM chart_of_accounts WHERE company_id = ${companyId} AND code = ${creditCode} LIMIT 1
+    `).catch(() => ({ rows: [] as { id: number }[] }));
+
+    const debitAccountId: number | null = (expenseCoaRow as unknown as { rows: { id: number }[] }).rows?.[0]?.id ?? null;
+    const creditAccountId: number | null = (kasCoaRow as unknown as { rows: { id: number }[] }).rows?.[0]?.id ?? null;
+
+    const entryRow = await db.execute<{ id: number }>(sql`
+      INSERT INTO accounting_entries
+        (entry_number, journal_id, date, description, status, source, source_id, total_debit, total_credit, company_id, correlation_id, created_at)
+      VALUES
+        (${entryNumber}, ${journalId}, ${dateStr}::date, ${description || `Pengeluaran #${expenseId}`},
+         'posted', 'operational_expense', ${expenseId}, ${amount}, ${amount}, ${companyId}, ${correlationId}, NOW())
+      ON CONFLICT (correlation_id) DO NOTHING
+      RETURNING id
+    `).catch(() => ({ rows: [] as { id: number }[] }));
+
+    const entryId: number | null = (entryRow as unknown as { rows: { id: number }[] }).rows?.[0]?.id ?? null;
+    if (!entryId) return;
+
+    await db.execute(sql`
+      INSERT INTO accounting_entry_lines (entry_id, account_id, description, debit, credit, created_at)
+      VALUES
+        (${entryId}, ${debitAccountId}, ${debitName}, ${amount}, 0, NOW()),
+        (${entryId}, ${creditAccountId}, ${creditName}, 0, ${amount}, NOW())
+    `).catch((e) => console.warn("[postExpenseJournal] entry lines failed:", e));
+
+  } catch (err) {
+    console.warn("[postExpenseJournal] Jurnal tidak terposting:", err);
+  }
+}
+
 // ─── POST /api/operational-expenses ───────────────────────────────────────────
 router.post("/operational-expenses", async (req, res) => {
   const parsed = expenseSchema.safeParse(req.body);
@@ -173,13 +334,22 @@ router.post("/operational-expenses", async (req, res) => {
   const userId = rawUserId && !isNaN(Number(rawUserId)) ? Number(rawUserId) : null;
   const data = parsed.data;
 
+  const effectiveSiteId = ctxSiteId ?? data.siteId ?? null;
+  const coaCode = data.coaCode ?? null;
+  const coaName = data.coaName ?? null;
+  const coaAccountType = data.coaAccountType ?? null;
+  const derivedCategory = data.category ?? deriveCategoryFromCoa(coaCode, coaAccountType, coaName);
+
   try {
     const [row] = await db
       .insert(operationalExpensesTable)
       .values({
-        siteId: ctxSiteId ?? data.siteId ?? null,
+        siteId: effectiveSiteId,
         tenantId: data.tenantId ?? null,
-        category: data.category,
+        category: derivedCategory,
+        coaCode,
+        coaName,
+        coaAccountType,
         description: data.description ?? null,
         amount: String(data.amount),
         paymentMethod: data.paymentMethod,
@@ -196,6 +366,19 @@ router.post("/operational-expenses", async (req, res) => {
       entityId: row.id,
       afterData: { ...data, id: row.id },
     });
+
+    if (coaCode && coaName && coaAccountType) {
+      void postExpenseJournal({
+        expenseId: row.id,
+        siteId: effectiveSiteId,
+        amount: data.amount,
+        description: data.description ?? "",
+        paidAt: row.paidAt ?? new Date(),
+        coaCode,
+        coaName,
+        coaAccountType,
+      });
+    }
 
     res.status(201).json({ success: true, data: row });
   } catch (err) {
@@ -224,10 +407,15 @@ router.patch("/operational-expenses/:id", async (req, res) => {
     if (!existing) { res.status(404).json({ error: "Pengeluaran tidak ditemukan" }); return; }
 
     const data = parsed.data;
-    const updateData: Record<string, unknown> = {
-      updatedAt: new Date(),
-    };
-    if (data.category !== undefined) updateData.category = data.category;
+    const updateData: Record<string, unknown> = { updatedAt: new Date() };
+
+    if (data.coaCode !== undefined) updateData.coaCode = data.coaCode;
+    if (data.coaName !== undefined) updateData.coaName = data.coaName;
+    if (data.coaAccountType !== undefined) updateData.coaAccountType = data.coaAccountType;
+
+    if (data.coaCode !== undefined || data.category !== undefined) {
+      updateData.category = data.category ?? deriveCategoryFromCoa(data.coaCode ?? null, data.coaAccountType ?? null, data.coaName ?? null);
+    }
     if (data.description !== undefined) updateData.description = data.description;
     if (data.amount !== undefined) updateData.amount = String(data.amount);
     if (data.paymentMethod !== undefined) updateData.paymentMethod = data.paymentMethod;

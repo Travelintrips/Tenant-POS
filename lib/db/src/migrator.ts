@@ -2909,3 +2909,61 @@ ON CONFLICT DO NOTHING;
 ALTER TABLE mall_sites ADD COLUMN IF NOT EXISTS logo_url TEXT;
   `.trim(),
 });
+
+MIGRATIONS.push({
+  name: "0065_operational_expenses_coa",
+  sql: `
+ALTER TABLE operational_expenses ADD COLUMN IF NOT EXISTS coa_code text;
+ALTER TABLE operational_expenses ADD COLUMN IF NOT EXISTS coa_name text;
+ALTER TABLE operational_expenses ADD COLUMN IF NOT EXISTS coa_account_type text;
+
+DO \$\$
+DECLARE
+  type_col_udt text;
+BEGIN
+  SELECT udt_name INTO type_col_udt
+  FROM information_schema.columns
+  WHERE table_schema = 'public'
+    AND table_name = 'chart_of_accounts'
+    AND column_name = 'type'
+  LIMIT 1;
+
+  IF type_col_udt IS NOT NULL THEN
+    INSERT INTO chart_of_accounts (company_id, code, name, type, is_active)
+    SELECT c.id, a.code, a.name, a.atype::account_type, true
+    FROM companies c
+    CROSS JOIN (VALUES
+      ('1105','Piutang Kasbon Karyawan','asset'),
+      ('6101','Biaya Listrik','expense'),
+      ('6102','Biaya Internet & Telepon','expense'),
+      ('6103','Biaya Perbaikan & Pemeliharaan','expense'),
+      ('6104','Biaya Operasional Lainnya','expense'),
+      ('6105','Biaya Kebersihan & Keamanan','expense'),
+      ('6106','Biaya ATK & Perlengkapan','expense'),
+      ('6107','Biaya Transportasi','expense'),
+      ('2101','Hutang Usaha','liability'),
+      ('2102','Titipan / Deposit Tenant','liability')
+    ) AS a(code, name, atype)
+    ON CONFLICT (company_id, code) DO NOTHING;
+  ELSE
+    INSERT INTO chart_of_accounts (company_id, code, name, account_type, is_active)
+    SELECT c.id, a.code, a.name, a.account_type, true
+    FROM companies c
+    CROSS JOIN (VALUES
+      ('1105','Piutang Kasbon Karyawan','asset'),
+      ('6101','Biaya Listrik','expense'),
+      ('6102','Biaya Internet & Telepon','expense'),
+      ('6103','Biaya Perbaikan & Pemeliharaan','expense'),
+      ('6104','Biaya Operasional Lainnya','expense'),
+      ('6105','Biaya Kebersihan & Keamanan','expense'),
+      ('6106','Biaya ATK & Perlengkapan','expense'),
+      ('6107','Biaya Transportasi','expense'),
+      ('2101','Hutang Usaha','liability'),
+      ('2102','Titipan / Deposit Tenant','liability')
+    ) AS a(code, name, account_type)
+    ON CONFLICT (company_id, code) DO NOTHING;
+  END IF;
+END
+\$\$;
+  `.trim(),
+});
