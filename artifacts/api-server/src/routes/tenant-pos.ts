@@ -1132,16 +1132,96 @@ router.post("/tenant-pos/manual-payment", paymentRateLimiter, async (req, res) =
           logger.error({ err: dbErr, paymentId }, "[pos-manual] Gagal simpan record receipt");
         }
 
+        // Kirim WA ke tenant (jika ada nomor HP)
+        let waStatus = "skipped";
+        let waError: string | null = null;
         if (tenant.phone) {
           try {
             const baseUrl = await getBaseUrl();
             const fullReceiptUrl = receiptUrl && baseUrl ? `${baseUrl}${receiptUrl}` : null;
-            const manualCompanyName = await getSiteCompanyName(req.siteId);
-            await sendPosPaymentSuccess({ ownerName: tenant.ownerName ?? "Tenant", businessName: tenant.businessName ?? "Tenant", invoiceNumber: null, amountPaid, paymentMethod, receiptNumber, receiptUrl: fullReceiptUrl, phone: tenant.phone, companyName: manualCompanyName });
+            const manualCompanyName = await getSiteCompanyName(siteId);
+            const waResult = await sendPosPaymentSuccess({
+              ownerName: tenant.ownerName ?? "Tenant",
+              businessName: tenant.businessName ?? "Tenant",
+              invoiceNumber: null,
+              amountPaid,
+              paymentMethod,
+              receiptNumber,
+              receiptUrl: fullReceiptUrl,
+              phone: tenant.phone,
+              companyName: manualCompanyName,
+            });
+            waStatus = waResult.ok ? (waResult.skipped ? "skipped" : "sent") : "failed";
+            waError = waResult.error ?? null;
           } catch (waErr) {
-            logger.error({ err: waErr, paymentId }, "[pos-manual] Gagal kirim WA");
+            waStatus = "failed";
+            waError = waErr instanceof Error ? waErr.message : String(waErr);
+            logger.error({ err: waErr, paymentId }, "[pos-manual] Gagal kirim WA ke tenant");
           }
         }
+
+        // Update wa_status di DB
+        try {
+          await db
+            .update(tenantReceiptsTable)
+            .set({ waStatus, waError })
+            .where(eq(tenantReceiptsTable.receiptNumber, receiptNumber));
+        } catch {
+          // Non-critical
+        }
+
+        // Kirim WA alert ke admin/owner
+        try {
+          const adminRows = await db
+            .select({ name: usersTable.name, phoneNumber: usersTable.phoneNumber })
+            .from(usersTable)
+            .where(
+              and(
+                inArray(usersTable.role, ["owner", "admin"]),
+                eq(usersTable.status, "active"),
+                sql`phone_number IS NOT NULL AND phone_number != ''`,
+              ),
+            );
+          let adminPhones: Array<{ name: string; phone: string }> = adminRows
+            .filter((u) => u.phoneNumber)
+            .map((u) => ({ name: u.name, phone: u.phoneNumber! }));
+
+          if (adminPhones.length === 0) {
+            const envPhone = process.env.ADMIN_WHATSAPP ?? process.env.FONNTE_ADMIN_WA;
+            if (envPhone) adminPhones = [{ name: "Admin", phone: envPhone }];
+            else {
+              const [settingRow] = await db
+                .select({ value: systemSettingsTable.value })
+                .from(systemSettingsTable)
+                .where(eq(systemSettingsTable.key, "mall_config"));
+              const phone = (settingRow?.value as Record<string, unknown> | undefined)?.adminPhone;
+              if (typeof phone === "string" && phone.length > 0) adminPhones = [{ name: "Admin", phone }];
+            }
+          }
+
+          const manualCompanyName = await getSiteCompanyName(siteId);
+          const kasirNameForAdmin = kasirName;
+          await Promise.allSettled(
+            adminPhones.map((admin) =>
+              sendAdminPosPaymentAlert({
+                adminName: admin.name,
+                adminPhone: admin.phone,
+                businessName: tenant.businessName ?? "Tenant",
+                ownerName: tenant.ownerName ?? "-",
+                receiptNumber,
+                invoiceNumber: null,
+                amountPaid,
+                paymentMethod,
+                kasirName: kasirNameForAdmin,
+                siteName: manualCompanyName ?? null,
+              }),
+            ),
+          );
+        } catch (adminWaErr) {
+          logger.error({ err: adminWaErr, paymentId }, "[pos-manual] Gagal kirim WA ke admin — non-fatal");
+        }
+
+        logger.info({ paymentId, waStatus }, "[pos-manual] Post-payment processing selesai");
       } catch (postErr) {
         logger.error({ err: postErr, paymentId }, "[pos-manual] Gagal post-payment processing");
       }
