@@ -52,3 +52,4 @@
 - [payment-ledger-service](payment-ledger-service.md) — syncInvoiceFromPayments in lib/payment-ledger.ts aggregates approved+non-voided payments for idempotent invoice sync; use instead of += amount; referenceId partial-unique index prevents double payment
 - [supabase-dev-url-broken](supabase-dev-url-broken.md) — SUPABASE_PG_URL_DEV menunjuk project berbeda (tidak punya schema app); selalu pakai SUPABASE_PG_URL_PROD di dev
 - [migrator-search-path](migrator-search-path.md) — SUPABASE_PG_URL_PROD pakai port 6543 (PgBouncer txn mode); search_path kosong → CREATE TABLE gagal; fix: `SET search_path TO public` setelah client.connect() di runMigrations()
+- [migration-0066-legacy-column](migration-0066-legacy-column.md) — migration 0066 references legacy `type` column in chart_of_accounts (not present on fresh DB); wrap in DO $$ IF EXISTS column check so it skips safely on new clones
