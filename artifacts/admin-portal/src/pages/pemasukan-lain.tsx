@@ -240,20 +240,20 @@ export default function PemasukanLain() {
             </div>
             <div className="space-y-1.5">
               <Label>Tenant (opsional)</Label>
-              <Select value={form.tenantId} onValueChange={v => setForm(f => ({ ...f, tenantId: v }))}>
+              <Select value={form.tenantId || "__none__"} onValueChange={v => setForm(f => ({ ...f, tenantId: v === '__none__' ? '' : v }))}>
                 <SelectTrigger><SelectValue placeholder="Pilih tenant (opsional)" /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">— Tidak terkait tenant —</SelectItem>
+                  <SelectItem value="__none__">— Tidak terkait tenant —</SelectItem>
                   {tenantsData?.data.map(t => <SelectItem key={t.id} value={String(t.id)}>{t.businessName}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
             <div className="space-y-1.5">
               <Label>Akun COA (opsional)</Label>
-              <Select value={form.coaCode} onValueChange={code => { const coa = coaData?.data.find(c => c.code === code); setForm(f => ({ ...f, coaCode: code, coaName: coa?.name ?? "" })); }}>
+              <Select value={form.coaCode || "__none__"} onValueChange={code => { if (code === '__none__') { setForm(f => ({ ...f, coaCode: '', coaName: '' })); return; } const coa = coaData?.data.find(c => c.code === code); setForm(f => ({ ...f, coaCode: code, coaName: coa?.name ?? '' })); }}>
                 <SelectTrigger><SelectValue placeholder="Pilih akun pendapatan" /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">— Tanpa COA —</SelectItem>
+                  <SelectItem value="__none__">— Tanpa COA —</SelectItem>
                   {coaData?.data.map(c => <SelectItem key={c.code} value={c.code}>{c.code} — {c.name}</SelectItem>)}
                 </SelectContent>
               </Select>
