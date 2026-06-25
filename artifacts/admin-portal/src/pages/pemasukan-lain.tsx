@@ -12,8 +12,11 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, TrendingUp, Filter, Trash2, Loader2, AlertCircle, ChevronLeft, ChevronRight, Banknote, Hash } from "lucide-react";
+import { Plus, TrendingUp, Filter, Trash2, Loader2, AlertCircle, ChevronLeft, ChevronRight, Banknote, Hash, ChevronsUpDown, Check } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -50,6 +53,8 @@ export default function PemasukanLain() {
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState<FormState>(emptyForm());
   const [deleteId, setDeleteId] = useState<number | null>(null);
+  const [tenantOpen, setTenantOpen] = useState(false);
+  const [tenantSearch, setTenantSearch] = useState("");
 
   const params = new URLSearchParams();
   if (filterCategory !== "all") params.set("category", filterCategory);
@@ -241,13 +246,56 @@ export default function PemasukanLain() {
             </div>
             <div className="space-y-1.5">
               <Label>Tenant (opsional)</Label>
-              <Select value={form.tenantId || "__none__"} onValueChange={v => setForm(f => ({ ...f, tenantId: v === '__none__' ? '' : v }))}>
-                <SelectTrigger><SelectValue placeholder="Pilih tenant (opsional)" /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="__none__">— Tidak terkait tenant —</SelectItem>
-                  {tenantsData?.data?.map(t => <SelectItem key={t.id} value={String(t.id)}>{t.businessName}</SelectItem>)}
-                </SelectContent>
-              </Select>
+              <Popover open={tenantOpen} onOpenChange={o => { setTenantOpen(o); if (!o) setTenantSearch(""); }}>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="outline"
+                    role="combobox"
+                    aria-expanded={tenantOpen}
+                    className="w-full justify-between font-normal"
+                  >
+                    <span className="truncate">
+                      {form.tenantId
+                        ? (tenantsData?.data?.find(t => String(t.id) === form.tenantId)?.businessName ?? "Pilih tenant...")
+                        : "— Tidak terkait tenant —"}
+                    </span>
+                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-[360px] p-0" align="start">
+                  <Command>
+                    <CommandInput
+                      placeholder="Cari nama tenant..."
+                      value={tenantSearch}
+                      onValueChange={setTenantSearch}
+                    />
+                    <CommandList>
+                      <CommandEmpty>Tenant tidak ditemukan.</CommandEmpty>
+                      <CommandGroup>
+                        <CommandItem
+                          value="__none__"
+                          onSelect={() => { setForm(f => ({ ...f, tenantId: "" })); setTenantOpen(false); setTenantSearch(""); }}
+                        >
+                          <Check className={cn("mr-2 h-4 w-4", !form.tenantId ? "opacity-100" : "opacity-0")} />
+                          — Tidak terkait tenant —
+                        </CommandItem>
+                        {tenantsData?.data
+                          ?.filter(t => t.businessName.toLowerCase().includes(tenantSearch.toLowerCase()))
+                          .map(t => (
+                            <CommandItem
+                              key={t.id}
+                              value={String(t.id)}
+                              onSelect={() => { setForm(f => ({ ...f, tenantId: String(t.id) })); setTenantOpen(false); setTenantSearch(""); }}
+                            >
+                              <Check className={cn("mr-2 h-4 w-4", form.tenantId === String(t.id) ? "opacity-100" : "opacity-0")} />
+                              {t.businessName}
+                            </CommandItem>
+                          ))}
+                      </CommandGroup>
+                    </CommandList>
+                  </Command>
+                </PopoverContent>
+              </Popover>
             </div>
             <div className="space-y-1.5">
               <Label>Akun COA (opsional)</Label>
