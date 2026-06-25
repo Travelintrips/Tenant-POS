@@ -523,7 +523,7 @@ function buildInvoiceHtml(inv: Invoice, cfg: MallInvoiceConfig): string {
   <meta charset="UTF-8" />
   <title>Invoice ${inv.invoiceNumber}</title>
   <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
+    * { box-sizing: border-box; margin: 0; padding: 0; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
     body { font-family: 'Segoe UI', Arial, sans-serif; color: #1a1a1a; background: #fff; padding: 40px; max-width: 720px; margin: auto; }
     .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 28px; }
     .inv-meta { text-align: right; }
@@ -534,16 +534,25 @@ function buildInvoiceHtml(inv: Invoice, cfg: MallInvoiceConfig): string {
     .label { font-size: 10px; color: #888; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 4px; font-weight: 600; }
     .value { font-size: 13px; color: #1a1a1a; font-weight: 500; }
     table { width: 100%; border-collapse: collapse; margin-bottom: 16px; }
-    thead tr { background: ${accent}; }
-    th { text-align: left; padding: 9px 10px; font-size: 11px; text-transform: uppercase; color: #fff; letter-spacing: 0.05em; font-weight: 600; }
+    thead tr { background: ${accent} !important; }
+    th { text-align: left; padding: 9px 10px; font-size: 11px; text-transform: uppercase; color: #fff !important; letter-spacing: 0.05em; font-weight: 600; }
     td { padding: 6px 10px; font-size: 13px; border-bottom: 1px solid #f1f5f9; }
-    tr:nth-child(even) td { background: ${accentLight}; }
+    tr:nth-child(even) td { background: ${accentLight} !important; }
     .totals { margin-left: auto; width: 300px; }
     .total-row { display: flex; justify-content: space-between; padding: 4px 0; font-size: 13px; }
     .total-grand { display: flex; justify-content: space-between; padding: 9px 0; font-size: 16px; font-weight: 700; border-top: 2px solid ${accent}; margin-top: 4px; color: ${accent}; }
-    .outstanding { display: flex; justify-content: space-between; padding: 6px 10px; background: #fff7ed; border: 1px solid #fed7aa; border-radius: 8px; margin-top: 8px; font-weight: 600; color: #c2410c; }
+    .outstanding { display: flex; justify-content: space-between; padding: 6px 10px; background: #fff7ed !important; border: 1px solid #fed7aa; border-radius: 8px; margin-top: 8px; font-weight: 600; color: #c2410c; }
     .footer { margin-top: 36px; font-size: 11px; color: #aaa; text-align: center; border-top: 1px solid #e5e7eb; padding-top: 14px; }
-    @media print { body { padding: 20px; } @page { margin: 10mm 15mm; } }
+    @media print {
+      body { padding: 20px; }
+      @page { margin: 10mm 15mm; }
+      * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+      thead tr { background: ${accent} !important; }
+      th { color: #fff !important; }
+      tr:nth-child(even) td { background: ${accentLight} !important; }
+      .outstanding { background: #fff7ed !important; }
+      .status-badge { background: #fef3c7 !important; color: #b45309 !important; }
+    }
   </style>
 </head>
 <body>
