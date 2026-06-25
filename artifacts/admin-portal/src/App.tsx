@@ -288,6 +288,13 @@ function Router() {
           </SidebarLayout>
         </AuthGuard>
       </Route>
+      <Route path="/pemasukan-lain">
+        <AuthGuard roles={["owner", "admin", "finance"]}>
+          <SidebarLayout>
+            <PemasukanLain />
+          </SidebarLayout>
+        </AuthGuard>
+      </Route>
       <Route>
         <SidebarLayout>
           <NotFound />
