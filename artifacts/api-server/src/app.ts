@@ -1,5 +1,7 @@
 import express, { type Express, type Request, type Response, type NextFunction } from "express";
 import session from "express-session";
+import connectPgSimple from "connect-pg-simple";
+import { Pool } from "pg";
 import cors from "cors";
 import helmet from "helmet";
 import pinoHttp from "pino-http";
@@ -102,8 +104,27 @@ if (isProduction && sessionSecret === "fallback-dev-secret") {
   logger.warn("SESSION_SECRET menggunakan nilai default! Wajib diganti sebelum production.");
 }
 
+// ─── PostgreSQL Session Store ──────────────────────────────────────────────
+// Sesi disimpan ke PostgreSQL agar tidak hilang saat server restart.
+// Tabel `session` dibuat otomatis oleh connect-pg-simple jika belum ada.
+// Prioritas URL DB sama dengan lib/db/src/config.ts:
+//   dev  : DATABASE_URL
+//   prod : SUPABASE_PG_URL_PROD → SUPABASE_PG_URL → DATABASE_URL
+const sessionDbUrl =
+  isProduction
+    ? (process.env.SUPABASE_PG_URL_PROD ?? process.env.SUPABASE_PG_URL ?? process.env.DATABASE_URL ?? "")
+    : (process.env.DATABASE_URL ?? process.env.SUPABASE_PG_URL_PROD ?? "");
+
+const PgSession = connectPgSimple(session);
+const sessionPool = new Pool({ connectionString: sessionDbUrl });
+
 app.use(
   session({
+    store: new PgSession({
+      pool: sessionPool,
+      tableName: "session",
+      createTableIfMissing: true,
+    }),
     secret: sessionSecret,
     resave: false,
     saveUninitialized: false,
