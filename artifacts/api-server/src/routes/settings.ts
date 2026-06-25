@@ -217,24 +217,25 @@ router.post(
   requireAnyRole("owner"),
   async (req, res) => {
     try {
-      await db.execute(sql`
-        TRUNCATE TABLE
-          tenant_payments,
-          tenant_invoices,
-          tenant_receipts,
-          bank_mutations,
-          bank_reconciliation_matches,
-          bank_recon_audit_logs,
-          finance_payment_events,
-          cashier_shifts,
-          operational_expenses,
-          accounting_entries,
-          accounting_entry_lines,
-          accounting_payments,
-          tax_transactions,
-          bank_account_balances
-        RESTART IDENTITY CASCADE
-      `);
+      // Gunakan DELETE (bukan TRUNCATE) agar kompatibel dengan Supabase Transaction Pooler (PgBouncer).
+      // TRUNCATE ... RESTART IDENTITY CASCADE tidak selalu berjalan mulus via PgBouncer.
+      // Urutan delete: dari tabel yang punya FK ke tabel induk terlebih dahulu.
+      await db.execute(sql`DELETE FROM gl_journal_bridge`);
+      await db.execute(sql`DELETE FROM bank_journal_entries`);
+      await db.execute(sql`DELETE FROM accounting_entry_lines`);
+      await db.execute(sql`DELETE FROM accounting_entries`);
+      await db.execute(sql`DELETE FROM accounting_payments`);
+      await db.execute(sql`DELETE FROM bank_recon_audit_logs`);
+      await db.execute(sql`DELETE FROM bank_reconciliation_matches`);
+      await db.execute(sql`DELETE FROM bank_mutations`);
+      await db.execute(sql`DELETE FROM bank_account_balances`);
+      await db.execute(sql`DELETE FROM tax_transactions`);
+      await db.execute(sql`DELETE FROM finance_payment_events`);
+      await db.execute(sql`DELETE FROM tenant_receipts`);
+      await db.execute(sql`DELETE FROM operational_expenses`);
+      await db.execute(sql`DELETE FROM cashier_shifts`);
+      await db.execute(sql`DELETE FROM tenant_payments`);
+      await db.execute(sql`DELETE FROM tenant_invoices`);
 
       logAudit(req, {
         action: "reset_all_transactions",
