@@ -398,8 +398,9 @@ export default function DataTenant() {
     queryFn: fetchMallUnits,
   });
 
-  // Map unit_code → status untuk badge di tabel
+  // Map unit_code → status dan id untuk badge di tabel
   const unitStatusByCode = new Map(mallUnits.map(u => [u.unitCode, u.status as string]));
+  const unitIdByCode = new Map(mallUnits.map(u => [u.unitCode, u.id]));
 
   const UNIT_STATUS_BADGE: Record<string, { label: string; cls: string }> = {
     available:  { label: "Tersedia",    cls: "bg-emerald-50 text-emerald-700 border-emerald-200" },
@@ -409,6 +410,13 @@ export default function DataTenant() {
     expired:    { label: "Berakhir",    cls: "bg-orange-50 text-orange-700 border-orange-200" },
     booked:     { label: "Dipesan",     cls: "bg-amber-50 text-amber-700 border-amber-200" },
   };
+
+  // Opsi yang bisa diubah langsung dari tabel
+  const UNIT_STATUS_OPTIONS = [
+    { value: "occupied",    label: "Terisi",    cls: "bg-blue-50 text-blue-700 border-blue-200" },
+    { value: "available",   label: "Kosong",    cls: "bg-emerald-50 text-emerald-700 border-emerald-200" },
+    { value: "maintenance", label: "Perbaikan", cls: "bg-slate-100 text-slate-600 border-slate-300" },
+  ];
 
   // Tampilkan SEMUA unit; jika edit, pastikan unit saat ini selalu ada
   const unitOptions = (() => {
@@ -433,6 +441,25 @@ export default function DataTenant() {
     void queryClient.invalidateQueries({ queryKey: ["/api/tenants"] });
     void queryClient.invalidateQueries({ queryKey: ["/api/mall-units"] });
   };
+
+  const patchUnitStatusMutation = useMutation({
+    mutationFn: ({ unitId, status }: { unitId: number; status: string }) =>
+      apiFetch(`${BASE}/api/mall-units/${unitId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status }),
+        credentials: "include",
+      }).then(async r => {
+        if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error((e as { error?: string }).error ?? "Gagal update status"); }
+        return r.json();
+      }),
+    onSuccess: (_data, vars) => {
+      void queryClient.invalidateQueries({ queryKey: ["/api/mall-units"] });
+      const opt = UNIT_STATUS_OPTIONS.find(o => o.value === vars.status);
+      toast({ title: "Status unit diperbarui", description: `Unit berhasil diubah ke "${opt?.label ?? vars.status}".` });
+    },
+    onError: (e: Error) => toast({ title: "Gagal", description: e.message, variant: "destructive" }),
+  });
 
   const createMutation = useMutation({
     mutationFn: createTenant,
@@ -1102,12 +1129,50 @@ export default function DataTenant() {
                               <span className="font-mono text-sm">{tenant.boothNumber ?? "-"}</span>
                               {tenant.boothNumber && (() => {
                                 const st = unitStatusByCode.get(tenant.boothNumber);
+                                const unitId = unitIdByCode.get(tenant.boothNumber);
                                 const badge = st ? UNIT_STATUS_BADGE[st] : null;
+                                // Hanya tampilkan dropdown jika status bisa diubah (occupied/available/maintenance)
+                                const isChangeable = unitId !== undefined && ["occupied", "available", "maintenance"].includes(st ?? "");
                                 if (!badge) return null;
+                                if (!isChangeable) {
+                                  return (
+                                    <span className={`inline-flex items-center rounded-full border px-1.5 py-0 text-[10px] font-medium ${badge.cls}`}>
+                                      {badge.label}
+                                    </span>
+                                  );
+                                }
                                 return (
-                                  <span className={`inline-flex items-center rounded-full border px-1.5 py-0 text-[10px] font-medium ${badge.cls}`}>
-                                    {badge.label}
-                                  </span>
+                                  <DropdownMenu>
+                                    <DropdownMenuTrigger asChild>
+                                      <button
+                                        className={`inline-flex items-center gap-0.5 rounded-full border px-1.5 py-0 text-[10px] font-medium cursor-pointer hover:opacity-80 transition-opacity ${badge.cls}`}
+                                        title="Klik untuk ubah status unit"
+                                        onClick={e => e.stopPropagation()}
+                                      >
+                                        {badge.label}
+                                        <ChevronDown className="h-2.5 w-2.5 ml-0.5" />
+                                      </button>
+                                    </DropdownMenuTrigger>
+                                    <DropdownMenuContent align="start" className="min-w-[120px]">
+                                      {UNIT_STATUS_OPTIONS.map(opt => (
+                                        <DropdownMenuItem
+                                          key={opt.value}
+                                          className="flex items-center gap-2 cursor-pointer"
+                                          onClick={e => {
+                                            e.stopPropagation();
+                                            if (opt.value !== st) {
+                                              patchUnitStatusMutation.mutate({ unitId: unitId!, status: opt.value });
+                                            }
+                                          }}
+                                        >
+                                          <span className={`inline-flex items-center rounded-full border px-1.5 py-0 text-[10px] font-medium ${opt.cls}`}>
+                                            {opt.label}
+                                          </span>
+                                          {opt.value === st && <Check className="h-3 w-3 ml-auto text-blue-600" />}
+                                        </DropdownMenuItem>
+                                      ))}
+                                    </DropdownMenuContent>
+                                  </DropdownMenu>
                                 );
                               })()}
                             </div>
