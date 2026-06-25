@@ -116,7 +116,12 @@ const sessionDbUrl =
     : (process.env.SUPABASE_PG_URL_PROD ?? process.env.DATABASE_URL ?? "");
 
 const PgSession = connectPgSimple(session);
-const sessionPool = new Pool({ connectionString: sessionDbUrl });
+// Tambahkan options search_path=public agar Supabase PgBouncer (port 6543)
+// bisa menemukan tabel `session` di schema public (search_path tidak di-set otomatis).
+const sessionPool = new Pool({
+  connectionString: sessionDbUrl,
+  options: "-c search_path=public",
+});
 
 app.use(
   session({

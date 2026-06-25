@@ -8,13 +8,12 @@ export PATH="/nix/store/61lr9izijvg30pcribjdxgjxvh3bysp4-pnpm-10.26.1/bin:/nix/s
 # Pastikan NODE_ENV=development secara eksplisit
 export NODE_ENV=development
 
-# Bebaskan port 8080 dari proses sebelumnya
-fuser -k 8080/tcp 2>/dev/null || true
-sleep 0.5
-
-# Cek apakah port 8080 sudah aktif
+# Cek apakah API server sudah berjalan di port 8080
+# JANGAN bunuh proses yang sudah ada — artifact workflow mungkin sudah menjalankannya.
+# Membunuh proses lama menyebabkan race condition: artifact workflow restart
+# dan ada jeda singkat tanpa server → Vite proxy mengembalikan 502 ke browser.
 if (echo >/dev/tcp/localhost/8080) 2>/dev/null; then
-  echo "[start-dev] API server sudah berjalan di port 8080, lewati."
+  echo "[start-dev] API server sudah berjalan di port 8080, menggunakan yang ada."
 else
   echo "[start-dev] Memulai API server..."
   PORT=8080 pnpm --filter @workspace/api-server run dev &
