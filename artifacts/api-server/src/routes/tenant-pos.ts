@@ -11,6 +11,7 @@ import {
   tenantReceiptsTable,
   usersTable,
   systemSettingsTable,
+  mallUnitsTable,
 } from "@workspace/db/schema";
 import { eq, and, sql, desc, gte, lte, ilike, or, inArray } from "drizzle-orm";
 import { z } from "zod";
