@@ -187,9 +187,11 @@ type MallUnit = {
   zone: string | null;
   floor: string | null;
   status: string;
+  storedStatus: string;
   tenantId: number | null;
   businessName: string | null;
   defaultRentAmount: string | null;
+  bookingId: number | null;
 };
 
 async function fetchMallUnits(): Promise<MallUnit[]> {
@@ -373,6 +375,11 @@ export default function DataTenant() {
   // ─── Bulk selection state ────────────────────────────────────────────────────
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
+
+  // ─── Konfirmasi ubah status unit ke "Kosong" saat ada booking aktif ──────────
+  const [unitStatusPending, setUnitStatusPending] = useState<{
+    unitId: number; status: string; boothNumber: string;
+  } | null>(null);
 
   // ─── Google Sheets Sync state ─────────────────────────────────────────────
   const [sheetSyncOpen, setSheetSyncOpen] = useState(false);
@@ -1196,9 +1203,16 @@ export default function DataTenant() {
                                           className="flex items-center gap-2 cursor-pointer"
                                           onClick={e => {
                                             e.stopPropagation();
-                                            if (opt.value !== st) {
-                                              patchUnitStatusMutation.mutate({ unitId: unitId!, status: opt.value });
+                                            if (opt.value === st) return;
+                                            // Jika ubah ke "Kosong" dan unit punya booking aktif → minta konfirmasi
+                                            if (opt.value === "available") {
+                                              const unit = mallUnits.find(u => u.id === unitId);
+                                              if (unit?.bookingId) {
+                                                setUnitStatusPending({ unitId: unitId!, status: opt.value, boothNumber: tenant.boothNumber! });
+                                                return;
+                                              }
                                             }
+                                            patchUnitStatusMutation.mutate({ unitId: unitId!, status: opt.value });
                                           }}
                                         >
                                           <span className={`inline-flex items-center rounded-full border px-1.5 py-0 text-[10px] font-medium ${opt.cls}`}>
@@ -1645,6 +1659,46 @@ export default function DataTenant() {
       </Dialog>
 
       {/* Konfirmasi Hapus Satu */}
+      {/* ── Dialog konfirmasi ubah unit ke "Kosong" saat ada booking aktif ── */}
+      <AlertDialog open={!!unitStatusPending} onOpenChange={(o) => { if (!o) setUnitStatusPending(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <AlertCircle className="h-5 w-5 text-amber-500" />
+              Tandai Unit sebagai Kosong?
+            </AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-2 text-sm text-muted-foreground">
+                <p>
+                  Unit <strong className="text-foreground font-mono">{unitStatusPending?.boothNumber}</strong> masih
+                  memiliki <strong className="text-foreground">booking aktif</strong>.
+                </p>
+                <p>
+                  Jika Anda melanjutkan, tampilan status unit akan berubah menjadi{" "}
+                  <span className="inline-flex items-center rounded-full border px-1.5 py-0 text-[10px] font-medium bg-emerald-50 text-emerald-700 border-emerald-200">Tersedia</span>,
+                  namun <strong className="text-foreground">data booking tetap tersimpan</strong> di sistem dan tidak akan dihapus.
+                </p>
+                <p>Untuk mengakhiri kontrak secara resmi, gunakan menu Booking Tenant.</p>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setUnitStatusPending(null)}>Batal</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-amber-500 hover:bg-amber-600"
+              onClick={() => {
+                if (unitStatusPending) {
+                  patchUnitStatusMutation.mutate({ unitId: unitStatusPending.unitId, status: unitStatusPending.status });
+                  setUnitStatusPending(null);
+                }
+              }}
+            >
+              Ya, Tandai Kosong
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       <AlertDialog open={!!deleteTarget} onOpenChange={(o) => { if (!o) setDeleteTarget(null); }}>
         <AlertDialogContent>
           <AlertDialogHeader>
