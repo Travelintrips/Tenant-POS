@@ -53,8 +53,16 @@ const SITE_TYPE_CONFIG: Record<string, { label: string; color: string; bg: strin
 
 type TenantStatus = "active" | "inactive" | "blacklisted" | "aktif" | "kosong" | "nonaktif";
 
+const COMPANY_MAP: Record<number, { name: string; short: string; color: string }> = {
+  1: { name: "PT Cahaya Sejati Teknologi", short: "CST", color: "bg-blue-50 text-blue-700 border-blue-200" },
+  2: { name: "PT Wangsamas",               short: "WGS", color: "bg-purple-50 text-purple-700 border-purple-200" },
+  3: { name: "PT Diva Servis",             short: "DVS", color: "bg-pink-50 text-pink-700 border-pink-200" },
+  4: { name: "PT Elmira Ratu Abadi",       short: "ERA", color: "bg-amber-50 text-amber-700 border-amber-200" },
+};
+
 type Tenant = {
   id: number;
+  companyId: number | null;
   businessName: string;
   ownerName: string;
   email: string | null;
@@ -1102,6 +1110,7 @@ export default function DataTenant() {
                   </TableHead>
                   <TableHead className="w-[40px]">Logo</TableHead>
                   <TableHead className="w-[50px]">ID</TableHead>
+                  <TableHead>Perusahaan</TableHead>
                   <TableHead>Nama Usaha</TableHead>
                   <TableHead>Pemilik</TableHead>
                   <TableHead>No. HP</TableHead>
@@ -1117,7 +1126,7 @@ export default function DataTenant() {
                 {isLoading
                   ? Array.from({ length: 5 }).map((_, i) => (
                       <TableRow key={i}>
-                        {Array.from({ length: 12 }).map((_, j) => (
+                        {Array.from({ length: 13 }).map((_, j) => (
                           <TableCell key={j}><Skeleton className="h-4 w-full" /></TableCell>
                         ))}
                       </TableRow>
@@ -1125,7 +1134,7 @@ export default function DataTenant() {
                   : filtered.length === 0
                   ? (
                     <TableRow>
-                      <TableCell colSpan={12} className="text-center py-8 text-muted-foreground">
+                      <TableCell colSpan={13} className="text-center py-8 text-muted-foreground">
                         {tenants?.length === 0 ? "Belum ada tenant terdaftar." : "Tidak ada hasil pencarian."}
                       </TableCell>
                     </TableRow>
@@ -1156,6 +1165,18 @@ export default function DataTenant() {
                           )}
                         </TableCell>
                         <TableCell className="font-mono text-sm">{tenant.id}</TableCell>
+                        <TableCell>
+                          {tenant.companyId && COMPANY_MAP[tenant.companyId] ? (
+                            <span
+                              className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold ${COMPANY_MAP[tenant.companyId].color}`}
+                              title={COMPANY_MAP[tenant.companyId].name}
+                            >
+                              {COMPANY_MAP[tenant.companyId].short}
+                            </span>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">—</span>
+                          )}
+                        </TableCell>
                         <TableCell className="font-medium">{tenant.businessName}</TableCell>
                         <TableCell>{tenant.ownerName}</TableCell>
                         <TableCell>{tenant.phone ?? "-"}</TableCell>
