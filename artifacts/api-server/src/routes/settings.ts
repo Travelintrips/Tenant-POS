@@ -5,6 +5,7 @@ import { eq, sql } from "drizzle-orm";
 import { requireAuth, requireAnyRole } from "../middlewares/auth";
 import { invalidateBaseUrlCache } from "../lib/app-url";
 import { getSiteCompanyName, clearCompanyNameCache } from "../lib/whatsapp";
+import { logAudit } from "../lib/audit";
 
 const router: IRouter = Router();
 
@@ -208,5 +209,47 @@ router.put("/settings/sites/:siteId/logo", requireAuth, requireAnyRole("owner"),
     res.status(500).json({ error: "Gagal menyimpan logo site" });
   }
 });
+
+// ─── POST /api/admin/reset-transactions — Hanya Pemilik ──────────────────────
+router.post(
+  "/admin/reset-transactions",
+  requireAuth,
+  requireAnyRole("owner"),
+  async (req, res) => {
+    try {
+      await db.execute(sql`
+        TRUNCATE TABLE
+          tenant_payments,
+          tenant_invoices,
+          tenant_receipts,
+          bank_mutations,
+          bank_reconciliation_matches,
+          bank_recon_audit_logs,
+          finance_payment_events,
+          cashier_shifts,
+          operational_expenses,
+          accounting_entries,
+          accounting_entry_lines,
+          accounting_payments,
+          tax_transactions,
+          bank_account_balances
+        RESTART IDENTITY CASCADE
+      `);
+
+      logAudit(req, {
+        action: "reset_all_transactions",
+        entityType: "system",
+        entityId: 0,
+        beforeData: null,
+        afterData: { resetAt: new Date().toISOString(), resetBy: (req.user as any)?.name },
+      });
+
+      res.json({ success: true, message: "Semua data transaksi berhasil dihapus." });
+    } catch (err) {
+      req.log.error(err, "Gagal reset transaksi");
+      res.status(500).json({ error: "Gagal menghapus data transaksi." });
+    }
+  }
+);
 
 export default router;

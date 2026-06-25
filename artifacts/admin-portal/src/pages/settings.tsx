@@ -14,7 +14,13 @@ import {
   MessageSquare, CheckCircle2, XCircle, Wifi, WifiOff, Send,
   AlertCircle, Loader2, ExternalLink, Smartphone, Info, Link,
   Upload, Palette, Eye, ImageIcon, X, Pencil, Check, Globe2,
+  Trash2, ShieldAlert,
 } from "lucide-react";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { apiFetch } from "@/lib/api";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -931,6 +937,129 @@ function SiteCompanyPanel() {
 
 // ─── Main Settings Page ────────────────────────────────────────────────────────
 
+// ─── Zona Bahaya — Reset Semua Transaksi (hanya Pemilik) ─────────────────────
+
+function ResetTransactionsPanel() {
+  const { toast } = useToast();
+  const [confirmText, setConfirmText] = useState("");
+  const [open, setOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
+
+  const REQUIRED = "HAPUS SEMUA";
+
+  const handleReset = async () => {
+    setLoading(true);
+    try {
+      const res = await apiFetch("/api/admin/reset-transactions", {
+        method: "POST",
+        credentials: "include",
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((data as { error?: string }).error ?? "Gagal reset");
+      toast({
+        title: "Transaksi berhasil dihapus",
+        description: "Semua data pembayaran, invoice, dan transaksi telah dihapus dari sistem.",
+      });
+      setOpen(false);
+      setConfirmText("");
+    } catch (err: unknown) {
+      toast({
+        title: "Gagal",
+        description: err instanceof Error ? err.message : "Terjadi kesalahan.",
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <Card className="border-red-200 bg-red-50/30">
+      <CardHeader className="pb-3">
+        <CardTitle className="flex items-center gap-2 text-red-700 text-base">
+          <ShieldAlert className="h-5 w-5" />
+          Zona Bahaya
+        </CardTitle>
+        <CardDescription className="text-red-600/80">
+          Tindakan di bawah ini bersifat permanen dan tidak dapat dibatalkan. Gunakan hanya saat diperlukan.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div className="flex items-start justify-between gap-4 p-4 rounded-lg border border-red-200 bg-white">
+          <div className="space-y-1">
+            <p className="text-sm font-medium text-foreground">Hapus Semua Data Transaksi</p>
+            <p className="text-xs text-muted-foreground">
+              Menghapus seluruh pembayaran, invoice, POS, mutasi bank, jurnal akuntansi, dan shift kasir.
+              Data tenant &amp; booking tidak terpengaruh.
+            </p>
+          </div>
+          <AlertDialog open={open} onOpenChange={(o) => { setOpen(o); if (!o) setConfirmText(""); }}>
+            <AlertDialogTrigger asChild>
+              <Button variant="destructive" size="sm" className="shrink-0 gap-1.5">
+                <Trash2 className="h-3.5 w-3.5" />
+                Reset Transaksi
+              </Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle className="flex items-center gap-2 text-red-700">
+                  <ShieldAlert className="h-5 w-5" />
+                  Konfirmasi Hapus Semua Transaksi
+                </AlertDialogTitle>
+                <AlertDialogDescription asChild>
+                  <div className="space-y-3 text-sm text-muted-foreground">
+                    <p>
+                      Tindakan ini akan <strong className="text-foreground">menghapus permanen</strong> seluruh data berikut:
+                    </p>
+                    <ul className="list-disc list-inside space-y-0.5 text-xs bg-red-50 border border-red-200 rounded p-3 text-red-800">
+                      <li>Semua pembayaran tenant</li>
+                      <li>Semua invoice &amp; tagihan</li>
+                      <li>Kwitansi &amp; bukti bayar</li>
+                      <li>Mutasi bank &amp; rekonsiliasi</li>
+                      <li>Jurnal akuntansi</li>
+                      <li>Shift kasir &amp; pengeluaran operasional</li>
+                    </ul>
+                    <p>
+                      Data tenant, booking, dan unit <strong className="text-foreground">tidak akan dihapus</strong>.
+                    </p>
+                    <div className="space-y-1.5 pt-1">
+                      <p className="font-medium text-foreground">
+                        Ketik <span className="font-mono bg-muted px-1.5 py-0.5 rounded text-red-700">{REQUIRED}</span> untuk konfirmasi:
+                      </p>
+                      <input
+                        className="w-full border rounded px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-red-400"
+                        placeholder={REQUIRED}
+                        value={confirmText}
+                        onChange={e => setConfirmText(e.target.value)}
+                        autoComplete="off"
+                        spellCheck={false}
+                      />
+                    </div>
+                  </div>
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel onClick={() => setConfirmText("")}>Batal</AlertDialogCancel>
+                <AlertDialogAction
+                  className="bg-red-600 hover:bg-red-700 focus:ring-red-600"
+                  disabled={confirmText !== REQUIRED || loading}
+                  onClick={(e) => { e.preventDefault(); void handleReset(); }}
+                >
+                  {loading ? (
+                    <><Loader2 className="h-4 w-4 animate-spin mr-1.5" />Menghapus...</>
+                  ) : (
+                    <><Trash2 className="h-4 w-4 mr-1.5" />Ya, Hapus Semua</>
+                  )}
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function SettingsPage() {
   const { toast } = useToast();
   const qc = useQueryClient();
@@ -1334,6 +1463,9 @@ export default function SettingsPage() {
           }
         }}
       />
+
+      {/* Zona Bahaya — hanya Pemilik yang bisa akses halaman ini */}
+      <ResetTransactionsPanel />
     </div>
   );
 }
