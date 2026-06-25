@@ -37,6 +37,7 @@ import BukuJurnal from "@/pages/buku-jurnal";
 import KelolaCoa from "@/pages/kelola-coa";
 import PengeluaranOperasional from "@/pages/pengeluaran-operasional";
 import RiwayatPembayaran from "@/pages/riwayat-pembayaran";
+import PemasukanLain from "@/pages/pemasukan-lain";
 // Legacy module kept for rollback — DO NOT import Rekonsiliasi as a rendered route
 // import Rekonsiliasi from "@/pages/rekonsiliasi";
 

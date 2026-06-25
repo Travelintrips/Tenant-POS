@@ -29,6 +29,7 @@ import reconciliationRouter from "./reconciliation";
 import bankReconciliationRouter from "./bank-reconciliation";
 import paymentsRouter from "./payments";
 import operationalExpensesRouter from "./operational-expenses";
+import otherIncomeRouter from "./other-income";
 import tenantSheetSyncRouter from "./tenant-sheet-sync";
 import { requireAuth, requireNonTenantUser } from "../middlewares/auth";
 import { siteContext } from "../middlewares/site-context";
@@ -78,6 +79,7 @@ router.use(settingsRouter);
 router.use(reconciliationRouter);
 router.use(draftAgreementsRouter);
 router.use(operationalExpensesRouter);
+  router.use(otherIncomeRouter);
 router.use(tenantSheetSyncRouter);
 
 export default router;

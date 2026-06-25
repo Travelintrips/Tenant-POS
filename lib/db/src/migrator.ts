@@ -3004,3 +3004,37 @@ END
 $$;
   `.trim(),
 });
+
+MIGRATIONS.push({
+  name: "0067_other_income",
+  sql: `CREATE TABLE IF NOT EXISTS "other_income" (
+  "id" serial PRIMARY KEY NOT NULL,
+  "site_id" integer REFERENCES "mall_sites"("id"),
+  "tenant_id" integer REFERENCES "tenants"("id"),
+  "category" text NOT NULL DEFAULT 'other',
+  "coa_code" text,
+  "coa_name" text,
+  "description" text NOT NULL,
+  "amount" numeric NOT NULL,
+  "date" timestamptz NOT NULL DEFAULT now(),
+  "created_by" text,
+  "created_at" timestamptz NOT NULL DEFAULT now(),
+  "updated_at" timestamptz NOT NULL DEFAULT now()
+);
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_indexes WHERE tablename = 'other_income' AND indexname = 'other_income_site_id_idx') THEN
+    CREATE INDEX other_income_site_id_idx ON "other_income" ("site_id");
+  END IF;
+END $$;
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_indexes WHERE tablename = 'other_income' AND indexname = 'other_income_date_idx') THEN
+    CREATE INDEX other_income_date_idx ON "other_income" ("date");
+  END IF;
+END $$;
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_indexes WHERE tablename = 'other_income' AND indexname = 'other_income_category_idx') THEN
+    CREATE INDEX other_income_category_idx ON "other_income" ("category");
+  END IF;
+END $$;
+  `.trim(),
+});
