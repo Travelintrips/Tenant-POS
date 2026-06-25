@@ -1004,7 +1004,7 @@ export default function TenantInvoices() {
 
   const sendLinkMutation = useMutation({
     mutationFn: (id: number) =>
-      apiPost<{ ok: boolean; skipped?: boolean; waFailed?: boolean; error?: string; message?: string; paymentLink?: string | null }>(`${BASE}/api/whatsapp/invoice/${id}/send`, {}),
+      apiPost<{ ok: boolean; skipped?: boolean; pending?: boolean; waFailed?: boolean; error?: string; message?: string; paymentLink?: string | null }>(`${BASE}/api/whatsapp/invoice/${id}/send`, {}),
     onMutate: (id) => setSendingLinkId(id),
     onSettled: () => setSendingLinkId(null),
     onSuccess: (res) => {
@@ -1014,6 +1014,14 @@ export default function TenantInvoices() {
           setPaymentLinkDialog({ link: res.paymentLink, error: "WhatsApp belum dikonfigurasi (FONNTE_TOKEN kosong).", mode: "wa-failed" });
         } else {
           toast({ title: "WA Tidak Terkirim", description: "FONNTE_TOKEN belum dikonfigurasi.", variant: "destructive" });
+        }
+      } else if (res.pending) {
+        const errMsg = "Perangkat Fonnte perlu di-reconnect. Buka dashboard.fonnte.com → pilih device → Disconnect lalu scan ulang QR code.";
+        if (res.paymentLink) {
+          setLinkCopied(false);
+          setPaymentLinkDialog({ link: res.paymentLink, error: errMsg, mode: "wa-failed" });
+        } else {
+          toast({ title: "⚠️ Masuk Antrian — WA Belum Terkirim", description: errMsg, variant: "destructive" });
         }
       } else if (res.waFailed) {
         if (res.paymentLink) {

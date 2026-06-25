@@ -138,13 +138,21 @@ export default function WhatsAppSend() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ phone: testPhone, message: testMsg || undefined }),
       }).then(r => r.json()),
-    onSuccess: (data: { ok: boolean; message?: string; error?: string }) => {
+    onSuccess: (data: { ok: boolean; pending?: boolean; message?: string; detail?: string; error?: string }) => {
       void qc.invalidateQueries({ queryKey: ["wa-logs"] });
-      toast({
-        title: data.ok ? "Pesan Terkirim" : "Gagal Kirim",
-        description: data.message ?? data.error,
-        variant: data.ok ? "default" : "destructive",
-      });
+      if (data.pending) {
+        toast({
+          title: "⚠️ Pesan Masuk Antrian — Belum Terkirim",
+          description: data.detail ?? "Perangkat Fonnte perlu di-reconnect. Buka dashboard.fonnte.com → pilih device → Disconnect lalu scan ulang QR.",
+          variant: "destructive",
+        });
+      } else {
+        toast({
+          title: data.ok ? "✅ Pesan Terkirim" : "Gagal Kirim",
+          description: data.message ?? data.error,
+          variant: data.ok ? "default" : "destructive",
+        });
+      }
     },
     onError: () => toast({ title: "Gagal", description: "Terjadi kesalahan.", variant: "destructive" }),
   });
@@ -152,13 +160,21 @@ export default function WhatsAppSend() {
   const sendInvoiceMut = useMutation({
     mutationFn: (id: number) =>
       apiFetch(`/api/whatsapp/invoice/${id}/overdue-reminder`, { method: "POST" }).then(r => r.json()),
-    onSuccess: (data: { ok: boolean; message?: string; error?: string }) => {
+    onSuccess: (data: { ok: boolean; pending?: boolean; message?: string; error?: string }) => {
       void qc.invalidateQueries({ queryKey: ["wa-logs"] });
-      toast({
-        title: data.ok ? "Pengingat Terkirim" : "Gagal",
-        description: data.message ?? data.error,
-        variant: data.ok ? "default" : "destructive",
-      });
+      if (data.pending) {
+        toast({
+          title: "⚠️ Masuk Antrian — Belum Terkirim",
+          description: "Perangkat Fonnte perlu di-reconnect. Buka dashboard.fonnte.com dan scan ulang QR.",
+          variant: "destructive",
+        });
+      } else {
+        toast({
+          title: data.ok ? "Pengingat Terkirim" : "Gagal",
+          description: data.message ?? data.error,
+          variant: data.ok ? "default" : "destructive",
+        });
+      }
     },
   });
 

@@ -59,6 +59,7 @@ function translateFonnteError(reason: string): string {
 export interface WaResult {
   ok: boolean;
   skipped?: boolean;
+  pending?: boolean;
   response?: unknown;
   error?: string;
 }
@@ -114,11 +115,19 @@ async function sendMessage(phone: string, message: string): Promise<WaResult> {
     const statusFailed = data["status"] === false || data["status"] === "false";
     // process: false → pesan diterima Fonnte tapi device offline/disconnected
     const processedFailed = data["process"] === false || data["process"] === "false";
+    // process: "pending" → pesan masuk antrian Fonnte tapi belum terproses ke WA
+    // ini sering terjadi ketika sesi WA di device Fonnte sudah expired
+    const processPending = data["process"] === "pending";
 
     if (!res.ok || statusFailed || processedFailed) {
       const rawReason = String(data["reason"] ?? data["message"] ?? data["detail"] ?? "Gagal kirim WA");
       console.error("[WA] Fonnte error:", rawReason, "| full response:", JSON.stringify(data));
       return { ok: false, error: translateFonnteError(rawReason), response: data };
+    }
+
+    if (processPending) {
+      console.warn("[WA] Fonnte: pesan masuk antrian (pending) — kemungkinan sesi WA device expired. Periksa dashboard Fonnte dan reconnect device.");
+      return { ok: true, pending: true, response: data };
     }
 
     return { ok: true, response: data };
