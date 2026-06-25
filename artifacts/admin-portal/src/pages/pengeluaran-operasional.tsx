@@ -14,6 +14,8 @@ import { Textarea } from "@/components/ui/textarea";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from "@/components/ui/dialog";
@@ -29,6 +31,7 @@ import {
   Plus, TrendingDown, Filter, Pencil, Trash2, ExternalLink,
   Loader2, AlertCircle, Receipt, Zap, Wifi, Wrench, MoreHorizontal,
   Upload, ImageIcon, CheckCircle2, X, ScanLine, BarChart2, ChevronLeft, ChevronRight,
+  ChevronsUpDown, Check,
 } from "lucide-react";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -214,6 +217,7 @@ export default function PengeluaranOperasional() {
 
   // Dialog
   const [formOpen, setFormOpen] = useState(false);
+  const [coaOpen, setCoaOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<Expense | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Expense | null>(null);
   const [form, setForm] = useState<FormData>(EMPTY_FORM);
@@ -740,44 +744,55 @@ export default function PengeluaranOperasional() {
           <div className="space-y-4 py-2">
             <div className="flex flex-col gap-1.5">
               <Label className="text-xs">Akun COA <span className="text-red-500">*</span></Label>
-              <Select
-                value={form.coaCode || ""}
-                onValueChange={(v) => {
-                  const acc = coaAccounts.find(a => a.code === v);
-                  setForm((f) => ({
-                    ...f,
-                    coaCode: acc?.code ?? "",
-                    coaName: acc?.name ?? "",
-                    coaAccountType: acc?.accountType ?? "",
-                  }));
-                }}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Pilih akun..." />
-                </SelectTrigger>
-                <SelectContent>
-                  {["expense", "asset", "liability", "other"].map((type) => {
-                    const grouped = coaAccounts.filter(a => a.accountType === type);
-                    if (grouped.length === 0) return null;
-                    return (
-                      <div key={type}>
-                        <div className="px-2 py-1.5 text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">
-                          {ACCT_TYPE_LABEL[type] ?? type}
-                        </div>
-                        {grouped.map(a => (
-                          <SelectItem key={a.code} value={a.code}>
-                            <span className="font-mono text-xs text-muted-foreground mr-1.5">{a.code}</span>
-                            {a.name}
-                          </SelectItem>
-                        ))}
-                      </div>
-                    );
-                  })}
-                  {coaAccounts.length === 0 && (
-                    <div className="px-2 py-3 text-xs text-center text-muted-foreground">Memuat akun COA...</div>
-                  )}
-                </SelectContent>
-              </Select>
+              <Popover open={coaOpen} onOpenChange={setCoaOpen}>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="outline"
+                    role="combobox"
+                    aria-expanded={coaOpen}
+                    className="w-full justify-between font-normal h-9 text-sm"
+                  >
+                    {form.coaCode
+                      ? <span><span className="font-mono text-xs text-muted-foreground mr-1.5">{form.coaCode}</span>{form.coaName}</span>
+                      : <span className="text-muted-foreground">Pilih akun...</span>
+                    }
+                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
+                  <Command>
+                    <CommandInput placeholder="Ketik kode atau nama akun..." />
+                    <CommandList className="max-h-64">
+                      <CommandEmpty>Akun tidak ditemukan.</CommandEmpty>
+                      {coaAccounts.length === 0 && (
+                        <div className="px-2 py-3 text-xs text-center text-muted-foreground">Memuat akun COA...</div>
+                      )}
+                      {["expense", "asset", "liability", "other"].map((type) => {
+                        const grouped = coaAccounts.filter(a => a.accountType === type);
+                        if (grouped.length === 0) return null;
+                        return (
+                          <CommandGroup key={type} heading={ACCT_TYPE_LABEL[type] ?? type}>
+                            {grouped.map(a => (
+                              <CommandItem
+                                key={a.code}
+                                value={`${a.code} ${a.name}`}
+                                onSelect={() => {
+                                  setForm(f => ({ ...f, coaCode: a.code, coaName: a.name, coaAccountType: a.accountType }));
+                                  setCoaOpen(false);
+                                }}
+                              >
+                                <Check className={`mr-2 h-4 w-4 ${form.coaCode === a.code ? "opacity-100" : "opacity-0"}`} />
+                                <span className="font-mono text-xs text-muted-foreground mr-1.5">{a.code}</span>
+                                {a.name}
+                              </CommandItem>
+                            ))}
+                          </CommandGroup>
+                        );
+                      })}
+                    </CommandList>
+                  </Command>
+                </PopoverContent>
+              </Popover>
               {form.coaCode && (
                 <p className="text-[11px] text-muted-foreground">
                   Tipe: <strong>{ACCT_TYPE_LABEL[form.coaAccountType] ?? form.coaAccountType}</strong>
