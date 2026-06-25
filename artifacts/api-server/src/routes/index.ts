@@ -79,7 +79,7 @@ router.use(settingsRouter);
 router.use(reconciliationRouter);
 router.use(draftAgreementsRouter);
 router.use(operationalExpensesRouter);
-  router.use(otherIncomeRouter);
+router.use(otherIncomeRouter);
 router.use(tenantSheetSyncRouter);
 
 export default router;

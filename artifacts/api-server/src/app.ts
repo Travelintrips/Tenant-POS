@@ -106,14 +106,14 @@ if (isProduction && sessionSecret === "fallback-dev-secret") {
 
 // ─── PostgreSQL Session Store ──────────────────────────────────────────────
 // Sesi disimpan ke PostgreSQL agar tidak hilang saat server restart.
-// Tabel `session` dibuat otomatis oleh connect-pg-simple jika belum ada.
-// Prioritas URL DB sama dengan lib/db/src/config.ts:
-//   dev  : DATABASE_URL
+// Tabel `session` harus sudah ada di DB (dibuat oleh migration 0069).
+// Prioritas URL DB konsisten dengan lib/db/src/config.ts:
+//   dev  : SUPABASE_PG_URL_PROD → DATABASE_URL
 //   prod : SUPABASE_PG_URL_PROD → SUPABASE_PG_URL → DATABASE_URL
 const sessionDbUrl =
   isProduction
     ? (process.env.SUPABASE_PG_URL_PROD ?? process.env.SUPABASE_PG_URL ?? process.env.DATABASE_URL ?? "")
-    : (process.env.DATABASE_URL ?? process.env.SUPABASE_PG_URL_PROD ?? "");
+    : (process.env.SUPABASE_PG_URL_PROD ?? process.env.DATABASE_URL ?? "");
 
 const PgSession = connectPgSimple(session);
 const sessionPool = new Pool({ connectionString: sessionDbUrl });
