@@ -173,10 +173,6 @@ router.post("/tenant-sheet-sync/config", requireAnyRole("owner", "admin"), async
       await db.insert(systemSettingsTable).values({
         key: configKey,
         value: newValue,
-        siteId: siteId > 0 ? siteId : null,
-        label: "Konfigurasi Sinkronisasi Tenant dari Google Sheets",
-        description: "Auto-sync data tenant dari Google Sheets ke database",
-        type: "json",
       });
     }
 

@@ -40,10 +40,10 @@ router.get("/operational-expenses/coa-accounts", async (req, res) => {
         coa.company_id,
         coa.code,
         coa.name,
-        coa.account_type
+        COALESCE(coa.type::text, coa.account_type) AS account_type
       FROM chart_of_accounts coa
       WHERE coa.is_active = true
-        AND coa.account_type IN (
+        AND COALESCE(coa.type::text, coa.account_type) IN (
           'expense', 'biaya',
           'asset', 'aset',
           'liability', 'kewajiban',

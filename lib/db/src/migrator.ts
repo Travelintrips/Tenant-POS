@@ -2973,3 +2973,24 @@ END
 \$\$;
   `.trim(),
 });
+
+MIGRATIONS.push({
+  name: "0066_fix_coa_account_type_backfill",
+  sql: `
+-- Sync account_type dari kolom type (untuk DB yang punya kolom type sebagai text)
+UPDATE chart_of_accounts
+SET account_type = COALESCE(type::text, account_type)
+WHERE type::text IS NOT NULL
+  AND type::text <> ''
+  AND (account_type = 'other' OR account_type IS NULL OR account_type = '');
+
+-- Backfill coa_account_type di operational_expenses dari chart_of_accounts yang benar
+UPDATE operational_expenses oe
+SET coa_account_type = COALESCE(coa.type::text, coa.account_type)
+FROM chart_of_accounts coa
+WHERE oe.coa_code IS NOT NULL
+  AND coa.code = oe.coa_code
+  AND (oe.coa_account_type IS NULL OR oe.coa_account_type = 'other')
+  AND COALESCE(coa.type::text, coa.account_type) <> 'other';
+  `.trim(),
+});

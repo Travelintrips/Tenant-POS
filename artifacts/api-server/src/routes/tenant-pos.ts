@@ -767,7 +767,7 @@ router.post("/tenant-pos/payments", paymentRateLimiter, async (req, res) => {
       entityId: result.payment.id,
       afterData: {
         paymentId: result.payment.id,
-        bookingId,
+        bookingId: rawBookingId,
         tenantId,
         amountPaid,
         paymentMethod,
@@ -795,7 +795,7 @@ router.post("/tenant-pos/payments", paymentRateLimiter, async (req, res) => {
       proofUrl: proofUrl ?? null,
       metadata: {
         receiptNumber: result.receiptNumber,
-        bookingId,
+        bookingId: rawBookingId,
         paymentStatus: result.paymentStatus,
         source: "pos_payment",
       },

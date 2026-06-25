@@ -988,7 +988,7 @@ export default function PengeluaranOperasional() {
             <AlertDialogDescription>
               {deleteTarget && (
                 <>
-                  <strong>{CATEGORY_LABEL[deleteTarget.category] ?? deleteTarget.category}</strong>
+                  <strong>{ACCT_TYPE_LABEL[deleteTarget.coaAccountType ?? ""] ?? deleteTarget.category}</strong>
                   {" — "}{deleteTarget.description ?? "-"}<br />
                   <strong className="text-destructive">{formatRupiah(deleteTarget.amount)}</strong>
                   {" pada "}{formatDate(deleteTarget.paidAt)}
