@@ -1895,7 +1895,10 @@ export default function TenantInvoices() {
                     <p className={`text-xs font-semibold uppercase tracking-wide mb-1.5 ${createForm.usePpn ? "text-blue-700" : "text-slate-600"}`}>Ringkasan Tagihan</p>
                     <div className="flex justify-between text-muted-foreground"><span>Subtotal</span><span>{formatRupiah(String(sub))}</span></div>
                     {createForm.usePpn && (
-                      <div className="flex justify-between text-blue-600"><span>PPN 11% (dari Harga Sewa)</span><span>+ {formatRupiah(String(ppn))}</span></div>
+                      <>
+                        <div className="flex justify-between text-xs text-muted-foreground/70 italic"><span>Dasar PPN: Harga Sewa</span><span>{formatRupiah(createForm.rentAmount || "0")}</span></div>
+                        <div className="flex justify-between text-blue-600"><span>PPN 11% (dari Harga Sewa)</span><span>+ {formatRupiah(String(ppn))}</span></div>
+                      </>
                     )}
                     <div className={`flex justify-between font-bold text-base border-t pt-1 mt-1 ${createForm.usePpn ? "border-blue-200" : "border-slate-200"}`}><span>Total</span><span>{formatRupiah(String(total))}</span></div>
                   </div>
@@ -2325,7 +2328,10 @@ export default function TenantInvoices() {
                       <p className={`text-xs font-semibold uppercase tracking-wide mb-1.5 ${editForm.usePpn ? "text-blue-700" : "text-slate-600"}`}>Ringkasan Tagihan</p>
                       <div className="flex justify-between text-muted-foreground"><span>Subtotal</span><span>{formatRupiah(String(sub))}</span></div>
                       {editForm.usePpn && (
-                        <div className="flex justify-between text-blue-600"><span>PPN 11% (dari Harga Sewa)</span><span>+ {formatRupiah(String(ppn))}</span></div>
+                        <>
+                          <div className="flex justify-between text-xs text-muted-foreground/70 italic"><span>Dasar PPN: Harga Sewa</span><span>{formatRupiah(editForm.rentAmount || "0")}</span></div>
+                          <div className="flex justify-between text-blue-600"><span>PPN 11% (dari Harga Sewa)</span><span>+ {formatRupiah(String(ppn))}</span></div>
+                        </>
                       )}
                       <div className={`flex justify-between font-bold text-base border-t pt-1 mt-1 ${editForm.usePpn ? "border-blue-200" : "border-slate-200"}`}><span>Total</span><span>{formatRupiah(String(total))}</span></div>
                     </div>
