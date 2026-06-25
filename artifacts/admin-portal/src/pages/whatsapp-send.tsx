@@ -6,18 +6,28 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
-import { Separator } from "@/components/ui/separator";
 import { useToast } from "@/hooks/use-toast";
 import { apiFetch } from "@/lib/api";
 import {
   MessageCircle, Send, AlertTriangle, CheckCircle2, Wifi, WifiOff,
   Loader2, RefreshCw, Megaphone, Link2, PhoneCall, History, XCircle, Clock,
+  CalendarClock, BellOff, BellRing,
 } from "lucide-react";
 import { useSite } from "@/contexts/site-context";
 
 function fmtRp(v: string | number | null | undefined) {
   const n = typeof v === "string" ? parseFloat(v) : (v ?? 0);
   return new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", minimumFractionDigits: 0 }).format(n);
+}
+
+function fmtDate(v: string | Date | null | undefined, fallback = "-") {
+  if (!v) return fallback;
+  return new Date(v).toLocaleDateString("id-ID", { day: "numeric", month: "short", year: "numeric" });
+}
+
+function fmtDatetime(v: string | Date | null | undefined) {
+  if (!v) return null;
+  return new Date(v).toLocaleString("id-ID", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
 }
 
 interface WaStatus {
@@ -49,6 +59,21 @@ interface Invoice {
   status: string;
 }
 
+interface ReminderInvoice {
+  id: number;
+  invoiceNumber: string;
+  businessName: string;
+  ownerName: string;
+  phone: string | null;
+  dueDate: string | null;
+  status: string;
+  totalAmount: string;
+  outstandingAmount: string | null;
+  dueReminder3dAt: string | null;
+  dueReminder1dAt: string | null;
+  lastOverdueReminderAt: string | null;
+}
+
 interface WaLog {
   id: number;
   phone: string;
@@ -62,6 +87,7 @@ interface WaLog {
 const MESSAGE_TYPE_LABELS: Record<string, string> = {
   invoice: "Notifikasi Invoice",
   overdue_reminder: "Pengingat Overdue",
+  due_reminder: "Pengingat Jatuh Tempo",
   blast_overdue: "Blast Overdue",
   blast_link: "Blast Link Bayar",
   test: "Pesan Tes",
@@ -72,6 +98,29 @@ function StatusBadge({ status }: { status: WaLog["status"] }) {
   if (status === "sent") return <Badge className="bg-green-100 text-green-700 border-green-200 text-[10px]"><CheckCircle2 className="h-2.5 w-2.5 mr-1" />Terkirim</Badge>;
   if (status === "failed") return <Badge className="bg-red-100 text-red-700 border-red-200 text-[10px]"><XCircle className="h-2.5 w-2.5 mr-1" />Gagal</Badge>;
   return <Badge className="bg-gray-100 text-gray-500 border-gray-200 text-[10px]"><Clock className="h-2.5 w-2.5 mr-1" />Dilewati</Badge>;
+}
+
+function InvoiceStatusBadge({ status }: { status: string }) {
+  if (status === "overdue") return <Badge className="bg-red-100 text-red-700 border-red-200 text-[10px]">Overdue</Badge>;
+  if (status === "partial") return <Badge className="bg-orange-100 text-orange-700 border-orange-200 text-[10px]">Sebagian</Badge>;
+  return <Badge className="bg-yellow-100 text-yellow-700 border-yellow-200 text-[10px]">Belum Bayar</Badge>;
+}
+
+function ReminderCell({ sentAt }: { sentAt: string | null }) {
+  if (sentAt) {
+    return (
+      <div className="flex items-center gap-1 text-green-700">
+        <BellRing className="h-3 w-3 shrink-0" />
+        <span className="text-[10px] leading-tight">{fmtDatetime(sentAt)}</span>
+      </div>
+    );
+  }
+  return (
+    <div className="flex items-center gap-1 text-gray-400">
+      <BellOff className="h-3 w-3 shrink-0" />
+      <span className="text-[10px]">Belum</span>
+    </div>
+  );
 }
 
 export default function WhatsAppSend() {
@@ -101,13 +150,21 @@ export default function WhatsAppSend() {
     refetchInterval: 30000,
   });
 
+  const { data: reminderData, isLoading: reminderLoading, refetch: refetchReminder } = useQuery<{ data: ReminderInvoice[] }>({
+    queryKey: ["wa-reminder-status", currentSite?.id],
+    queryFn: () => apiFetch("/api/whatsapp/reminder-status").then(r => r.json()),
+    refetchInterval: 60000,
+  });
+
   const overdueInvoices = invoicesData?.data ?? [];
+  const reminderInvoices = reminderData?.data ?? [];
 
   const blastOverdueMut = useMutation({
     mutationFn: () => apiFetch("/api/whatsapp/blast-overdue", { method: "POST" }).then(r => r.json()),
     onSuccess: (data: BlastResult) => {
       setBlastResult(data);
       void qc.invalidateQueries({ queryKey: ["wa-logs"] });
+      void qc.invalidateQueries({ queryKey: ["wa-reminder-status"] });
       toast({
         title: data.skipped ? "WA Tidak Terkirim" : data.ok ? "Blast Selesai" : "Blast Gagal",
         description: data.message ?? data.error,
@@ -162,6 +219,7 @@ export default function WhatsAppSend() {
       apiFetch(`/api/whatsapp/invoice/${id}/overdue-reminder`, { method: "POST" }).then(r => r.json()),
     onSuccess: (data: { ok: boolean; pending?: boolean; message?: string; error?: string }) => {
       void qc.invalidateQueries({ queryKey: ["wa-logs"] });
+      void qc.invalidateQueries({ queryKey: ["wa-reminder-status"] });
       if (data.pending) {
         toast({
           title: "⚠️ Masuk Antrian — Belum Terkirim",
@@ -186,8 +244,11 @@ export default function WhatsAppSend() {
 
   const StatusIcon = status?.connected === true ? Wifi : status?.connected === false ? WifiOff : Wifi;
 
+  const reminderSent = reminderInvoices.filter(i => i.dueReminder3dAt || i.dueReminder1dAt || i.lastOverdueReminderAt).length;
+  const reminderNone = reminderInvoices.filter(i => !i.dueReminder3dAt && !i.dueReminder1dAt && !i.lastOverdueReminderAt).length;
+
   return (
-    <div className="p-6 space-y-6 max-w-4xl">
+    <div className="p-6 space-y-6 max-w-5xl">
       <div>
         <h1 className="text-2xl font-bold flex items-center gap-2">
           <MessageCircle className="h-6 w-6 text-green-600" />
@@ -401,6 +462,136 @@ export default function WhatsAppSend() {
                 </div>
               ))}
             </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Status Reminder Per Invoice */}
+      <Card>
+        <CardHeader className="pb-3">
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle className="text-base flex items-center gap-2">
+                <CalendarClock className="h-4 w-4 text-purple-500" />
+                Status Reminder Per Invoice
+              </CardTitle>
+              <CardDescription className="text-xs mt-0.5">
+                Kapan reminder H-3, H-1, dan overdue dikirim untuk setiap invoice yang belum lunas.
+              </CardDescription>
+            </div>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => void refetchReminder()}
+              disabled={reminderLoading}
+            >
+              <RefreshCw className={`h-3.5 w-3.5 mr-1.5 ${reminderLoading ? "animate-spin" : ""}`} />
+              Refresh
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {reminderLoading ? (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground py-4">
+              <Loader2 className="h-4 w-4 animate-spin" /> Memuat data...
+            </div>
+          ) : reminderInvoices.length === 0 ? (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground py-6 justify-center">
+              <CheckCircle2 className="h-5 w-5 text-green-500" />
+              Tidak ada invoice belum lunas saat ini.
+            </div>
+          ) : (
+            <>
+              {/* Ringkasan */}
+              <div className="flex items-center gap-3 mb-4 flex-wrap">
+                <Badge className="bg-purple-100 text-purple-700 border-purple-200 text-xs">
+                  {reminderInvoices.length} invoice belum lunas
+                </Badge>
+                {reminderSent > 0 && (
+                  <Badge className="bg-green-100 text-green-700 border-green-200 text-xs">
+                    <BellRing className="h-3 w-3 mr-1" />
+                    {reminderSent} sudah terkirim reminder
+                  </Badge>
+                )}
+                {reminderNone > 0 && (
+                  <Badge className="bg-gray-100 text-gray-500 border-gray-200 text-xs">
+                    <BellOff className="h-3 w-3 mr-1" />
+                    {reminderNone} belum ada reminder
+                  </Badge>
+                )}
+              </div>
+
+              {/* Tabel */}
+              <div className="overflow-x-auto -mx-1">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="border-b">
+                      <th className="text-left font-medium text-muted-foreground pb-2 pr-3 whitespace-nowrap">Tenant</th>
+                      <th className="text-left font-medium text-muted-foreground pb-2 pr-3 whitespace-nowrap">No Invoice</th>
+                      <th className="text-left font-medium text-muted-foreground pb-2 pr-3 whitespace-nowrap">Jatuh Tempo</th>
+                      <th className="text-left font-medium text-muted-foreground pb-2 pr-3 whitespace-nowrap">Status</th>
+                      <th className="text-left font-medium text-muted-foreground pb-2 pr-3 whitespace-nowrap">
+                        <span className="inline-flex items-center gap-0.5 text-blue-600">H-3</span>
+                      </th>
+                      <th className="text-left font-medium text-muted-foreground pb-2 pr-3 whitespace-nowrap">
+                        <span className="inline-flex items-center gap-0.5 text-orange-600">H-1</span>
+                      </th>
+                      <th className="text-left font-medium text-muted-foreground pb-2 whitespace-nowrap">
+                        <span className="inline-flex items-center gap-0.5 text-red-600">Overdue</span>
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y">
+                    {reminderInvoices.map((inv) => {
+                      const isOverdue = inv.status === "overdue";
+                      const dueDate = inv.dueDate ? new Date(inv.dueDate) : null;
+                      const today = new Date();
+                      const daysUntilDue = dueDate
+                        ? Math.ceil((dueDate.getTime() - today.setHours(0,0,0,0)) / 86400000)
+                        : null;
+
+                      return (
+                        <tr key={inv.id} className={`${isOverdue ? "bg-red-50/40" : ""}`}>
+                          <td className="py-2.5 pr-3">
+                            <p className="font-medium truncate max-w-[120px]">{inv.businessName}</p>
+                            {inv.phone
+                              ? <p className="text-muted-foreground text-[10px]">{inv.phone}</p>
+                              : <p className="text-red-400 text-[10px]">No HP kosong</p>
+                            }
+                          </td>
+                          <td className="py-2.5 pr-3 text-muted-foreground whitespace-nowrap">{inv.invoiceNumber}</td>
+                          <td className="py-2.5 pr-3 whitespace-nowrap">
+                            <p>{fmtDate(inv.dueDate)}</p>
+                            {daysUntilDue !== null && !isOverdue && (
+                              <p className={`text-[10px] ${daysUntilDue <= 1 ? "text-red-500 font-medium" : daysUntilDue <= 3 ? "text-orange-500" : "text-muted-foreground"}`}>
+                                {daysUntilDue === 0 ? "Hari ini" : daysUntilDue < 0 ? `${Math.abs(daysUntilDue)} hari lewat` : `${daysUntilDue} hari lagi`}
+                              </p>
+                            )}
+                          </td>
+                          <td className="py-2.5 pr-3">
+                            <InvoiceStatusBadge status={inv.status} />
+                          </td>
+                          <td className="py-2.5 pr-3">
+                            <ReminderCell sentAt={inv.dueReminder3dAt} />
+                          </td>
+                          <td className="py-2.5 pr-3">
+                            <ReminderCell sentAt={inv.dueReminder1dAt} />
+                          </td>
+                          <td className="py-2.5">
+                            <ReminderCell sentAt={inv.lastOverdueReminderAt} />
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+
+              <p className="text-[10px] text-muted-foreground mt-3">
+                * Reminder H-3 dan H-1 dikirim otomatis oleh sistem 30 menit setelah server start dan setiap 12 jam.
+                Overdue dikirim saat invoice melewati jatuh tempo.
+              </p>
+            </>
           )}
         </CardContent>
       </Card>
