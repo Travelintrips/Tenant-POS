@@ -2815,3 +2815,91 @@ BEGIN
 END $$;
   `.trim(),
 });
+
+MIGRATIONS.push({
+  name: "0063_tax_tables",
+  sql: `
+-- Buat tabel tax_transactions (canonical pajak hub) — idempoten
+CREATE TABLE IF NOT EXISTS tax_transactions (
+  id              serial PRIMARY KEY,
+  company_id      integer,
+  branch_id       integer,
+  division_id     integer,
+  source_module   text,
+  source_table    text,
+  source_id       integer,
+  tax_type        text NOT NULL,
+  tax_rate        numeric NOT NULL DEFAULT 0,
+  taxable_amount  numeric NOT NULL DEFAULT 0,
+  tax_amount      numeric NOT NULL DEFAULT 0,
+  direction       text NOT NULL DEFAULT 'out',
+  period          text,
+  status          text NOT NULL DEFAULT 'draft',
+  correlation_id  text UNIQUE,
+  ref             text,
+  description     text,
+  created_at      timestamptz NOT NULL DEFAULT now(),
+  updated_at      timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS tt_company_id_idx ON tax_transactions(company_id);
+CREATE INDEX IF NOT EXISTS tt_tax_type_idx   ON tax_transactions(tax_type);
+CREATE INDEX IF NOT EXISTS tt_period_idx     ON tax_transactions(period);
+CREATE INDEX IF NOT EXISTS tt_created_at_idx ON tax_transactions(created_at DESC);
+
+-- Buat tabel tax_settings (konfigurasi tarif pajak per company) — idempoten
+CREATE TABLE IF NOT EXISTS tax_settings (
+  id              serial PRIMARY KEY,
+  company_id      integer,
+  branch_id       integer,
+  division_id     integer,
+  tax_type        text NOT NULL,
+  rate            numeric NOT NULL DEFAULT 0,
+  is_active       boolean NOT NULL DEFAULT true,
+  effective_from  date,
+  effective_to    date,
+  notes           text,
+  created_at      timestamptz NOT NULL DEFAULT now(),
+  updated_at      timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS ts_company_id_idx ON tax_settings(company_id);
+CREATE INDEX IF NOT EXISTS ts_tax_type_idx   ON tax_settings(tax_type);
+
+-- Backfill tax_transactions dari accounting_entry_lines yang sudah ada (baris kredit PPN Keluaran)
+-- Idempoten via correlation_id UNIQUE
+INSERT INTO tax_transactions (
+  company_id, source_module, source_table, source_id,
+  tax_type, tax_rate, taxable_amount, tax_amount,
+  direction, period, status, correlation_id, ref, description,
+  created_at, updated_at
+)
+SELECT
+  ael.company_id,
+  COALESCE(ael.source_module, 'pos_payment'),
+  'accounting_entry_lines',
+  ael.id,
+  'ppn',
+  0.11,
+  ROUND(ael.credit::numeric / 0.11),
+  ael.credit::numeric,
+  'out',
+  TO_CHAR(ae.date::date, 'YYYY-MM'),
+  'posted',
+  'backfill-ael-' || ael.id,
+  ae.entry_number,
+  ae.description,
+  ae.created_at,
+  ae.created_at
+FROM accounting_entry_lines ael
+JOIN accounting_entries ae ON ae.id = ael.entry_id
+JOIN chart_of_accounts coa ON coa.id = ael.account_id
+WHERE coa.code LIKE '2-1020-%'
+  AND ael.credit::numeric > 0
+ON CONFLICT (correlation_id) DO NOTHING;
+
+-- Seed default tax_settings PPN 11% per company (jika belum ada)
+INSERT INTO tax_settings (company_id, tax_type, rate, is_active, notes)
+SELECT id, 'ppn', 0.11, true, 'PPN Keluaran 11% (default)'
+FROM companies
+ON CONFLICT DO NOTHING;
+  `.trim(),
+});
