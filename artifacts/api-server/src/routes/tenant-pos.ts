@@ -984,17 +984,20 @@ router.post("/tenant-pos/payments", paymentRateLimiter, async (req, res) => {
             .filter((u) => u.phoneNumber)
             .map((u) => ({ name: u.name, phone: u.phoneNumber! }));
 
+          // Selalu sertakan ADMIN_WHATSAPP env jika ada (bukan hanya fallback)
+          const envPhone = process.env.ADMIN_WHATSAPP ?? process.env.FONNTE_ADMIN_WA;
+          if (envPhone && !adminPhones.some((a) => a.phone === envPhone)) {
+            adminPhones.push({ name: "Admin", phone: envPhone });
+          }
+
+          // Fallback jika masih kosong → system_settings
           if (adminPhones.length === 0) {
-            const envPhone = process.env.ADMIN_WHATSAPP ?? process.env.FONNTE_ADMIN_WA;
-            if (envPhone) adminPhones = [{ name: "Admin", phone: envPhone }];
-            else {
-              const [settingRow] = await db
-                .select({ value: systemSettingsTable.value })
-                .from(systemSettingsTable)
-                .where(eq(systemSettingsTable.key, "mall_config"));
-              const phone = (settingRow?.value as Record<string, unknown> | undefined)?.adminPhone;
-              if (typeof phone === "string" && phone.length > 0) adminPhones = [{ name: "Admin", phone }];
-            }
+            const [settingRow] = await db
+              .select({ value: systemSettingsTable.value })
+              .from(systemSettingsTable)
+              .where(eq(systemSettingsTable.key, "mall_config"));
+            const phone = (settingRow?.value as Record<string, unknown> | undefined)?.adminPhone;
+            if (typeof phone === "string" && phone.length > 0) adminPhones = [{ name: "Admin", phone }];
           }
 
           const posCompanyName = await getSiteCompanyName(siteId);
@@ -1237,17 +1240,20 @@ router.post("/tenant-pos/manual-payment", paymentRateLimiter, async (req, res) =
             .filter((u) => u.phoneNumber)
             .map((u) => ({ name: u.name, phone: u.phoneNumber! }));
 
+          // Selalu sertakan ADMIN_WHATSAPP env jika ada (bukan hanya fallback)
+          const envPhoneManual = process.env.ADMIN_WHATSAPP ?? process.env.FONNTE_ADMIN_WA;
+          if (envPhoneManual && !adminPhones.some((a) => a.phone === envPhoneManual)) {
+            adminPhones.push({ name: "Admin", phone: envPhoneManual });
+          }
+
+          // Fallback jika masih kosong → system_settings
           if (adminPhones.length === 0) {
-            const envPhone = process.env.ADMIN_WHATSAPP ?? process.env.FONNTE_ADMIN_WA;
-            if (envPhone) adminPhones = [{ name: "Admin", phone: envPhone }];
-            else {
-              const [settingRow] = await db
-                .select({ value: systemSettingsTable.value })
-                .from(systemSettingsTable)
-                .where(eq(systemSettingsTable.key, "mall_config"));
-              const phone = (settingRow?.value as Record<string, unknown> | undefined)?.adminPhone;
-              if (typeof phone === "string" && phone.length > 0) adminPhones = [{ name: "Admin", phone }];
-            }
+            const [settingRow] = await db
+              .select({ value: systemSettingsTable.value })
+              .from(systemSettingsTable)
+              .where(eq(systemSettingsTable.key, "mall_config"));
+            const phone = (settingRow?.value as Record<string, unknown> | undefined)?.adminPhone;
+            if (typeof phone === "string" && phone.length > 0) adminPhones = [{ name: "Admin", phone }];
           }
 
           const manualCompanyName = await getSiteCompanyName(siteId);
