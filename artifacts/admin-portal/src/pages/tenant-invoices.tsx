@@ -39,6 +39,7 @@ type InvoiceStatus = "draft" | "unpaid" | "partial" | "paid" | "overdue" | "canc
 type Invoice = {
   id: number;
   invoiceNumber: string;
+  siteId: number | null;
   tenantId: number;
   bookingId: number | null;
   unitCode: string | null;
@@ -431,12 +432,39 @@ const DEFAULT_INVOICE_CONFIG: MallInvoiceConfig = {
   invoiceSignerName: "",
 };
 
-async function fetchInvoiceConfig(): Promise<MallInvoiceConfig> {
+/** Cache sites list agar tidak fetch berulang saat print banyak invoice */
+let _sitesCache: { siteId: number; companyName: string; logoUrl: string; invoiceColor: string }[] | null = null;
+async function fetchSitesCache() {
+  if (_sitesCache) return _sitesCache;
   try {
-    const res = await apiFetchBase("/api/settings", { credentials: "include" });
-    if (!res.ok) throw new Error();
-    const data = await res.json();
-    return { ...DEFAULT_INVOICE_CONFIG, ...data };
+    const res = await apiFetchBase("/api/settings/sites", { credentials: "include" });
+    if (!res.ok) return [];
+    _sitesCache = await res.json();
+    return _sitesCache!;
+  } catch {
+    return [];
+  }
+}
+
+async function fetchInvoiceConfig(siteId?: number | null): Promise<MallInvoiceConfig> {
+  try {
+    const [settingsRes, sites] = await Promise.all([
+      apiFetchBase("/api/settings", { credentials: "include" }),
+      fetchSitesCache(),
+    ]);
+    const globalData = settingsRes.ok ? await settingsRes.json() : {};
+    const base: MallInvoiceConfig = { ...DEFAULT_INVOICE_CONFIG, ...globalData };
+
+    // Overlay warna dan logo per-site jika tersedia
+    if (siteId) {
+      const site = sites.find(s => s.siteId === siteId);
+      if (site) {
+        if (site.invoiceColor) base.invoiceColor = site.invoiceColor;
+        if (site.logoUrl) base.logoUrl = site.logoUrl;
+        if (site.companyName) base.companyName = site.companyName;
+      }
+    }
+    return base;
   } catch {
     return DEFAULT_INVOICE_CONFIG;
   }
@@ -571,7 +599,7 @@ function buildInvoiceHtml(inv: Invoice, cfg: MallInvoiceConfig): string {
 }
 
 async function viewOrPrintInvoice(inv: Invoice, mode: "view" | "print" = "print") {
-  const cfg = await fetchInvoiceConfig();
+  const cfg = await fetchInvoiceConfig(inv.siteId);
   const html = buildInvoiceHtml(inv, cfg);
   const win = window.open("", "_blank", "width=800,height=900");
   if (!win) return;

@@ -181,6 +181,7 @@ function resolveStatus(totalAmount: number, paidAmount: number, dueDate?: string
 const invoiceSelect = {
   id: tenantInvoicesTable.id,
   invoiceNumber: tenantInvoicesTable.invoiceNumber,
+  siteId: tenantInvoicesTable.siteId,
   tenantId: tenantInvoicesTable.tenantId,
   bookingId: tenantInvoicesTable.bookingId,
   unitCode: tenantInvoicesTable.unitCode,
