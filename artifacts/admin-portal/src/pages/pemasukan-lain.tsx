@@ -244,7 +244,7 @@ export default function PemasukanLain() {
                 <SelectTrigger><SelectValue placeholder="Pilih tenant (opsional)" /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="__none__">— Tidak terkait tenant —</SelectItem>
-                  {tenantsData?.data.map(t => <SelectItem key={t.id} value={String(t.id)}>{t.businessName}</SelectItem>)}
+                  {tenantsData?.data?.map(t => <SelectItem key={t.id} value={String(t.id)}>{t.businessName}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
