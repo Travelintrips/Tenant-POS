@@ -79,9 +79,15 @@ export default function PemasukanLain() {
     enabled: showForm,
   });
 
-  const { data: tenantsData } = useQuery<{ success: boolean; data: Tenant[] }>({
+  const { data: tenantsList } = useQuery<Tenant[]>({
     queryKey: ["tenants-list"],
-    queryFn: async () => { const res = await apiFetch(`${BASE}/api/tenants`); if (!res.ok) throw new Error(); return res.json(); },
+    queryFn: async () => {
+      const res = await apiFetch(`${BASE}/api/tenants`);
+      if (!res.ok) throw new Error();
+      const json = await res.json();
+      // API /tenants mengembalikan array langsung, bukan { success, data }
+      return Array.isArray(json) ? json : (json.data ?? []);
+    },
     enabled: showForm,
   });
 
@@ -256,7 +262,7 @@ export default function PemasukanLain() {
                   >
                     <span className="truncate">
                       {form.tenantId
-                        ? (tenantsData?.data?.find(t => String(t.id) === form.tenantId)?.businessName ?? "Pilih tenant...")
+                        ? (tenantsList?.find(t => String(t.id) === form.tenantId)?.businessName ?? "Pilih tenant...")
                         : "— Tidak terkait tenant —"}
                     </span>
                     <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
@@ -279,7 +285,7 @@ export default function PemasukanLain() {
                           <Check className={cn("mr-2 h-4 w-4", !form.tenantId ? "opacity-100" : "opacity-0")} />
                           — Tidak terkait tenant —
                         </CommandItem>
-                        {tenantsData?.data
+                        {tenantsList
                           ?.filter(t => t.businessName.toLowerCase().includes(tenantSearch.toLowerCase()))
                           .map(t => (
                             <CommandItem
