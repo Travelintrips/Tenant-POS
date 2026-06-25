@@ -11,6 +11,7 @@ import {
   tenantReceiptsTable,
   usersTable,
   systemSettingsTable,
+  mallUnitsTable,
 } from "@workspace/db/schema";
 import { eq, and, sql, desc, gte, lte, ilike, or, inArray } from "drizzle-orm";
 import { z } from "zod";
@@ -151,6 +152,7 @@ router.get("/tenant-pos/floor-plan", async (req, res) => {
         bookingStatus: tenantBookingsTable.bookingStatus,
         dueDate: tenantBookingsTable.dueDate,
         periodLabel: tenantBookingsTable.periodLabel,
+        unitStatus: mallUnitsTable.status,
       })
       .from(tenantsTable)
       .leftJoin(
@@ -158,6 +160,13 @@ router.get("/tenant-pos/floor-plan", async (req, res) => {
         and(
           eq(tenantBookingsTable.tenantId, tenantsTable.id),
           sql`${tenantBookingsTable.bookingStatus} IN ('aktif', 'active')`
+        )
+      )
+      .leftJoin(
+        mallUnitsTable,
+        and(
+          eq(mallUnitsTable.unitCode, tenantsTable.boothNumber),
+          siteId > 0 ? eq(mallUnitsTable.siteId, siteId) : undefined
         )
       )
       .where(tenantSiteFilter)
@@ -202,6 +211,7 @@ router.get("/tenant-pos/floor-plan", async (req, res) => {
       openInvoiceCount: invoiceCountMap.get(row.tenantId) ?? 0,
       logoUrl: row.logoUrl ?? null,
       tenantStatus: row.tenantStatus ?? null,
+      unitStatus: row.unitStatus ?? null,
     }));
 
     res.json(result);
@@ -495,6 +505,7 @@ router.get("/tenant-pos/recent-payments", async (req, res) => {
 const paymentBodySchema = z.object({
   // bookingId optional: pembayaran invoice bisa dilakukan tanpa booking aktif
   bookingId: z.number().int().positive().optional(),
+  bookingId: z.number().int().positive().optional().nullable(),
   tenantId: z.number().int().positive(),
   invoiceId: z.number().int().positive().optional(),
   amountPaid: z.number().int().min(1, "amountPaid harus lebih dari 0"),
@@ -516,7 +527,7 @@ router.post("/tenant-pos/payments", paymentRateLimiter, async (req, res) => {
   }
 
   const {
-    bookingId, tenantId, invoiceId, amountPaid, discountAmount,
+    bookingId: rawBookingId, tenantId, invoiceId, amountPaid, discountAmount,
     penaltyAmount, paymentMethod, paymentDate, referenceNumber,
     proofUrl, shiftId, notes,
   } = parsed.data;
@@ -524,6 +535,9 @@ router.post("/tenant-pos/payments", paymentRateLimiter, async (req, res) => {
   // Wajib ada setidaknya bookingId ATAU invoiceId
   if (!bookingId && !invoiceId) {
     res.status(400).json({ error: "bookingId atau invoiceId harus disertakan" });
+  // bookingId bisa null saat pembayaran via invoice — akan di-resolve dari invoice
+  if (!rawBookingId && !invoiceId) {
+    res.status(400).json({ error: "bookingId atau invoiceId wajib diisi" });
     return;
   }
 
@@ -531,6 +545,20 @@ router.post("/tenant-pos/payments", paymentRateLimiter, async (req, res) => {
     const result = await db.transaction(async (tx) => {
       // Fetch booking hanya jika bookingId tersedia
       let booking: typeof tenantBookingsTable.$inferSelect | null = null;
+      // Jika bookingId tidak dikirim, cari dari invoice
+      let resolvedBookingId: number | null = rawBookingId ?? null;
+      if (!resolvedBookingId && invoiceId) {
+        const [inv] = await tx
+          .select({ bookingId: tenantInvoicesTable.bookingId })
+          .from(tenantInvoicesTable)
+          .where(eq(tenantInvoicesTable.id, invoiceId));
+        resolvedBookingId = inv?.bookingId ?? null;
+      }
+
+      // bookingId is now an alias for the resolved value
+      const bookingId = resolvedBookingId;
+
+      let booking: typeof tenantBookingsTable.$inferSelect | undefined;
       if (bookingId) {
         const [b] = await tx
           .select()
@@ -544,6 +572,14 @@ router.post("/tenant-pos/payments", paymentRateLimiter, async (req, res) => {
           throw Object.assign(new Error("Booking ini sudah dibatalkan"), { status: 409 });
         booking = b;
       }
+        booking = b;
+      }
+
+      if (bookingId && !booking) throw Object.assign(new Error("Booking tidak ditemukan"), { status: 404 });
+      if (booking && booking.tenantId !== tenantId)
+        throw Object.assign(new Error("tenantId tidak cocok dengan booking"), { status: 400 });
+      if (booking && booking.paymentStatus === "CANCELLED")
+        throw Object.assign(new Error("Booking ini sudah dibatalkan"), { status: 409 });
 
       const [tenant] = await tx
         .select({
@@ -596,6 +632,22 @@ router.post("/tenant-pos/payments", paymentRateLimiter, async (req, res) => {
       const finalBill = booking
         ? Number(booking.totalAmount) - discountAmount + penaltyAmount
         : (preInsertInvoice ? Number(preInsertInvoice.totalAmount) - discountAmount + penaltyAmount : amountPaid);
+      // Compute prevPaid: prefer booking-scoped, fallback to invoice-scoped
+      let previousPaidAmount = 0;
+      if (bookingId) {
+        const [prevPaid] = await tx
+          .select({ total: sql<number>`coalesce(sum(amount::numeric), 0)::int` })
+          .from(tenantPaymentsTable)
+          .where(and(eq(tenantPaymentsTable.bookingId, bookingId), eq(tenantPaymentsTable.isVoided, false)));
+        previousPaidAmount = prevPaid?.total ?? 0;
+      } else if (invoiceId) {
+        // invoice-only path: use invoice.paidAmount
+        previousPaidAmount = Number(preInsertInvoice?.paidAmount ?? 0);
+      }
+
+      // finalBill: use booking total OR invoice total
+      const bookingTotal = booking ? Number(booking.totalAmount) : (preInsertInvoice ? Number(preInsertInvoice.totalAmount) : amountPaid);
+      const finalBill = bookingTotal - discountAmount + penaltyAmount;
       const newPaidAmount = previousPaidAmount + amountPaid;
       const remainingAmount = Math.max(finalBill - newPaidAmount, 0);
       // When paying a specific invoice, change is relative to invoice outstanding
@@ -683,6 +735,7 @@ router.post("/tenant-pos/payments", paymentRateLimiter, async (req, res) => {
       }
 
       // Update booking hanya jika bookingId tersedia
+      // Update booking hanya jika ada bookingId
       let updatedBooking: typeof tenantBookingsTable.$inferSelect | undefined;
       if (bookingId) {
         const [ub] = await tx
@@ -1130,16 +1183,96 @@ router.post("/tenant-pos/manual-payment", paymentRateLimiter, async (req, res) =
           logger.error({ err: dbErr, paymentId }, "[pos-manual] Gagal simpan record receipt");
         }
 
+        // Kirim WA ke tenant (jika ada nomor HP)
+        let waStatus = "skipped";
+        let waError: string | null = null;
         if (tenant.phone) {
           try {
             const baseUrl = await getBaseUrl();
             const fullReceiptUrl = receiptUrl && baseUrl ? `${baseUrl}${receiptUrl}` : null;
-            const manualCompanyName = await getSiteCompanyName(req.siteId);
-            await sendPosPaymentSuccess({ ownerName: tenant.ownerName ?? "Tenant", businessName: tenant.businessName ?? "Tenant", invoiceNumber: null, amountPaid, paymentMethod, receiptNumber, receiptUrl: fullReceiptUrl, phone: tenant.phone, companyName: manualCompanyName });
+            const manualCompanyName = await getSiteCompanyName(siteId);
+            const waResult = await sendPosPaymentSuccess({
+              ownerName: tenant.ownerName ?? "Tenant",
+              businessName: tenant.businessName ?? "Tenant",
+              invoiceNumber: null,
+              amountPaid,
+              paymentMethod,
+              receiptNumber,
+              receiptUrl: fullReceiptUrl,
+              phone: tenant.phone,
+              companyName: manualCompanyName,
+            });
+            waStatus = waResult.ok ? (waResult.skipped ? "skipped" : "sent") : "failed";
+            waError = waResult.error ?? null;
           } catch (waErr) {
-            logger.error({ err: waErr, paymentId }, "[pos-manual] Gagal kirim WA");
+            waStatus = "failed";
+            waError = waErr instanceof Error ? waErr.message : String(waErr);
+            logger.error({ err: waErr, paymentId }, "[pos-manual] Gagal kirim WA ke tenant");
           }
         }
+
+        // Update wa_status di DB
+        try {
+          await db
+            .update(tenantReceiptsTable)
+            .set({ waStatus, waError })
+            .where(eq(tenantReceiptsTable.receiptNumber, receiptNumber));
+        } catch {
+          // Non-critical
+        }
+
+        // Kirim WA alert ke admin/owner
+        try {
+          const adminRows = await db
+            .select({ name: usersTable.name, phoneNumber: usersTable.phoneNumber })
+            .from(usersTable)
+            .where(
+              and(
+                inArray(usersTable.role, ["owner", "admin"]),
+                eq(usersTable.status, "active"),
+                sql`phone_number IS NOT NULL AND phone_number != ''`,
+              ),
+            );
+          let adminPhones: Array<{ name: string; phone: string }> = adminRows
+            .filter((u) => u.phoneNumber)
+            .map((u) => ({ name: u.name, phone: u.phoneNumber! }));
+
+          if (adminPhones.length === 0) {
+            const envPhone = process.env.ADMIN_WHATSAPP ?? process.env.FONNTE_ADMIN_WA;
+            if (envPhone) adminPhones = [{ name: "Admin", phone: envPhone }];
+            else {
+              const [settingRow] = await db
+                .select({ value: systemSettingsTable.value })
+                .from(systemSettingsTable)
+                .where(eq(systemSettingsTable.key, "mall_config"));
+              const phone = (settingRow?.value as Record<string, unknown> | undefined)?.adminPhone;
+              if (typeof phone === "string" && phone.length > 0) adminPhones = [{ name: "Admin", phone }];
+            }
+          }
+
+          const manualCompanyName = await getSiteCompanyName(siteId);
+          const kasirNameForAdmin = kasirName;
+          await Promise.allSettled(
+            adminPhones.map((admin) =>
+              sendAdminPosPaymentAlert({
+                adminName: admin.name,
+                adminPhone: admin.phone,
+                businessName: tenant.businessName ?? "Tenant",
+                ownerName: tenant.ownerName ?? "-",
+                receiptNumber,
+                invoiceNumber: null,
+                amountPaid,
+                paymentMethod,
+                kasirName: kasirNameForAdmin,
+                siteName: manualCompanyName ?? null,
+              }),
+            ),
+          );
+        } catch (adminWaErr) {
+          logger.error({ err: adminWaErr, paymentId }, "[pos-manual] Gagal kirim WA ke admin — non-fatal");
+        }
+
+        logger.info({ paymentId, waStatus }, "[pos-manual] Post-payment processing selesai");
       } catch (postErr) {
         logger.error({ err: postErr, paymentId }, "[pos-manual] Gagal post-payment processing");
       }

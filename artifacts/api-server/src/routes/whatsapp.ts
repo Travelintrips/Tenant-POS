@@ -159,6 +159,12 @@ router.post("/whatsapp/invoice/:id/send", async (req, res) => {
       return;
     }
 
+    if (result.pending) {
+      await logWa({ siteId: req.siteId, tenantId: invoice.tenantId, invoiceId: id, phone: invoice.phone, messageType: "invoice", status: "sent", errorMessage: "process:pending", sentBy });
+      res.json({ ok: true, pending: true, paymentLink: paymentLink ?? null, message: "Pesan masuk antrian Fonnte namun belum terkirim ke WA. Reconnect device di dashboard Fonnte." });
+      return;
+    }
+
     await logWa({ siteId: req.siteId, tenantId: invoice.tenantId, invoiceId: id, phone: invoice.phone, messageType: "invoice", status: "sent", sentBy });
     res.json({ ok: true, message: `Notifikasi invoice berhasil dikirim ke ${invoice.phone}` });
   } catch (err) {
@@ -480,7 +486,11 @@ router.post("/whatsapp/test-send", async (req, res) => {
     });
     const data = await r.json() as Record<string, unknown>;
     const sentBy = (req.user as { email?: string } | undefined)?.email ?? null;
-    if (!r.ok || data["status"] === false) {
+    const statusFailed = data["status"] === false || data["status"] === "false";
+    const processFailed = data["process"] === false || data["process"] === "false";
+    const processPending = data["process"] === "pending";
+
+    if (!r.ok || statusFailed || processFailed) {
       const reason = String(data["reason"] ?? data["message"] ?? "Gagal kirim WA");
       const r2 = reason.toLowerCase();
       let errMsg = reason;
@@ -489,6 +499,15 @@ router.post("/whatsapp/test-send", async (req, res) => {
       else if (r2.includes("target")) errMsg = "Nomor HP tujuan tidak valid.";
       await logWa({ phone: normalized, messageType: "test", status: "failed", errorMessage: errMsg, sentBy });
       res.json({ ok: false, error: errMsg, raw: reason });
+    } else if (processPending) {
+      await logWa({ phone: normalized, messageType: "test", status: "sent", errorMessage: "process:pending — sesi WA device mungkin expired", sentBy });
+      res.json({
+        ok: true,
+        pending: true,
+        message: `Pesan masuk antrian Fonnte ke ${normalized}, namun belum terkirim ke WA.`,
+        detail: "Perangkat Fonnte perlu di-reconnect: buka dashboard.fonnte.com → pilih device → klik Disconnect lalu scan ulang QR code dengan HP yang terdaftar.",
+        target: normalized,
+      });
     } else {
       await logWa({ phone: normalized, messageType: "test", status: "sent", sentBy });
       res.json({ ok: true, message: `Pesan tes berhasil dikirim ke ${normalized}`, target: normalized });

@@ -7,14 +7,16 @@ import {
   tenantsTable,
   tenantPaymentsTable,
   mallSitesTable,
+  usersTable,
+  systemSettingsTable,
 } from "@workspace/db/schema";
-import { eq, and, sql, desc, ilike, or, lte, gte, notInArray } from "drizzle-orm";
+import { eq, and, sql, desc, ilike, or, lte, gte, notInArray, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { requireAnyRole } from "../middlewares/auth";
 import { logAudit } from "../lib/audit";
 import { getBaseUrl } from "../lib/app-url";
 import { writePaymentEvent, normalizePaymentMethod } from "../lib/payment-events";
-import { sendInvoiceNotification, getSiteCompanyName } from "../lib/whatsapp";
+import { sendInvoiceNotification, sendPaymentConfirmation, sendAdminPosPaymentAlert, getSiteCompanyName } from "../lib/whatsapp";
 
 const router: IRouter = Router();
 router.use("/tenant-invoices", requireAnyRole("owner", "admin", "finance"));
@@ -1151,6 +1153,90 @@ router.post("/tenant-invoices/:id/payment", async (req, res) => {
       paidAmount: result.newPaidAmount,
       outstandingAmount: result.outstanding,
     });
+
+    // ── Fire-and-forget: Kirim WA ke tenant + admin setelah pembayaran invoice ──
+    void (async () => {
+      try {
+        const invoice = result.invoice;
+        const paymentId = result.payment.id;
+        const siteId = (result.payment.siteId as number | null) ?? req.siteId ?? null;
+        const invoiceNumber = invoice.invoiceNumber ?? `INV-${id}`;
+
+        // Ambil data tenant (nama + nomor HP)
+        const [tenant] = await db
+          .select({ businessName: tenantsTable.businessName, ownerName: tenantsTable.ownerName, phone: tenantsTable.phone })
+          .from(tenantsTable)
+          .where(eq(tenantsTable.id, invoice.tenantId!))
+          .limit(1);
+
+        const companyName = await getSiteCompanyName(siteId);
+
+        // 1. Kirim WA konfirmasi pembayaran ke tenant
+        if (tenant?.phone) {
+          try {
+            await sendPaymentConfirmation({
+              ownerName: tenant.ownerName ?? "Tenant",
+              businessName: tenant.businessName ?? "Tenant",
+              invoiceNumber,
+              amountPaid,
+              paymentMethod,
+              phone: tenant.phone,
+              companyName,
+            });
+          } catch (waErr) {
+            req.log.error({ err: waErr, paymentId }, "[invoice-pay] Gagal kirim WA ke tenant — non-fatal");
+          }
+        }
+
+        // 2. Kirim WA notifikasi ke admin/owner
+        const adminRows = await db
+          .select({ name: usersTable.name, phoneNumber: usersTable.phoneNumber })
+          .from(usersTable)
+          .where(
+            and(
+              inArray(usersTable.role, ["owner", "admin"]),
+              eq(usersTable.status, "active"),
+              sql`phone_number IS NOT NULL AND phone_number != ''`,
+            ),
+          );
+        let adminPhones: Array<{ name: string; phone: string }> = adminRows
+          .filter((u) => u.phoneNumber)
+          .map((u) => ({ name: u.name, phone: u.phoneNumber! }));
+
+        if (adminPhones.length === 0) {
+          const envPhone = process.env.ADMIN_WHATSAPP ?? process.env.FONNTE_ADMIN_WA;
+          if (envPhone) adminPhones = [{ name: "Admin", phone: envPhone }];
+          else {
+            const [settingRow] = await db
+              .select({ value: systemSettingsTable.value })
+              .from(systemSettingsTable)
+              .where(eq(systemSettingsTable.key, "mall_config"));
+            const phone = (settingRow?.value as Record<string, unknown> | undefined)?.adminPhone;
+            if (typeof phone === "string" && phone.length > 0) adminPhones = [{ name: "Admin", phone }];
+          }
+        }
+
+        const kasirName = (req.user as { name?: string } | undefined)?.name ?? "Admin";
+        await Promise.allSettled(
+          adminPhones.map((admin) =>
+            sendAdminPosPaymentAlert({
+              adminName: admin.name,
+              adminPhone: admin.phone,
+              businessName: tenant?.businessName ?? "Tenant",
+              ownerName: tenant?.ownerName ?? "-",
+              receiptNumber: result.receiptNumber,
+              invoiceNumber,
+              amountPaid,
+              paymentMethod,
+              kasirName,
+              siteName: companyName ?? null,
+            }),
+          ),
+        );
+      } catch (postErr) {
+        req.log.error({ err: postErr }, "[invoice-pay] Gagal kirim WA — pembayaran tetap sukses");
+      }
+    })();
   } catch (err) {
     const e = err as Error & { status?: number };
     if (e.status) {
