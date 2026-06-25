@@ -1199,8 +1199,9 @@ router.post("/tenant-invoices/:id/payment", async (req, res) => {
               sql`phone_number IS NOT NULL AND phone_number != ''`,
             ),
           );
+        const DEV_PHONES = new Set(["6281111111111","6281111111112","6281111111113","6281111111114"]);
         let adminPhones: Array<{ name: string; phone: string }> = adminRows
-          .filter((u) => u.phoneNumber)
+          .filter((u) => u.phoneNumber && !DEV_PHONES.has(u.phoneNumber))
           .map((u) => ({ name: u.name, phone: u.phoneNumber! }));
 
         // Selalu sertakan ADMIN_WHATSAPP env jika ada (bukan hanya fallback)
