@@ -503,7 +503,7 @@ router.get("/tenant-pos/recent-payments", async (req, res) => {
 
 // ─── POST /api/tenant-pos/payments ───────────────────────────────────────────
 const paymentBodySchema = z.object({
-  bookingId: z.number().int().positive(),
+  bookingId: z.number().int().positive().optional().nullable(),
   tenantId: z.number().int().positive(),
   invoiceId: z.number().int().positive().optional(),
   amountPaid: z.number().int().min(1, "amountPaid harus lebih dari 0"),
@@ -525,23 +525,46 @@ router.post("/tenant-pos/payments", paymentRateLimiter, async (req, res) => {
   }
 
   const {
-    bookingId, tenantId, invoiceId, amountPaid, discountAmount,
+    bookingId: rawBookingId, tenantId, invoiceId, amountPaid, discountAmount,
     penaltyAmount, paymentMethod, paymentDate, referenceNumber,
     proofUrl, shiftId, notes,
   } = parsed.data;
 
+  // bookingId bisa null saat pembayaran via invoice — akan di-resolve dari invoice
+  if (!rawBookingId && !invoiceId) {
+    res.status(400).json({ error: "bookingId atau invoiceId wajib diisi" });
+    return;
+  }
+
   try {
     const result = await db.transaction(async (tx) => {
-      const [booking] = await tx
-        .select()
-        .from(tenantBookingsTable)
-        .where(eq(tenantBookingsTable.id, bookingId))
-        .for("update");
+      // Jika bookingId tidak dikirim, cari dari invoice
+      let resolvedBookingId: number | null = rawBookingId ?? null;
+      if (!resolvedBookingId && invoiceId) {
+        const [inv] = await tx
+          .select({ bookingId: tenantInvoicesTable.bookingId })
+          .from(tenantInvoicesTable)
+          .where(eq(tenantInvoicesTable.id, invoiceId));
+        resolvedBookingId = inv?.bookingId ?? null;
+      }
 
-      if (!booking) throw Object.assign(new Error("Booking tidak ditemukan"), { status: 404 });
-      if (booking.tenantId !== tenantId)
+      // bookingId is now an alias for the resolved value
+      const bookingId = resolvedBookingId;
+
+      let booking: typeof tenantBookingsTable.$inferSelect | undefined;
+      if (bookingId) {
+        const [b] = await tx
+          .select()
+          .from(tenantBookingsTable)
+          .where(eq(tenantBookingsTable.id, bookingId))
+          .for("update");
+        booking = b;
+      }
+
+      if (bookingId && !booking) throw Object.assign(new Error("Booking tidak ditemukan"), { status: 404 });
+      if (booking && booking.tenantId !== tenantId)
         throw Object.assign(new Error("tenantId tidak cocok dengan booking"), { status: 400 });
-      if (booking.paymentStatus === "CANCELLED")
+      if (booking && booking.paymentStatus === "CANCELLED")
         throw Object.assign(new Error("Booking ini sudah dibatalkan"), { status: 409 });
 
       const [tenant] = await tx
@@ -556,16 +579,6 @@ router.post("/tenant-pos/payments", paymentRateLimiter, async (req, res) => {
         .where(eq(tenantsTable.id, tenantId));
       if (!tenant) throw Object.assign(new Error("Tenant tidak ditemukan"), { status: 404 });
 
-      const [prevPaid] = await tx
-        .select({ total: sql<number>`coalesce(sum(amount::numeric), 0)::int` })
-        .from(tenantPaymentsTable)
-        .where(
-          and(
-            eq(tenantPaymentsTable.bookingId, bookingId),
-            eq(tenantPaymentsTable.isVoided, false)
-          )
-        );
-
       // Fetch invoice BEFORE insert to compute change correctly
       let preInsertInvoice: typeof tenantInvoicesTable.$inferSelect | null = null;
       if (invoiceId) {
@@ -577,8 +590,22 @@ router.post("/tenant-pos/payments", paymentRateLimiter, async (req, res) => {
         preInsertInvoice = inv ?? null;
       }
 
-      const previousPaidAmount = prevPaid?.total ?? 0;
-      const finalBill = Number(booking.totalAmount) - discountAmount + penaltyAmount;
+      // Compute prevPaid: prefer booking-scoped, fallback to invoice-scoped
+      let previousPaidAmount = 0;
+      if (bookingId) {
+        const [prevPaid] = await tx
+          .select({ total: sql<number>`coalesce(sum(amount::numeric), 0)::int` })
+          .from(tenantPaymentsTable)
+          .where(and(eq(tenantPaymentsTable.bookingId, bookingId), eq(tenantPaymentsTable.isVoided, false)));
+        previousPaidAmount = prevPaid?.total ?? 0;
+      } else if (invoiceId) {
+        // invoice-only path: use invoice.paidAmount
+        previousPaidAmount = Number(preInsertInvoice?.paidAmount ?? 0);
+      }
+
+      // finalBill: use booking total OR invoice total
+      const bookingTotal = booking ? Number(booking.totalAmount) : (preInsertInvoice ? Number(preInsertInvoice.totalAmount) : amountPaid);
+      const finalBill = bookingTotal - discountAmount + penaltyAmount;
       const newPaidAmount = previousPaidAmount + amountPaid;
       const remainingAmount = Math.max(finalBill - newPaidAmount, 0);
       // When paying a specific invoice, change is relative to invoice outstanding
@@ -665,16 +692,21 @@ router.post("/tenant-pos/payments", paymentRateLimiter, async (req, res) => {
         payment = inserted as typeof payment;
       }
 
-      const [updatedBooking] = await tx
-        .update(tenantBookingsTable)
-        .set({
-          paidAmount: String(newPaidAmount),
-          remainingAmount: String(remainingAmount),
-          paymentStatus,
-          updatedAt: new Date(),
-        })
-        .where(eq(tenantBookingsTable.id, bookingId))
-        .returning();
+      // Update booking hanya jika ada bookingId
+      let updatedBooking: typeof tenantBookingsTable.$inferSelect | undefined;
+      if (bookingId) {
+        const [ub] = await tx
+          .update(tenantBookingsTable)
+          .set({
+            paidAmount: String(newPaidAmount),
+            remainingAmount: String(remainingAmount),
+            paymentStatus,
+            updatedAt: new Date(),
+          })
+          .where(eq(tenantBookingsTable.id, bookingId))
+          .returning();
+        updatedBooking = ub;
+      }
 
       if (shiftId && paymentMethod === "tunai") {
         const [shift] = await tx
@@ -706,7 +738,7 @@ router.post("/tenant-pos/payments", paymentRateLimiter, async (req, res) => {
           ownerName: tenant.ownerName,
           phone: tenant.phone ?? null,
           boothNumber: tenant.boothNumber ?? null,
-          periodLabel: booking.periodLabel ?? null,
+          periodLabel: booking?.periodLabel ?? null,
         },
       };
     });
