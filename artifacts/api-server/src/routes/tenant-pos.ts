@@ -551,7 +551,6 @@ router.post("/tenant-pos/payments", paymentRateLimiter, async (req, res) => {
         resolvedBookingId = inv?.bookingId ?? null;
       }
 
-      // bookingId is now an alias for the resolved value
       const bookingId = resolvedBookingId;
 
       if (bookingId) {
