@@ -462,7 +462,7 @@ router.post("/whatsapp/test-send", async (req, res) => {
     return;
   }
 
-  const token = process.env.FONNTE_TOKEN;
+  const token = process.env.FONNTE_API_KEY ?? process.env.FONNTE_TOKEN;
   if (!token) {
     res.status(400).json({ ok: false, skipped: true, error: "FONNTE_TOKEN belum dikonfigurasi di Replit Secrets." });
     return;

@@ -168,6 +168,7 @@ export interface OverdueReminderParams {
   outstandingAmount: string | number;
   daysOverdue: number;
   phone: string;
+  paymentLink?: string;
   companyName?: string;
 }
 
@@ -193,6 +194,50 @@ export async function sendInvoiceNotification(params: InvoiceNotifParams): Promi
     `\nMohon lakukan pembayaran sebelum tanggal jatuh tempo untuk menghindari denda keterlambatan.\n\n` +
     `Hubungi kami jika ada pertanyaan.\n\n` +
     `Terima kasih 🙏\n` +
+    `_${company}_`;
+
+  return sendMessage(params.phone, message);
+}
+
+export interface DueReminderParams {
+  ownerName: string;
+  businessName: string;
+  invoiceNumber: string;
+  periodLabel: string;
+  totalAmount: string | number;
+  outstandingAmount?: string | number | null;
+  dueDate: string;
+  daysUntilDue: number;
+  phone: string;
+  paymentLink?: string;
+  companyName?: string;
+}
+
+/**
+ * Kirim pengingat jatuh tempo (H-3 / H-1) — bukan tagihan baru.
+ * Template ini berbeda dari sendInvoiceNotification agar tidak membingungkan tenant.
+ */
+export async function sendDueReminder(params: DueReminderParams): Promise<WaResult> {
+  const company = params.companyName ?? "Manajemen CST";
+  const dayLabel = params.daysUntilDue === 1 ? "1 hari lagi" : `${params.daysUntilDue} hari lagi`;
+  const urgencyEmoji = params.daysUntilDue === 1 ? "🔴" : "🟡";
+  const outstanding = params.outstandingAmount ?? params.totalAmount;
+  const linkLine = params.paymentLink
+    ? `\n🔗 *Link Pembayaran:*\n${params.paymentLink}\n`
+    : "";
+
+  const message =
+    `${urgencyEmoji} *Pengingat Jatuh Tempo — ${params.businessName}*\n` +
+    `━━━━━━━━━━━━━━━━━━━━━\n\n` +
+    `Yth. Bapak/Ibu *${params.ownerName}*,\n\n` +
+    `Tagihan berikut akan jatuh tempo dalam *${dayLabel}*. Mohon segera lakukan pembayaran.\n\n` +
+    `• No. Invoice       : *${params.invoiceNumber}*\n` +
+    `• Periode            : ${params.periodLabel}\n` +
+    `• Sisa Tagihan      : *${formatRupiah(outstanding)}*\n` +
+    `• Jatuh Tempo       : *${params.dueDate}*\n` +
+    linkLine +
+    `\nPembayaran tepat waktu sangat membantu kelancaran operasional Anda.\n\n` +
+    `Hubungi kami jika ada pertanyaan. Terima kasih 🙏\n` +
     `_${company}_`;
 
   return sendMessage(params.phone, message);
@@ -800,16 +845,21 @@ export async function sendAdminPosPaymentAlert(params: AdminPosPaymentAlertParam
 
 export async function sendOverdueReminder(params: OverdueReminderParams): Promise<WaResult> {
   const company = params.companyName ?? "Manajemen CST";
+  const linkLine = params.paymentLink
+    ? `\n🔗 *Link Pembayaran:*\n${params.paymentLink}\n`
+    : "";
+
   const message =
-    `⚠️ *Tagihan Melewati Jatuh Tempo — ${params.businessName}*\n` +
+    `🔴 *Tagihan Melewati Jatuh Tempo — ${params.businessName}*\n` +
     `━━━━━━━━━━━━━━━━━━━━━\n\n` +
     `Yth. Bapak/Ibu *${params.ownerName}*,\n\n` +
     `Kami menginformasikan bahwa tagihan Anda telah melewati batas waktu pembayaran.\n\n` +
     `• No. Invoice       : *${params.invoiceNumber}*\n` +
     `• Total Tagihan     : ${formatRupiah(params.totalAmount)}\n` +
     `• Sisa Belum Bayar : *${formatRupiah(params.outstandingAmount)}*\n` +
-    `• Keterlambatan     : *${params.daysOverdue} hari*\n\n` +
-    `Mohon segera lakukan pembayaran untuk menghindari sanksi keterlambatan lebih lanjut.\n\n` +
+    `• Keterlambatan     : *${params.daysOverdue} hari*\n` +
+    linkLine +
+    `\nMohon segera lakukan pembayaran untuk menghindari sanksi keterlambatan lebih lanjut.\n\n` +
     `Hubungi kami jika ada pertanyaan atau kendala.\n\n` +
     `Terima kasih. 🙏\n` +
     `_${company}_`;

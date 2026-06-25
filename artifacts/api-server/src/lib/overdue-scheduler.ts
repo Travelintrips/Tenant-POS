@@ -1,7 +1,7 @@
 import { db } from "@workspace/db";
 import { tenantInvoicesTable, tenantsTable, usersTable, bankMutationsTable } from "@workspace/db/schema";
 import { and, inArray, isNull, eq, sql, gt } from "drizzle-orm";
-import { sendOverdueReminder, sendInvoiceNotification, sendBankUnmatchedAlert } from "./whatsapp";
+import { sendOverdueReminder, sendDueReminder, sendBankUnmatchedAlert } from "./whatsapp";
 import { logger } from "./logger";
 import { getBaseUrl } from "./app-url";
 
@@ -210,13 +210,15 @@ async function runDueReminderCheck(): Promise<void> {
           })
         : "-";
 
-      const result = await sendInvoiceNotification({
+      const result = await sendDueReminder({
         ownerName: invoice.ownerName,
         businessName: invoice.businessName,
         invoiceNumber: invoice.invoiceNumber,
         periodLabel: formatPeriodLabel(invoice.periodStart, invoice.periodEnd),
-        totalAmount: invoice.outstandingAmount ?? invoice.totalAmount,
+        totalAmount: invoice.totalAmount,
+        outstandingAmount: invoice.outstandingAmount,
         dueDate: dueStr,
+        daysUntilDue: 3,
         phone: invoice.phone,
         paymentLink: await buildPaymentLink(invoice.paymentToken),
       });
@@ -240,18 +242,19 @@ async function runDueReminderCheck(): Promise<void> {
           })
         : "-";
 
-      const result = await sendInvoiceNotification({
+      const result = await sendDueReminder({
         ownerName: invoice.ownerName,
         businessName: invoice.businessName,
         invoiceNumber: invoice.invoiceNumber,
         periodLabel: formatPeriodLabel(invoice.periodStart, invoice.periodEnd),
-        totalAmount: invoice.outstandingAmount ?? invoice.totalAmount,
+        totalAmount: invoice.totalAmount,
+        outstandingAmount: invoice.outstandingAmount,
         dueDate: dueStr,
+        daysUntilDue: 1,
         phone: invoice.phone,
         paymentLink: await buildPaymentLink(invoice.paymentToken),
       });
 
-      if (result.ok && !result.skipped) sentH3++;
       if (result.ok && !result.skipped) sentH1++;
     }
   }
@@ -274,6 +277,7 @@ async function runOverdueCheck(): Promise<void> {
       dueDate: tenantInvoicesTable.dueDate,
       totalAmount: tenantInvoicesTable.totalAmount,
       outstandingAmount: tenantInvoicesTable.outstandingAmount,
+      paymentToken: tenantInvoicesTable.paymentToken,
       ownerName: tenantsTable.ownerName,
       businessName: tenantsTable.businessName,
       phone: tenantsTable.phone,
@@ -324,6 +328,7 @@ async function runOverdueCheck(): Promise<void> {
         outstandingAmount: invoice.outstandingAmount ?? invoice.totalAmount,
         daysOverdue,
         phone: invoice.phone,
+        paymentLink: await buildPaymentLink(invoice.paymentToken),
       });
 
       if (result.ok && !result.skipped) sent++;

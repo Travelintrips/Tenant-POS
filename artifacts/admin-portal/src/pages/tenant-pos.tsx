@@ -1980,7 +1980,6 @@ function ModalPembayaran({ item, invoice, shiftId, cashierName, onClose, onSucce
         credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          bookingId: item.bookingId ?? undefined,
           bookingId: (invoice?.bookingId ?? item.bookingId) ?? undefined,
           tenantId: item.tenantId,
           invoiceId: invoice?.id ?? undefined,

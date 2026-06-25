@@ -10,6 +10,13 @@ export const pool = new Pool({
   ssl: dbConfig.ssl,
 });
 
+// PgBouncer transaction mode (port 6543) bisa menghapus search_path session.
+// Pastikan setiap koneksi baru selalu set search_path=public agar
+// query Drizzle tanpa schema prefix (mis. SELECT FROM "users") tidak gagal.
+pool.on("connect", (client) => {
+  client.query("SET search_path TO public").catch(() => {});
+});
+
 export const db = drizzle(pool, { schema });
 
 export * from "./schema";
