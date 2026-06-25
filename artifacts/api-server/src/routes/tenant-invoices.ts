@@ -155,7 +155,8 @@ function calcAmounts(data: {
   const paid = Number(data.paidAmount ?? 0);
 
   const subtotal = rent + service + elec + water + other + trash - discount + penalty;
-  const taxAmt = (data.usePpn !== false) ? Math.round(subtotal * PPN_RATE) : 0;
+  // PPN hanya dihitung dari Harga Sewa, bukan dari seluruh subtotal
+  const taxAmt = (data.usePpn !== false) ? Math.round(rent * PPN_RATE) : 0;
   const total = subtotal + taxAmt;
   const outstanding = Math.max(total - paid, 0);
 

@@ -1871,7 +1871,7 @@ export default function TenantInvoices() {
                 <div>
                   <p className="text-sm font-medium">Gunakan PPN 11%</p>
                   <p className="text-xs text-muted-foreground mt-0.5">
-                    {createForm.usePpn ? "PPN Pajak Pertambahan Nilai 11% akan ditambahkan ke total tagihan" : "Tidak ada PPN — total tagihan = subtotal saja"}
+                    {createForm.usePpn ? "PPN 11% dihitung dari Harga Sewa saja, bukan dari biaya lainnya" : "Tidak ada PPN — total tagihan = subtotal saja"}
                   </p>
                 </div>
                 <button
@@ -1888,14 +1888,14 @@ export default function TenantInvoices() {
               {/* PPN Preview */}
               {(() => {
                 const sub = (Number(createForm.rentAmount||0)+Number(createForm.serviceChargeAmount||0)+Number(createForm.electricityChargeAmount||0)+Number(createForm.waterChargeAmount||0)+Number(createForm.otherChargeAmount||0)+Number(createForm.trashChargeAmount||0))-Number(createForm.discountAmount||0)+Number(createForm.penaltyAmount||0);
-                const ppn = createForm.usePpn ? Math.round(sub * 0.11) : 0;
+                const ppn = createForm.usePpn ? Math.round(Number(createForm.rentAmount||0) * 0.11) : 0;
                 const total = sub + ppn;
                 return sub > 0 ? (
                   <div className={`rounded-md border p-3 text-sm space-y-1 ${createForm.usePpn ? "bg-blue-50 border-blue-100" : "bg-slate-50 border-slate-200"}`}>
                     <p className={`text-xs font-semibold uppercase tracking-wide mb-1.5 ${createForm.usePpn ? "text-blue-700" : "text-slate-600"}`}>Ringkasan Tagihan</p>
                     <div className="flex justify-between text-muted-foreground"><span>Subtotal</span><span>{formatRupiah(String(sub))}</span></div>
                     {createForm.usePpn && (
-                      <div className="flex justify-between text-blue-600"><span>PPN 11% (Pajak Pertambahan Nilai)</span><span>+ {formatRupiah(String(ppn))}</span></div>
+                      <div className="flex justify-between text-blue-600"><span>PPN 11% (dari Harga Sewa)</span><span>+ {formatRupiah(String(ppn))}</span></div>
                     )}
                     <div className={`flex justify-between font-bold text-base border-t pt-1 mt-1 ${createForm.usePpn ? "border-blue-200" : "border-slate-200"}`}><span>Total</span><span>{formatRupiah(String(total))}</span></div>
                   </div>
@@ -2300,7 +2300,7 @@ export default function TenantInvoices() {
                   <div>
                     <p className="text-sm font-medium">Gunakan PPN 11%</p>
                     <p className="text-xs text-muted-foreground mt-0.5">
-                      {editForm.usePpn ? "PPN 11% ditambahkan ke subtotal" : "Tidak ada PPN — total = subtotal saja"}
+                      {editForm.usePpn ? "PPN 11% dihitung dari Harga Sewa saja, bukan dari biaya lainnya" : "Tidak ada PPN — total = subtotal saja"}
                     </p>
                   </div>
                   <button
@@ -2318,14 +2318,14 @@ export default function TenantInvoices() {
                 {(() => {
                   const sub = (Number(editForm.rentAmount||0)+Number(editForm.serviceChargeAmount||0)+Number(editForm.electricityChargeAmount||0)+Number(editForm.waterChargeAmount||0)+Number(editForm.otherChargeAmount||0)+Number(editForm.trashChargeAmount||0))-Number(editForm.discountAmount||0)+Number(editForm.penaltyAmount||0);
                   if (sub <= 0) return null;
-                  const ppn = editForm.usePpn ? Math.round(sub * 0.11) : 0;
+                  const ppn = editForm.usePpn ? Math.round(Number(editForm.rentAmount||0) * 0.11) : 0;
                   const total = sub + ppn;
                   return (
                     <div className={`rounded-md border p-3 text-sm space-y-1 ${editForm.usePpn ? "bg-blue-50 border-blue-100" : "bg-slate-50 border-slate-200"}`}>
                       <p className={`text-xs font-semibold uppercase tracking-wide mb-1.5 ${editForm.usePpn ? "text-blue-700" : "text-slate-600"}`}>Ringkasan Tagihan</p>
                       <div className="flex justify-between text-muted-foreground"><span>Subtotal</span><span>{formatRupiah(String(sub))}</span></div>
                       {editForm.usePpn && (
-                        <div className="flex justify-between text-blue-600"><span>PPN 11%</span><span>+ {formatRupiah(String(ppn))}</span></div>
+                        <div className="flex justify-between text-blue-600"><span>PPN 11% (dari Harga Sewa)</span><span>+ {formatRupiah(String(ppn))}</span></div>
                       )}
                       <div className={`flex justify-between font-bold text-base border-t pt-1 mt-1 ${editForm.usePpn ? "border-blue-200" : "border-slate-200"}`}><span>Total</span><span>{formatRupiah(String(total))}</span></div>
                     </div>
