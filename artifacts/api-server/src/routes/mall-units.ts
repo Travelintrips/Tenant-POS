@@ -38,6 +38,10 @@ function computeUnitStatus(opts: {
   const todayStr = today();
 
   if (storedStatus === "maintenance") return "maintenance";
+  // Jika admin secara eksplisit menandai unit sebagai "Kosong" (available),
+  // override ini dihormati — sama seperti "maintenance". Booking yang ada tetap
+  // tercatat di DB, hanya tampilan status unit yang berubah.
+  if (storedStatus === "available") return "available";
   if (!hasBooking) {
     if (storedStatus === "occupied") return "occupied";
     if (hasTenant) return "occupied"; // tenant aktif di unit ini (via booth_number)
