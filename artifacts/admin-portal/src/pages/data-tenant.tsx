@@ -361,6 +361,7 @@ export default function DataTenant() {
   const [search, setSearch] = useState("");
   const [filterStatus, setFilterStatus] = useState("all");
   const [filterCategory, setFilterCategory] = useState("all");
+  const [filterUnitStatus, setFilterUnitStatus] = useState("all");
 
   const [logoFile, setLogoFile] = useState<File | null>(null);
   const [logoPreview, setLogoPreview] = useState<string>("");
@@ -680,7 +681,12 @@ export default function DataTenant() {
       t.areaName.toLowerCase().includes(q);
     const matchStatus = filterStatus === "all" || t.status === filterStatus;
     const matchCategory = filterCategory === "all" || (t.category ?? "") === filterCategory;
-    return matchSearch && matchStatus && matchCategory;
+    const matchUnitStatus = filterUnitStatus === "all" || (() => {
+      if (!t.boothNumber) return filterUnitStatus === "none";
+      const us = unitStatusByCode.get(t.boothNumber) ?? "";
+      return us === filterUnitStatus;
+    })();
+    return matchSearch && matchStatus && matchCategory && matchUnitStatus;
   });
 
   const countActive = tenants?.filter((t) => t.status === "active" || t.status === "aktif").length ?? 0;
@@ -702,12 +708,13 @@ export default function DataTenant() {
     return acc;
   }, {});
 
-  const hasActiveFilter = filterStatus !== "all" || filterCategory !== "all" || search !== "";
+  const hasActiveFilter = filterStatus !== "all" || filterCategory !== "all" || filterUnitStatus !== "all" || search !== "";
 
   function resetFilters() {
     setSearch("");
     setFilterStatus("all");
     setFilterCategory("all");
+    setFilterUnitStatus("all");
   }
 
   const siteCfg = activeSite ? (SITE_TYPE_CONFIG[activeSite.type] ?? null) : null;
@@ -996,6 +1003,35 @@ export default function DataTenant() {
                   ))}
                 </SelectContent>
               </Select>
+              {/* Filter status unit */}
+              <div className="flex items-center gap-1 border rounded-md px-1.5 py-1 bg-muted/30">
+                {[
+                  { value: "all",         label: "Semua Unit" },
+                  { value: "occupied",    label: "Terisi",    cls: "text-blue-700" },
+                  { value: "available",   label: "Kosong",    cls: "text-emerald-700" },
+                  { value: "maintenance", label: "Perbaikan", cls: "text-slate-600" },
+                ].map(opt => (
+                  <button
+                    key={opt.value}
+                    onClick={() => setFilterUnitStatus(opt.value)}
+                    className={`text-[11px] font-medium px-2 py-0.5 rounded transition-colors ${
+                      filterUnitStatus === opt.value
+                        ? "bg-white shadow-sm " + (opt.cls ?? "text-foreground")
+                        : "text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    {opt.label}
+                    {opt.value !== "all" && (
+                      <span className="ml-1 font-mono text-[10px] opacity-60">
+                        {(tenants ?? []).filter(t => {
+                          if (!t.boothNumber) return false;
+                          return (unitStatusByCode.get(t.boothNumber) ?? "") === opt.value;
+                        }).length}
+                      </span>
+                    )}
+                  </button>
+                ))}
+              </div>
               {hasActiveFilter && (
                 <Button
                   variant="ghost"
