@@ -623,7 +623,7 @@ async function downloadInvoicePdf(
       import("html2canvas"),
     ]);
 
-    const cfg = await fetchInvoiceConfig();
+    const cfg = await fetchInvoiceConfig(inv.siteId);
     const html = buildInvoiceHtml(inv, cfg);
 
     const iframe = document.createElement("iframe");
