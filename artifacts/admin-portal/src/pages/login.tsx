@@ -58,29 +58,43 @@ export default function Login() {
   const handleDevLogin = async (role: UserRole) => {
     setLoadingRole(role);
     setLoginError(null);
-    try {
-      const res = await fetch("/api/auth/dev-login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ role }),
-      });
-      if (res.ok) {
-        const user = await res.json();
-        qc.setQueryData(["auth-me"], user);
-        if (user.role === "tenant_user") {
-          window.location.href = "/tenant-portal";
-        } else {
-          window.location.href = "/";
+    const MAX_RETRIES = 4;
+    const RETRY_DELAY_MS = 1200;
+    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+      try {
+        const res = await fetch("/api/auth/dev-login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ role }),
+        });
+        if (res.ok) {
+          const user = await res.json();
+          qc.setQueryData(["auth-me"], user);
+          if (user.role === "tenant_user") {
+            window.location.href = "/tenant-portal";
+          } else {
+            window.location.href = "/";
+          }
+          return;
         }
-      } else {
+        // 502 = server sedang restart, coba lagi otomatis
+        if (res.status === 502 && attempt < MAX_RETRIES) {
+          await new Promise(r => setTimeout(r, RETRY_DELAY_MS));
+          continue;
+        }
         const body = await res.json().catch(() => ({}));
         setLoginError(body.error ?? `Login gagal (${res.status})`);
         setLoadingRole(null);
+        return;
+      } catch {
+        if (attempt < MAX_RETRIES) {
+          await new Promise(r => setTimeout(r, RETRY_DELAY_MS));
+          continue;
+        }
+        setLoginError("Tidak dapat terhubung ke server. Coba beberapa saat lagi.");
+        setLoadingRole(null);
       }
-    } catch {
-      setLoginError("Tidak dapat terhubung ke server");
-      setLoadingRole(null);
     }
   };
 
