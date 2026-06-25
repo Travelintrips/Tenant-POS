@@ -16,7 +16,7 @@ import { requireAnyRole } from "../middlewares/auth";
 import { logAudit } from "../lib/audit";
 import { getBaseUrl } from "../lib/app-url";
 import { writePaymentEvent, normalizePaymentMethod } from "../lib/payment-events";
-import { sendInvoiceNotification, sendPaymentConfirmation, sendAdminPosPaymentAlert, getSiteCompanyName } from "../lib/whatsapp";
+import { sendInvoiceNotification, sendPaymentConfirmation, sendAdminPosPaymentAlert, notifyAdminGroup, getSiteCompanyName } from "../lib/whatsapp";
 
 const router: IRouter = Router();
 router.use("/tenant-invoices", requireAnyRole("owner", "admin", "finance"));
@@ -1241,6 +1241,18 @@ router.post("/tenant-invoices/:id/payment", async (req, res) => {
             }),
           ),
         );
+        // Notifikasi ke WA Group admin
+        notifyAdminGroup({
+          eventType: "pos_kasir",
+          businessName: tenant?.businessName ?? "Tenant",
+          ownerName: tenant?.ownerName ?? "-",
+          receiptNumber: result.receiptNumber,
+          invoiceNumber,
+          amount: amountPaid,
+          paymentMethod,
+          kasirName,
+          siteName: companyName ?? null,
+        }).catch(() => {});
       } catch (postErr) {
         req.log.error({ err: postErr }, "[invoice-pay] Gagal kirim WA — pembayaran tetap sukses");
       }

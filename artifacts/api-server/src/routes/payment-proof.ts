@@ -7,7 +7,7 @@ import { tenantInvoicesTable, tenantPaymentsTable, tenantsTable, systemSettingsT
 import { eq, sql, and, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { sseBroker } from "../lib/sse-broker";
-import { sendPaymentReceived, sendAdminPaymentAlert, getSiteCompanyName } from "../lib/whatsapp";
+import { sendPaymentReceived, sendAdminPaymentAlert, notifyAdminGroup, getSiteCompanyName } from "../lib/whatsapp";
 import { uploadRateLimiter } from "../middlewares/rate-limit";
 import { uploadToStorage } from "../lib/supabase-storage";
 import { getBaseUrl } from "../lib/app-url";
@@ -363,23 +363,35 @@ router.post("/pay/:token/proof", uploadRateLimiter, async (req, res) => {
 
     // Notifikasi ke semua owner/admin via WA — fire-and-forget
     getOwnerPhones().then(async (owners) => {
-      if (owners.length === 0) return;
       const reviewLink = await buildReviewLink();
-      await Promise.allSettled(
-        owners.map((owner) =>
-          sendAdminPaymentAlert({
-            ownerName: invoice.ownerName ?? "Tenant",
-            businessName: invoice.businessName ?? "",
-            invoiceNumber: invoice.invoiceNumber,
-            amount,
-            paymentMethod,
-            referenceNumber: referenceNumber ?? null,
-            paymentId: payment.id,
-            adminPhone: owner.phone,
-            reviewLink,
-          }),
-        ),
-      );
+      if (owners.length > 0) {
+        await Promise.allSettled(
+          owners.map((owner) =>
+            sendAdminPaymentAlert({
+              ownerName: invoice.ownerName ?? "Tenant",
+              businessName: invoice.businessName ?? "",
+              invoiceNumber: invoice.invoiceNumber,
+              amount,
+              paymentMethod,
+              referenceNumber: referenceNumber ?? null,
+              paymentId: payment.id,
+              adminPhone: owner.phone,
+              reviewLink,
+            }),
+          ),
+        );
+      }
+      // Notifikasi ke WA Group admin (ADMIN_WA_GROUP)
+      await notifyAdminGroup({
+        eventType: "bukti_pembayaran",
+        businessName: invoice.businessName ?? "",
+        ownerName: invoice.ownerName ?? "Tenant",
+        invoiceNumber: invoice.invoiceNumber,
+        amount,
+        paymentMethod,
+        referenceNumber: referenceNumber ?? null,
+        reviewLink,
+      }).catch(() => {});
     }).catch(() => {});
 
     res.status(201).json({

@@ -21,7 +21,7 @@ import { sseBroker } from "../lib/sse-broker";
 import { writePaymentEvent, normalizePaymentMethod } from "../lib/payment-events";
 import { generateReceiptHtml, saveReceiptFile } from "../lib/pos-receipt";
 import { postPosPaymentJournal } from "../lib/pos-journal";
-import { sendPosPaymentSuccess, getSiteCompanyName, sendAdminPosPaymentAlert } from "../lib/whatsapp";
+import { sendPosPaymentSuccess, getSiteCompanyName, sendAdminPosPaymentAlert, notifyAdminGroup } from "../lib/whatsapp";
 import { recordPayment, LedgerError } from "../lib/payment-ledger";
 import { getBaseUrl } from "../lib/app-url";
 import { postTenantPaymentAccountingEntry } from "../lib/accounting-entry";
@@ -988,6 +988,18 @@ router.post("/tenant-pos/payments", paymentRateLimiter, async (req, res) => {
               }),
             ),
           );
+          // Notifikasi ke WA Group admin
+          notifyAdminGroup({
+            eventType: "pos_kasir",
+            businessName: result.tenantData?.businessName ?? "Tenant",
+            ownerName: result.tenantData?.ownerName ?? "-",
+            receiptNumber: result.receiptNumber,
+            invoiceNumber,
+            amount: amountPaid,
+            paymentMethod,
+            kasirName,
+            siteName: posCompanyName ?? null,
+          }).catch(() => {});
         } catch (adminWaErr) {
           logger.error({ err: adminWaErr, paymentId }, "[pos] Gagal kirim WA ke admin — non-fatal");
         }
@@ -1249,6 +1261,17 @@ router.post("/tenant-pos/manual-payment", paymentRateLimiter, async (req, res) =
               }),
             ),
           );
+          // Notifikasi ke WA Group admin
+          notifyAdminGroup({
+            eventType: "pos_kasir",
+            businessName: tenant.businessName ?? "Tenant",
+            ownerName: tenant.ownerName ?? "-",
+            receiptNumber,
+            amount: amountPaid,
+            paymentMethod,
+            kasirName: kasirNameForAdmin,
+            siteName: manualCompanyName ?? null,
+          }).catch(() => {});
         } catch (adminWaErr) {
           logger.error({ err: adminWaErr, paymentId }, "[pos-manual] Gagal kirim WA ke admin — non-fatal");
         }

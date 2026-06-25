@@ -76,8 +76,11 @@ export function formatRupiah(amount: number | string): string {
  * Normalisasi nomor HP Indonesia ke format internasional tanpa +
  * 081234567890 → 6281234567890
  * 6281234567890 → 6281234567890
+ * Group JID (misal: 12036341119221335@g.us) — tidak dinormalisasi
  */
 function normalizePhone(phone: string): string {
+  // Group JID dari WhatsApp — langsung pakai as-is
+  if (phone.includes("@")) return phone;
   const digits = phone.replace(/\D/g, "");
   if (digits.startsWith("0")) return "62" + digits.slice(1);
   if (digits.startsWith("62")) return digits;
@@ -85,7 +88,7 @@ function normalizePhone(phone: string): string {
 }
 
 /**
- * Kirim pesan WA ke satu nomor.
+ * Kirim pesan WA ke satu nomor atau Group JID.
  */
 async function sendMessage(phone: string, message: string): Promise<WaResult> {
   if (!FONNTE_TOKEN) {
@@ -866,4 +869,93 @@ export async function sendOverdueReminder(params: OverdueReminderParams): Promis
     `_${company}_`;
 
   return sendMessage(params.phone, message);
+}
+
+// ─── Admin Group Notification ─────────────────────────────────────────────────
+
+export interface AdminGroupPaymentParams {
+  eventType: "bukti_pembayaran" | "pos_kasir" | "payment_approved" | "payment_rejected";
+  businessName: string;
+  ownerName: string;
+  invoiceNumber?: string | null;
+  receiptNumber?: string | null;
+  amount: string | number;
+  paymentMethod?: string;
+  kasirName?: string | null;
+  siteName?: string | null;
+  referenceNumber?: string | null;
+  reviewLink?: string | null;
+  rejectionReason?: string | null;
+}
+
+/**
+ * Kirim notifikasi ringkas ke WhatsApp Group admin (ADMIN_WA_GROUP).
+ * Dipanggil secara fire-and-forget bersamaan dengan notifikasi individual.
+ * Group JID format: 12036341119221335@g.us (tidak perlu normalisasi nomor)
+ */
+export async function notifyAdminGroup(params: AdminGroupPaymentParams): Promise<WaResult> {
+  const groupJid = process.env.ADMIN_WA_GROUP;
+  if (!groupJid) return { ok: true, skipped: true };
+
+  const methodLabel: Record<string, string> = {
+    transfer: "Transfer Bank",
+    tunai: "Tunai / Cash",
+    qris: "QRIS",
+    edc: "EDC / Debit",
+    other: "Lainnya",
+  };
+
+  const now = new Date().toLocaleString("id-ID", {
+    timeZone: "Asia/Jakarta",
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+
+  let emoji = "🔔";
+  let title = "Notifikasi Pembayaran";
+
+  if (params.eventType === "bukti_pembayaran") {
+    emoji = "📤";
+    title = "Bukti Pembayaran Masuk";
+  } else if (params.eventType === "pos_kasir") {
+    emoji = "🏪";
+    title = "Pembayaran POS Kasir";
+  } else if (params.eventType === "payment_approved") {
+    emoji = "✅";
+    title = "Pembayaran Disetujui";
+  } else if (params.eventType === "payment_rejected") {
+    emoji = "❌";
+    title = "Pembayaran Ditolak";
+  }
+
+  const invoiceLine = params.invoiceNumber ? `• Invoice    : *${params.invoiceNumber}*\n` : "";
+  const receiptLine = params.receiptNumber ? `• Kuitansi  : *${params.receiptNumber}*\n` : "";
+  const methodLine = params.paymentMethod
+    ? `• Metode    : ${methodLabel[params.paymentMethod] ?? params.paymentMethod}\n`
+    : "";
+  const kasirLine = params.kasirName ? `• Kasir     : ${params.kasirName}\n` : "";
+  const siteLine = params.siteName ? `• Lokasi    : ${params.siteName}\n` : "";
+  const refLine = params.referenceNumber ? `• Ref No    : ${params.referenceNumber}\n` : "";
+  const reviewLine = params.reviewLink ? `\n🔗 ${params.reviewLink}` : "";
+  const rejectLine = params.rejectionReason ? `• Alasan    : ${params.rejectionReason}\n` : "";
+
+  const message =
+    `${emoji} *${title}*\n` +
+    `━━━━━━━━━━━━━━━━━━━━━\n` +
+    `• Tenant    : *${params.businessName}* (${params.ownerName})\n` +
+    invoiceLine +
+    receiptLine +
+    `• Jumlah    : *${formatRupiah(params.amount)}*\n` +
+    methodLine +
+    kasirLine +
+    refLine +
+    siteLine +
+    rejectLine +
+    `• Waktu     : ${now}\n` +
+    reviewLine;
+
+  return sendMessage(groupJid, message);
 }
