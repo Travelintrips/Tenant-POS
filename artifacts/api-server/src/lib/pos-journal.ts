@@ -142,6 +142,26 @@ export async function postPosPaymentJournal(
         (${entryId}, ${ppnId},  ${COA_PPN.name},        0,                  ${taxAmount}, ${srcModule}, ${opts.paymentId}, ${companyId})
     `);
     await db.execute(sql`UPDATE accounting_entries SET status = 'posted' WHERE id = ${entryId}`);
+
+    // Catat di tax_transactions (idempoten via correlation_id)
+    if (taxAmount > 0) {
+      const period = transactionDateStr.slice(0, 7); // "YYYY-MM"
+      const taxCorrelationId = `ppn-${correlationId}`;
+      await db.execute(sql`
+        INSERT INTO tax_transactions
+          (company_id, source_module, source_table, source_id,
+           tax_type, tax_rate, taxable_amount, tax_amount,
+           direction, period, status, correlation_id, ref, description,
+           created_at, updated_at)
+        VALUES
+          (${companyId}, ${srcModule}, ${"tenant_payments"}, ${opts.paymentId},
+           ${"ppn"}, ${PPN_RATE}, ${netAmount}, ${taxAmount},
+           ${"out"}, ${period}, ${"posted"}, ${taxCorrelationId},
+           ${entryNumber}, ${description},
+           NOW(), NOW())
+        ON CONFLICT (correlation_id) DO NOTHING
+      `);
+    }
   }
 
   return { journalId: correlationId, alreadyPosted: false, netAmount, taxAmount };
