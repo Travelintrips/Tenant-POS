@@ -97,21 +97,23 @@ router.put("/settings", requireAuth, requireAnyRole("owner"), async (req, res) =
 });
 
 // ── GET /api/settings/sites ───────────────────────────────────────────────────
-// Ambil daftar semua site beserta companyName dan logoUrl (owner/admin/finance)
+// Ambil daftar semua site beserta companyName, logoUrl, invoiceColor (owner/admin/finance)
 router.get("/settings/sites", requireAuth, requireAnyRole("owner", "admin", "finance"), async (_req, res) => {
   try {
     const rows = await db.execute(sql`
-      SELECT id AS "siteId", name AS "siteName", company_name AS "companyName", logo_url AS "logoUrl"
+      SELECT id AS "siteId", name AS "siteName", company_name AS "companyName",
+             logo_url AS "logoUrl", invoice_color AS "invoiceColor"
       FROM mall_sites
       WHERE code NOT LIKE 'KANTIN%'
       ORDER BY id ASC
     `);
-    const data = (rows as unknown as { rows: { siteId: number; siteName: string; companyName: string | null; logoUrl: string | null }[] }).rows;
+    const data = (rows as unknown as { rows: { siteId: number; siteName: string; companyName: string | null; logoUrl: string | null; invoiceColor: string | null }[] }).rows;
     res.json(data.map(r => ({
       siteId: r.siteId,
       siteName: r.siteName,
       companyName: r.companyName ?? "",
       logoUrl: r.logoUrl ?? "",
+      invoiceColor: r.invoiceColor ?? "",
     })));
   } catch {
     res.status(500).json({ error: "Gagal mengambil data site" });
@@ -148,6 +150,26 @@ router.put("/settings/sites/:siteId/company", requireAuth, requireAnyRole("owner
     res.json({ success: true, siteId, companyName });
   } catch {
     res.status(500).json({ error: "Gagal menyimpan nama perusahaan" });
+  }
+});
+
+// ── PUT /api/settings/sites/:siteId/color ────────────────────────────────────
+// Update invoiceColor untuk site tertentu (owner only)
+router.put("/settings/sites/:siteId/color", requireAuth, requireAnyRole("owner"), async (req, res) => {
+  try {
+    const siteId = Number(req.params.siteId);
+    if (!siteId || isNaN(siteId)) {
+      res.status(400).json({ error: "siteId tidak valid" }); return;
+    }
+    const rawColor = (req.body as { invoiceColor?: unknown }).invoiceColor;
+    const isValid = typeof rawColor === "string" && (rawColor === "" || /^#[0-9A-Fa-f]{6}$/.test(rawColor));
+    if (!isValid) {
+      res.status(400).json({ error: "invoiceColor harus berupa hex warna (#RRGGBB) atau kosong" }); return;
+    }
+    await db.execute(sql`UPDATE mall_sites SET invoice_color = ${rawColor || null} WHERE id = ${siteId}`);
+    res.json({ success: true, siteId, invoiceColor: rawColor });
+  } catch {
+    res.status(500).json({ error: "Gagal menyimpan warna site" });
   }
 });
 

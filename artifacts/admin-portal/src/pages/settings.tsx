@@ -561,7 +561,7 @@ function LogoUploader({ logoUrl, onUpload }: { logoUrl: string; onUpload: (url: 
 
 // ─── Site Settings Panel (Nama Perusahaan + Logo per Site) ───────────────────
 
-interface SiteEntry { siteId: number; siteName: string; companyName: string; logoUrl: string }
+interface SiteEntry { siteId: number; siteName: string; companyName: string; logoUrl: string; invoiceColor: string }
 
 function SiteLogoUploader({ siteId, logoUrl, onUploaded }: {
   siteId: number;
@@ -680,15 +680,49 @@ function SiteCompanyPanel() {
 
   // Logo per site — track URLs locally after upload
   const [siteLogos, setSiteLogos] = useState<Record<number, string>>({});
+  // Color per site — track locally
+  const [siteColors, setSiteColors] = useState<Record<number, string>>({});
+  const [savingColorId, setSavingColorId] = useState<number | null>(null);
 
   // Sync from server data on load
   useEffect(() => {
     if (sites) {
-      const map: Record<number, string> = {};
-      sites.forEach(s => { map[s.siteId] = s.logoUrl ?? ""; });
-      setSiteLogos(prev => ({ ...map, ...prev }));
+      const logoMap: Record<number, string> = {};
+      const colorMap: Record<number, string> = {};
+      sites.forEach(s => {
+        logoMap[s.siteId] = s.logoUrl ?? "";
+        colorMap[s.siteId] = s.invoiceColor ?? "";
+      });
+      setSiteLogos(prev => ({ ...logoMap, ...prev }));
+      setSiteColors(prev => {
+        const merged: Record<number, string> = { ...colorMap };
+        Object.keys(prev).forEach(k => { if (prev[Number(k)]) merged[Number(k)] = prev[Number(k)]; });
+        return merged;
+      });
     }
   }, [sites]);
+
+  const saveColor = useCallback(async (siteId: number, color: string) => {
+    setSavingColorId(siteId);
+    try {
+      const res = await apiFetch(`/api/settings/sites/${siteId}/color`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ invoiceColor: color }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({})) as { error?: string };
+        throw new Error(err.error ?? "Gagal menyimpan warna");
+      }
+      toast({ title: "Warna disimpan", description: "Warna tema invoice berhasil diperbarui." });
+      await qc.invalidateQueries({ queryKey: ["settings-sites"] });
+      await qc.invalidateQueries({ queryKey: ["settings"] });
+    } catch (err) {
+      toast({ title: "Gagal", description: (err as Error).message, variant: "destructive" });
+    } finally {
+      setSavingColorId(null);
+    }
+  }, [toast, qc]);
 
   const startEdit = useCallback((site: SiteEntry) => {
     setEditingId(site.siteId);
@@ -758,6 +792,8 @@ function SiteCompanyPanel() {
               const isEditing = editingId === site.siteId;
               const isSaving = savingId === site.siteId;
               const currentLogo = siteLogos[site.siteId] ?? site.logoUrl ?? "";
+              const currentColor = siteColors[site.siteId] ?? site.invoiceColor ?? "";
+              const isSavingColor = savingColorId === site.siteId;
               return (
                 <div key={site.siteId} className="p-3 rounded-lg border bg-muted/30 space-y-2">
                   {/* Site name badge */}
@@ -821,6 +857,67 @@ function SiteCompanyPanel() {
                         void qc.invalidateQueries({ queryKey: ["settings"] });
                       }}
                     />
+                  </div>
+
+                  {/* Warna Tema Invoice */}
+                  <div>
+                    <p className="text-[10px] text-muted-foreground mb-1">Warna Tema Invoice</p>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      {/* Preset colors */}
+                      {[
+                        { hex: "#1e3a5f", label: "Biru Tua" },
+                        { hex: "#2563eb", label: "Biru" },
+                        { hex: "#0f766e", label: "Hijau Teal" },
+                        { hex: "#b45309", label: "Kuning Emas" },
+                        { hex: "#d97706", label: "Amber" },
+                        { hex: "#f59e0b", label: "Kuning" },
+                        { hex: "#7c3aed", label: "Ungu" },
+                        { hex: "#be123c", label: "Merah" },
+                      ].map(c => (
+                        <button
+                          key={c.hex}
+                          title={c.label}
+                          onClick={() => setSiteColors(prev => ({ ...prev, [site.siteId]: c.hex }))}
+                          className={`h-6 w-6 rounded-full border-2 transition-transform hover:scale-110 ${currentColor === c.hex ? "border-foreground scale-110 ring-1 ring-offset-1 ring-foreground" : "border-white/60 shadow-sm"}`}
+                          style={{ backgroundColor: c.hex }}
+                        />
+                      ))}
+                      {/* Custom color picker */}
+                      <div className="relative" title="Pilih warna kustom">
+                        <input
+                          type="color"
+                          value={currentColor || "#1e3a5f"}
+                          onChange={e => setSiteColors(prev => ({ ...prev, [site.siteId]: e.target.value }))}
+                          className="h-6 w-6 rounded-full cursor-pointer opacity-0 absolute inset-0"
+                        />
+                        <div
+                          className="h-6 w-6 rounded-full border-2 border-dashed border-muted-foreground flex items-center justify-center text-[9px] text-muted-foreground"
+                          style={{ backgroundColor: currentColor && !["#1e3a5f","#2563eb","#0f766e","#b45309","#d97706","#f59e0b","#7c3aed","#be123c"].includes(currentColor) ? currentColor : "transparent" }}
+                        >
+                          {!["#1e3a5f","#2563eb","#0f766e","#b45309","#d97706","#f59e0b","#7c3aed","#be123c"].includes(currentColor) ? "" : "+"}
+                        </div>
+                      </div>
+                      {/* Preview + Save */}
+                      {currentColor && (
+                        <div className="flex items-center gap-1.5 ml-1">
+                          <div className="h-5 px-2 rounded text-[10px] font-medium text-white flex items-center" style={{ backgroundColor: currentColor }}>
+                            Preview
+                          </div>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-6 px-2 text-[10px]"
+                            disabled={isSavingColor || currentColor === (site.invoiceColor ?? "")}
+                            onClick={() => void saveColor(site.siteId, currentColor)}
+                          >
+                            {isSavingColor ? <Loader2 className="h-3 w-3 animate-spin" /> : "Simpan Warna"}
+                          </Button>
+                        </div>
+                      )}
+                    </div>
+                    <p className="text-[10px] text-muted-foreground mt-1">
+                      Warna ini dipakai di header invoice PDF dan struk untuk site ini.
+                    </p>
                   </div>
                 </div>
               );

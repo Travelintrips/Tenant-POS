@@ -2908,6 +2908,12 @@ ON CONFLICT DO NOTHING;
   sql: `
 ALTER TABLE mall_sites ADD COLUMN IF NOT EXISTS logo_url TEXT;
   `.trim(),
+},
+{
+  name: "0065_mall_sites_invoice_color",
+  sql: `
+ALTER TABLE mall_sites ADD COLUMN IF NOT EXISTS invoice_color TEXT;
+  `.trim(),
 });
 
 MIGRATIONS.push({
