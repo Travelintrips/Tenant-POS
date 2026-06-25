@@ -575,6 +575,44 @@ router.get("/whatsapp/devices", requireAuth, requireAnyRole("owner", "admin"), a
 });
 
 /**
+ * GET /api/whatsapp/reminder-status
+ * Daftar invoice belum lunas beserta status pengiriman reminder H-3, H-1, dan overdue
+ */
+router.get("/whatsapp/reminder-status", async (req, res) => {
+  const siteId = (req as { siteId?: number }).siteId;
+
+  const invoices = await db
+    .select({
+      id: tenantInvoicesTable.id,
+      invoiceNumber: tenantInvoicesTable.invoiceNumber,
+      dueDate: tenantInvoicesTable.dueDate,
+      status: tenantInvoicesTable.status,
+      totalAmount: tenantInvoicesTable.totalAmount,
+      outstandingAmount: tenantInvoicesTable.outstandingAmount,
+      dueReminder3dAt: tenantInvoicesTable.dueReminder3dAt,
+      dueReminder1dAt: tenantInvoicesTable.dueReminder1dAt,
+      lastOverdueReminderAt: tenantInvoicesTable.lastOverdueReminderAt,
+      businessName: tenantsTable.businessName,
+      ownerName: tenantsTable.ownerName,
+      phone: tenantsTable.phone,
+    })
+    .from(tenantInvoicesTable)
+    .innerJoin(tenantsTable, eq(tenantInvoicesTable.tenantId, tenantsTable.id))
+    .where(
+      and(
+        siteId && siteId > 0
+          ? eq(tenantInvoicesTable.siteId, siteId)
+          : undefined,
+        inArray(tenantInvoicesTable.status, ["unpaid", "partial", "overdue"]),
+      ),
+    )
+    .orderBy(desc(tenantInvoicesTable.dueDate))
+    .limit(100);
+
+  res.json({ data: invoices });
+});
+
+/**
  * GET /api/whatsapp/status
  * Cek status konfigurasi WA + konektivitas perangkat Fonnte
  */
