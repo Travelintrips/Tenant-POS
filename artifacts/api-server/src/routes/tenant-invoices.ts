@@ -7,8 +7,6 @@ import {
   tenantsTable,
   tenantPaymentsTable,
   mallSitesTable,
-  usersTable,
-  systemSettingsTable,
 } from "@workspace/db/schema";
 import { eq, and, sql, desc, ilike, or, lte, gte, notInArray, inArray } from "drizzle-orm";
 import { z } from "zod";
@@ -16,7 +14,7 @@ import { requireAnyRole } from "../middlewares/auth";
 import { logAudit } from "../lib/audit";
 import { getBaseUrl } from "../lib/app-url";
 import { writePaymentEvent, normalizePaymentMethod } from "../lib/payment-events";
-import { sendInvoiceNotification, sendPaymentConfirmation, sendAdminPosPaymentAlert, notifyAdminGroup, getSiteCompanyName } from "../lib/whatsapp";
+import { sendInvoiceNotification, sendPaymentConfirmation, sendAdminPosPaymentAlert, notifyAdminGroup, getSiteCompanyName, getAdminNotifyPhones } from "../lib/whatsapp";
 
 const router: IRouter = Router();
 router.use("/tenant-invoices", requireAnyRole("owner", "admin", "finance"));
@@ -1190,39 +1188,7 @@ router.post("/tenant-invoices/:id/payment", async (req, res) => {
         }
 
         // 2. Kirim WA notifikasi ke admin/owner
-        const adminRows = await db
-          .select({ name: usersTable.name, phoneNumber: usersTable.phoneNumber })
-          .from(usersTable)
-          .where(
-            and(
-              inArray(usersTable.role, ["owner", "admin"]),
-              eq(usersTable.status, "active"),
-              sql`phone_number IS NOT NULL AND phone_number != ''`,
-            ),
-          );
-        // Jika ADMIN_WA_GROUP diset → kirim hanya ke group WA tersebut
-        let adminPhones: Array<{ name: string; phone: string }>;
-        const waGroup = process.env.ADMIN_WA_GROUP;
-        if (waGroup) {
-          adminPhones = [{ name: "Admin Group", phone: waGroup }];
-        } else {
-          const DEV_PHONES = new Set(["6281111111111","6281111111112","6281111111113","6281111111114"]);
-          adminPhones = adminRows
-            .filter((u) => u.phoneNumber && !DEV_PHONES.has(u.phoneNumber))
-            .map((u) => ({ name: u.name, phone: u.phoneNumber! }));
-          const envPhone = process.env.ADMIN_WHATSAPP ?? process.env.FONNTE_ADMIN_WA;
-          if (envPhone && !adminPhones.some((a) => a.phone === envPhone)) {
-            adminPhones.push({ name: "Admin", phone: envPhone });
-          }
-          if (adminPhones.length === 0) {
-            const [settingRow] = await db
-              .select({ value: systemSettingsTable.value })
-              .from(systemSettingsTable)
-              .where(eq(systemSettingsTable.key, "mall_config"));
-            const phone = (settingRow?.value as Record<string, unknown> | undefined)?.adminPhone;
-            if (typeof phone === "string" && phone.length > 0) adminPhones = [{ name: "Admin", phone }];
-          }
-        }
+        const adminPhones = await getAdminNotifyPhones();
 
         const kasirName = (req.user as { name?: string } | undefined)?.name ?? "Admin";
         await Promise.allSettled(
