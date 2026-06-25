@@ -493,7 +493,8 @@ router.get("/tenant-pos/recent-payments", async (req, res) => {
 
 // ─── POST /api/tenant-pos/payments ───────────────────────────────────────────
 const paymentBodySchema = z.object({
-  bookingId: z.number().int().positive(),
+  // bookingId optional: pembayaran invoice bisa dilakukan tanpa booking aktif
+  bookingId: z.number().int().positive().optional(),
   tenantId: z.number().int().positive(),
   invoiceId: z.number().int().positive().optional(),
   amountPaid: z.number().int().min(1, "amountPaid harus lebih dari 0"),
@@ -520,19 +521,29 @@ router.post("/tenant-pos/payments", paymentRateLimiter, async (req, res) => {
     proofUrl, shiftId, notes,
   } = parsed.data;
 
+  // Wajib ada setidaknya bookingId ATAU invoiceId
+  if (!bookingId && !invoiceId) {
+    res.status(400).json({ error: "bookingId atau invoiceId harus disertakan" });
+    return;
+  }
+
   try {
     const result = await db.transaction(async (tx) => {
-      const [booking] = await tx
-        .select()
-        .from(tenantBookingsTable)
-        .where(eq(tenantBookingsTable.id, bookingId))
-        .for("update");
-
-      if (!booking) throw Object.assign(new Error("Booking tidak ditemukan"), { status: 404 });
-      if (booking.tenantId !== tenantId)
-        throw Object.assign(new Error("tenantId tidak cocok dengan booking"), { status: 400 });
-      if (booking.paymentStatus === "CANCELLED")
-        throw Object.assign(new Error("Booking ini sudah dibatalkan"), { status: 409 });
+      // Fetch booking hanya jika bookingId tersedia
+      let booking: typeof tenantBookingsTable.$inferSelect | null = null;
+      if (bookingId) {
+        const [b] = await tx
+          .select()
+          .from(tenantBookingsTable)
+          .where(eq(tenantBookingsTable.id, bookingId))
+          .for("update");
+        if (!b) throw Object.assign(new Error("Booking tidak ditemukan"), { status: 404 });
+        if (b.tenantId !== tenantId)
+          throw Object.assign(new Error("tenantId tidak cocok dengan booking"), { status: 400 });
+        if (b.paymentStatus === "CANCELLED")
+          throw Object.assign(new Error("Booking ini sudah dibatalkan"), { status: 409 });
+        booking = b;
+      }
 
       const [tenant] = await tx
         .select({
@@ -546,15 +557,20 @@ router.post("/tenant-pos/payments", paymentRateLimiter, async (req, res) => {
         .where(eq(tenantsTable.id, tenantId));
       if (!tenant) throw Object.assign(new Error("Tenant tidak ditemukan"), { status: 404 });
 
-      const [prevPaid] = await tx
-        .select({ total: sql<number>`coalesce(sum(amount::numeric), 0)::int` })
-        .from(tenantPaymentsTable)
-        .where(
-          and(
-            eq(tenantPaymentsTable.bookingId, bookingId),
-            eq(tenantPaymentsTable.isVoided, false)
-          )
-        );
+      // prevPaid hanya relevan jika ada booking
+      let previousPaidAmount = 0;
+      if (bookingId) {
+        const [prevPaid] = await tx
+          .select({ total: sql<number>`coalesce(sum(amount::numeric), 0)::int` })
+          .from(tenantPaymentsTable)
+          .where(
+            and(
+              eq(tenantPaymentsTable.bookingId, bookingId),
+              eq(tenantPaymentsTable.isVoided, false)
+            )
+          );
+        previousPaidAmount = prevPaid?.total ?? 0;
+      }
 
       // Fetch invoice BEFORE insert to compute change correctly
       let preInsertInvoice: typeof tenantInvoicesTable.$inferSelect | null = null;
@@ -567,8 +583,10 @@ router.post("/tenant-pos/payments", paymentRateLimiter, async (req, res) => {
         preInsertInvoice = inv ?? null;
       }
 
-      const previousPaidAmount = prevPaid?.total ?? 0;
-      const finalBill = Number(booking.totalAmount) - discountAmount + penaltyAmount;
+      // finalBill: jika ada booking pakai totalAmount booking, jika tidak pakai invoice
+      const finalBill = booking
+        ? Number(booking.totalAmount) - discountAmount + penaltyAmount
+        : (preInsertInvoice ? Number(preInsertInvoice.totalAmount) - discountAmount + penaltyAmount : amountPaid);
       const newPaidAmount = previousPaidAmount + amountPaid;
       const remainingAmount = Math.max(finalBill - newPaidAmount, 0);
       // When paying a specific invoice, change is relative to invoice outstanding
@@ -655,16 +673,21 @@ router.post("/tenant-pos/payments", paymentRateLimiter, async (req, res) => {
         payment = inserted as typeof payment;
       }
 
-      const [updatedBooking] = await tx
-        .update(tenantBookingsTable)
-        .set({
-          paidAmount: String(newPaidAmount),
-          remainingAmount: String(remainingAmount),
-          paymentStatus,
-          updatedAt: new Date(),
-        })
-        .where(eq(tenantBookingsTable.id, bookingId))
-        .returning();
+      // Update booking hanya jika bookingId tersedia
+      let updatedBooking: typeof tenantBookingsTable.$inferSelect | undefined;
+      if (bookingId) {
+        const [ub] = await tx
+          .update(tenantBookingsTable)
+          .set({
+            paidAmount: String(newPaidAmount),
+            remainingAmount: String(remainingAmount),
+            paymentStatus,
+            updatedAt: new Date(),
+          })
+          .where(eq(tenantBookingsTable.id, bookingId))
+          .returning();
+        updatedBooking = ub;
+      }
 
       if (shiftId && paymentMethod === "tunai") {
         const [shift] = await tx
@@ -696,7 +719,7 @@ router.post("/tenant-pos/payments", paymentRateLimiter, async (req, res) => {
           ownerName: tenant.ownerName,
           phone: tenant.phone ?? null,
           boothNumber: tenant.boothNumber ?? null,
-          periodLabel: booking.periodLabel ?? null,
+          periodLabel: booking?.periodLabel ?? null,
         },
       };
     });
