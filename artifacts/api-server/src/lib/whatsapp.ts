@@ -93,7 +93,8 @@ async function sendMessage(phone: string, message: string): Promise<WaResult> {
   }
 
   try {
-    const target = normalizePhone(phone);
+    // Group JID Fonnte format: XXXXXX@g.us — jangan dinormalisasi
+    const target = phone.includes("@g.") ? phone : normalizePhone(phone);
     const params: Record<string, string> = { target, message, delay: "2" };
     if (FONNTE_SENDER) params.sender = FONNTE_SENDER;
     const body = new URLSearchParams(params);
