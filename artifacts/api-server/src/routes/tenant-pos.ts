@@ -947,25 +947,28 @@ router.post("/tenant-pos/payments", paymentRateLimiter, async (req, res) => {
                 sql`phone_number IS NOT NULL AND phone_number != ''`,
               ),
             );
-          const DEV_PHONES = new Set(["6281111111111","6281111111112","6281111111113","6281111111114"]);
-          let adminPhones: Array<{ name: string; phone: string }> = adminRows
-            .filter((u) => u.phoneNumber && !DEV_PHONES.has(u.phoneNumber))
-            .map((u) => ({ name: u.name, phone: u.phoneNumber! }));
-
-          // Selalu sertakan ADMIN_WHATSAPP env jika ada (bukan hanya fallback)
-          const envPhone = process.env.ADMIN_WHATSAPP ?? process.env.FONNTE_ADMIN_WA;
-          if (envPhone && !adminPhones.some((a) => a.phone === envPhone)) {
-            adminPhones.push({ name: "Admin", phone: envPhone });
-          }
-
-          // Fallback jika masih kosong → system_settings
-          if (adminPhones.length === 0) {
-            const [settingRow] = await db
-              .select({ value: systemSettingsTable.value })
-              .from(systemSettingsTable)
-              .where(eq(systemSettingsTable.key, "mall_config"));
-            const phone = (settingRow?.value as Record<string, unknown> | undefined)?.adminPhone;
-            if (typeof phone === "string" && phone.length > 0) adminPhones = [{ name: "Admin", phone }];
+          // Jika ADMIN_WA_GROUP diset → kirim hanya ke group WA tersebut
+          let adminPhones: Array<{ name: string; phone: string }>;
+          const waGroup = process.env.ADMIN_WA_GROUP;
+          if (waGroup) {
+            adminPhones = [{ name: "Admin Group", phone: waGroup }];
+          } else {
+            const DEV_PHONES = new Set(["6281111111111","6281111111112","6281111111113","6281111111114"]);
+            adminPhones = adminRows
+              .filter((u) => u.phoneNumber && !DEV_PHONES.has(u.phoneNumber))
+              .map((u) => ({ name: u.name, phone: u.phoneNumber! }));
+            const envPhone = process.env.ADMIN_WHATSAPP ?? process.env.FONNTE_ADMIN_WA;
+            if (envPhone && !adminPhones.some((a) => a.phone === envPhone)) {
+              adminPhones.push({ name: "Admin", phone: envPhone });
+            }
+            if (adminPhones.length === 0) {
+              const [settingRow] = await db
+                .select({ value: systemSettingsTable.value })
+                .from(systemSettingsTable)
+                .where(eq(systemSettingsTable.key, "mall_config"));
+              const phone = (settingRow?.value as Record<string, unknown> | undefined)?.adminPhone;
+              if (typeof phone === "string" && phone.length > 0) adminPhones = [{ name: "Admin", phone }];
+            }
           }
 
           const posCompanyName = await getSiteCompanyName(siteId);
@@ -1204,25 +1207,28 @@ router.post("/tenant-pos/manual-payment", paymentRateLimiter, async (req, res) =
                 sql`phone_number IS NOT NULL AND phone_number != ''`,
               ),
             );
-          const DEV_PHONES_MANUAL = new Set(["6281111111111","6281111111112","6281111111113","6281111111114"]);
-          let adminPhones: Array<{ name: string; phone: string }> = adminRows
-            .filter((u) => u.phoneNumber && !DEV_PHONES_MANUAL.has(u.phoneNumber))
-            .map((u) => ({ name: u.name, phone: u.phoneNumber! }));
-
-          // Selalu sertakan ADMIN_WHATSAPP env jika ada (bukan hanya fallback)
-          const envPhoneManual = process.env.ADMIN_WHATSAPP ?? process.env.FONNTE_ADMIN_WA;
-          if (envPhoneManual && !adminPhones.some((a) => a.phone === envPhoneManual)) {
-            adminPhones.push({ name: "Admin", phone: envPhoneManual });
-          }
-
-          // Fallback jika masih kosong → system_settings
-          if (adminPhones.length === 0) {
-            const [settingRow] = await db
-              .select({ value: systemSettingsTable.value })
-              .from(systemSettingsTable)
-              .where(eq(systemSettingsTable.key, "mall_config"));
-            const phone = (settingRow?.value as Record<string, unknown> | undefined)?.adminPhone;
-            if (typeof phone === "string" && phone.length > 0) adminPhones = [{ name: "Admin", phone }];
+          // Jika ADMIN_WA_GROUP diset → kirim hanya ke group WA tersebut
+          let adminPhones: Array<{ name: string; phone: string }>;
+          const waGroupManual = process.env.ADMIN_WA_GROUP;
+          if (waGroupManual) {
+            adminPhones = [{ name: "Admin Group", phone: waGroupManual }];
+          } else {
+            const DEV_PHONES_MANUAL = new Set(["6281111111111","6281111111112","6281111111113","6281111111114"]);
+            adminPhones = adminRows
+              .filter((u) => u.phoneNumber && !DEV_PHONES_MANUAL.has(u.phoneNumber))
+              .map((u) => ({ name: u.name, phone: u.phoneNumber! }));
+            const envPhoneManual = process.env.ADMIN_WHATSAPP ?? process.env.FONNTE_ADMIN_WA;
+            if (envPhoneManual && !adminPhones.some((a) => a.phone === envPhoneManual)) {
+              adminPhones.push({ name: "Admin", phone: envPhoneManual });
+            }
+            if (adminPhones.length === 0) {
+              const [settingRow] = await db
+                .select({ value: systemSettingsTable.value })
+                .from(systemSettingsTable)
+                .where(eq(systemSettingsTable.key, "mall_config"));
+              const phone = (settingRow?.value as Record<string, unknown> | undefined)?.adminPhone;
+              if (typeof phone === "string" && phone.length > 0) adminPhones = [{ name: "Admin", phone }];
+            }
           }
 
           const manualCompanyName = await getSiteCompanyName(siteId);
