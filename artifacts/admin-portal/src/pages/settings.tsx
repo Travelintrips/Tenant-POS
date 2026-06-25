@@ -559,9 +559,107 @@ function LogoUploader({ logoUrl, onUpload }: { logoUrl: string; onUpload: (url: 
   );
 }
 
-// ─── Site Company Name Panel ──────────────────────────────────────────────────
+// ─── Site Settings Panel (Nama Perusahaan + Logo per Site) ───────────────────
 
-interface SiteEntry { siteId: number; siteName: string; companyName: string }
+interface SiteEntry { siteId: number; siteName: string; companyName: string; logoUrl: string }
+
+function SiteLogoUploader({ siteId, logoUrl, onUploaded }: {
+  siteId: number;
+  logoUrl: string;
+  onUploaded: (url: string) => void;
+}) {
+  const { toast } = useToast();
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [uploading, setUploading] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  async function handleFile(file: File) {
+    setUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      const uploadRes = await apiFetch("/api/uploads/mall-logo", { method: "POST", body: formData });
+      if (!uploadRes.ok) {
+        const err = await uploadRes.json().catch(() => ({})) as { error?: string };
+        throw new Error(err.error ?? "Upload gagal");
+      }
+      const { url } = await uploadRes.json() as { url: string };
+
+      // Simpan ke site
+      setSaving(true);
+      const saveRes = await apiFetch(`/api/settings/sites/${siteId}/logo`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ logoUrl: url }),
+      });
+      if (!saveRes.ok) {
+        const err = await saveRes.json().catch(() => ({})) as { error?: string };
+        throw new Error(err.error ?? "Gagal menyimpan logo");
+      }
+      onUploaded(url);
+      toast({ title: "Logo disimpan", description: "Logo perusahaan berhasil diperbarui." });
+    } catch (e) {
+      toast({ title: "Gagal", description: e instanceof Error ? e.message : "Terjadi kesalahan", variant: "destructive" });
+    } finally {
+      setUploading(false);
+      setSaving(false);
+    }
+  }
+
+  async function handleRemove() {
+    setSaving(true);
+    try {
+      const res = await apiFetch(`/api/settings/sites/${siteId}/logo`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ logoUrl: "" }),
+      });
+      if (!res.ok) throw new Error("Gagal menghapus logo");
+      onUploaded("");
+      toast({ title: "Logo dihapus" });
+    } catch (e) {
+      toast({ title: "Gagal", description: e instanceof Error ? e.message : "Terjadi kesalahan", variant: "destructive" });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const isLoading = uploading || saving;
+
+  return (
+    <div className="flex items-center gap-2 mt-2">
+      {/* Preview */}
+      {logoUrl ? (
+        <div className="relative flex-shrink-0 h-12 w-28 border rounded-md bg-muted/30 flex items-center justify-center overflow-hidden">
+          <img src={logoUrl} alt="Logo" className="max-h-full max-w-full object-contain p-1"
+            onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
+        </div>
+      ) : (
+        <div className="flex-shrink-0 h-12 w-28 border-2 border-dashed rounded-md bg-muted/20 flex flex-col items-center justify-center gap-0.5 text-muted-foreground">
+          <ImageIcon className="h-4 w-4 opacity-40" />
+          <span className="text-[9px]">Belum ada logo</span>
+        </div>
+      )}
+
+      {/* Actions */}
+      <div className="flex flex-col gap-1">
+        <input ref={fileRef} type="file" accept="image/jpeg,image/jpg,image/png,image/webp" className="hidden"
+          onChange={e => { const f = e.target.files?.[0]; if (f) void handleFile(f); e.target.value = ""; }} />
+        <Button type="button" variant="outline" size="sm" className="h-7 gap-1 text-xs px-2" disabled={isLoading}
+          onClick={() => fileRef.current?.click()}>
+          {isLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : <Upload className="h-3 w-3" />}
+          {uploading ? "Mengunggah..." : saving ? "Menyimpan..." : "Upload Logo"}
+        </Button>
+        {logoUrl && (
+          <Button type="button" variant="ghost" size="sm" className="h-6 gap-1 text-xs px-2 text-destructive hover:text-destructive"
+            disabled={isLoading} onClick={() => void handleRemove()}>
+            <X className="h-3 w-3" />Hapus
+          </Button>
+        )}
+      </div>
+    </div>
+  );
+}
 
 function SiteCompanyPanel() {
   const { toast } = useToast();
@@ -579,6 +677,18 @@ function SiteCompanyPanel() {
   const [editingId, setEditingId] = useState<number | null>(null);
   const [draftName, setDraftName] = useState("");
   const [savingId, setSavingId] = useState<number | null>(null);
+
+  // Logo per site — track URLs locally after upload
+  const [siteLogos, setSiteLogos] = useState<Record<number, string>>({});
+
+  // Sync from server data on load
+  useEffect(() => {
+    if (sites) {
+      const map: Record<number, string> = {};
+      sites.forEach(s => { map[s.siteId] = s.logoUrl ?? ""; });
+      setSiteLogos(prev => ({ ...map, ...prev }));
+    }
+  }, [sites]);
 
   const startEdit = useCallback((site: SiteEntry) => {
     setEditingId(site.siteId);
@@ -629,10 +739,10 @@ function SiteCompanyPanel() {
       <CardHeader className="pb-3">
         <CardTitle className="text-sm flex items-center gap-2">
           <Globe2 className="h-4 w-4 text-primary" />
-          Nama Perusahaan per Site
+          Identitas Perusahaan per Site
         </CardTitle>
         <CardDescription className="text-xs">
-          Nama PT pengelola yang muncul di invoice PDF, struk POS, dan notifikasi WA per site
+          Nama PT dan logo yang muncul di invoice PDF, struk POS, dan notifikasi WA — berbeda untuk setiap site
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -643,68 +753,74 @@ function SiteCompanyPanel() {
         ) : !sites?.length ? (
           <p className="text-sm text-muted-foreground">Tidak ada data site.</p>
         ) : (
-          <div className="space-y-3">
+          <div className="space-y-4">
             {sites.map((site) => {
               const isEditing = editingId === site.siteId;
               const isSaving = savingId === site.siteId;
+              const currentLogo = siteLogos[site.siteId] ?? site.logoUrl ?? "";
               return (
-                <div key={site.siteId} className="flex items-center gap-3 p-3 rounded-lg border bg-muted/30">
-                  <div className="flex-1 min-w-0">
-                    <p className="text-xs font-medium text-muted-foreground mb-1">{site.siteName}</p>
-                    {isEditing ? (
-                      <Input
-                        value={draftName}
-                        onChange={(e) => setDraftName(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") void saveEdit(site.siteId);
-                          if (e.key === "Escape") cancelEdit();
-                        }}
-                        placeholder="Nama PT / perusahaan pengelola"
-                        className="h-8 text-sm"
-                        maxLength={255}
-                        autoFocus
-                        disabled={isSaving}
-                      />
-                    ) : (
-                      <p className="text-sm font-semibold truncate">
-                        {site.companyName || <span className="text-muted-foreground italic font-normal">Belum diatur</span>}
-                      </p>
-                    )}
+                <div key={site.siteId} className="p-3 rounded-lg border bg-muted/30 space-y-2">
+                  {/* Site name badge */}
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{site.siteName}</p>
+
+                  {/* Company name row */}
+                  <div className="flex items-center gap-2">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[10px] text-muted-foreground mb-0.5">Nama Perusahaan</p>
+                      {isEditing ? (
+                        <Input
+                          value={draftName}
+                          onChange={(e) => setDraftName(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") void saveEdit(site.siteId);
+                            if (e.key === "Escape") cancelEdit();
+                          }}
+                          placeholder="Nama PT / perusahaan pengelola"
+                          className="h-8 text-sm"
+                          maxLength={255}
+                          autoFocus
+                          disabled={isSaving}
+                        />
+                      ) : (
+                        <p className="text-sm font-semibold truncate">
+                          {site.companyName || <span className="text-muted-foreground italic font-normal">Belum diatur</span>}
+                        </p>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-1 shrink-0">
+                      {isEditing ? (
+                        <>
+                          <Button size="sm" variant="default" className="h-7 px-2 gap-1 text-xs"
+                            onClick={() => void saveEdit(site.siteId)} disabled={isSaving}>
+                            {isSaving ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}
+                            Simpan
+                          </Button>
+                          <Button size="sm" variant="ghost" className="h-7 px-2 text-xs"
+                            onClick={cancelEdit} disabled={isSaving}>
+                            <X className="h-3 w-3" />
+                          </Button>
+                        </>
+                      ) : (
+                        <Button size="sm" variant="outline" className="h-7 px-2 gap-1 text-xs"
+                          onClick={() => startEdit(site)}>
+                          <Pencil className="h-3 w-3" />Edit
+                        </Button>
+                      )}
+                    </div>
                   </div>
-                  <div className="flex items-center gap-1 shrink-0">
-                    {isEditing ? (
-                      <>
-                        <Button
-                          size="sm"
-                          variant="default"
-                          className="h-7 px-2 gap-1 text-xs"
-                          onClick={() => void saveEdit(site.siteId)}
-                          disabled={isSaving}
-                        >
-                          {isSaving ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}
-                          Simpan
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          className="h-7 px-2 text-xs"
-                          onClick={cancelEdit}
-                          disabled={isSaving}
-                        >
-                          <X className="h-3 w-3" />
-                        </Button>
-                      </>
-                    ) : (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="h-7 px-2 gap-1 text-xs"
-                        onClick={() => startEdit(site)}
-                      >
-                        <Pencil className="h-3 w-3" />
-                        Edit
-                      </Button>
-                    )}
+
+                  {/* Logo row */}
+                  <div>
+                    <p className="text-[10px] text-muted-foreground mb-0.5">Logo Perusahaan</p>
+                    <SiteLogoUploader
+                      siteId={site.siteId}
+                      logoUrl={currentLogo}
+                      onUploaded={(url) => {
+                        setSiteLogos(prev => ({ ...prev, [site.siteId]: url }));
+                        void qc.invalidateQueries({ queryKey: ["settings-sites"] });
+                        void qc.invalidateQueries({ queryKey: ["settings"] });
+                      }}
+                    />
                   </div>
                 </div>
               );

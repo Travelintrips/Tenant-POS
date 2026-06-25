@@ -17,6 +17,7 @@ export const mallSitesTable = pgTable("mall_sites", {
   status: text("status").notNull().default("active"),
   companyName: text("company_name").notNull().default("Manajemen CST"),
   invoicePrefix: text("invoice_prefix").notNull().default("INV"),
+  logoUrl: text("logo_url"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });

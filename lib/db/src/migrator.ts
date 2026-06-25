@@ -2902,4 +2902,10 @@ SELECT id, 'ppn', 0.11, true, 'PPN Keluaran 11% (default)'
 FROM companies
 ON CONFLICT DO NOTHING;
   `.trim(),
+},
+{
+  name: "0064_mall_sites_logo_url",
+  sql: `
+ALTER TABLE mall_sites ADD COLUMN IF NOT EXISTS logo_url TEXT;
+  `.trim(),
 });
