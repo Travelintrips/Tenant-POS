@@ -1,7 +1,7 @@
 import { db } from "@workspace/db";
-import { tenantInvoicesTable, tenantsTable, usersTable, bankMutationsTable } from "@workspace/db/schema";
+import { tenantInvoicesTable, tenantsTable, bankMutationsTable } from "@workspace/db/schema";
 import { and, inArray, isNull, eq, sql, gt } from "drizzle-orm";
-import { sendOverdueReminder, sendDueReminder, sendBankUnmatchedAlert } from "./whatsapp";
+import { sendOverdueReminder, sendDueReminder, sendBankUnmatchedAlert, getAdminNotifyPhones } from "./whatsapp";
 import { logger } from "./logger";
 import { getBaseUrl } from "./app-url";
 
@@ -43,32 +43,7 @@ export function startOverdueScheduler(): void {
   logger.info("[scheduler] Scheduler aktif (H-3, H-1, overdue, unmatched) — cek setiap 12 jam");
 }
 
-// ─── Helper: ambil admin yang punya nomor HP ───────────────────────────────────
-
-async function getAdminPhones(): Promise<Array<{ name: string; phone: string }>> {
-  const adminWa = process.env.FONNTE_ADMIN_WA;
-  const admins = await db
-    .select({ name: usersTable.name, phoneNumber: usersTable.phoneNumber })
-    .from(usersTable)
-    .where(
-      and(
-        inArray(usersTable.role, ["owner", "admin", "finance"]),
-        eq(usersTable.status, "active"),
-        sql`phone_number IS NOT NULL AND phone_number != ''`,
-      ),
-    );
-
-  const result = admins
-    .filter((u) => u.phoneNumber)
-    .map((u) => ({ name: u.name, phone: u.phoneNumber! }));
-
-  // Fallback ke FONNTE_ADMIN_WA jika tidak ada admin dengan HP terdaftar
-  if (result.length === 0 && adminWa) {
-    result.push({ name: "Admin", phone: adminWa });
-  }
-
-  return result;
-}
+// getAdminPhones → pakai getAdminNotifyPhones() dari whatsapp.ts (sudah handle ADMIN_WA_GROUP)
 
 /**
  * Kirim notifikasi ringkasan hasil import mutasi ke semua admin/owner/finance.
@@ -85,7 +60,7 @@ export async function notifyAdminsUnmatchedImport(params: {
   if (params.unmatchedCount === 0 && params.duplicateCount === 0) return;
 
   try {
-    const admins = await getAdminPhones();
+    const admins = await getAdminNotifyPhones();
     if (admins.length === 0) return;
 
     logger.info(
@@ -380,7 +355,7 @@ async function runUnmatchedMutationCheck(): Promise<void> {
 
   logger.info({ count }, "[scheduler] Ditemukan mutasi bank yang belum cocok, kirim notifikasi WA");
 
-  const admins = await getAdminPhones();
+  const admins = await getAdminNotifyPhones();
   if (admins.length === 0) {
     logger.info("[scheduler] Tidak ada admin dengan nomor HP untuk dikirim notifikasi");
     return;

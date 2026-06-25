@@ -2979,6 +2979,7 @@ MIGRATIONS.push({
   sql: `
 -- Sync account_type dari kolom type (untuk DB yang punya kolom type sebagai text)
 -- Kolom type hanya ada di DB lama; DB baru (fresh clone) tidak punya kolom ini — skip safely
+-- Sync account_type dari kolom type (hanya jika kolom type ada)
 DO $$
 BEGIN
   IF EXISTS (

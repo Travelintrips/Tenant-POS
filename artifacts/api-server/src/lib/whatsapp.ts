@@ -7,7 +7,8 @@
  */
 
 import { db } from "@workspace/db";
-import { sql } from "drizzle-orm";
+import { usersTable, systemSettingsTable } from "@workspace/db/schema";
+import { sql, and, inArray, eq } from "drizzle-orm";
 
 const FONNTE_TOKEN = process.env.FONNTE_API_KEY ?? process.env.FONNTE_TOKEN;
 const FONNTE_SENDER = process.env.FONNTE_SENDER ?? "";
@@ -76,8 +77,11 @@ export function formatRupiah(amount: number | string): string {
  * Normalisasi nomor HP Indonesia ke format internasional tanpa +
  * 081234567890 → 6281234567890
  * 6281234567890 → 6281234567890
+ * Group JID (misal: 12036341119221335@g.us) — tidak dinormalisasi
  */
 function normalizePhone(phone: string): string {
+  // Group JID dari WhatsApp — langsung pakai as-is
+  if (phone.includes("@")) return phone;
   const digits = phone.replace(/\D/g, "");
   if (digits.startsWith("0")) return "62" + digits.slice(1);
   if (digits.startsWith("62")) return digits;
@@ -85,15 +89,67 @@ function normalizePhone(phone: string): string {
 }
 
 /**
- * Kirim pesan WA ke satu nomor.
+ * Kirim pesan WA ke satu nomor atau Group JID.
  */
+const DEV_PHONES = new Set(["6281111111111","6281111111112","6281111111113","6281111111114"]);
+
+/**
+ * Ambil daftar tujuan notifikasi WA admin.
+ * Prioritas:
+ *   1. ADMIN_WA_GROUP (group JID) — jika diset, kirim HANYA ke group, skip semua lainnya
+ *   2. DB user owner/admin/finance aktif yang punya phone_number (filter dev placeholder)
+ *      + selalu tambahkan ADMIN_WHATSAPP / FONNTE_ADMIN_WA jika ada
+ *   3. Fallback ke system_settings.mall_config.adminPhone
+ */
+export async function getAdminNotifyPhones(): Promise<Array<{ name: string; phone: string }>> {
+  const waGroup = process.env.ADMIN_WA_GROUP;
+  if (waGroup) return [{ name: "Admin Group", phone: waGroup }];
+
+  try {
+    const rows = await db
+      .select({ name: usersTable.name, phoneNumber: usersTable.phoneNumber })
+      .from(usersTable)
+      .where(
+        and(
+          inArray(usersTable.role, ["owner", "admin", "finance"]),
+          eq(usersTable.status, "active"),
+          sql`phone_number IS NOT NULL AND phone_number != ''`,
+        ),
+      );
+
+    const phones: Array<{ name: string; phone: string }> = rows
+      .filter((u) => u.phoneNumber && !DEV_PHONES.has(u.phoneNumber))
+      .map((u) => ({ name: u.name, phone: u.phoneNumber! }));
+
+    const envPhone = process.env.ADMIN_WHATSAPP ?? process.env.FONNTE_ADMIN_WA;
+    if (envPhone && !phones.some((p) => p.phone === envPhone)) {
+      phones.push({ name: "Admin", phone: envPhone });
+    }
+
+    if (phones.length === 0) {
+      const [row] = await db
+        .select({ value: systemSettingsTable.value })
+        .from(systemSettingsTable)
+        .where(eq(systemSettingsTable.key, "mall_config"));
+      const phone = (row?.value as Record<string, unknown> | undefined)?.adminPhone;
+      if (typeof phone === "string" && phone.length > 0) phones.push({ name: "Admin", phone });
+    }
+
+    return phones;
+  } catch {
+    const fallback = process.env.ADMIN_WHATSAPP ?? process.env.FONNTE_ADMIN_WA ?? process.env.ADMIN_WA_GROUP;
+    return fallback ? [{ name: "Admin", phone: fallback }] : [];
+  }
+}
+
 async function sendMessage(phone: string, message: string): Promise<WaResult> {
   if (!FONNTE_TOKEN) {
     return { ok: true, skipped: true };
   }
 
   try {
-    const target = normalizePhone(phone);
+    // Group JID Fonnte format: XXXXXX@g.us — jangan dinormalisasi
+    const target = phone.includes("@g.") ? phone : normalizePhone(phone);
     const params: Record<string, string> = { target, message, delay: "2" };
     if (FONNTE_SENDER) params.sender = FONNTE_SENDER;
     const body = new URLSearchParams(params);
@@ -865,4 +921,93 @@ export async function sendOverdueReminder(params: OverdueReminderParams): Promis
     `_${company}_`;
 
   return sendMessage(params.phone, message);
+}
+
+// ─── Admin Group Notification ─────────────────────────────────────────────────
+
+export interface AdminGroupPaymentParams {
+  eventType: "bukti_pembayaran" | "pos_kasir" | "payment_approved" | "payment_rejected";
+  businessName: string;
+  ownerName: string;
+  invoiceNumber?: string | null;
+  receiptNumber?: string | null;
+  amount: string | number;
+  paymentMethod?: string;
+  kasirName?: string | null;
+  siteName?: string | null;
+  referenceNumber?: string | null;
+  reviewLink?: string | null;
+  rejectionReason?: string | null;
+}
+
+/**
+ * Kirim notifikasi ringkas ke WhatsApp Group admin (ADMIN_WA_GROUP).
+ * Dipanggil secara fire-and-forget bersamaan dengan notifikasi individual.
+ * Group JID format: 12036341119221335@g.us (tidak perlu normalisasi nomor)
+ */
+export async function notifyAdminGroup(params: AdminGroupPaymentParams): Promise<WaResult> {
+  const groupJid = process.env.ADMIN_WA_GROUP;
+  if (!groupJid) return { ok: true, skipped: true };
+
+  const methodLabel: Record<string, string> = {
+    transfer: "Transfer Bank",
+    tunai: "Tunai / Cash",
+    qris: "QRIS",
+    edc: "EDC / Debit",
+    other: "Lainnya",
+  };
+
+  const now = new Date().toLocaleString("id-ID", {
+    timeZone: "Asia/Jakarta",
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+
+  let emoji = "🔔";
+  let title = "Notifikasi Pembayaran";
+
+  if (params.eventType === "bukti_pembayaran") {
+    emoji = "📤";
+    title = "Bukti Pembayaran Masuk";
+  } else if (params.eventType === "pos_kasir") {
+    emoji = "🏪";
+    title = "Pembayaran POS Kasir";
+  } else if (params.eventType === "payment_approved") {
+    emoji = "✅";
+    title = "Pembayaran Disetujui";
+  } else if (params.eventType === "payment_rejected") {
+    emoji = "❌";
+    title = "Pembayaran Ditolak";
+  }
+
+  const invoiceLine = params.invoiceNumber ? `• Invoice    : *${params.invoiceNumber}*\n` : "";
+  const receiptLine = params.receiptNumber ? `• Kuitansi  : *${params.receiptNumber}*\n` : "";
+  const methodLine = params.paymentMethod
+    ? `• Metode    : ${methodLabel[params.paymentMethod] ?? params.paymentMethod}\n`
+    : "";
+  const kasirLine = params.kasirName ? `• Kasir     : ${params.kasirName}\n` : "";
+  const siteLine = params.siteName ? `• Lokasi    : ${params.siteName}\n` : "";
+  const refLine = params.referenceNumber ? `• Ref No    : ${params.referenceNumber}\n` : "";
+  const reviewLine = params.reviewLink ? `\n🔗 ${params.reviewLink}` : "";
+  const rejectLine = params.rejectionReason ? `• Alasan    : ${params.rejectionReason}\n` : "";
+
+  const message =
+    `${emoji} *${title}*\n` +
+    `━━━━━━━━━━━━━━━━━━━━━\n` +
+    `• Tenant    : *${params.businessName}* (${params.ownerName})\n` +
+    invoiceLine +
+    receiptLine +
+    `• Jumlah    : *${formatRupiah(params.amount)}*\n` +
+    methodLine +
+    kasirLine +
+    refLine +
+    siteLine +
+    rejectLine +
+    `• Waktu     : ${now}\n` +
+    reviewLine;
+
+  return sendMessage(groupJid, message);
 }
