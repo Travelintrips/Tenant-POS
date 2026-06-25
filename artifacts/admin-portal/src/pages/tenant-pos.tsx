@@ -60,6 +60,7 @@ type FloorPlanItem = {
   openInvoiceCount: number;
   logoUrl: string | null;
   tenantStatus: string | null;
+  unitStatus: string | null;
 };
 
 type Overview = {
@@ -1033,10 +1034,25 @@ function BoothCard({ item, selected, onClick }: { item: FloorPlanItem; selected:
 
       {/* Info section */}
       <div className="p-2.5 flex flex-col gap-0.5">
-        {/* No. Tenant */}
-        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none">
-          No. {item.boothNumber}
-        </p>
+        {/* No. Tenant + Unit Status badge */}
+        <div className="flex items-center justify-between gap-1">
+          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none">
+            No. {item.boothNumber}
+          </p>
+          {item.unitStatus && (() => {
+            const unitBadge =
+              item.unitStatus === "occupied"    ? { label: "Terisi",    cls: "bg-blue-50 text-blue-600 border-blue-200" } :
+              item.unitStatus === "available"   ? { label: "Kosong",    cls: "bg-emerald-50 text-emerald-600 border-emerald-200" } :
+              item.unitStatus === "maintenance" ? { label: "Perbaikan", cls: "bg-amber-50 text-amber-600 border-amber-200" } :
+              null;
+            if (!unitBadge) return null;
+            return (
+              <span className={`inline-flex items-center rounded-full border px-1.5 py-0 text-[8px] font-semibold leading-4 ${unitBadge.cls}`}>
+                {unitBadge.label}
+              </span>
+            );
+          })()}
+        </div>
 
         {/* Nama bisnis */}
         <p className={cn("text-[12px] font-bold leading-tight truncate", isVacant ? "text-slate-300 italic" : "text-slate-800")}>

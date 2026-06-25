@@ -151,6 +151,7 @@ router.get("/tenant-pos/floor-plan", async (req, res) => {
         bookingStatus: tenantBookingsTable.bookingStatus,
         dueDate: tenantBookingsTable.dueDate,
         periodLabel: tenantBookingsTable.periodLabel,
+        unitStatus: mallUnitsTable.status,
       })
       .from(tenantsTable)
       .leftJoin(
@@ -158,6 +159,13 @@ router.get("/tenant-pos/floor-plan", async (req, res) => {
         and(
           eq(tenantBookingsTable.tenantId, tenantsTable.id),
           sql`${tenantBookingsTable.bookingStatus} IN ('aktif', 'active')`
+        )
+      )
+      .leftJoin(
+        mallUnitsTable,
+        and(
+          eq(mallUnitsTable.unitCode, tenantsTable.boothNumber),
+          siteId > 0 ? eq(mallUnitsTable.siteId, siteId) : undefined
         )
       )
       .where(tenantSiteFilter)
@@ -202,6 +210,7 @@ router.get("/tenant-pos/floor-plan", async (req, res) => {
       openInvoiceCount: invoiceCountMap.get(row.tenantId) ?? 0,
       logoUrl: row.logoUrl ?? null,
       tenantStatus: row.tenantStatus ?? null,
+      unitStatus: row.unitStatus ?? null,
     }));
 
     res.json(result);
