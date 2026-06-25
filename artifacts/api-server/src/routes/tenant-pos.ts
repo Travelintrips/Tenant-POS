@@ -581,6 +581,15 @@ router.post("/tenant-pos/payments", paymentRateLimiter, async (req, res) => {
           .where(eq(tenantInvoicesTable.id, invoiceId))
           .for("update");
         preInsertInvoice = inv ?? null;
+        // Security: validasi invoice milik tenant yang sama
+        if (!preInsertInvoice)
+          throw Object.assign(new Error("Invoice tidak ditemukan"), { status: 404 });
+        if (preInsertInvoice.tenantId !== tenantId)
+          throw Object.assign(new Error("Invoice bukan milik tenant ini"), { status: 403 });
+        if (!["unpaid", "partial", "overdue"].includes(preInsertInvoice.status))
+          throw Object.assign(new Error("Invoice tidak dapat dibayar (status: " + preInsertInvoice.status + ")"), { status: 409 });
+        if (req.siteId > 0 && preInsertInvoice.siteId !== null && preInsertInvoice.siteId !== req.siteId)
+          throw Object.assign(new Error("Invoice tidak ditemukan di site ini"), { status: 403 });
       }
 
       // finalBill: jika ada booking pakai totalAmount booking, jika tidak pakai invoice
@@ -638,7 +647,7 @@ router.post("/tenant-pos/payments", paymentRateLimiter, async (req, res) => {
           bookingId,
           siteId: req.siteId > 0 ? req.siteId : null,
         });
-        payment = { id: ledger.ledgerEntryId, receiptNumber, paymentMethod };
+        payment = { id: ledger.ledgerEntryId, receiptNumber, paymentMethod, amount: appliedAmount, paidAt };
       } else {
         // No invoice — direct booking-only payment (out of scope for ledger engine)
         const [inserted] = await tx
@@ -705,12 +714,20 @@ router.post("/tenant-pos/payments", paymentRateLimiter, async (req, res) => {
         }
       }
 
+      // Untuk invoice-only (tanpa booking), gunakan nilai dari invoice untuk response
+      const responsePaidAmount = preInsertInvoice && !booking
+        ? Number(preInsertInvoice.paidAmount) + appliedAmount
+        : newPaidAmount;
+      const responseRemainingAmount = preInsertInvoice && !booking
+        ? Math.max(Number(preInsertInvoice.outstandingAmount) - appliedAmount, 0)
+        : remainingAmount;
+
       return {
         payment,
         booking: updatedBooking,
         paymentStatus,
-        newPaidAmount,
-        remainingAmount,
+        newPaidAmount: responsePaidAmount,
+        remainingAmount: responseRemainingAmount,
         receiptNumber,
         change,
         preInsertInvoice,
