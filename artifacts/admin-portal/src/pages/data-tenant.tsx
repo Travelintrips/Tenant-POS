@@ -445,9 +445,11 @@ export default function DataTenant() {
         zone: null,
         floor: null,
         status: "occupied",
+        storedStatus: "occupied",
         tenantId: null,
         businessName: null,
         defaultRentAmount: null,
+        bookingId: null,
       });
     }
     return allUnits;

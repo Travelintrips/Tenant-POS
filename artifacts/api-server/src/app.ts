@@ -123,7 +123,7 @@ app.use(
     store: new PgSession({
       pool: sessionPool,
       tableName: "session",
-      createTableIfMissing: true,
+      createTableIfMissing: false,
     }),
     secret: sessionSecret,
     resave: false,

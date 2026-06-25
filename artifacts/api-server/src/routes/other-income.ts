@@ -29,7 +29,7 @@ router.get("/other-income/coa-accounts", async (req, res) => {
         COALESCE(coa.type::text, coa.account_type) AS account_type
       FROM chart_of_accounts coa
       WHERE coa.is_active = true
-        AND COALESCE(coa.type::text, coa.account_type) IN ('income','revenue','pendapatan','other')
+        AND COALESCE(coa.type::text, coa.account_type) IN ('income','revenue','pendapatan')
       ORDER BY coa.code, coa.id
     `);
     const accounts = (rows as unknown as { rows: Array<{ id: number; company_id: number; code: string; name: string; account_type: string }> }).rows ?? [];
@@ -99,7 +99,7 @@ async function postIncomeJournal(opts: { incomeId: number; siteId: number | null
     const incomeCoaRow = await db.execute<{ id: number }>(sql`SELECT id FROM chart_of_accounts WHERE company_id = ${companyId} AND code = ${coaCode} LIMIT 1`).catch(() => ({ rows: [] as { id: number }[] }));
     const debitAccountId: number | null = (kasCoaRow as unknown as { rows: { id: number }[] }).rows?.[0]?.id ?? null;
     const creditAccountId: number | null = (incomeCoaRow as unknown as { rows: { id: number }[] }).rows?.[0]?.id ?? null;
-    const entryRow = await db.execute<{ id: number }>(sql`INSERT INTO accounting_entries (entry_number, journal_id, date, description, status, source, source_id, total_debit, total_credit, company_id, correlation_id, created_at) VALUES (${entryNumber}, ${journalId}, ${dateStr}::date, ${description || `Pemasukan #${incomeId}`}, 'posted', 'other_income', ${incomeId}, ${amount}, ${amount}, ${companyId}, ${correlationId}, NOW()) ON CONFLICT (correlation_id) DO NOTHING RETURNING id`).catch(() => ({ rows: [] as { id: number }[] }));
+    const entryRow = await db.execute<{ id: number }>(sql`INSERT INTO accounting_entries (entry_number, journal_id, date, description, status, source, source_id, total_debit, total_credit, company_id, correlation_id, created_at) VALUES (${entryNumber}, ${journalId}, ${dateStr}::date, ${description || `Pemasukan #${incomeId}`}, 'posted', 'other_income'::accounting_entry_source, ${incomeId}, ${amount}, ${amount}, ${companyId}, ${correlationId}, NOW()) ON CONFLICT (correlation_id) DO NOTHING RETURNING id`).catch(() => ({ rows: [] as { id: number }[] }));
     const entryId: number | null = (entryRow as unknown as { rows: { id: number }[] }).rows?.[0]?.id ?? null;
     if (!entryId) return;
     await db.execute(sql`INSERT INTO accounting_entry_lines (entry_id, account_id, description, debit, credit, created_at) VALUES (${entryId}, ${debitAccountId}, 'Kas dan Bank', ${amount}, 0, NOW()), (${entryId}, ${creditAccountId}, ${coaName}, 0, ${amount}, NOW())`).catch((e) => console.warn("[postIncomeJournal] lines failed:", e));
