@@ -157,9 +157,12 @@ function calcAmounts(data: {
   const paid = Number(data.paidAmount ?? 0);
 
   const subtotal = rent + service + elec + water + other + trash - discount + penalty;
-  // PPN hanya dihitung dari Harga Sewa, bukan dari seluruh subtotal
-  const taxAmt = (data.usePpn !== false) ? Math.round(rent * PPN_RATE) : 0;
-  const total = subtotal + taxAmt;
+  // Harga sewa sudah TERMASUK PPN (tax-inclusive).
+  // PPN diekstrak dari dalam harga sewa: PPN = rent * 11/111
+  // Iuran sampah, listrik, air, lain-lain TIDAK kena PPN.
+  // Total tagihan = subtotal (PPN sudah di dalam rent, tidak ditambah lagi).
+  const taxAmt = (data.usePpn !== false) ? Math.round(rent * PPN_RATE / (1 + PPN_RATE)) : 0;
+  const total = subtotal;
   const outstanding = Math.max(total - paid, 0);
 
   return {
@@ -758,10 +761,15 @@ router.post("/tenant-invoices/:id/recalculate", async (req, res) => {
       return;
     }
 
+    // Harga sewa sudah TERMASUK PPN (tax-inclusive).
+    // PPN diekstrak dari dalam rentAmount: PPN = rent * 11/111
+    // Iuran sampah, listrik, dll TIDAK kena PPN.
+    // Total = subtotal (PPN sudah di dalam rent, tidak ditambah lagi).
+    const rentNum     = Number(inv.rentAmount ?? 0);
     const subtotalNum = Number(inv.subtotal);
     const paidNum     = Number(inv.paidAmount);
-    const taxAmt      = Math.round(subtotalNum * PPN_RATE);
-    const totalNum    = subtotalNum + taxAmt;
+    const taxAmt      = (inv.usePpn !== false) ? Math.round(rentNum * PPN_RATE / (1 + PPN_RATE)) : 0;
+    const totalNum    = subtotalNum;
     const outstanding = Math.max(totalNum - paidNum, 0);
     const status      = resolveStatus(totalNum, paidNum, inv.dueDate);
 
