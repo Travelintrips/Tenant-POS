@@ -3268,17 +3268,37 @@ END $$;
 MIGRATIONS.push({
   name: "0074_seed_companies_and_fix_tenant_company_id",
   sql: `
-INSERT INTO companies (code, name, company_name)
-VALUES ('WGS', 'PT Wangsamas', 'PT Wangsamas')
-ON CONFLICT (code) DO NOTHING;
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'companies' AND column_name = 'company_code'
+  ) THEN
+    INSERT INTO companies (code, name, company_name, company_code)
+    VALUES ('WGS', 'PT Wangsamas', 'PT Wangsamas', 'WGS')
+    ON CONFLICT (code) DO NOTHING;
 
-INSERT INTO companies (code, name, company_name)
-VALUES ('DVS', 'PT Diva Servis', 'PT Diva Servis')
-ON CONFLICT (code) DO NOTHING;
+    INSERT INTO companies (code, name, company_name, company_code)
+    VALUES ('DVS', 'PT Diva Servis', 'PT Diva Servis', 'DVS')
+    ON CONFLICT (code) DO NOTHING;
 
-INSERT INTO companies (code, name, company_name)
-VALUES ('ERA', 'PT Elmira Ratu Abadi', 'PT Elmira Ratu Abadi')
-ON CONFLICT (code) DO NOTHING;
+    INSERT INTO companies (code, name, company_name, company_code)
+    VALUES ('ERA', 'PT Elmira Ratu Abadi', 'PT Elmira Ratu Abadi', 'ERA')
+    ON CONFLICT (code) DO NOTHING;
+  ELSE
+    INSERT INTO companies (code, name, company_name)
+    VALUES ('WGS', 'PT Wangsamas', 'PT Wangsamas')
+    ON CONFLICT (code) DO NOTHING;
+
+    INSERT INTO companies (code, name, company_name)
+    VALUES ('DVS', 'PT Diva Servis', 'PT Diva Servis')
+    ON CONFLICT (code) DO NOTHING;
+
+    INSERT INTO companies (code, name, company_name)
+    VALUES ('ERA', 'PT Elmira Ratu Abadi', 'PT Elmira Ratu Abadi')
+    ON CONFLICT (code) DO NOTHING;
+  END IF;
+END $$;
 
 UPDATE companies
 SET name = 'PT Cahaya Sejati Teknologi', company_name = 'PT Cahaya Sejati Teknologi'
