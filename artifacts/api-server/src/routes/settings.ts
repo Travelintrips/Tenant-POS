@@ -185,19 +185,22 @@ router.put("/settings/sites/:siteId/logo", requireAuth, requireAnyRole("owner"),
     }
 
     const rawUrl = (req.body as { logoUrl?: unknown }).logoUrl;
-    // logoUrl boleh string kosong (hapus logo) atau URL valid
-    if (rawUrl !== "" && typeof rawUrl === "string" && rawUrl.length > 0) {
+    // logoUrl wajib string (kosong = hapus logo, isi = URL valid)
+    if (typeof rawUrl !== "string") {
+      res.status(400).json({ error: "logoUrl harus berupa string" });
+      return;
+    }
+    const logoUrl = rawUrl.trim();
+    if (logoUrl.length > 0) {
       const isValid =
-        rawUrl.startsWith("/uploads/") ||
-        rawUrl.startsWith("https://") ||
-        rawUrl.startsWith("http://");
+        logoUrl.startsWith("/uploads/") ||
+        logoUrl.startsWith("https://") ||
+        logoUrl.startsWith("http://");
       if (!isValid) {
-        res.status(400).json({ error: "logoUrl tidak valid" });
+        res.status(400).json({ error: "logoUrl tidak valid (harus /uploads/, https://, atau http://)" });
         return;
       }
     }
-
-    const logoUrl = typeof rawUrl === "string" ? rawUrl.trim() : "";
 
     await db
       .update(mallSitesTable)

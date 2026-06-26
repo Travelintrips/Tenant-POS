@@ -23,13 +23,20 @@ function resolveDbUrl(): string {
     if (!url) throw new Error("SUPABASE_PG_URL atau DATABASE_URL harus diset di production");
     return url;
   }
+    // Production: SUPABASE_PG_URL_PROD → SUPABASE_PG_URL → DATABASE_URL
+    const url =
+      process.env["SUPABASE_PG_URL_PROD"] ??
+      process.env["SUPABASE_PG_URL"] ??
+      process.env["DATABASE_URL"];
+    if (!url) throw new Error("SUPABASE_PG_URL atau DATABASE_URL harus diset di production");
+    return url;
+  }
   // Development: SUPABASE_PG_URL_DEV → DATABASE_URL
   const url =
     process.env["SUPABASE_PG_URL_DEV"] ??
     process.env["DATABASE_URL"];
   if (!url) throw new Error("SUPABASE_PG_URL_DEV atau DATABASE_URL harus diset di development");
   return url;
->>>>>>> 5e3c8ca3be5e2042c29d7aa36fdcbac9847644c1
 }
 
 const rawUrl = resolveDbUrl().trim();

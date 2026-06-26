@@ -5,7 +5,7 @@
 - [invalid hook call fix](invalid-hook-call.md) — avoid generated lib hooks (useListTenants etc); use `useQuery` directly in admin-portal pages
 - [DB active connection](db-connection-priority.md) — dev: SUPABASE_PG_URL_DEV → DATABASE_URL; prod: SUPABASE_PG_URL_PROD → SUPABASE_PG_URL → DATABASE_URL; config.ts selalu pakai resolveDbUrl() function style
 - [supabase-search-path](supabase-search-path.md) — Supabase Transaction Pooler (port 6543) tidak otomatis set search_path=public; add `options:"-c search_path=public"` ke parsed config di lib/db/src/config.ts; tanpa ini query gagal "relation does not exist"
-- [config-ts-keep-function-style](config-ts-merge-conflict.md) — lib/db/src/config.ts terus kena syntax error karena nested ternary; ALWAYS use function `resolveDbUrl()` style (no nested ternary), ALWAYS overwrite penuh dengan write tool
+- [config-ts-keep-function-style](config-ts-merge-conflict.md) — lib/db/src/config.ts rentan kena duplicate `return (` dari repeated edits; ALWAYS overwrite penuh dengan WriteFile tool, gunakan `if (!url) throw` style (bukan nested ternary/return chain)
 - [schema-column-fix](schema-column-fix.md) — 3 tables needed ALTER TABLE to add missing columns; sync old data booking_id from tenant_booking_id after adding new column
 - [drizzle-kit-tty](drizzle-kit-tty.md) — drizzle-kit push requires interactive TTY for new tables; add SQL migration to lib/db/src/migrator.ts instead
 - [drizzle-timestamptz](drizzle-timestamptz.md) — `timestamptz` is not exported from drizzle-orm@0.45; use `timestamp("col", { withTimezone: true })` instead
