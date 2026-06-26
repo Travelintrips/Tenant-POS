@@ -1,3 +1,4 @@
+- [accounting-entry-source-enum](accounting-entry-source-enum.md) — `accounting_entries.source` pakai PG enum `accounting_entry_source`; gunakan `'tenant_rent_payment'::accounting_entry_source` (hardcoded), bukan `opts.sourceApp` atau `sourceModule` yang bisa bukan valid enum — error ini silent karena fire-and-forget try-catch
 - [raw-sql-camelcase](raw-sql-camelcase.md) — db.execute(sql`...`) returns snake_case; always apply toCamel() helper before sending response
 - [api-zod duplicate exports](api-zod-exports.md) — only export from `./generated/api`, not `./generated/types` (same names clash)
 - [scripts workspace resolution](scripts-workspace-resolution.md) — scripts pkg needs `paths` in tsconfig to resolve `@workspace/*` libs; symlinks not created by pnpm for scripts
