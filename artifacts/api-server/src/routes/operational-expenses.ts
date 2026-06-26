@@ -4,6 +4,7 @@ import { operationalExpensesTable, tenantsTable, mallSitesTable } from "@workspa
 import { eq, and, gte, lte, sql, desc } from "drizzle-orm";
 import { z } from "zod";
 import { logAudit } from "../lib/audit";
+import { requireAnyRole } from "../middlewares/auth";
 
 const router: IRouter = Router();
 
@@ -322,7 +323,7 @@ async function postExpenseJournal(opts: {
 }
 
 // ─── POST /api/operational-expenses ───────────────────────────────────────────
-router.post("/operational-expenses", async (req, res) => {
+router.post("/operational-expenses", requireAnyRole("owner", "admin", "finance"), async (req, res) => {
   const parsed = expenseSchema.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: "Data tidak valid", detail: parsed.error.issues });
@@ -446,7 +447,7 @@ router.patch("/operational-expenses/:id", async (req, res) => {
 });
 
 // ─── DELETE /api/operational-expenses/:id ─────────────────────────────────────
-router.delete("/operational-expenses/:id", async (req, res) => {
+router.delete("/operational-expenses/:id", requireAnyRole("owner", "admin", "finance"), async (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (isNaN(id)) { res.status(400).json({ error: "ID tidak valid" }); return; }
 
