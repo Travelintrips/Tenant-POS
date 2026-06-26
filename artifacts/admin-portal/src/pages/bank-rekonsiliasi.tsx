@@ -3,7 +3,7 @@ import { Banknote } from "lucide-react";
 
 export default function BankRekonsiliasi() {
   return (
-    <div className="space-y-4 p-6">
+    <div className="space-y-4">
       <div>
         <h1 className="text-xl font-bold tracking-tight flex items-center gap-2">
           <Banknote className="h-5 w-5 text-orange-500" />Rekonsiliasi Bank

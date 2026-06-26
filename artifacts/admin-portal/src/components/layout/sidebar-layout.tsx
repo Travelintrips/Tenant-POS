@@ -716,7 +716,7 @@ export function SidebarLayout({ children }: { children: React.ReactNode }) {
             </Popover>
           )}
         </header>
-        <main className="flex-1 p-6 bg-muted/20">
+        <main className="flex-1 p-3 sm:p-5 md:p-6 bg-muted/20">
           {children}
         </main>
       </SidebarInset>

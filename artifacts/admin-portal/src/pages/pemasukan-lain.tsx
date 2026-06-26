@@ -121,7 +121,7 @@ export default function PemasukanLain() {
   const currentPage = Math.floor(offset / LIMIT) + 1;
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
@@ -190,6 +190,7 @@ export default function PemasukanLain() {
             <div className="py-16 text-center text-muted-foreground text-sm"><TrendingUp className="h-8 w-8 mx-auto mb-2 opacity-30" />Belum ada data pemasukan</div>
           ) : (
             <>
+              <div className="overflow-x-auto">
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -211,6 +212,7 @@ export default function PemasukanLain() {
                   ))}
                 </TableBody>
               </Table>
+              </div>
               {totalPages > 1 && (
                 <div className="flex items-center justify-between px-4 py-3 border-t text-sm text-muted-foreground">
                   <span>Halaman {currentPage} dari {totalPages} ({total} entri)</span>

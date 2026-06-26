@@ -196,7 +196,7 @@ export default function KelolaCoa() {
   }
 
   return (
-    <div className="space-y-4 p-6">
+    <div className="space-y-4">
       <div className="flex items-start justify-between">
         <div>
           <h1 className="text-xl font-bold tracking-tight flex items-center gap-2">
@@ -215,6 +215,7 @@ export default function KelolaCoa() {
 
       <Card>
         <CardContent className="p-0">
+          <div className="overflow-x-auto">
           <Table>
             <TableHeader>
               <TableRow className="text-xs">
@@ -291,6 +292,7 @@ export default function KelolaCoa() {
               )}
             </TableBody>
           </Table>
+          </div>
         </CardContent>
       </Card>
 

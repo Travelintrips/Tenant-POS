@@ -2949,7 +2949,7 @@ function ReceiptHistoryModal({ onClose }: { onClose: () => void }) {
         </form>
 
         {/* Table */}
-        <div className="flex-1 overflow-y-auto">
+        <div className="flex-1 overflow-y-auto overflow-x-auto">
           {query.isLoading ? (
             <div className="p-8 text-center text-muted-foreground">
               <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2 opacity-40" />

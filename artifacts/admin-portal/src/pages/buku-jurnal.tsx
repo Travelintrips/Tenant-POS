@@ -140,7 +140,7 @@ export default function BukuJurnal() {
   }
 
   return (
-    <div className="space-y-4 p-6">
+    <div className="space-y-4">
       <div>
         <h1 className="text-xl font-bold tracking-tight flex items-center gap-2">
           <BookOpen className="h-5 w-5 text-blue-600" />
