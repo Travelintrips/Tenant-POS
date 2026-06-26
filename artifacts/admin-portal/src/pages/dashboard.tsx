@@ -8,7 +8,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import {
   Users, FileText, AlertTriangle, Wallet, TrendingUp,
   Clock, ArrowRight, ClipboardCheck, Store, CalendarRange,
-  BarChart3, CheckCircle2, CircleDollarSign, LayoutGrid, Calculator,
+  BarChart3, CheckCircle2, CircleDollarSign, LayoutGrid, Calculator, BadgeCheck,
 } from "lucide-react";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -39,6 +39,8 @@ type DashSummary = {
   totalPiutang: number;
   revenueThisMonth: number;
   pendingPayments: number;
+  invoicePaidCount: number;
+  invoicePaidAmount: number;
 };
 
 type MonthlySummary = {
@@ -172,7 +174,7 @@ export default function Dashboard() {
       </div>
 
       {/* Stat Cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
         <Card className="border-l-4 border-l-emerald-500">
           <CardContent className="pt-4 pb-3 px-4">
             {loadSummary ? (
@@ -239,6 +241,25 @@ export default function Dashboard() {
                 <p className="text-2xl font-bold text-blue-600">{formatRp(summary?.totalPiutang ?? 0)}</p>
                 <p className="text-xs text-muted-foreground mt-0.5">
                   Pendapatan {namaBulan}: {formatRp(summary?.revenueThisMonth ?? 0)}
+                </p>
+              </>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card className="border-l-4 border-l-violet-500">
+          <CardContent className="pt-4 pb-3 px-4">
+            {loadSummary ? (
+              <Skeleton className="h-12 w-full" />
+            ) : (
+              <>
+                <div className="flex items-center justify-between mb-1">
+                  <p className="text-xs text-muted-foreground font-medium">Invoice Terbayar</p>
+                  <BadgeCheck className="h-4 w-4 text-violet-500" />
+                </div>
+                <p className="text-3xl font-bold text-violet-600">{summary?.invoicePaidCount ?? 0}</p>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  {formatRp(summary?.invoicePaidAmount ?? 0)} bulan ini
                 </p>
               </>
             )}
