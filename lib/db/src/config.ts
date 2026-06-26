@@ -2,18 +2,19 @@ const isProduction = (process.env["NODE_ENV"] ?? "development") === "production"
 
 function resolveDbUrl(): string {
   if (isProduction) {
-    return (
+    const url =
       process.env["SUPABASE_PG_URL_PROD"] ??
       process.env["SUPABASE_PG_URL"] ??
-      process.env["DATABASE_URL"] ??
-      (() => { throw new Error("SUPABASE_PG_URL_PROD atau DATABASE_URL harus diset di production"); })()
-    );
+      process.env["DATABASE_URL"];
+    if (!url) throw new Error("SUPABASE_PG_URL_PROD harus diset di production");
+    return url;
   }
-  return (
-    process.env["SUPABASE_PG_URL_PROD"] ??
-    process.env["DATABASE_URL"] ??
-    (() => { throw new Error("SUPABASE_PG_URL_PROD atau DATABASE_URL harus diset"); })()
-  );
+  // Development: gunakan SUPABASE_PG_URL_DEV (project dev terpisah) → DATABASE_URL
+  const url =
+    process.env["SUPABASE_PG_URL_DEV"] ??
+    process.env["DATABASE_URL"];
+  if (!url) throw new Error("SUPABASE_PG_URL_DEV atau DATABASE_URL harus diset");
+  return url;
 }
 
 const rawUrl = resolveDbUrl().trim();
