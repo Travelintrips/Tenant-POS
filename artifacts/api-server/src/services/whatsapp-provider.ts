@@ -21,14 +21,28 @@ async function sendViaFonnte(phoneNumber: string, otp: string): Promise<SendOtpR
     ...(sender ? { sender } : {}),
   });
 
-  const res = await fetch("https://api.fonnte.com/send", {
-    method: "POST",
-    headers: {
-      Authorization: apiKey,
-      "Content-Type": "application/x-www-form-urlencoded",
-    },
-    body: body.toString(),
-  });
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 15_000);
+
+  let res: Response;
+  try {
+    res = await fetch("https://api.fonnte.com/send", {
+      method: "POST",
+      headers: {
+        Authorization: apiKey,
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: body.toString(),
+      signal: controller.signal,
+    });
+  } catch (err: unknown) {
+    clearTimeout(timeoutId);
+    const isTimeout = err instanceof Error && err.name === "AbortError";
+    logger.error({ phoneNumber, err }, isTimeout ? "[fonnte] timeout 15s" : "[fonnte] fetch error");
+    return { sent: false, error: isTimeout ? "Fonnte timeout" : String(err) };
+  } finally {
+    clearTimeout(timeoutId);
+  }
 
   if (!res.ok) {
     const text = await res.text().catch(() => "");
