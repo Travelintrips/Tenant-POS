@@ -244,6 +244,9 @@ router.post(
       await safeDelete("operational_expenses");
       await safeDelete("cashier_shifts");
       await safeDelete("tenant_payments");
+      await safeDelete("consolidated_invoice_items");
+      await safeDelete("consolidated_invoices");
+      await safeDelete("other_income");
       await safeDelete("tenant_invoices");
 
       logAudit(req, {
