@@ -219,26 +219,32 @@ router.post(
   requireAuth,
   requireAnyRole("owner"),
   async (req, res) => {
+    // Helper: hapus tabel jika ada — skip jika tabel tidak ada di DB ini
+    const safeDelete = async (tableName: string) => {
+      await db.execute(
+        sql.raw(`DO $$ BEGIN DELETE FROM "${tableName}"; EXCEPTION WHEN undefined_table THEN NULL; END $$`)
+      );
+    };
+
     try {
       // Gunakan DELETE (bukan TRUNCATE) agar kompatibel dengan Supabase Transaction Pooler (PgBouncer).
-      // TRUNCATE ... RESTART IDENTITY CASCADE tidak selalu berjalan mulus via PgBouncer.
       // Urutan delete: dari tabel yang punya FK ke tabel induk terlebih dahulu.
-      await db.execute(sql`DELETE FROM gl_journal_bridge`);
-      await db.execute(sql`DELETE FROM bank_journal_entries`);
-      await db.execute(sql`DELETE FROM accounting_entry_lines`);
-      await db.execute(sql`DELETE FROM accounting_entries`);
-      await db.execute(sql`DELETE FROM accounting_payments`);
-      await db.execute(sql`DELETE FROM bank_recon_audit_logs`);
-      await db.execute(sql`DELETE FROM bank_reconciliation_matches`);
-      await db.execute(sql`DELETE FROM bank_mutations`);
-      await db.execute(sql`DELETE FROM bank_account_balances`);
-      await db.execute(sql`DELETE FROM tax_transactions`);
-      await db.execute(sql`DELETE FROM finance_payment_events`);
-      await db.execute(sql`DELETE FROM tenant_receipts`);
-      await db.execute(sql`DELETE FROM operational_expenses`);
-      await db.execute(sql`DELETE FROM cashier_shifts`);
-      await db.execute(sql`DELETE FROM tenant_payments`);
-      await db.execute(sql`DELETE FROM tenant_invoices`);
+      await safeDelete("gl_journal_bridge");
+      await safeDelete("bank_journal_entries");
+      await safeDelete("accounting_entry_lines");
+      await safeDelete("accounting_entries");
+      await safeDelete("accounting_payments");
+      await safeDelete("bank_recon_audit_logs");
+      await safeDelete("bank_reconciliation_matches");
+      await safeDelete("bank_mutations");
+      await safeDelete("bank_account_balances");
+      await safeDelete("tax_transactions");
+      await safeDelete("finance_payment_events");
+      await safeDelete("tenant_receipts");
+      await safeDelete("operational_expenses");
+      await safeDelete("cashier_shifts");
+      await safeDelete("tenant_payments");
+      await safeDelete("tenant_invoices");
 
       logAudit(req, {
         action: "reset_all_transactions",
