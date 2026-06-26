@@ -608,6 +608,13 @@ function UnitFormDrawer({
                 <p className="text-xs text-muted-foreground mt-1">
                   Harga sewa default untuk unit ini (akan otomatis terisi saat tambah tenant).
                 </p>
+                {Number(form.defaultRentAmount) > 0 && (
+                  <div className="mt-2 flex gap-4 text-xs text-muted-foreground bg-muted/50 rounded px-3 py-2">
+                    <span>PPN: <span className="font-medium text-foreground">11%</span></span>
+                    <span>Nominal PPN: <span className="font-medium text-foreground">{fmtRp(Math.round(Number(form.defaultRentAmount) * 0.11))}</span></span>
+                    <span>Total dgn PPN: <span className="font-medium text-foreground">{fmtRp(Math.round(Number(form.defaultRentAmount) * 1.11))}</span></span>
+                  </div>
+                )}
               </div>
 
               <div className="col-span-2">
