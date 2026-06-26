@@ -24,3 +24,4 @@ export * from "./operational-expenses";
 export * from "./blast-session-logs";
 export * from "./accounting-hub";
 export * from "./other-income";
+export * from "./consolidated-invoices";

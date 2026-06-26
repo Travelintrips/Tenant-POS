@@ -31,6 +31,7 @@ import paymentsRouter from "./payments";
 import operationalExpensesRouter from "./operational-expenses";
 import otherIncomeRouter from "./other-income";
 import tenantSheetSyncRouter from "./tenant-sheet-sync";
+import consolidatedInvoicesRouter from "./consolidated-invoices";
 import { requireAuth, requireNonTenantUser } from "../middlewares/auth";
 import { siteContext } from "../middlewares/site-context";
 
@@ -81,5 +82,6 @@ router.use(draftAgreementsRouter);
 router.use(operationalExpensesRouter);
 router.use(otherIncomeRouter);
 router.use(tenantSheetSyncRouter);
+router.use(consolidatedInvoicesRouter);
 
 export default router;

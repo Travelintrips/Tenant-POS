@@ -38,6 +38,7 @@ import KelolaCoa from "@/pages/kelola-coa";
 import PengeluaranOperasional from "@/pages/pengeluaran-operasional";
 import RiwayatPembayaran from "@/pages/riwayat-pembayaran";
 import PemasukanLain from "@/pages/pemasukan-lain";
+import ConsolidatedInvoices from "@/pages/consolidated-invoices";
 // Legacy module kept for rollback — DO NOT import Rekonsiliasi as a rendered route
 // import Rekonsiliasi from "@/pages/rekonsiliasi";
 
@@ -140,6 +141,13 @@ function Router() {
         <AuthGuard roles={["owner", "admin", "finance"]}>
           <SidebarLayout>
             <BookingTenant />
+          </SidebarLayout>
+        </AuthGuard>
+      </Route>
+      <Route path="/invoice-konsolidasi">
+        <AuthGuard roles={["owner", "admin", "finance"]}>
+          <SidebarLayout>
+            <ConsolidatedInvoices />
           </SidebarLayout>
         </AuthGuard>
       </Route>

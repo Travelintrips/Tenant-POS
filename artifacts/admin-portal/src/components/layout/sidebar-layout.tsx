@@ -345,6 +345,20 @@ export function SidebarLayout({ children }: { children: React.ReactNode }) {
                   <SidebarMenuItem>
                     <SidebarMenuButton
                       asChild
+                      isActive={location === "/invoice-konsolidasi"}
+                      data-testid="nav-invoice-konsolidasi"
+                    >
+                      <Link href="/invoice-konsolidasi">
+                        <Layers className="mr-2 h-4 w-4" />
+                        <span>Invoice Konsolidasi</span>
+                      </Link>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                )}
+                {can("owner", "admin", "finance") && (
+                  <SidebarMenuItem>
+                    <SidebarMenuButton
+                      asChild
                       isActive={location === "/tinjau-pembayaran"}
                       data-testid="nav-tinjau-pembayaran"
                     >
