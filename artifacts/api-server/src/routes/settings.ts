@@ -222,14 +222,17 @@ router.post(
     // Helper: hapus tabel jika ada — skip jika tabel tidak ada (42P01).
     // Gunakan try/catch di Node.js (bukan DO block) agar kompatibel dengan
     // Supabase PgBouncer transaction mode dan agar error asli terlog dengan jelas.
+    let lastTable = "(belum mulai)";
     const safeDelete = async (tableName: string) => {
+      lastTable = tableName;
       try {
         await db.execute(sql.raw(`DELETE FROM "${tableName}"`));
       } catch (err: any) {
         const code = (err?.code ?? err?.cause?.code ?? "") as string;
-        if (code === "42P01") return; // tabel tidak ada — skip
-        req.log.error({ table: tableName, code, err }, `[reset] DELETE FROM "${tableName}" gagal`);
-        throw err;
+        const msg = (err?.message ?? err?.cause?.message ?? String(err)) as string;
+        if (code === "42P01") { req.log.warn(`[reset] tabel "${tableName}" tidak ada — dilewati`); return; }
+        req.log.error({ table: tableName, code, msg }, `[reset] DELETE FROM "${tableName}" gagal`);
+        throw Object.assign(err, { _resetTable: tableName, _resetCode: code, _resetMsg: msg });
       }
     };
 
@@ -272,9 +275,16 @@ router.post(
       });
 
       res.json({ success: true, message: "Semua data transaksi berhasil dihapus." });
-    } catch (err) {
-      req.log.error(err, "Gagal reset transaksi");
-      res.status(500).json({ error: "Gagal menghapus data transaksi." });
+    } catch (err: any) {
+      const detail = {
+        table: err?._resetTable ?? lastTable,
+        code: err?._resetCode ?? err?.code ?? err?.cause?.code,
+        msg: err?._resetMsg ?? err?.message ?? err?.cause?.message,
+      };
+      req.log.error({ ...detail, err }, "Gagal reset transaksi");
+      res.status(500).json({
+        error: `Gagal hapus tabel "${detail.table}": [${detail.code}] ${detail.msg}`,
+      });
     }
   }
 );
