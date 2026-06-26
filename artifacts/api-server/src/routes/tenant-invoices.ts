@@ -756,9 +756,12 @@ router.post("/tenant-invoices/:id/recalculate", async (req, res) => {
       return;
     }
 
+    // PPN hanya dari harga sewa (rentAmount), bukan dari seluruh subtotal
+    // iuran sampah, listrik, air, dll tidak kena PPN
+    const rentNum     = Number(inv.rentAmount ?? 0);
     const subtotalNum = Number(inv.subtotal);
     const paidNum     = Number(inv.paidAmount);
-    const taxAmt      = Math.round(subtotalNum * PPN_RATE);
+    const taxAmt      = (inv.usePpn !== false) ? Math.round(rentNum * PPN_RATE) : 0;
     const totalNum    = subtotalNum + taxAmt;
     const outstanding = Math.max(totalNum - paidNum, 0);
     const status      = resolveStatus(totalNum, paidNum, inv.dueDate);
