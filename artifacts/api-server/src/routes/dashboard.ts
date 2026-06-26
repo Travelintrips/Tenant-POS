@@ -27,6 +27,18 @@ router.get("/dashboard/summary", async (req, res) => {
     const thisYear  = now.getFullYear();
     const thisMonth = now.getMonth() + 1;
 
+    // Filter bulan untuk invoice lunas: ?paidMonth=YYYY-MM (default: bulan ini)
+    const paidMonthParam = typeof req.query.paidMonth === "string" ? req.query.paidMonth : null;
+    let paidYear  = thisYear;
+    let paidMonth = thisMonth;
+    if (paidMonthParam && /^\d{4}-\d{2}$/.test(paidMonthParam)) {
+      const [y, m] = paidMonthParam.split("-").map(Number);
+      if (y >= 2020 && y <= 2100 && m >= 1 && m <= 12) {
+        paidYear  = y;
+        paidMonth = m;
+      }
+    }
+
     const [tenantStats, invoiceStats, revenueRow, pendingRow, paidRow] = await Promise.all([
       db.select({
         total: sql<number>`COUNT(*)::int`,
@@ -53,10 +65,10 @@ router.get("/dashboard/summary", async (req, res) => {
         .from(tenantPaymentsTable)
         .where(and(payClause, sql`${tenantPaymentsTable.approvalStatus} = 'pending_review'`)),
 
-      // Invoice lunas bulan ini
+      // Invoice lunas — bulan yang dipilih (default: bulan ini)
       db.select({
-        count:  sql<number>`COUNT(*) FILTER (WHERE ${tenantInvoicesTable.status} = 'paid' AND EXTRACT(YEAR FROM ${tenantInvoicesTable.updatedAt}) = ${thisYear} AND EXTRACT(MONTH FROM ${tenantInvoicesTable.updatedAt}) = ${thisMonth})::int`,
-        amount: sql<number>`COALESCE(SUM(${tenantInvoicesTable.paidAmount}) FILTER (WHERE ${tenantInvoicesTable.status} = 'paid' AND EXTRACT(YEAR FROM ${tenantInvoicesTable.updatedAt}) = ${thisYear} AND EXTRACT(MONTH FROM ${tenantInvoicesTable.updatedAt}) = ${thisMonth}), 0)::numeric`,
+        count:  sql<number>`COUNT(*) FILTER (WHERE ${tenantInvoicesTable.status} = 'paid' AND EXTRACT(YEAR FROM ${tenantInvoicesTable.updatedAt}) = ${paidYear} AND EXTRACT(MONTH FROM ${tenantInvoicesTable.updatedAt}) = ${paidMonth})::int`,
+        amount: sql<number>`COALESCE(SUM(${tenantInvoicesTable.paidAmount}) FILTER (WHERE ${tenantInvoicesTable.status} = 'paid' AND EXTRACT(YEAR FROM ${tenantInvoicesTable.updatedAt}) = ${paidYear} AND EXTRACT(MONTH FROM ${tenantInvoicesTable.updatedAt}) = ${paidMonth}), 0)::numeric`,
       }).from(tenantInvoicesTable).where(invClause),
     ]);
 
@@ -71,6 +83,7 @@ router.get("/dashboard/summary", async (req, res) => {
       pendingPayments:   pendingRow[0]?.count         ?? 0,
       invoicePaidCount:  paidRow[0]?.count            ?? 0,
       invoicePaidAmount: Number(paidRow[0]?.amount    ?? 0),
+      paidMonth: `${paidYear}-${String(paidMonth).padStart(2, "0")}`,
     });
   } catch (err) {
     req.log.error(err, "Failed to get dashboard summary");
