@@ -193,11 +193,10 @@ router.put("/settings/sites/:siteId/logo", requireAuth, requireAnyRole("owner"),
     const logoUrl = rawUrl.trim();
     if (logoUrl.length > 0) {
       const isValid =
-        logoUrl.startsWith("/uploads/") ||
         logoUrl.startsWith("https://") ||
         logoUrl.startsWith("http://");
       if (!isValid) {
-        res.status(400).json({ error: "logoUrl tidak valid (harus /uploads/, https://, atau http://)" });
+        res.status(400).json({ error: "logoUrl tidak valid (harus URL Supabase Storage https://)" });
         return;
       }
     }
