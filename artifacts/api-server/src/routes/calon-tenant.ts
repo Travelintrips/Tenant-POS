@@ -503,8 +503,7 @@ router.post(
       });
       const body = await r.json().catch(() => ({})) as Record<string, unknown>;
 
-      const fonnteLog = `Fonnte: ${JSON.stringify(body)}`;
-      console.log("[kirim-link-wa] Fonnte response:", fonnteLog);
+      req.log.info({ fonnte: body }, "[kirim-link-wa] Fonnte response");
 
       const statusFailed = body["status"] === false || body["status"] === "false";
       const processFailed = body["process"] === false || body["process"] === "false";

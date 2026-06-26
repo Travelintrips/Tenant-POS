@@ -19,7 +19,7 @@ import {
 } from "lucide-react";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer, AreaChart, Area,
+  ResponsiveContainer, AreaChart, Area, Cell,
 } from "recharts";
 import { useAuth } from "@/hooks/use-auth";
 import { useSite } from "@/contexts/site-context";
@@ -79,6 +79,13 @@ type UnitStats = {
   stats: Record<string, number>;
   total: number;
   occupancyRate: number;
+};
+
+type TrendPoint = {
+  label: string;
+  month: string;
+  count: number;
+  amount: number;
 };
 
 const UNIT_STATUS_CONFIG: Record<string, { label: string; color: string; bg: string }> = {
@@ -159,6 +166,16 @@ export default function Dashboard() {
     queryFn: async () => {
       const res = await fetch(`${BASE}/api/dashboard/unit-stats`);
       if (!res.ok) throw new Error("Gagal memuat statistik unit");
+      return res.json();
+    },
+    refetchInterval: 120_000,
+  });
+
+  const { data: paidTrend } = useQuery<{ trend: TrendPoint[] }>({
+    queryKey: ["dashboard-paid-trend", activeSite?.id],
+    queryFn: async () => {
+      const res = await fetch(`${BASE}/api/dashboard/paid-trend`, { headers: siteHeader });
+      if (!res.ok) return { trend: [] };
       return res.json();
     },
     refetchInterval: 120_000,
@@ -274,13 +291,13 @@ export default function Dashboard() {
           </CardContent>
         </Card>
 
-        <Card className="border-l-4 border-l-violet-500 col-span-2 sm:col-span-1">
+        <Card className="border-l-4 border-l-violet-500 col-span-2 sm:col-span-3 lg:col-span-1">
           <CardContent className="pt-3 pb-3 px-4">
             {loadSummary ? (
-              <Skeleton className="h-16 w-full" />
+              <Skeleton className="h-28 w-full" />
             ) : (
               <>
-                <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center justify-between mb-1">
                   <p className="text-xs text-muted-foreground font-medium flex items-center gap-1">
                     <BadgeCheck className="h-3.5 w-3.5 text-violet-500" />
                     Invoice Terbayar
@@ -299,9 +316,45 @@ export default function Dashboard() {
                   </Select>
                 </div>
                 <p className="text-3xl font-bold text-violet-600">{summary?.invoicePaidCount ?? 0}</p>
-                <p className="text-xs text-muted-foreground mt-0.5">
+                <p className="text-xs text-muted-foreground mt-0.5 mb-2">
                   {formatRp(summary?.invoicePaidAmount ?? 0)} masuk
                 </p>
+                {/* Mini sparkline 6 bulan */}
+                {(paidTrend?.trend?.length ?? 0) > 0 && (
+                  <ResponsiveContainer width="100%" height={44}>
+                    <BarChart data={paidTrend!.trend} margin={{ top: 0, right: 0, left: 0, bottom: 0 }} barSize={8}>
+                      <Tooltip
+                        content={({ active, payload, label }) =>
+                          active && payload?.length ? (
+                            <div className="bg-white border rounded shadow px-2 py-1 text-[10px]">
+                              <p className="font-semibold text-violet-700">{label}</p>
+                              <p>{payload[0]?.value} invoice</p>
+                              <p className="text-muted-foreground">{formatRp(Number(payload[0]?.payload?.amount ?? 0))}</p>
+                            </div>
+                          ) : null
+                        }
+                      />
+                      <Bar dataKey="count" radius={[2, 2, 0, 0]}>
+                        {paidTrend!.trend.map((entry) => (
+                          <Cell
+                            key={entry.month}
+                            fill={entry.month === paidMonthFilter ? "#7c3aed" : "#ddd6fe"}
+                          />
+                        ))}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                )}
+                <div className="flex justify-between mt-0.5">
+                  {(paidTrend?.trend ?? []).map((t) => (
+                    <span
+                      key={t.month}
+                      className={`text-[9px] ${t.month === paidMonthFilter ? "text-violet-700 font-bold" : "text-muted-foreground"}`}
+                    >
+                      {t.label}
+                    </span>
+                  ))}
+                </div>
               </>
             )}
           </CardContent>

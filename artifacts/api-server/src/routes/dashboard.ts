@@ -92,6 +92,66 @@ router.get("/dashboard/summary", async (req, res) => {
 });
 
 /**
+ * GET /api/dashboard/paid-trend
+ * Tren invoice lunas per bulan — 6 bulan terakhir.
+ */
+router.get("/dashboard/paid-trend", async (req, res) => {
+  try {
+    const siteId = req.siteId;
+    const invClause = siteId > 0 ? eq(tenantInvoicesTable.siteId, siteId) : undefined;
+
+    // Ambil data 6 bulan terakhir (inklusif bulan ini)
+    const rows = await db
+      .select({
+        year:   sql<number>`EXTRACT(YEAR  FROM ${tenantInvoicesTable.updatedAt})::int`,
+        month:  sql<number>`EXTRACT(MONTH FROM ${tenantInvoicesTable.updatedAt})::int`,
+        count:  sql<number>`COUNT(*)::int`,
+        amount: sql<number>`COALESCE(SUM(${tenantInvoicesTable.paidAmount}), 0)::numeric`,
+      })
+      .from(tenantInvoicesTable)
+      .where(
+        invClause
+          ? sql`${invClause} AND ${tenantInvoicesTable.status} = 'paid'
+                AND ${tenantInvoicesTable.updatedAt} >= NOW() - INTERVAL '5 months'
+                AND ${tenantInvoicesTable.updatedAt} < DATE_TRUNC('month', NOW()) + INTERVAL '1 month'`
+          : sql`${tenantInvoicesTable.status} = 'paid'
+                AND ${tenantInvoicesTable.updatedAt} >= NOW() - INTERVAL '5 months'
+                AND ${tenantInvoicesTable.updatedAt} < DATE_TRUNC('month', NOW()) + INTERVAL '1 month'`,
+      )
+      .groupBy(
+        sql`EXTRACT(YEAR FROM ${tenantInvoicesTable.updatedAt})`,
+        sql`EXTRACT(MONTH FROM ${tenantInvoicesTable.updatedAt})`,
+      )
+      .orderBy(
+        sql`EXTRACT(YEAR FROM ${tenantInvoicesTable.updatedAt})`,
+        sql`EXTRACT(MONTH FROM ${tenantInvoicesTable.updatedAt})`,
+      );
+
+    // Lengkapi dengan bulan kosong agar selalu 6 titik
+    const BULAN_ID = ["Jan","Feb","Mar","Apr","Mei","Jun","Jul","Ags","Sep","Okt","Nov","Des"];
+    const map = new Map(rows.map(r => [`${r.year}-${r.month}`, r]));
+    const now = new Date();
+    const trend = [];
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const key = `${d.getFullYear()}-${d.getMonth() + 1}`;
+      const row = map.get(key);
+      trend.push({
+        label:  BULAN_ID[d.getMonth()],
+        month:  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`,
+        count:  row?.count  ?? 0,
+        amount: Number(row?.amount ?? 0),
+      });
+    }
+
+    res.json({ trend });
+  } catch (err) {
+    req.log.error(err, "Failed to get paid trend");
+    res.status(500).json({ error: "Gagal mengambil data tren pembayaran" });
+  }
+});
+
+/**
  * GET /api/dashboard/unit-stats
  * Statistik unit mall per status untuk widget denah di dashboard.
  */
