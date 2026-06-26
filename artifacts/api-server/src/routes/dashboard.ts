@@ -228,10 +228,9 @@ router.get("/dashboard/export-monthly-pdf", async (req, res) => {
 
     // ── Generate PDF ──────────────────────────────────────────────────────
     // pdfkit is external (esbuild), loaded via require()
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const PDFDocument = (require("pdfkit") as { default: new (opts?: object) => import("pdfkit") }).default
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      ?? (require("pdfkit") as any);
+    // eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-explicit-any
+    const pdfkitMod = require("pdfkit") as any;
+    const PDFDocument: new (opts?: object) => any = pdfkitMod.default ?? pdfkitMod;
 
     const doc = new PDFDocument({ margin: 40, size: "A4" });
 
@@ -338,7 +337,7 @@ router.get("/dashboard/export-monthly-pdf", async (req, res) => {
     // ── Tabel Pengeluaran Operasional ─────────────────────────────────────
     const expHeaders = ["No", "Kategori", "Keterangan", "Metode", "Tgl", "Jumlah"];
     const expWidths  = [24, 80, 180, 60, 70, W - 24 - 80 - 180 - 60 - 70];
-    const expRows = expenses.map((r, i) => [
+    const expTableRows = expenses.map((r, i) => [
       String(i + 1),
       r.coa_name ?? r.category ?? "-",
       r.description ?? "-",
@@ -346,7 +345,7 @@ router.get("/dashboard/export-monthly-pdf", async (req, res) => {
       fmtDate(r.paid_at),
       formatRp(Number(r.amount ?? 0)),
     ]);
-    drawTable("Pengeluaran Operasional", expHeaders, expWidths, expRows,
+    drawTable("Pengeluaran Operasional", expHeaders, expWidths, expTableRows,
       `Total: ${expenses.length} transaksi  ·  ${formatRp(totalExpense)}`);
 
     // ── Footer ────────────────────────────────────────────────────────────
