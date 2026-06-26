@@ -219,34 +219,48 @@ router.post(
   requireAuth,
   requireAnyRole("owner"),
   async (req, res) => {
-    // Helper: hapus tabel jika ada — skip jika tabel tidak ada di DB ini
+    // Helper: hapus tabel jika ada — skip jika tabel tidak ada (42P01).
+    // Gunakan try/catch di Node.js (bukan DO block) agar kompatibel dengan
+    // Supabase PgBouncer transaction mode dan agar error asli terlog dengan jelas.
     const safeDelete = async (tableName: string) => {
-      await db.execute(
-        sql.raw(`DO $$ BEGIN DELETE FROM "${tableName}"; EXCEPTION WHEN undefined_table THEN NULL; END $$`)
-      );
+      try {
+        await db.execute(sql.raw(`DELETE FROM "${tableName}"`));
+      } catch (err: any) {
+        const code = (err?.code ?? err?.cause?.code ?? "") as string;
+        if (code === "42P01") return; // tabel tidak ada — skip
+        req.log.error({ table: tableName, code, err }, `[reset] DELETE FROM "${tableName}" gagal`);
+        throw err;
+      }
     };
 
     try {
-      // Gunakan DELETE (bukan TRUNCATE) agar kompatibel dengan Supabase Transaction Pooler (PgBouncer).
-      // Urutan delete: dari tabel yang punya FK ke tabel induk terlebih dahulu.
+      // Urutan delete: child tables (yang punya FK) dihapus sebelum parent tables.
+      // 1. Tabel akuntansi & jurnal
       await safeDelete("gl_journal_bridge");
-      await safeDelete("bank_journal_entries");
       await safeDelete("accounting_entry_lines");
       await safeDelete("accounting_entries");
       await safeDelete("accounting_payments");
+      // 2. Tabel bank & rekonsiliasi
       await safeDelete("bank_recon_audit_logs");
+      await safeDelete("bank_journal_entries");
       await safeDelete("bank_reconciliation_matches");
       await safeDelete("bank_mutations");
       await safeDelete("bank_account_balances");
+      await safeDelete("bank_closing_periods");
+      // 3. Tabel transaksi keuangan lain
       await safeDelete("tax_transactions");
       await safeDelete("finance_payment_events");
       await safeDelete("tenant_receipts");
       await safeDelete("operational_expenses");
+      await safeDelete("other_income");
       await safeDelete("cashier_shifts");
+      await safeDelete("blast_session_logs");
+      await safeDelete("wa_send_logs");
+      // 4. Tabel pembayaran & invoice konsolidasi (FK ke tenant_invoices)
       await safeDelete("tenant_payments");
       await safeDelete("consolidated_invoice_items");
       await safeDelete("consolidated_invoices");
-      await safeDelete("other_income");
+      // 5. Tabel invoice (parent dari consolidated_invoice_items)
       await safeDelete("tenant_invoices");
 
       logAudit(req, {
