@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import { useSite } from "@/contexts/site-context";
@@ -306,16 +306,16 @@ function CreateModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: (
     },
   });
 
-  // Expand semua tenant saat data pertama kali masuk
+  // Expand semua tenant saat data pertama kali masuk (useEffect, bukan useMemo)
   const [hasInitExpanded, setHasInitExpanded] = useState(false);
-  useMemo(() => {
+  useEffect(() => {
     if (!hasInitExpanded && allUnpaidInvoices.length > 0) {
       setExpandedTenants(new Set(allUnpaidInvoices.map((inv) => inv.tenantId)));
       setHasInitExpanded(true);
     }
   }, [allUnpaidInvoices, hasInitExpanded]);
 
-  // Kelompokkan invoice per tenant
+  // Kelompokkan invoice per tenant (untuk tampilan list)
   const tenantGroups = useMemo(() => {
     const q = searchText.trim().toLowerCase();
     const filtered = q
@@ -347,6 +347,18 @@ function CreateModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: (
     [selectedInvoices]
   );
 
+  // Kelompokkan invoice terpilih per tenant (untuk preview & ringkasan step 2)
+  const selectedByTenant = useMemo(() => {
+    const map = new Map<string, { name: string; owner: string; invoices: UnpaidInvoice[]; total: number }>();
+    for (const inv of selectedInvoices) {
+      const entry = map.get(inv.tenantName) ?? { name: inv.tenantName, owner: inv.tenantOwner, invoices: [], total: 0 };
+      entry.invoices.push(inv);
+      entry.total += Number(inv.outstandingAmount);
+      map.set(inv.tenantName, entry);
+    }
+    return Array.from(map.values());
+  }, [selectedInvoices]);
+
   const mutation = useMutation<unknown, Error>({
     mutationFn: async () => {
       const r = await fetch(`${BASE}/api/consolidated-invoices`, {
@@ -377,7 +389,6 @@ function CreateModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: (
     );
   };
 
-  // Toggle semua invoice milik satu tenant
   const toggleTenant = (tenantId: number, invoiceIds: number[]) => {
     const allSelected = invoiceIds.every((id) => selectedInvoiceIds.includes(id));
     if (allSelected) {
@@ -397,6 +408,9 @@ function CreateModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: (
   };
 
   const canProceed = step === 1 ? selectedInvoiceIds.length >= 2 : true;
+
+  // Tanggal hari ini untuk pratinjau
+  const todayStr = new Date().toLocaleDateString("id-ID", { day: "2-digit", month: "long", year: "numeric" });
 
   return (
     <Dialog open onOpenChange={onClose}>
@@ -421,9 +435,9 @@ function CreateModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: (
 
         <Separator />
 
+        {/* ── STEP 1: Pilih invoice ─────────────────────────────────── */}
         {step === 1 && (
           <div className="space-y-3">
-            {/* Search */}
             <div className="space-y-1.5">
               <div className="flex items-center justify-between">
                 <Label>Pilih Invoice yang Digabung *</Label>
@@ -440,7 +454,6 @@ function CreateModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: (
               </div>
             </div>
 
-            {/* Daftar invoice dikelompokkan per tenant */}
             {loadingInvoices ? (
               <div className="py-8 text-center text-sm text-muted-foreground">
                 <RefreshCw className="w-5 h-5 mx-auto mb-2 animate-spin opacity-40" />
@@ -467,14 +480,12 @@ function CreateModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: (
 
                   return (
                     <div key={group.tenantId}>
-                      {/* Baris header tenant */}
                       <div
                         className={`flex items-center gap-3 px-3 py-2.5 cursor-pointer select-none
                           ${selectedCount > 0 ? "bg-blue-50" : "bg-slate-50"}
                           hover:bg-blue-50 transition-colors`}
                         onClick={() => toggleExpand(group.tenantId)}
                       >
-                        {/* Checkbox "Pilih Semua" tenant */}
                         <div onClick={(e) => e.stopPropagation()}>
                           <Checkbox
                             checked={allChecked}
@@ -483,8 +494,6 @@ function CreateModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: (
                             onCheckedChange={() => toggleTenant(group.tenantId, groupIds)}
                           />
                         </div>
-
-                        {/* Info tenant */}
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2">
                             <Building2 className="w-3.5 h-3.5 text-blue-500 shrink-0" />
@@ -492,8 +501,6 @@ function CreateModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: (
                             <span className="text-xs text-muted-foreground shrink-0">{group.tenantOwner}</span>
                           </div>
                         </div>
-
-                        {/* Badge jumlah & total */}
                         <div className="flex items-center gap-2 shrink-0">
                           <Badge variant="outline" className={`text-xs ${selectedCount > 0 ? "bg-blue-100 text-blue-700 border-blue-200" : "bg-white"}`}>
                             {selectedCount > 0 ? `${selectedCount}/` : ""}{group.invoices.length} invoice
@@ -503,35 +510,26 @@ function CreateModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: (
                         </div>
                       </div>
 
-                      {/* Baris invoice individual (collapsible) */}
                       {isExpanded && group.invoices.map((inv) => {
                         const checked = selectedInvoiceIds.includes(inv.id);
                         return (
                           <div
                             key={inv.id}
                             className={`flex items-center gap-3 px-3 py-2 pl-10 cursor-pointer border-t border-slate-100
-                              ${checked ? "bg-blue-50/70" : "bg-white hover:bg-slate-50"}
-                              transition-colors`}
+                              ${checked ? "bg-blue-50/70" : "bg-white hover:bg-slate-50"} transition-colors`}
                             onClick={() => toggleInvoice(inv.id)}
                           >
                             <div onClick={(e) => e.stopPropagation()}>
-                              <Checkbox
-                                checked={checked}
-                                onCheckedChange={() => toggleInvoice(inv.id)}
-                              />
+                              <Checkbox checked={checked} onCheckedChange={() => toggleInvoice(inv.id)} />
                             </div>
                             <div className="flex-1 min-w-0">
                               <p className="font-mono text-xs text-muted-foreground">{inv.invoiceNumber}</p>
-                              {inv.unitCode && (
-                                <p className="text-xs text-slate-500">Unit: {inv.unitCode}</p>
-                              )}
+                              {inv.unitCode && <p className="text-xs text-slate-500">Unit: {inv.unitCode}</p>}
                             </div>
                             <div className="text-right shrink-0">
                               <p className="text-sm font-semibold">{formatRupiah(inv.outstandingAmount)}</p>
                               {inv.dueDate && (
-                                <p className={`text-xs ${
-                                  inv.status === "overdue" ? "text-red-500 font-medium" : "text-muted-foreground"
-                                }`}>
+                                <p className={`text-xs ${inv.status === "overdue" ? "text-red-500 font-medium" : "text-muted-foreground"}`}>
                                   {inv.status === "overdue" ? "⚠ " : ""}Jatuh: {formatDate(inv.dueDate)}
                                 </p>
                               )}
@@ -545,7 +543,6 @@ function CreateModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: (
               </div>
             )}
 
-            {/* Status pilihan */}
             {selectedInvoiceIds.length === 0 && allUnpaidInvoices.length > 0 && (
               <p className="text-xs text-muted-foreground text-center">
                 Centang nama tenant untuk memilih semua invoice-nya, atau centang invoice satu per satu
@@ -566,39 +563,10 @@ function CreateModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: (
           </div>
         )}
 
+        {/* ── STEP 2: Detail + Pratinjau Invoice ───────────────────── */}
         {step === 2 && (
           <div className="space-y-4">
-            {/* Ringkasan per tenant */}
-            <div className="bg-slate-50 rounded-lg p-4 space-y-3 text-sm">
-              <p className="font-medium">Ringkasan Invoice Konsolidasi</p>
-              {/* Rincian per tenant yang dipilih */}
-              {(() => {
-                const byTenant = new Map<string, { name: string; count: number; total: number }>();
-                for (const inv of selectedInvoices) {
-                  const entry = byTenant.get(inv.tenantName) ?? { name: inv.tenantName, count: 0, total: 0 };
-                  entry.count++;
-                  entry.total += Number(inv.outstandingAmount);
-                  byTenant.set(inv.tenantName, entry);
-                }
-                return Array.from(byTenant.values()).map((t) => (
-                  <div key={t.name} className="flex items-center justify-between text-xs bg-white rounded border px-3 py-2">
-                    <div className="flex items-center gap-2">
-                      <Building2 className="w-3.5 h-3.5 text-blue-500" />
-                      <span className="font-medium">{t.name}</span>
-                      <Badge variant="outline" className="text-xs bg-blue-50 text-blue-700">{t.count} invoice</Badge>
-                    </div>
-                    <span className="font-semibold">{formatRupiah(t.total)}</span>
-                  </div>
-                ));
-              })()}
-              <Separator />
-              <div className="flex justify-between text-base">
-                <span className="font-semibold">Total Tagihan:</span>
-                <span className="font-bold text-blue-700">{formatRupiah(totalSelected)}</span>
-              </div>
-            </div>
-
-            {/* Detail tambahan */}
+            {/* Form detail */}
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <Label htmlFor="periodLabel">Label Periode</Label>
@@ -619,7 +587,6 @@ function CreateModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: (
                 />
               </div>
             </div>
-
             <div className="space-y-1.5">
               <Label htmlFor="notes">Catatan (opsional)</Label>
               <Textarea
@@ -629,6 +596,117 @@ function CreateModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: (
                 onChange={(e) => setNotes(e.target.value)}
                 rows={2}
               />
+            </div>
+
+            <Separator />
+
+            {/* ── Pratinjau Invoice (gaya dokumen) ── */}
+            <div>
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2 flex items-center gap-1.5">
+                <Receipt className="w-3.5 h-3.5" />
+                Pratinjau Invoice
+              </p>
+              <div className="border-2 border-dashed border-blue-200 rounded-xl overflow-hidden bg-white shadow-sm">
+                {/* Kop invoice */}
+                <div className="bg-gradient-to-r from-blue-600 to-blue-700 px-5 py-4 text-white">
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <p className="text-xs uppercase tracking-widest opacity-80 mb-0.5">Invoice Konsolidasi</p>
+                      <p className="font-mono text-lg font-bold tracking-wide">KONS/202X/XXX</p>
+                      <p className="text-xs opacity-75 mt-0.5">Auto-generate saat disimpan</p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-xs opacity-75">Tanggal</p>
+                      <p className="text-sm font-semibold">{todayStr}</p>
+                      {dueDate && (
+                        <>
+                          <p className="text-xs opacity-75 mt-1">Jatuh Tempo</p>
+                          <p className="text-sm font-semibold">{formatDate(dueDate)}</p>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                  {periodLabel && (
+                    <div className="mt-2 inline-block bg-white/20 rounded px-2 py-0.5 text-xs font-medium">
+                      Periode: {periodLabel}
+                    </div>
+                  )}
+                </div>
+
+                {/* Rincian per tenant */}
+                <div className="px-5 py-4 space-y-4">
+                  {selectedByTenant.map((tenant, tIdx) => (
+                    <div key={tenant.name}>
+                      {/* Header tenant */}
+                      <div className="flex items-center gap-2 mb-2">
+                        <Building2 className="w-4 h-4 text-blue-500" />
+                        <div>
+                          <p className="font-semibold text-sm">{tenant.name}</p>
+                          <p className="text-xs text-muted-foreground">{tenant.owner}</p>
+                        </div>
+                      </div>
+
+                      {/* Tabel invoice tenant ini */}
+                      <div className="bg-slate-50 rounded-lg overflow-hidden text-xs">
+                        <div className="grid grid-cols-[1fr_auto_auto] gap-x-4 px-3 py-1.5 bg-slate-100 text-muted-foreground font-medium uppercase tracking-wide text-[10px]">
+                          <span>Invoice / Unit</span>
+                          <span className="text-center">Status</span>
+                          <span className="text-right">Sisa Tagihan</span>
+                        </div>
+                        {tenant.invoices.map((inv) => (
+                          <div key={inv.id} className="grid grid-cols-[1fr_auto_auto] gap-x-4 px-3 py-2 border-t border-slate-200">
+                            <div>
+                              <p className="font-mono text-[11px] text-slate-700">{inv.invoiceNumber}</p>
+                              {inv.unitCode && <p className="text-muted-foreground">Unit: {inv.unitCode}</p>}
+                            </div>
+                            <div className="text-center">
+                              <span className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-medium ${
+                                inv.status === "overdue" ? "bg-red-100 text-red-700" :
+                                inv.status === "partial" ? "bg-blue-100 text-blue-700" :
+                                "bg-amber-100 text-amber-700"
+                              }`}>
+                                {inv.status === "overdue" ? "Lewat Jatuh Tempo" : inv.status === "partial" ? "Sebagian" : "Belum Lunas"}
+                              </span>
+                            </div>
+                            <div className="text-right font-semibold text-slate-800">
+                              {formatRupiah(inv.outstandingAmount)}
+                            </div>
+                          </div>
+                        ))}
+                        {/* Subtotal tenant */}
+                        <div className="grid grid-cols-[1fr_auto] gap-x-4 px-3 py-2 border-t border-slate-300 bg-slate-100">
+                          <span className="text-muted-foreground font-medium">Subtotal {tenant.name}</span>
+                          <span className="font-bold text-slate-800">{formatRupiah(tenant.total)}</span>
+                        </div>
+                      </div>
+
+                      {tIdx < selectedByTenant.length - 1 && <div className="border-t border-dashed border-slate-200 mt-4" />}
+                    </div>
+                  ))}
+
+                  {/* Total keseluruhan */}
+                  <div className="border-t-2 border-blue-200 pt-3 flex items-center justify-between">
+                    <div>
+                      <p className="font-bold text-base">TOTAL TAGIHAN</p>
+                      <p className="text-xs text-muted-foreground">{selectedInvoices.length} invoice dari {selectedByTenant.length} tenant</p>
+                    </div>
+                    <p className="text-2xl font-bold text-blue-700">{formatRupiah(totalSelected)}</p>
+                  </div>
+
+                  {notes && (
+                    <div className="bg-amber-50 border border-amber-200 rounded px-3 py-2 text-xs text-amber-800">
+                      <span className="font-semibold">Catatan:</span> {notes}
+                    </div>
+                  )}
+                </div>
+
+                {/* Footer pratinjau */}
+                <div className="bg-slate-50 border-t px-5 py-2 text-center">
+                  <p className="text-[10px] text-muted-foreground italic">
+                    Pratinjau ini belum disimpan — klik &ldquo;Buat Invoice&rdquo; untuk membuat invoice konsolidasi resmi
+                  </p>
+                </div>
+              </div>
             </div>
           </div>
         )}
@@ -666,7 +744,6 @@ function CreateModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: (
     </Dialog>
   );
 }
-
 // ── Halaman Utama ─────────────────────────────────────────────────────────────
 export default function ConsolidatedInvoicesPage() {
   const { toast } = useToast();
