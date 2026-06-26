@@ -1,7 +1,7 @@
 import { db } from "@workspace/db";
 import { tenantInvoicesTable, tenantsTable, bankMutationsTable } from "@workspace/db/schema";
-import { and, inArray, isNull, eq, sql, gt } from "drizzle-orm";
-import { sendOverdueReminder, sendDueReminder, sendBankUnmatchedAlert, getAdminNotifyPhones } from "./whatsapp";
+import { and, inArray, isNull, eq, sql } from "drizzle-orm";
+import { sendInvoiceNotification, sendOverdueReminder, sendDueReminder, sendBankUnmatchedAlert, getAdminNotifyPhones, getSiteCompanyName } from "./whatsapp";
 import { logger } from "./logger";
 import { getBaseUrl } from "./app-url";
 
@@ -13,6 +13,9 @@ export function startOverdueScheduler(): void {
 
   // Jalankan semua pengecekan 30 detik setelah startup
   setTimeout(() => {
+    runInvoiceNotificationCheck().catch((err) =>
+      logger.warn({ err }, "[scheduler] Cek kirim tagihan awal periode gagal"),
+    );
     runDueReminderCheck().catch((err) =>
       logger.warn({ err }, "[scheduler] Cek reminder H-3/H-1 awal gagal"),
     );
@@ -27,6 +30,9 @@ export function startOverdueScheduler(): void {
   // Ulangi setiap 12 jam
   setInterval(
     () => {
+      runInvoiceNotificationCheck().catch((err) =>
+        logger.warn({ err }, "[scheduler] Cek kirim tagihan awal periode berkala gagal"),
+      );
       runDueReminderCheck().catch((err) =>
         logger.warn({ err }, "[scheduler] Cek reminder H-3/H-1 berkala gagal"),
       );
@@ -40,7 +46,7 @@ export function startOverdueScheduler(): void {
     12 * 60 * 60 * 1000,
   );
 
-  logger.info("[scheduler] Scheduler aktif (H-3, H-1, overdue, unmatched) — cek setiap 12 jam");
+  logger.info("[scheduler] Scheduler aktif (tagihan, H-3, H-1, overdue, unmatched) — cek setiap 12 jam");
 }
 
 // getAdminPhones → pakai getAdminNotifyPhones() dari whatsapp.ts (sudah handle ADMIN_WA_GROUP)
@@ -106,6 +112,86 @@ function formatPeriodLabel(
     new Date(d).toLocaleDateString("id-ID", { month: "long", year: "numeric" });
   if (periodStart && periodEnd) return `${fmt(periodStart)} – ${fmt(periodEnd)}`;
   return fmt((periodStart ?? periodEnd)!);
+}
+
+// ─── Kirim tagihan di awal periode sewa ──────────────────────────────────────
+
+/**
+ * Kirim WA tagihan baru ke tenant di awal setiap periode sewa.
+ * Invoice yang period_start-nya hari ini atau sudah lewat (maks 3 hari lalu)
+ * dan belum pernah dikirimkan notifikasinya (invoice_notified_at IS NULL)
+ * akan dikirim sekarang.
+ */
+async function runInvoiceNotificationCheck(): Promise<void> {
+  logger.info("[scheduler] Menjalankan cek kirim tagihan awal periode...");
+
+  const invoices = await db
+    .select({
+      id: tenantInvoicesTable.id,
+      invoiceNumber: tenantInvoicesTable.invoiceNumber,
+      siteId: tenantInvoicesTable.siteId,
+      periodStart: tenantInvoicesTable.periodStart,
+      periodEnd: tenantInvoicesTable.periodEnd,
+      dueDate: tenantInvoicesTable.dueDate,
+      totalAmount: tenantInvoicesTable.totalAmount,
+      paymentToken: tenantInvoicesTable.paymentToken,
+      ownerName: tenantsTable.ownerName,
+      businessName: tenantsTable.businessName,
+      phone: tenantsTable.phone,
+    })
+    .from(tenantInvoicesTable)
+    .innerJoin(tenantsTable, eq(tenantInvoicesTable.tenantId, tenantsTable.id))
+    .where(
+      and(
+        inArray(tenantInvoicesTable.status, ["unpaid", "partial"]),
+        isNull(tenantInvoicesTable.invoiceNotifiedAt),
+        // Periode mulai hari ini atau maks 3 hari yang lalu (catch-up)
+        sql`"period_start" BETWEEN CURRENT_DATE - INTERVAL '3 days' AND CURRENT_DATE`,
+      ),
+    );
+
+  logger.info({ count: invoices.length }, "[scheduler] Invoice baru perlu dikirim ke tenant");
+
+  let sent = 0;
+
+  for (const invoice of invoices) {
+    const now = new Date();
+
+    // Tandai sudah dikirim dulu agar tidak dobel walau WA gagal
+    await db
+      .update(tenantInvoicesTable)
+      .set({ invoiceNotifiedAt: now, updatedAt: now })
+      .where(eq(tenantInvoicesTable.id, invoice.id));
+
+    if (invoice.phone) {
+      const dueStr = invoice.dueDate
+        ? new Date(invoice.dueDate).toLocaleDateString("id-ID", {
+            day: "numeric",
+            month: "long",
+            year: "numeric",
+          })
+        : "-";
+
+      const companyName = await getSiteCompanyName(invoice.siteId);
+      const paymentLink = await buildPaymentLink(invoice.paymentToken);
+
+      const result = await sendInvoiceNotification({
+        ownerName: invoice.ownerName,
+        businessName: invoice.businessName,
+        invoiceNumber: invoice.invoiceNumber,
+        periodLabel: formatPeriodLabel(invoice.periodStart, invoice.periodEnd),
+        totalAmount: invoice.totalAmount,
+        dueDate: dueStr,
+        phone: invoice.phone,
+        paymentLink,
+        companyName,
+      });
+
+      if (result.ok && !result.skipped) sent++;
+    }
+  }
+
+  logger.info({ sent, total: invoices.length }, "[scheduler] Pengiriman tagihan awal periode selesai");
 }
 
 // ─── H-3 dan H-1: Reminder sebelum jatuh tempo ───────────────────────────────

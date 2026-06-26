@@ -3316,3 +3316,10 @@ WHERE t.site_id = ms.id
   );
   `.trim(),
 });
+
+MIGRATIONS.push({
+  name: "0075_invoice_notified_at",
+  sql: `
+ALTER TABLE "tenant_invoices" ADD COLUMN IF NOT EXISTS "invoice_notified_at" timestamptz;
+  `.trim(),
+});
