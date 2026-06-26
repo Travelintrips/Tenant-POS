@@ -10,14 +10,12 @@ function resolveDbUrl(): string {
       (() => { throw new Error("SUPABASE_PG_URL_PROD harus diset di production"); })()
     );
   }
-  // Development: SUPABASE_PG_URL_PROD → DATABASE_URL
-  // SUPABASE_PG_URL_DEV tidak dipakai karena bisa menunjuk ke project Supabase berbeda
-  // yang tidak memiliki schema yang sama. Selalu pakai SUPABASE_PG_URL_PROD agar
-  // data dev dan production konsisten.
+  // Development: SUPABASE_PG_URL_DEV → DATABASE_URL
+  // SUPABASE_PG_URL_DEV menunjuk ke Supabase project dev (terpisah dari prod)
   return (
-    process.env["SUPABASE_PG_URL_PROD"] ??
+    process.env["SUPABASE_PG_URL_DEV"] ??
     process.env["DATABASE_URL"] ??
-    (() => { throw new Error("SUPABASE_PG_URL_PROD atau DATABASE_URL harus diset"); })()
+    (() => { throw new Error("SUPABASE_PG_URL_DEV atau DATABASE_URL harus diset"); })()
   );
 }
 
