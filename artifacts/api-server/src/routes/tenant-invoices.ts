@@ -15,6 +15,8 @@ import { logAudit } from "../lib/audit";
 import { getBaseUrl } from "../lib/app-url";
 import { writePaymentEvent, normalizePaymentMethod } from "../lib/payment-events";
 import { sendInvoiceNotification, sendPaymentConfirmation, sendAdminPosPaymentAlert, notifyAdminGroup, getSiteCompanyName, getAdminNotifyPhones } from "../lib/whatsapp";
+import { postPosPaymentJournal } from "../lib/pos-journal";
+import { postTenantPaymentAccountingEntry } from "../lib/accounting-entry";
 
 const router: IRouter = Router();
 router.use("/tenant-invoices", requireAnyRole("owner", "admin", "finance"));
@@ -1153,6 +1155,56 @@ router.post("/tenant-invoices/:id/payment", async (req, res) => {
       paidAmount: result.newPaidAmount,
       outstandingAmount: result.outstanding,
     });
+
+    // ── Fire-and-forget: Accounting journal + tax entry ──────────────────────
+    void (async () => {
+      try {
+        const p = result.payment;
+        const inv = result.invoice;
+        const siteId = p.siteId ?? req.siteId ?? null;
+
+        // Ambil businessName dari tenant
+        const [tenantRow] = p.tenantId
+          ? await db
+              .select({ businessName: tenantsTable.businessName })
+              .from(tenantsTable)
+              .where(eq(tenantsTable.id, p.tenantId))
+          : [];
+
+        // Journal entry (bank_journal_entries) + tax_transactions (PPN)
+        await postPosPaymentJournal({
+          paymentId: p.id,
+          tenantId: p.tenantId ?? 0,
+          invoiceId: inv.id,
+          invoiceNumber: inv.invoiceNumber ?? null,
+          businessName: tenantRow?.businessName ?? null,
+          amountPaid: parseFloat(String(p.amount)),
+          paymentMethod: p.paymentMethod ?? paymentMethod,
+          transactionDate: p.paidAt ?? new Date(),
+          kasirName: (req.user as { name?: string } | undefined)?.name ?? "Admin",
+          siteId,
+          receiptNumber: p.receiptNumber ?? result.receiptNumber,
+          journalPrefix: "PAY",
+          sourceApp: "tenant_management",
+          sourceModule: "direct_invoice_payment",
+        });
+
+        // Accounting entry (accounting_entries + accounting_entry_lines)
+        await postTenantPaymentAccountingEntry({
+          paymentId: p.id,
+          siteId,
+          invoiceNumber: inv.invoiceNumber ?? null,
+          businessName: tenantRow?.businessName ?? null,
+          amountPaid: parseFloat(String(p.amount)),
+          paymentMethod: p.paymentMethod ?? paymentMethod,
+          transactionDate: p.paidAt ?? new Date(),
+          receiptNumber: p.receiptNumber ?? result.receiptNumber,
+          sourceModule: "direct_invoice_payment",
+        });
+      } catch (err) {
+        req.log?.error({ err }, "[invoice-pay] Accounting/tax entry gagal — non-fatal");
+      }
+    })();
 
     // ── Fire-and-forget: Kirim WA ke tenant + admin setelah pembayaran invoice ──
     void (async () => {
