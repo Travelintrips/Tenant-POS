@@ -9,6 +9,7 @@
 import { db } from "@workspace/db";
 import { usersTable, systemSettingsTable } from "@workspace/db/schema";
 import { sql, and, inArray, eq } from "drizzle-orm";
+import { logger } from "./logger";
 
 const FONNTE_TOKEN = process.env.FONNTE_API_KEY ?? process.env.FONNTE_TOKEN;
 const FONNTE_SENDER = process.env.FONNTE_SENDER ?? "";
@@ -165,7 +166,7 @@ async function sendMessage(phone: string, message: string): Promise<WaResult> {
 
     const data = await res.json() as Record<string, unknown>;
 
-    console.log("[WA] Fonnte response:", JSON.stringify(data));
+    logger.info({ fonnte: data }, "[WA] Fonnte response");
 
     // Fonnte kadang return status sebagai string "false" atau boolean false
     const statusFailed = data["status"] === false || data["status"] === "false";
@@ -177,12 +178,12 @@ async function sendMessage(phone: string, message: string): Promise<WaResult> {
 
     if (!res.ok || statusFailed || processedFailed) {
       const rawReason = String(data["reason"] ?? data["message"] ?? data["detail"] ?? "Gagal kirim WA");
-      console.error("[WA] Fonnte error:", rawReason, "| full response:", JSON.stringify(data));
+      logger.error({ fonnte: data }, "[WA] Fonnte error: " + rawReason);
       return { ok: false, error: translateFonnteError(rawReason), response: data };
     }
 
     if (processPending) {
-      console.warn("[WA] Fonnte: pesan masuk antrian (pending) — kemungkinan sesi WA device expired. Periksa dashboard Fonnte dan reconnect device.");
+      logger.warn("[WA] Fonnte: pesan masuk antrian (pending) — kemungkinan sesi WA device expired. Periksa dashboard Fonnte dan reconnect device.");
       return { ok: true, pending: true, response: data };
     }
 

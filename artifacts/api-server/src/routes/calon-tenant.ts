@@ -508,11 +508,11 @@ router.post(
       const statusFailed = body["status"] === false || body["status"] === "false";
       const processFailed = body["process"] === false || body["process"] === "false";
       if (!r.ok || statusFailed || processFailed) {
-        errorMessage = `${String(body["reason"] ?? body["detail"] ?? body["message"] ?? "Gagal mengirim WA")} | ${fonnteLog}`;
-        console.error("[kirim-link-wa] Fonnte error:", errorMessage);
+        errorMessage = String(body["reason"] ?? body["detail"] ?? body["message"] ?? "Gagal mengirim WA");
+        req.log.warn({ fonnte: body }, "[kirim-link-wa] Fonnte error: " + errorMessage);
       } else {
         // Simpan detail respon Fonnte meski sukses (untuk debug)
-        errorMessage = fonnteLog;
+        errorMessage = JSON.stringify(body);
         status = "success";
       }
     } catch (err) {

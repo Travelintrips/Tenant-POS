@@ -183,7 +183,7 @@ export async function postTenantPaymentAccountingEntry(
       UPDATE accounting_entries SET status = 'posted' WHERE id = ${entryId}
     `);
 
-    console.log(
+    logger.info(
       `[accounting_entry] ✅ ${entryNumber} | company_id=${companyId} | Rp ${amountPaid} | ${description} | lines: 2`
     );
   } catch (err) {

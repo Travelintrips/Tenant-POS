@@ -4,6 +4,7 @@
  */
 import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
+import { logger } from "./logger";
 
 function calcAmounts(rentAmount: number) {
   const total = rentAmount;
@@ -126,7 +127,7 @@ async function insertOneInvoice(opts: {
         RETURNING id
       `);
       const id = (insertResult as unknown as { rows: { id: number }[] }).rows[0]?.id ?? null;
-      console.log(`[auto-invoice] Invoice ${invoiceNumber} (${periodStartStr}) dibuat (bookingId=${bookingId})`);
+      logger.info(`[auto-invoice] Invoice ${invoiceNumber} (${periodStartStr}) dibuat (bookingId=${bookingId})`);
       return id;
     } catch (err: unknown) {
       const code = (err as { cause?: { code?: string } })?.cause?.code;
@@ -182,7 +183,7 @@ export async function createAllInvoicesForBooking(opts: {
     const monthKey = periodStartStr;
 
     if (existingMonths.has(monthKey)) {
-      console.log(`[auto-invoice] Invoice ${monthKey} sudah ada, dilewati (bookingId=${bookingId})`);
+      logger.debug(`[auto-invoice] Invoice ${monthKey} sudah ada, dilewati (bookingId=${bookingId})`);
       continue;
     }
 
@@ -196,7 +197,7 @@ export async function createAllInvoicesForBooking(opts: {
     }
   }
 
-  console.log(`[auto-invoice] Selesai: ${createdIds.length} invoice dibuat untuk bookingId=${bookingId} (${durationMonths} bulan)`);
+  logger.info(`[auto-invoice] Selesai: ${createdIds.length} invoice dibuat untuk bookingId=${bookingId} (${durationMonths} bulan)`);
   return createdIds;
 }
 
