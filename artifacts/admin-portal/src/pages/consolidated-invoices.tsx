@@ -300,7 +300,8 @@ function CreateModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: (
     queryKey: ["all-unpaid-invoices-for-consolidation"],
     queryFn: async () => {
       const r = await fetch(`${BASE}/api/consolidated-invoices/all-unpaid`, { credentials: "include" });
-      return r.json();
+      const data = await r.json();
+      return Array.isArray(data) ? data : [];
     },
   });
 
