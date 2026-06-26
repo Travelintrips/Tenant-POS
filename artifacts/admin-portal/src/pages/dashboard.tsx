@@ -16,6 +16,7 @@ import {
   Users, FileText, AlertTriangle, Wallet, TrendingUp,
   Clock, ArrowRight, ClipboardCheck, Store, CalendarRange,
   BarChart3, CheckCircle2, CircleDollarSign, LayoutGrid, Calculator, BadgeCheck,
+  Download, Loader2,
 } from "lucide-react";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -139,6 +140,30 @@ export default function Dashboard() {
 
   const defaultMonth = MONTH_OPTIONS[0].value;
   const [paidMonthFilter, setPaidMonthFilter] = useState<string>(defaultMonth);
+  const [isDownloading, setIsDownloading] = useState(false);
+
+  const handleDownloadPdf = async () => {
+    setIsDownloading(true);
+    try {
+      const params = new URLSearchParams({ month: paidMonthFilter });
+      if (activeSite && activeSite.code !== "ALL") params.set("siteId", String(activeSite.id));
+      const res = await fetch(`${BASE}/api/dashboard/export-monthly-pdf?${params}`, {
+        headers: siteHeader,
+      });
+      if (!res.ok) throw new Error("Gagal mengunduh laporan");
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `laporan-${paidMonthFilter}.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      alert("Gagal mengunduh laporan PDF. Coba lagi.");
+    } finally {
+      setIsDownloading(false);
+    }
+  };
 
   const { data: summary, isLoading: loadSummary } = useQuery<DashSummary>({
     queryKey: ["dashboard-summary", activeSite?.id, paidMonthFilter],
@@ -302,18 +327,32 @@ export default function Dashboard() {
                     <BadgeCheck className="h-3.5 w-3.5 text-violet-500" />
                     Invoice Terbayar
                   </p>
-                  <Select value={paidMonthFilter} onValueChange={setPaidMonthFilter}>
-                    <SelectTrigger className="h-6 text-[10px] px-2 py-0 w-auto border-violet-200 text-violet-700 bg-violet-50 hover:bg-violet-100 focus:ring-violet-300 rounded-md">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent align="end" className="text-xs max-h-56">
-                      {MONTH_OPTIONS.map((opt) => (
-                        <SelectItem key={opt.value} value={opt.value} className="text-xs">
-                          {opt.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <div className="flex items-center gap-1">
+                    <Select value={paidMonthFilter} onValueChange={setPaidMonthFilter}>
+                      <SelectTrigger className="h-6 text-[10px] px-2 py-0 w-auto border-violet-200 text-violet-700 bg-violet-50 hover:bg-violet-100 focus:ring-violet-300 rounded-md">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent align="end" className="text-xs max-h-56">
+                        {MONTH_OPTIONS.map((opt) => (
+                          <SelectItem key={opt.value} value={opt.value} className="text-xs">
+                            {opt.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-6 w-6 text-violet-600 hover:bg-violet-100"
+                      onClick={handleDownloadPdf}
+                      disabled={isDownloading}
+                      title="Download laporan PDF"
+                    >
+                      {isDownloading
+                        ? <Loader2 className="h-3 w-3 animate-spin" />
+                        : <Download className="h-3 w-3" />}
+                    </Button>
+                  </div>
                 </div>
                 <p className="text-3xl font-bold text-violet-600">{summary?.invoicePaidCount ?? 0}</p>
                 <p className="text-xs text-muted-foreground mt-0.5 mb-2">
