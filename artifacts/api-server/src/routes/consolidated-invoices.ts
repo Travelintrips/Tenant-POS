@@ -79,6 +79,121 @@ router.get("/consolidated-invoices", async (req, res) => {
   }
 });
 
+// ── GET /api/consolidated-invoices/all-unpaid ─────────────────────────────────
+// PENTING: Route ini harus SEBELUM /:id agar tidak ditangkap sebagai ID
+// Ambil SEMUA invoice unpaid/partial/overdue di site ini (lintas tenant)
+router.get("/consolidated-invoices/all-unpaid", async (req, res) => {
+  try {
+    const siteId = req.siteId > 0 ? req.siteId : null;
+
+    // Invoice yang sudah masuk consolidated aktif
+    const alreadyConsolidated = await db
+      .select({ invoiceId: consolidatedInvoiceItemsTable.invoiceId })
+      .from(consolidatedInvoiceItemsTable)
+      .innerJoin(
+        consolidatedInvoicesTable,
+        eq(consolidatedInvoiceItemsTable.consolidatedInvoiceId, consolidatedInvoicesTable.id)
+      )
+      .where(inArray(consolidatedInvoicesTable.status, ["unpaid", "partial", "draft"]));
+
+    const excludedIds = alreadyConsolidated.map((r) => r.invoiceId);
+
+    const invoices = await db
+      .select({
+        id: tenantInvoicesTable.id,
+        tenantId: tenantInvoicesTable.tenantId,
+        tenantName: tenantsTable.businessName,
+        tenantOwner: tenantsTable.ownerName,
+        invoiceNumber: tenantInvoicesTable.invoiceNumber,
+        unitCode: tenantInvoicesTable.unitCode,
+        periodStart: tenantInvoicesTable.periodStart,
+        periodEnd: tenantInvoicesTable.periodEnd,
+        dueDate: tenantInvoicesTable.dueDate,
+        totalAmount: tenantInvoicesTable.totalAmount,
+        paidAmount: tenantInvoicesTable.paidAmount,
+        outstandingAmount: tenantInvoicesTable.outstandingAmount,
+        status: tenantInvoicesTable.status,
+      })
+      .from(tenantInvoicesTable)
+      .innerJoin(tenantsTable, eq(tenantInvoicesTable.tenantId, tenantsTable.id))
+      .where(
+        and(
+          inArray(tenantInvoicesTable.status, ["unpaid", "partial", "overdue"]),
+          siteId ? eq(tenantInvoicesTable.siteId, siteId) : sql`true`,
+          excludedIds.length > 0
+            ? sql`${tenantInvoicesTable.id} NOT IN (${sql.join(excludedIds.map((id) => sql`${id}`), sql`, `)})`
+            : sql`true`
+        )
+      )
+      .orderBy(tenantsTable.businessName, tenantInvoicesTable.dueDate);
+
+    res.json(invoices);
+  } catch (err) {
+    req.log.error(err, "Gagal mengambil semua unpaid invoices");
+    res.status(500).json({ error: "Gagal mengambil data invoice" });
+  }
+});
+
+// ── GET /api/consolidated-invoices/tenant/:tenantId/unpaid-invoices ───────────
+// PENTING: Route ini harus SEBELUM /:id
+// Ambil invoice unpaid/partial milik tenant untuk dipilih saat buat konsolidasi
+router.get("/consolidated-invoices/tenant/:tenantId/unpaid-invoices", async (req, res) => {
+  const tenantId = Number(req.params.tenantId);
+  if (isNaN(tenantId)) { res.status(400).json({ error: "ID tidak valid" }); return; }
+
+  try {
+    const siteId = req.siteId > 0 ? req.siteId : null;
+
+    // Invoice yang sudah masuk consolidated aktif
+    const alreadyConsolidated = await db
+      .select({ invoiceId: consolidatedInvoiceItemsTable.invoiceId })
+      .from(consolidatedInvoiceItemsTable)
+      .innerJoin(
+        consolidatedInvoicesTable,
+        eq(consolidatedInvoiceItemsTable.consolidatedInvoiceId, consolidatedInvoicesTable.id)
+      )
+      .where(
+        and(
+          eq(consolidatedInvoicesTable.tenantId, tenantId),
+          inArray(consolidatedInvoicesTable.status, ["unpaid", "partial", "draft"])
+        )
+      );
+
+    const excludedIds = alreadyConsolidated.map((r) => r.invoiceId);
+
+    const invoices = await db
+      .select({
+        id: tenantInvoicesTable.id,
+        invoiceNumber: tenantInvoicesTable.invoiceNumber,
+        unitCode: tenantInvoicesTable.unitCode,
+        periodStart: tenantInvoicesTable.periodStart,
+        periodEnd: tenantInvoicesTable.periodEnd,
+        dueDate: tenantInvoicesTable.dueDate,
+        totalAmount: tenantInvoicesTable.totalAmount,
+        paidAmount: tenantInvoicesTable.paidAmount,
+        outstandingAmount: tenantInvoicesTable.outstandingAmount,
+        status: tenantInvoicesTable.status,
+      })
+      .from(tenantInvoicesTable)
+      .where(
+        and(
+          eq(tenantInvoicesTable.tenantId, tenantId),
+          inArray(tenantInvoicesTable.status, ["unpaid", "partial", "overdue"]),
+          siteId ? eq(tenantInvoicesTable.siteId, siteId) : sql`true`,
+          excludedIds.length > 0
+            ? sql`${tenantInvoicesTable.id} NOT IN (${sql.join(excludedIds.map((id) => sql`${id}`), sql`, `)})`
+            : sql`true`
+        )
+      )
+      .orderBy(tenantInvoicesTable.dueDate);
+
+    res.json(invoices);
+  } catch (err) {
+    req.log.error(err, "Gagal mengambil unpaid invoices tenant");
+    res.status(500).json({ error: "Gagal mengambil data invoice" });
+  }
+});
+
 // ── GET /api/consolidated-invoices/:id ───────────────────────────────────────
 router.get("/consolidated-invoices/:id", async (req, res) => {
   try {
@@ -137,7 +252,6 @@ router.get("/consolidated-invoices/:id", async (req, res) => {
 
 // ── POST /api/consolidated-invoices ──────────────────────────────────────────
 const createSchema = z.object({
-  // tenantId opsional — jika tidak dikirim, diambil dari invoice pertama
   tenantId: z.number().int().positive().optional(),
   invoiceIds: z.array(z.number().int().positive()).min(2, "Minimal 2 invoice harus dipilih"),
   periodLabel: z.string().optional(),
@@ -156,7 +270,6 @@ router.post("/consolidated-invoices", async (req, res) => {
   const siteId = req.siteId > 0 ? req.siteId : null;
 
   try {
-    // Ambil invoice-invoice yang dipilih (lintas tenant diizinkan)
     const invoices = await db
       .select({
         id: tenantInvoicesTable.id,
@@ -178,10 +291,8 @@ router.post("/consolidated-invoices", async (req, res) => {
       return;
     }
 
-    // tenantId diambil dari invoice pertama (tidak wajib sama lintas invoice)
     const tenantId = parsed.data.tenantId ?? invoices[0].tenantId;
 
-    // Validasi tidak ada invoice yang sudah lunas
     const alreadyPaid = invoices.filter((inv) => inv.status === "paid" || inv.status === "cancelled");
     if (alreadyPaid.length > 0) {
       res.status(400).json({
@@ -190,7 +301,6 @@ router.post("/consolidated-invoices", async (req, res) => {
       return;
     }
 
-    // Cek apakah invoice sudah masuk consolidated invoice lain
     const existingItems = await db
       .select({ invoiceId: consolidatedInvoiceItemsTable.invoiceId })
       .from(consolidatedInvoiceItemsTable)
@@ -339,126 +449,12 @@ router.delete("/consolidated-invoices/:id", async (req, res) => {
   }
 });
 
-// ── GET /api/consolidated-invoices/all-unpaid ─────────────────────────────────
-// Ambil SEMUA invoice unpaid/partial/overdue di site ini (lintas tenant)
-router.get("/consolidated-invoices/all-unpaid", async (req, res) => {
-  try {
-    const siteId = req.siteId > 0 ? req.siteId : null;
-
-    // Invoice yang sudah masuk consolidated aktif
-    const alreadyConsolidated = await db
-      .select({ invoiceId: consolidatedInvoiceItemsTable.invoiceId })
-      .from(consolidatedInvoiceItemsTable)
-      .innerJoin(
-        consolidatedInvoicesTable,
-        eq(consolidatedInvoiceItemsTable.consolidatedInvoiceId, consolidatedInvoicesTable.id)
-      )
-      .where(inArray(consolidatedInvoicesTable.status, ["unpaid", "partial", "draft"]));
-
-    const excludedIds = alreadyConsolidated.map((r) => r.invoiceId);
-
-    const invoices = await db
-      .select({
-        id: tenantInvoicesTable.id,
-        tenantId: tenantInvoicesTable.tenantId,
-        tenantName: tenantsTable.businessName,
-        tenantOwner: tenantsTable.ownerName,
-        invoiceNumber: tenantInvoicesTable.invoiceNumber,
-        unitCode: tenantInvoicesTable.unitCode,
-        periodStart: tenantInvoicesTable.periodStart,
-        periodEnd: tenantInvoicesTable.periodEnd,
-        dueDate: tenantInvoicesTable.dueDate,
-        totalAmount: tenantInvoicesTable.totalAmount,
-        paidAmount: tenantInvoicesTable.paidAmount,
-        outstandingAmount: tenantInvoicesTable.outstandingAmount,
-        status: tenantInvoicesTable.status,
-      })
-      .from(tenantInvoicesTable)
-      .innerJoin(tenantsTable, eq(tenantInvoicesTable.tenantId, tenantsTable.id))
-      .where(
-        and(
-          inArray(tenantInvoicesTable.status, ["unpaid", "partial", "overdue"]),
-          siteId ? eq(tenantInvoicesTable.siteId, siteId) : sql`true`,
-          excludedIds.length > 0
-            ? sql`${tenantInvoicesTable.id} NOT IN (${sql.join(excludedIds.map((id) => sql`${id}`), sql`, `)})`
-            : sql`true`
-        )
-      )
-      .orderBy(tenantsTable.businessName, tenantInvoicesTable.dueDate);
-
-    res.json(invoices);
-  } catch (err) {
-    req.log.error(err, "Gagal mengambil semua unpaid invoices");
-    res.status(500).json({ error: "Gagal mengambil data invoice" });
-  }
-});
-
-// ── GET /api/consolidated-invoices/tenant/:tenantId/unpaid-invoices ───────────
-// Ambil invoice unpaid/partial milik tenant untuk dipilih saat buat konsolidasi
-router.get("/consolidated-invoices/tenant/:tenantId/unpaid-invoices", async (req, res) => {
-  const tenantId = Number(req.params.tenantId);
-  if (isNaN(tenantId)) { res.status(400).json({ error: "ID tidak valid" }); return; }
-
-  try {
-    const siteId = req.siteId > 0 ? req.siteId : null;
-
-    // Invoice yang sudah masuk consolidated aktif
-    const alreadyConsolidated = await db
-      .select({ invoiceId: consolidatedInvoiceItemsTable.invoiceId })
-      .from(consolidatedInvoiceItemsTable)
-      .innerJoin(
-        consolidatedInvoicesTable,
-        eq(consolidatedInvoiceItemsTable.consolidatedInvoiceId, consolidatedInvoicesTable.id)
-      )
-      .where(
-        and(
-          eq(consolidatedInvoicesTable.tenantId, tenantId),
-          inArray(consolidatedInvoicesTable.status, ["unpaid", "partial", "draft"])
-        )
-      );
-
-    const excludedIds = alreadyConsolidated.map((r) => r.invoiceId);
-
-    const invoices = await db
-      .select({
-        id: tenantInvoicesTable.id,
-        invoiceNumber: tenantInvoicesTable.invoiceNumber,
-        unitCode: tenantInvoicesTable.unitCode,
-        periodStart: tenantInvoicesTable.periodStart,
-        periodEnd: tenantInvoicesTable.periodEnd,
-        dueDate: tenantInvoicesTable.dueDate,
-        totalAmount: tenantInvoicesTable.totalAmount,
-        paidAmount: tenantInvoicesTable.paidAmount,
-        outstandingAmount: tenantInvoicesTable.outstandingAmount,
-        status: tenantInvoicesTable.status,
-      })
-      .from(tenantInvoicesTable)
-      .where(
-        and(
-          eq(tenantInvoicesTable.tenantId, tenantId),
-          inArray(tenantInvoicesTable.status, ["unpaid", "partial", "overdue"]),
-          siteId ? eq(tenantInvoicesTable.siteId, siteId) : sql`true`,
-          excludedIds.length > 0
-            ? sql`${tenantInvoicesTable.id} NOT IN (${sql.join(excludedIds.map((id) => sql`${id}`), sql`, `)})`
-            : sql`true`
-        )
-      )
-      .orderBy(tenantInvoicesTable.dueDate);
-
-    res.json(invoices);
-  } catch (err) {
-    req.log.error(err, "Gagal mengambil unpaid invoices tenant");
-    res.status(500).json({ error: "Gagal mengambil data invoice" });
-  }
-});
-
 // ── POST /api/consolidated-invoices/:id/send-wa ───────────────────────────────
 router.post("/consolidated-invoices/:id/send-wa", async (req, res) => {
   const id = Number(req.params.id);
   if (isNaN(id)) { res.status(400).json({ error: "ID tidak valid" }); return; }
 
   try {
-    // Ambil header invoice + data tenant
     const [header] = await db
       .select({
         id: consolidatedInvoicesTable.id,
@@ -491,7 +487,6 @@ router.post("/consolidated-invoices/:id/send-wa", async (req, res) => {
       return;
     }
 
-    // Ambil item-item invoice
     const items = await db
       .select({
         unitCode: consolidatedInvoiceItemsTable.unitCode,
