@@ -142,7 +142,7 @@ app.use(
       pool: sessionPool,
       tableName: "session",
       schemaName: "public",
-      createTableIfMissing: true,
+      createTableIfMissing: false,
     }),
     secret: sessionSecret,
     resave: false,
