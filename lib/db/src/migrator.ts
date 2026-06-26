@@ -3215,3 +3215,52 @@ END $$;
 CREATE INDEX IF NOT EXISTS idx_session_expire ON "session" ("expire");
   `.trim(),
 });
+
+MIGRATIONS.push({
+  name: "0073_ensure_consolidated_invoices",
+  sql: `
+CREATE TABLE IF NOT EXISTS "consolidated_invoices" (
+  "id" serial PRIMARY KEY NOT NULL,
+  "site_id" integer REFERENCES "mall_sites"("id"),
+  "invoice_number" text NOT NULL UNIQUE,
+  "tenant_id" integer NOT NULL REFERENCES "tenants"("id"),
+  "period_label" text,
+  "period_start" date,
+  "period_end" date,
+  "due_date" date,
+  "total_amount" numeric NOT NULL DEFAULT '0',
+  "paid_amount" numeric NOT NULL DEFAULT '0',
+  "outstanding_amount" numeric NOT NULL DEFAULT '0',
+  "status" text NOT NULL DEFAULT 'unpaid',
+  "payment_token" text UNIQUE,
+  "notes" text,
+  "created_at" timestamptz NOT NULL DEFAULT now(),
+  "updated_at" timestamptz NOT NULL DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS "consolidated_invoice_items" (
+  "id" serial PRIMARY KEY NOT NULL,
+  "consolidated_invoice_id" integer NOT NULL REFERENCES "consolidated_invoices"("id") ON DELETE CASCADE,
+  "invoice_id" integer NOT NULL REFERENCES "tenant_invoices"("id"),
+  "booking_id" integer REFERENCES "tenant_bookings"("id"),
+  "unit_code" text,
+  "description" text,
+  "amount" numeric NOT NULL DEFAULT '0',
+  "created_at" timestamptz NOT NULL DEFAULT now()
+);
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_indexes WHERE tablename='consolidated_invoices' AND indexname='consolidated_invoices_tenant_id_idx') THEN
+    CREATE INDEX consolidated_invoices_tenant_id_idx ON "consolidated_invoices" ("tenant_id");
+  END IF;
+END $$;
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_indexes WHERE tablename='consolidated_invoices' AND indexname='consolidated_invoices_site_id_idx') THEN
+    CREATE INDEX consolidated_invoices_site_id_idx ON "consolidated_invoices" ("site_id");
+  END IF;
+END $$;
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_indexes WHERE tablename='consolidated_invoice_items' AND indexname='consolidated_invoice_items_inv_id_idx') THEN
+    CREATE INDEX consolidated_invoice_items_inv_id_idx ON "consolidated_invoice_items" ("invoice_id");
+  END IF;
+END $$;
+  `.trim(),
+});
