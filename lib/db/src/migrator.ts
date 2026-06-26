@@ -3264,3 +3264,35 @@ DO $$ BEGIN
 END $$;
   `.trim(),
 });
+
+MIGRATIONS.push({
+  name: "0074_seed_companies_and_fix_tenant_company_id",
+  sql: `
+INSERT INTO companies (code, name, company_name)
+VALUES ('WGS', 'PT Wangsamas', 'PT Wangsamas')
+ON CONFLICT (code) DO NOTHING;
+
+INSERT INTO companies (code, name, company_name)
+VALUES ('DVS', 'PT Diva Servis', 'PT Diva Servis')
+ON CONFLICT (code) DO NOTHING;
+
+INSERT INTO companies (code, name, company_name)
+VALUES ('ERA', 'PT Elmira Ratu Abadi', 'PT Elmira Ratu Abadi')
+ON CONFLICT (code) DO NOTHING;
+
+UPDATE companies
+SET name = 'PT Cahaya Sejati Teknologi', company_name = 'PT Cahaya Sejati Teknologi'
+WHERE code = 'CST' AND name IN ('Mall Admin', 'CST');
+
+UPDATE tenants t
+SET company_id = c.id
+FROM mall_sites ms, companies c
+WHERE t.site_id = ms.id
+  AND (
+    (ms.company_name ILIKE '%Elmira%'        AND c.code = 'ERA') OR
+    (ms.company_name ILIKE '%Cahaya Sejati%' AND c.code = 'CST') OR
+    (ms.company_name ILIKE '%Wangsamas%'     AND c.code = 'WGS') OR
+    (ms.company_name ILIKE '%Diva%'          AND c.code = 'DVS')
+  );
+  `.trim(),
+});
