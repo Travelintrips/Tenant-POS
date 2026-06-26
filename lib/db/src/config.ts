@@ -7,7 +7,7 @@ function resolveDbUrl(): string {
       process.env["SUPABASE_PG_URL_PROD"] ??
       process.env["SUPABASE_PG_URL"] ??
       process.env["DATABASE_URL"] ??
-      (() => { throw new Error("SUPABASE_PG_URL_PROD harus diset di production"); })()
+      (() => { throw new Error("SUPABASE_PG_URL atau DATABASE_URL harus diset di production"); })()
     );
   }
   // Development: SUPABASE_PG_URL_DEV → DATABASE_URL
@@ -16,6 +16,19 @@ function resolveDbUrl(): string {
     process.env["SUPABASE_PG_URL_DEV"] ??
     process.env["DATABASE_URL"] ??
     (() => { throw new Error("SUPABASE_PG_URL_DEV atau DATABASE_URL harus diset"); })()
+  // TIDAK menggunakan SUPABASE_PG_URL_PROD agar dev dan prod benar-benar terpisah.
+  // Set SUPABASE_PG_URL_DEV di Replit Secrets ke URL Supabase project dev Anda.
+  return (
+    process.env["SUPABASE_PG_URL_DEV"] ??
+    process.env["DATABASE_URL"] ??
+    (() => { throw new Error("SUPABASE_PG_URL_DEV atau DATABASE_URL harus diset di development"); })()
+  // Development: pakai DB dev terpisah dari prod
+  // SUPABASE_PG_URL_DEV → SUPABASE_DATABASE_URL_DEV → DATABASE_URL (Replit internal, last resort)
+  return (
+    process.env["SUPABASE_PG_URL_DEV"] ??
+    process.env["SUPABASE_DATABASE_URL_DEV"] ??
+    process.env["DATABASE_URL"] ??
+    (() => { throw new Error("SUPABASE_PG_URL_DEV atau SUPABASE_DATABASE_URL_DEV harus diset di development"); })()
   );
 }
 

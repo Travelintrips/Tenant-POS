@@ -146,11 +146,12 @@ export async function postTenantPaymentAccountingEntry(
     const entryResult = await db.execute(sql`
       INSERT INTO accounting_entries
         (entry_number, journal_id, date, ref, description, status,
-         source, source_id, total_debit, total_credit,
+         source, source_module, source_id, total_debit, total_credit,
          company_id, correlation_id, created_at)
       VALUES
         (${entryNumber}, ${journalId}, ${dateStr}::date, ${ref},
          ${description}, 'draft',
+         ${"tenant_rent_payment"}::accounting_entry_source,
          ${sourceModule}, ${paymentId}, ${amountPaid}, ${amountPaid},
          ${companyId}, ${correlationId}, NOW())
       RETURNING id

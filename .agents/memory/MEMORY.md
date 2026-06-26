@@ -1,3 +1,4 @@
+- [accounting-entry-source-enum](accounting-entry-source-enum.md) — `accounting_entries.source` pakai PG enum `accounting_entry_source`; gunakan `'tenant_rent_payment'::accounting_entry_source` (hardcoded), bukan `opts.sourceApp` atau `sourceModule` yang bisa bukan valid enum — error ini silent karena fire-and-forget try-catch
 - [raw-sql-camelcase](raw-sql-camelcase.md) — db.execute(sql`...`) returns snake_case; always apply toCamel() helper before sending response
 - [api-zod duplicate exports](api-zod-exports.md) — only export from `./generated/api`, not `./generated/types` (same names clash)
 - [scripts workspace resolution](scripts-workspace-resolution.md) — scripts pkg needs `paths` in tsconfig to resolve `@workspace/*` libs; symlinks not created by pnpm for scripts
@@ -54,3 +55,6 @@
 - [migrator-search-path](migrator-search-path.md) — SUPABASE_PG_URL_PROD pakai port 6543 (PgBouncer txn mode); search_path kosong → CREATE TABLE gagal; fix: `SET search_path TO public` setelah client.connect() di runMigrations()
 - [migration-0066-legacy-column](migration-0066-legacy-column.md) — migration 0066 references legacy `type` column in chart_of_accounts (not present on fresh DB); wrap in DO $$ IF EXISTS column check so it skips safely on new clones
 - [bash-file-writes](bash-file-writes.md) — edit tool sometimes doesn't persist to disk; use bash cat/python3 for reliable file writes
+- [session-index-case-sensitivity](session-index-case.md) — pg_indexes stores index names lowercase; DO $$ IF NOT EXISTS indexname='IDX_session_expire' fails silently; use CREATE INDEX IF NOT EXISTS idx_session_expire (lowercase, no DO block)
+- [connect-pg-simple-schema](connect-pg-simple-schema.md) — add schemaName:"public" to PgSession options; to_regclass('session') returns null under PgBouncer (search_path not applied); schema-qualified to_regclass('"public"."session"') always finds the table
+- [migration-idempotency-skipped-deps](migration-idempotency.md) — if migration A is in schema_migrations but its table is missing, migration B (that depends on A's table) will fail; fix B by prepending CREATE TABLE IF NOT EXISTS from A's SQL at the start of B's SQL block
