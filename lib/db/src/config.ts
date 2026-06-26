@@ -3,33 +3,19 @@ const isProduction = (process.env["NODE_ENV"] ?? "development") === "production"
 function resolveDbUrl(): string {
   if (isProduction) {
     // Production: SUPABASE_PG_URL_PROD → SUPABASE_PG_URL → DATABASE_URL
-    return (
+    const url =
       process.env["SUPABASE_PG_URL_PROD"] ??
       process.env["SUPABASE_PG_URL"] ??
-      process.env["DATABASE_URL"] ??
-      (() => { throw new Error("SUPABASE_PG_URL atau DATABASE_URL harus diset di production"); })()
-    );
+      process.env["DATABASE_URL"];
+    if (!url) throw new Error("SUPABASE_PG_URL atau DATABASE_URL harus diset di production");
+    return url;
   }
   // Development: SUPABASE_PG_URL_DEV → DATABASE_URL
-  // SUPABASE_PG_URL_DEV menunjuk ke Supabase project dev (terpisah dari prod)
-  return (
+  const url =
     process.env["SUPABASE_PG_URL_DEV"] ??
-    process.env["DATABASE_URL"] ??
-    (() => { throw new Error("SUPABASE_PG_URL_DEV atau DATABASE_URL harus diset"); })()
-  // TIDAK menggunakan SUPABASE_PG_URL_PROD agar dev dan prod benar-benar terpisah.
-  // Set SUPABASE_PG_URL_DEV di Replit Secrets ke URL Supabase project dev Anda.
-  return (
-    process.env["SUPABASE_PG_URL_DEV"] ??
-    process.env["DATABASE_URL"] ??
-    (() => { throw new Error("SUPABASE_PG_URL_DEV atau DATABASE_URL harus diset di development"); })()
-  // Development: pakai DB dev terpisah dari prod
-  // SUPABASE_PG_URL_DEV → SUPABASE_DATABASE_URL_DEV → DATABASE_URL (Replit internal, last resort)
-  return (
-    process.env["SUPABASE_PG_URL_DEV"] ??
-    process.env["SUPABASE_DATABASE_URL_DEV"] ??
-    process.env["DATABASE_URL"] ??
-    (() => { throw new Error("SUPABASE_PG_URL_DEV atau SUPABASE_DATABASE_URL_DEV harus diset di development"); })()
-  );
+    process.env["DATABASE_URL"];
+  if (!url) throw new Error("SUPABASE_PG_URL_DEV atau DATABASE_URL harus diset di development");
+  return url;
 }
 
 const rawUrl = resolveDbUrl().trim();

@@ -1,6 +1,6 @@
 import { pgTable, serial, text, timestamp } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
-import { z } from "zod/v4";
+import { z } from "zod";
 
 export const SITE_TYPES = ["mall_tenant", "sport_center"] as const;
 export type SiteType = (typeof SITE_TYPES)[number];
