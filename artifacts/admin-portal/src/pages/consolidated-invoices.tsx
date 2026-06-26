@@ -357,7 +357,7 @@ function CreateModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: (
   };
 
   const canProceed = step === 1
-    ? !!tenantId && selectedInvoiceIds.length >= 2
+    ? !!tenantId && selectedInvoiceIds.length >= 1
     : true;
 
   return (
@@ -405,7 +405,7 @@ function CreateModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: (
             {/* Daftar invoice yang bisa dipilih */}
             {tenantId && (
               <div className="space-y-1.5">
-                <Label>Pilih Invoice yang Digabung * <span className="text-muted-foreground font-normal">(minimal 2)</span></Label>
+                <Label>Pilih Invoice yang Digabung *</Label>
                 {loadingInvoices ? (
                   <div className="py-6 text-center text-sm text-muted-foreground">Memuat invoice...</div>
                 ) : unpaidInvoices.length === 0 ? (

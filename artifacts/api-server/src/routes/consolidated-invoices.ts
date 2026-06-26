@@ -138,7 +138,7 @@ router.get("/consolidated-invoices/:id", async (req, res) => {
 // ── POST /api/consolidated-invoices ──────────────────────────────────────────
 const createSchema = z.object({
   tenantId: z.number().int().positive(),
-  invoiceIds: z.array(z.number().int().positive()).min(2, "Minimal 2 invoice harus dipilih"),
+  invoiceIds: z.array(z.number().int().positive()).min(1, "Minimal 1 invoice harus dipilih"),
   periodLabel: z.string().optional(),
   dueDate: z.string().optional(),
   notes: z.string().optional(),
