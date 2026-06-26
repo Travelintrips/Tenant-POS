@@ -233,12 +233,12 @@ export default function Dashboard() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex flex-col gap-1">
-        <h1 className="text-2xl font-bold text-foreground">
+      <div className="flex flex-col gap-0.5">
+        <h1 className="text-xl sm:text-2xl font-bold text-foreground">
           {greeting}, {user?.name?.split(" ")[0] ?? "Admin"} 👋
         </h1>
-        <p className="text-sm text-muted-foreground">
-          Ringkasan operasional · {activeSite?.name ?? "Semua Lokasi"} · {now.toLocaleDateString("id-ID", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}
+        <p className="text-[11px] sm:text-sm text-muted-foreground">
+          Ringkasan operasional · {activeSite?.name ?? "Semua Lokasi"} · <span className="hidden sm:inline">{now.toLocaleDateString("id-ID", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}</span><span className="sm:hidden">{now.toLocaleDateString("id-ID", { day: "numeric", month: "short", year: "numeric" })}</span>
         </p>
       </div>
 

@@ -839,7 +839,7 @@ export default function DataTenant() {
       </div>
 
       {/* Summary */}
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-3 gap-2 sm:gap-4">
         {[
           { label: "Tenant Aktif", value: countActive, color: "text-green-600", sub: "unit terisi" },
           { label: "Non-Aktif", value: countInactive, color: "text-gray-500", sub: "unit kosong" },
@@ -1105,7 +1105,7 @@ export default function DataTenant() {
               Gagal memuat data tenant. Periksa koneksi server.
             </p>
           )}
-          <div className="rounded-md border">
+          <div className="rounded-md border overflow-x-auto">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -1330,7 +1330,7 @@ export default function DataTenant() {
 
       {/* Dialog Tambah / Edit */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="w-[calc(100vw-2rem)] max-w-lg sm:max-w-lg max-h-[90dvh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{editTarget ? "Edit Tenant" : "Tambah Tenant Baru"}</DialogTitle>
           </DialogHeader>
@@ -1746,7 +1746,7 @@ export default function DataTenant() {
 
       {/* ── Google Sheets Sync Dialog ──────────────────────────────── */}
       <Dialog open={sheetSyncOpen} onOpenChange={(o) => { setSheetSyncOpen(o); if (!o) setPreviewData(null); }}>
-        <DialogContent className="max-w-2xl max-h-[90vh] flex flex-col">
+        <DialogContent className="w-[calc(100vw-2rem)] max-w-2xl sm:max-w-2xl max-h-[90dvh] flex flex-col">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Sheet className="h-5 w-5 text-green-600" />

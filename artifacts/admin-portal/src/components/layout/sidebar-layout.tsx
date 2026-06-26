@@ -12,7 +12,8 @@ import {
   SidebarMenuButton,
   SidebarProvider,
   SidebarInset,
-  SidebarTrigger
+  SidebarTrigger,
+  useSidebar,
 } from "@/components/ui/sidebar";
 import { Building2, Store, CalendarRange, Calculator, BarChart3, LogOut, FileText, Shield, ChevronDown, GitCompare, Dumbbell, MapPin, Check, Layers, ClipboardCheck, LayoutGrid, Users, Bell, AlertTriangle, Clock, LayoutDashboard, Settings, MessageCircle, BookTemplate, ClipboardList, FileSpreadsheet, Landmark, Database, FileSignature, BookOpen, TrendingDown, TrendingUp, History } from "lucide-react";
 import { Separator } from "@/components/ui/separator";
@@ -92,6 +93,17 @@ function groupSites(sites: MallSite[]) {
 }
 
 export function SidebarLayout({ children }: { children: React.ReactNode }) {
+  return (
+    <SidebarProvider>
+      <SidebarNav>{children}</SidebarNav>
+    </SidebarProvider>
+  );
+}
+
+function SidebarNav({ children }: { children: React.ReactNode }) {
+  const { isMobile, setOpenMobile } = useSidebar();
+  const closeMobile = () => { if (isMobile) setOpenMobile(false); };
+
   const [location] = useLocation();
   const { data: user } = useAuth();
   const logout = useLogout();
@@ -175,7 +187,7 @@ export function SidebarLayout({ children }: { children: React.ReactNode }) {
   const grouped = groupSites(Array.isArray(sites) ? sites : []);
 
   return (
-    <SidebarProvider>
+    <>
       <Sidebar>
         <SidebarHeader className="flex flex-col gap-2 px-4 py-3">
           <div className="flex flex-row items-center gap-2">
@@ -226,7 +238,7 @@ export function SidebarLayout({ children }: { children: React.ReactNode }) {
             </div>
           )}
         </SidebarHeader>
-        <SidebarContent>
+        <SidebarContent onClick={closeMobile}>
           {can("owner", "admin", "finance") && (
             <SidebarGroup>
               <SidebarGroupLabel>RINGKASAN</SidebarGroupLabel>
@@ -617,10 +629,10 @@ export function SidebarLayout({ children }: { children: React.ReactNode }) {
         )}
       </Sidebar>
       <SidebarInset>
-        <header className="flex h-16 shrink-0 items-center gap-2 border-b px-4">
-          <SidebarTrigger />
-          <Separator orientation="vertical" className="mr-2 h-4" />
-          <span className="text-sm font-medium text-muted-foreground flex-1">
+        <header className="flex h-14 sm:h-16 shrink-0 items-center gap-2 border-b px-3 sm:px-4">
+          <SidebarTrigger className="shrink-0" />
+          <Separator orientation="vertical" className="mr-1 sm:mr-2 h-4" />
+          <span className="text-xs sm:text-sm font-medium text-muted-foreground flex-1 truncate min-w-0">
             {activeSite?.name ?? "Manajemen Tenan"}
           </span>
 
@@ -637,7 +649,7 @@ export function SidebarLayout({ children }: { children: React.ReactNode }) {
                   )}
                 </button>
               </PopoverTrigger>
-              <PopoverContent align="end" className="w-80 p-0" sideOffset={8}>
+              <PopoverContent align="end" className="w-[calc(100vw-2rem)] max-w-80 p-0" sideOffset={8}>
                 <div className="flex items-center justify-between px-4 py-3 border-b">
                   <p className="text-sm font-semibold">Notifikasi Invoice</p>
                   {notifCount > 0 && (
@@ -716,10 +728,10 @@ export function SidebarLayout({ children }: { children: React.ReactNode }) {
             </Popover>
           )}
         </header>
-        <main className="flex-1 p-3 sm:p-5 md:p-6 bg-muted/20">
+        <main className="flex-1 p-3 sm:p-5 md:p-6 bg-muted/20 min-w-0 overflow-x-hidden">
           {children}
         </main>
       </SidebarInset>
-    </SidebarProvider>
+    </>
   );
 }
