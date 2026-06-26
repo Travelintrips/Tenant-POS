@@ -609,21 +609,22 @@ function UnitFormDrawer({
                   Harga sewa default untuk unit ini (akan otomatis terisi saat tambah tenant).
                 </p>
                 {Number(form.defaultRentAmount) > 0 && (() => {
-                  const dpp = Number(form.defaultRentAmount);
-                  const ppn = Math.round(dpp * 0.11);
+                  const total = Number(form.defaultRentAmount);
+                  const dpp   = Math.round(total / 1.11);
+                  const ppn   = total - dpp;
                   return (
                     <div className="mt-2 text-xs bg-muted/50 rounded px-3 py-2 space-y-1">
                       <div className="flex justify-between">
-                        <span className="text-muted-foreground">Harga Sewa / DPP (belum PPN)</span>
-                        <span className="font-medium">{fmtRp(dpp)}</span>
+                        <span className="text-muted-foreground">Harga Sewa (sudah termasuk PPN 11%)</span>
+                        <span className="font-medium">{fmtRp(total)}</span>
                       </div>
                       <div className="flex justify-between text-muted-foreground">
-                        <span>PPN 11% (hanya dari harga sewa)</span>
-                        <span className="font-medium">+ {fmtRp(ppn)}</span>
+                        <span>DPP (dasar pengenaan pajak)</span>
+                        <span className="font-medium">{fmtRp(dpp)}</span>
                       </div>
-                      <div className="flex justify-between border-t border-border pt-1">
-                        <span className="text-muted-foreground">Total tagihan sewa dgn PPN</span>
-                        <span className="font-semibold text-foreground">{fmtRp(dpp + ppn)}</span>
+                      <div className="flex justify-between text-muted-foreground border-t border-border pt-1">
+                        <span>PPN 11% (diekstrak dari harga sewa)</span>
+                        <span className="font-medium">{fmtRp(ppn)}</span>
                       </div>
                       <p className="text-muted-foreground pt-0.5">Iuran sampah, listrik, air, dll <span className="font-medium text-foreground">tidak</span> dikenakan PPN.</p>
                     </div>
