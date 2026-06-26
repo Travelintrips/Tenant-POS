@@ -105,6 +105,21 @@ const CustomTooltip = ({ active, payload, label }: any) => {
   return null;
 };
 
+// Buat opsi bulan: 12 bulan terakhir
+function buildMonthOptions() {
+  const opts: { value: string; label: string }[] = [];
+  const now = new Date();
+  for (let i = 0; i < 13; i++) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    const value = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+    const label = d.toLocaleDateString("id-ID", { month: "long", year: "numeric" });
+    opts.push({ value, label });
+  }
+  return opts;
+}
+
+const MONTH_OPTIONS = buildMonthOptions();
+
 export default function Dashboard() {
   const { data: user } = useAuth();
   const { activeSite } = useSite();
@@ -115,10 +130,14 @@ export default function Dashboard() {
   const tahun = new Date().getFullYear();
   const bulanSekarang = new Date().getMonth();
 
+  const defaultMonth = MONTH_OPTIONS[0].value;
+  const [paidMonthFilter, setPaidMonthFilter] = useState<string>(defaultMonth);
+
   const { data: summary, isLoading: loadSummary } = useQuery<DashSummary>({
-    queryKey: ["dashboard-summary", activeSite?.id],
+    queryKey: ["dashboard-summary", activeSite?.id, paidMonthFilter],
     queryFn: async () => {
-      const res = await fetch(`${BASE}/api/dashboard/summary`, { headers: siteHeader });
+      const url = `${BASE}/api/dashboard/summary?paidMonth=${paidMonthFilter}`;
+      const res = await fetch(url, { headers: siteHeader });
       if (!res.ok) throw new Error("Gagal memuat summary");
       return res.json();
     },
@@ -255,19 +274,33 @@ export default function Dashboard() {
           </CardContent>
         </Card>
 
-        <Card className="border-l-4 border-l-violet-500">
-          <CardContent className="pt-4 pb-3 px-4">
+        <Card className="border-l-4 border-l-violet-500 col-span-2 sm:col-span-1">
+          <CardContent className="pt-3 pb-3 px-4">
             {loadSummary ? (
-              <Skeleton className="h-12 w-full" />
+              <Skeleton className="h-16 w-full" />
             ) : (
               <>
-                <div className="flex items-center justify-between mb-1">
-                  <p className="text-xs text-muted-foreground font-medium">Invoice Terbayar</p>
-                  <BadgeCheck className="h-4 w-4 text-violet-500" />
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-xs text-muted-foreground font-medium flex items-center gap-1">
+                    <BadgeCheck className="h-3.5 w-3.5 text-violet-500" />
+                    Invoice Terbayar
+                  </p>
+                  <Select value={paidMonthFilter} onValueChange={setPaidMonthFilter}>
+                    <SelectTrigger className="h-6 text-[10px] px-2 py-0 w-auto border-violet-200 text-violet-700 bg-violet-50 hover:bg-violet-100 focus:ring-violet-300 rounded-md">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent align="end" className="text-xs max-h-56">
+                      {MONTH_OPTIONS.map((opt) => (
+                        <SelectItem key={opt.value} value={opt.value} className="text-xs">
+                          {opt.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
                 <p className="text-3xl font-bold text-violet-600">{summary?.invoicePaidCount ?? 0}</p>
                 <p className="text-xs text-muted-foreground mt-0.5">
-                  {formatRp(summary?.invoicePaidAmount ?? 0)} bulan ini
+                  {formatRp(summary?.invoicePaidAmount ?? 0)} masuk
                 </p>
               </>
             )}
