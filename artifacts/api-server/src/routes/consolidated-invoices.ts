@@ -137,8 +137,9 @@ router.get("/consolidated-invoices/:id", async (req, res) => {
 
 // ── POST /api/consolidated-invoices ──────────────────────────────────────────
 const createSchema = z.object({
-  tenantId: z.number().int().positive(),
-  invoiceIds: z.array(z.number().int().positive()).min(1, "Minimal 1 invoice harus dipilih"),
+  // tenantId opsional — jika tidak dikirim, diambil dari invoice pertama
+  tenantId: z.number().int().positive().optional(),
+  invoiceIds: z.array(z.number().int().positive()).min(2, "Minimal 2 invoice harus dipilih"),
   periodLabel: z.string().optional(),
   dueDate: z.string().optional(),
   notes: z.string().optional(),
@@ -151,11 +152,11 @@ router.post("/consolidated-invoices", async (req, res) => {
     return;
   }
 
-  const { tenantId, invoiceIds, periodLabel, dueDate, notes } = parsed.data;
+  const { invoiceIds, periodLabel, dueDate, notes } = parsed.data;
   const siteId = req.siteId > 0 ? req.siteId : null;
 
   try {
-    // Ambil invoice-invoice yang dipilih
+    // Ambil invoice-invoice yang dipilih (lintas tenant diizinkan)
     const invoices = await db
       .select({
         id: tenantInvoicesTable.id,
@@ -177,12 +178,8 @@ router.post("/consolidated-invoices", async (req, res) => {
       return;
     }
 
-    // Validasi semua invoice milik tenant yang sama
-    const wrongTenant = invoices.find((inv) => inv.tenantId !== tenantId);
-    if (wrongTenant) {
-      res.status(400).json({ error: `Invoice ${wrongTenant.invoiceNumber} bukan milik tenant ini` });
-      return;
-    }
+    // tenantId diambil dari invoice pertama (tidak wajib sama lintas invoice)
+    const tenantId = parsed.data.tenantId ?? invoices[0].tenantId;
 
     // Validasi tidak ada invoice yang sudah lunas
     const alreadyPaid = invoices.filter((inv) => inv.status === "paid" || inv.status === "cancelled");
@@ -339,6 +336,60 @@ router.delete("/consolidated-invoices/:id", async (req, res) => {
   } catch (err) {
     req.log.error(err, "Gagal hapus consolidated invoice");
     res.status(500).json({ error: "Gagal menghapus invoice" });
+  }
+});
+
+// ── GET /api/consolidated-invoices/all-unpaid ─────────────────────────────────
+// Ambil SEMUA invoice unpaid/partial/overdue di site ini (lintas tenant)
+router.get("/consolidated-invoices/all-unpaid", async (req, res) => {
+  try {
+    const siteId = req.siteId > 0 ? req.siteId : null;
+
+    // Invoice yang sudah masuk consolidated aktif
+    const alreadyConsolidated = await db
+      .select({ invoiceId: consolidatedInvoiceItemsTable.invoiceId })
+      .from(consolidatedInvoiceItemsTable)
+      .innerJoin(
+        consolidatedInvoicesTable,
+        eq(consolidatedInvoiceItemsTable.consolidatedInvoiceId, consolidatedInvoicesTable.id)
+      )
+      .where(inArray(consolidatedInvoicesTable.status, ["unpaid", "partial", "draft"]));
+
+    const excludedIds = alreadyConsolidated.map((r) => r.invoiceId);
+
+    const invoices = await db
+      .select({
+        id: tenantInvoicesTable.id,
+        tenantId: tenantInvoicesTable.tenantId,
+        tenantName: tenantsTable.businessName,
+        tenantOwner: tenantsTable.ownerName,
+        invoiceNumber: tenantInvoicesTable.invoiceNumber,
+        unitCode: tenantInvoicesTable.unitCode,
+        periodStart: tenantInvoicesTable.periodStart,
+        periodEnd: tenantInvoicesTable.periodEnd,
+        dueDate: tenantInvoicesTable.dueDate,
+        totalAmount: tenantInvoicesTable.totalAmount,
+        paidAmount: tenantInvoicesTable.paidAmount,
+        outstandingAmount: tenantInvoicesTable.outstandingAmount,
+        status: tenantInvoicesTable.status,
+      })
+      .from(tenantInvoicesTable)
+      .innerJoin(tenantsTable, eq(tenantInvoicesTable.tenantId, tenantsTable.id))
+      .where(
+        and(
+          inArray(tenantInvoicesTable.status, ["unpaid", "partial", "overdue"]),
+          siteId ? eq(tenantInvoicesTable.siteId, siteId) : sql`true`,
+          excludedIds.length > 0
+            ? sql`${tenantInvoicesTable.id} NOT IN (${sql.join(excludedIds.map((id) => sql`${id}`), sql`, `)})`
+            : sql`true`
+        )
+      )
+      .orderBy(tenantsTable.businessName, tenantInvoicesTable.dueDate);
+
+    res.json(invoices);
+  } catch (err) {
+    req.log.error(err, "Gagal mengambil semua unpaid invoices");
+    res.status(500).json({ error: "Gagal mengambil data invoice" });
   }
 });
 

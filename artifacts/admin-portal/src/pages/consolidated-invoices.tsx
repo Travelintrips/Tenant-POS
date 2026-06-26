@@ -108,6 +108,9 @@ type Tenant = {
 
 type UnpaidInvoice = {
   id: number;
+  tenantId: number;
+  tenantName: string;
+  tenantOwner: string;
   invoiceNumber: string;
   unitCode: string | null;
   periodStart: string | null;
@@ -287,42 +290,39 @@ function DetailModal({ id, onClose }: { id: number; onClose: () => void }) {
 function CreateModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: () => void }) {
   const { toast } = useToast();
   const [step, setStep] = useState<1 | 2>(1);
-  const [selectedTenantId, setSelectedTenantId] = useState<string>("");
   const [selectedInvoiceIds, setSelectedInvoiceIds] = useState<number[]>([]);
+  const [searchText, setSearchText] = useState("");
   const [periodLabel, setPeriodLabel] = useState("");
   const [dueDate, setDueDate] = useState("");
   const [notes, setNotes] = useState("");
 
-  const { data: tenants = [] } = useQuery<Tenant[]>({
-    queryKey: ["tenants-active-consolidated"],
+  const { data: allUnpaidInvoices = [], isLoading: loadingInvoices } = useQuery<UnpaidInvoice[]>({
+    queryKey: ["all-unpaid-invoices-for-consolidation"],
     queryFn: async () => {
-      const r = await fetch(`${BASE}/api/tenants`, { credentials: "include" });
-      const data = await r.json() as Tenant[] | { tenants?: Tenant[] };
-      return Array.isArray(data) ? data : (data.tenants ?? []);
-    },
-  });
-
-  const activeTenants = useMemo(
-    () => tenants.filter((t) => t.status === "aktif" || t.status === "active"),
-    [tenants]
-  );
-
-  const tenantId = selectedTenantId ? Number(selectedTenantId) : null;
-
-  const { data: unpaidInvoices = [], isLoading: loadingInvoices } = useQuery<UnpaidInvoice[]>({
-    queryKey: ["unpaid-invoices-for-consolidation", tenantId],
-    enabled: !!tenantId,
-    queryFn: async () => {
-      const r = await fetch(`${BASE}/api/consolidated-invoices/tenant/${tenantId}/unpaid-invoices`, { credentials: "include" });
+      const r = await fetch(`${BASE}/api/consolidated-invoices/all-unpaid`, { credentials: "include" });
       return r.json();
     },
   });
 
+  const filteredInvoices = useMemo(() => {
+    if (!searchText.trim()) return allUnpaidInvoices;
+    const q = searchText.toLowerCase();
+    return allUnpaidInvoices.filter(
+      (inv) =>
+        inv.tenantName.toLowerCase().includes(q) ||
+        inv.invoiceNumber.toLowerCase().includes(q) ||
+        (inv.unitCode ?? "").toLowerCase().includes(q)
+    );
+  }, [allUnpaidInvoices, searchText]);
+
+  const selectedInvoices = useMemo(
+    () => allUnpaidInvoices.filter((inv) => selectedInvoiceIds.includes(inv.id)),
+    [allUnpaidInvoices, selectedInvoiceIds]
+  );
+
   const totalSelected = useMemo(
-    () => unpaidInvoices
-      .filter((inv) => selectedInvoiceIds.includes(inv.id))
-      .reduce((sum, inv) => sum + Number(inv.outstandingAmount), 0),
-    [unpaidInvoices, selectedInvoiceIds]
+    () => selectedInvoices.reduce((sum, inv) => sum + Number(inv.outstandingAmount), 0),
+    [selectedInvoices]
   );
 
   const mutation = useMutation<unknown, Error>({
@@ -332,7 +332,6 @@ function CreateModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: (
         credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          tenantId: tenantId!,
           invoiceIds: selectedInvoiceIds,
           periodLabel: periodLabel || undefined,
           dueDate: dueDate || undefined,
@@ -358,7 +357,7 @@ function CreateModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: (
 
   // Invoice Konsolidasi wajib minimal 2 invoice
   const canProceed = step === 1
-    ? !!tenantId && selectedInvoiceIds.length >= 2
+    ? selectedInvoiceIds.length >= 2
     : true;
 
   return (
@@ -385,83 +384,83 @@ function CreateModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: (
         <Separator />
 
         {step === 1 && (
-          <div className="space-y-4">
-            {/* Pilih Tenant */}
+          <div className="space-y-3">
+            {/* Search */}
             <div className="space-y-1.5">
-              <Label>Pilih Tenant *</Label>
-              <Select value={selectedTenantId} onValueChange={(v) => { setSelectedTenantId(v); setSelectedInvoiceIds([]); }}>
-                <SelectTrigger>
-                  <SelectValue placeholder="— Pilih tenant —" />
-                </SelectTrigger>
-                <SelectContent>
-                  {activeTenants.map((t) => (
-                    <SelectItem key={t.id} value={String(t.id)}>
-                      {t.businessName} — {t.ownerName}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <div className="flex items-center justify-between">
+                <Label>Pilih Invoice yang Digabung *</Label>
+                <span className="text-xs text-muted-foreground">Pilih minimal 2 invoice</span>
+              </div>
+              <div className="relative">
+                <Search className="absolute left-2.5 top-2.5 w-4 h-4 text-muted-foreground" />
+                <Input
+                  placeholder="Cari tenant / nomor invoice / unit..."
+                  value={searchText}
+                  onChange={(e) => setSearchText(e.target.value)}
+                  className="pl-8"
+                />
+              </div>
             </div>
 
-            {/* Daftar invoice yang bisa dipilih */}
-            {tenantId && (
-              <div className="space-y-1.5">
-                <div className="flex items-center justify-between">
-                  <Label>Pilih Invoice yang Digabung *</Label>
-                  <span className="text-xs text-muted-foreground">Pilih minimal 2 invoice</span>
-                </div>
-                {loadingInvoices ? (
-                  <div className="py-6 text-center text-sm text-muted-foreground">Memuat invoice...</div>
-                ) : unpaidInvoices.length === 0 ? (
-                  <div className="py-6 text-center text-sm text-muted-foreground border rounded-lg">
-                    <AlertCircle className="w-8 h-8 mx-auto mb-2 opacity-30" />
-                    Tidak ada invoice belum lunas yang bisa digabung untuk tenant ini
-                  </div>
-                ) : (
-                  <div className="border rounded-lg overflow-hidden">
-                    <Table>
-                      <TableHeader>
-                        <TableRow className="bg-slate-50">
-                          <TableHead className="w-10"></TableHead>
-                          <TableHead>Invoice / Unit</TableHead>
-                          <TableHead>Periode</TableHead>
-                          <TableHead className="text-right">Sisa Tagihan</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {unpaidInvoices.map((inv) => (
-                          <TableRow
-                            key={inv.id}
-                            className={`cursor-pointer hover:bg-blue-50 ${selectedInvoiceIds.includes(inv.id) ? "bg-blue-50" : ""}`}
-                            onClick={() => toggleInvoice(inv.id)}
-                          >
-                            <TableCell onClick={(e) => e.stopPropagation()}>
-                              <Checkbox
-                                checked={selectedInvoiceIds.includes(inv.id)}
-                                onCheckedChange={() => toggleInvoice(inv.id)}
-                              />
-                            </TableCell>
-                            <TableCell>
-                              <p className="font-mono text-xs">{inv.invoiceNumber}</p>
-                              <p className="text-muted-foreground text-xs">{inv.unitCode || "-"}</p>
-                            </TableCell>
-                            <TableCell className="text-xs">
-                              {inv.periodStart && inv.periodEnd
-                                ? `${formatDate(inv.periodStart)} – ${formatDate(inv.periodEnd)}`
-                                : "-"}
-                            </TableCell>
-                            <TableCell className="text-right font-medium">
-                              {formatRupiah(inv.outstandingAmount)}
-                            </TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  </div>
-                )}
+            {/* Tabel semua invoice */}
+            {loadingInvoices ? (
+              <div className="py-8 text-center text-sm text-muted-foreground">Memuat invoice...</div>
+            ) : allUnpaidInvoices.length === 0 ? (
+              <div className="py-8 text-center text-sm text-muted-foreground border rounded-lg">
+                <AlertCircle className="w-8 h-8 mx-auto mb-2 opacity-30" />
+                Tidak ada invoice belum lunas di site ini
+              </div>
+            ) : (
+              <div className="border rounded-lg overflow-hidden max-h-64 overflow-y-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow className="bg-slate-50 sticky top-0">
+                      <TableHead className="w-10"></TableHead>
+                      <TableHead>Tenant / Invoice</TableHead>
+                      <TableHead>Unit</TableHead>
+                      <TableHead className="text-right">Sisa Tagihan</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {filteredInvoices.length === 0 ? (
+                      <TableRow>
+                        <TableCell colSpan={4} className="text-center text-sm text-muted-foreground py-6">
+                          Tidak ada hasil untuk "{searchText}"
+                        </TableCell>
+                      </TableRow>
+                    ) : filteredInvoices.map((inv) => (
+                      <TableRow
+                        key={inv.id}
+                        className={`cursor-pointer hover:bg-blue-50 ${selectedInvoiceIds.includes(inv.id) ? "bg-blue-50" : ""}`}
+                        onClick={() => toggleInvoice(inv.id)}
+                      >
+                        <TableCell onClick={(e) => e.stopPropagation()}>
+                          <Checkbox
+                            checked={selectedInvoiceIds.includes(inv.id)}
+                            onCheckedChange={() => toggleInvoice(inv.id)}
+                          />
+                        </TableCell>
+                        <TableCell>
+                          <p className="font-medium text-sm">{inv.tenantName}</p>
+                          <p className="font-mono text-xs text-muted-foreground">{inv.invoiceNumber}</p>
+                        </TableCell>
+                        <TableCell className="text-xs text-muted-foreground">
+                          {inv.unitCode || "-"}
+                        </TableCell>
+                        <TableCell className="text-right font-medium">
+                          {formatRupiah(inv.outstandingAmount)}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
               </div>
             )}
 
+            {/* Status pilihan */}
+            {selectedInvoiceIds.length === 0 && allUnpaidInvoices.length > 0 && (
+              <p className="text-xs text-muted-foreground text-center">Centang invoice di atas untuk memilih</p>
+            )}
             {selectedInvoiceIds.length === 1 && (
               <div className="flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-lg px-4 py-2 text-sm text-amber-700">
                 <AlertCircle className="w-4 h-4 shrink-0" />
@@ -484,7 +483,9 @@ function CreateModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: (
               <p className="font-medium">Ringkasan Invoice Konsolidasi</p>
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Tenant:</span>
-                <span className="font-medium">{activeTenants.find((t) => t.id === tenantId)?.businessName}</span>
+                <span className="font-medium text-right max-w-[60%] text-sm">
+                  {[...new Set(selectedInvoices.map((i) => i.tenantName))].join(", ")}
+                </span>
               </div>
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Jumlah Invoice:</span>
