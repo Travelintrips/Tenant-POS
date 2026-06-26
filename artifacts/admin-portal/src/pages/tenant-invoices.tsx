@@ -506,12 +506,12 @@ function buildInvoiceHtml(inv: Invoice, cfg: MallInvoiceConfig): string {
       `<tr><td style="padding:5px 10px">${label}</td><td style="padding:5px 10px;text-align:right">${formatRupiah(v)}</td></tr>`
     ).join("");
 
-  const signerHtml = cfg.invoiceSignerName
-    ? `<div style="margin-top:40px;text-align:right;font-size:12px;color:#444">
-        <div>Hormat kami,</div>
-        <div style="margin-top:36px;border-top:1px solid #ccc;padding-top:4px;display:inline-block;min-width:140px;font-weight:600">${cfg.invoiceSignerName}</div>
-       </div>`
-    : "";
+  // Nama penanda tangan: prioritas invoiceSignerName dari settings, fallback ke displayName (nama PT dari header)
+  const signerName = (cfg.invoiceSignerName && cfg.invoiceSignerName.trim()) ? cfg.invoiceSignerName.trim() : displayName;
+  const signerHtml = `<div style="margin-top:40px;text-align:right;font-size:12px;color:#444">
+      <div>Hormat kami,</div>
+      <div style="margin-top:36px;border-top:1px solid #ccc;padding-top:4px;display:inline-block;min-width:140px;font-weight:600">${signerName}</div>
+     </div>`;
 
   const footerNote = cfg.invoiceFooterNote
     ? `<div style="margin-bottom:6px;font-weight:500;color:#555">${cfg.invoiceFooterNote}</div>`
