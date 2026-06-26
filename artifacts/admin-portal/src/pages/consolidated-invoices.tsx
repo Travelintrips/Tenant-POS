@@ -356,8 +356,9 @@ function CreateModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: (
     );
   };
 
+  // Invoice Konsolidasi wajib minimal 2 invoice
   const canProceed = step === 1
-    ? !!tenantId && selectedInvoiceIds.length >= 1
+    ? !!tenantId && selectedInvoiceIds.length >= 2
     : true;
 
   return (
@@ -405,7 +406,10 @@ function CreateModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: (
             {/* Daftar invoice yang bisa dipilih */}
             {tenantId && (
               <div className="space-y-1.5">
-                <Label>Pilih Invoice yang Digabung *</Label>
+                <div className="flex items-center justify-between">
+                  <Label>Pilih Invoice yang Digabung *</Label>
+                  <span className="text-xs text-muted-foreground">Pilih minimal 2 invoice</span>
+                </div>
                 {loadingInvoices ? (
                   <div className="py-6 text-center text-sm text-muted-foreground">Memuat invoice...</div>
                 ) : unpaidInvoices.length === 0 ? (
@@ -428,10 +432,10 @@ function CreateModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: (
                         {unpaidInvoices.map((inv) => (
                           <TableRow
                             key={inv.id}
-                            className="cursor-pointer hover:bg-blue-50"
+                            className={`cursor-pointer hover:bg-blue-50 ${selectedInvoiceIds.includes(inv.id) ? "bg-blue-50" : ""}`}
                             onClick={() => toggleInvoice(inv.id)}
                           >
-                            <TableCell>
+                            <TableCell onClick={(e) => e.stopPropagation()}>
                               <Checkbox
                                 checked={selectedInvoiceIds.includes(inv.id)}
                                 onCheckedChange={() => toggleInvoice(inv.id)}
@@ -458,9 +462,15 @@ function CreateModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: (
               </div>
             )}
 
-            {selectedInvoiceIds.length > 0 && (
+            {selectedInvoiceIds.length === 1 && (
+              <div className="flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-lg px-4 py-2 text-sm text-amber-700">
+                <AlertCircle className="w-4 h-4 shrink-0" />
+                <span>1 invoice dipilih — pilih 1 invoice lagi untuk membuat konsolidasi</span>
+              </div>
+            )}
+            {selectedInvoiceIds.length >= 2 && (
               <div className="flex items-center justify-between bg-blue-50 rounded-lg px-4 py-2 text-sm">
-                <span className="text-blue-700">{selectedInvoiceIds.length} invoice dipilih</span>
+                <span className="text-blue-700 font-medium">{selectedInvoiceIds.length} invoice dipilih ✓</span>
                 <span className="font-bold text-blue-900">Total: {formatRupiah(totalSelected)}</span>
               </div>
             )}
