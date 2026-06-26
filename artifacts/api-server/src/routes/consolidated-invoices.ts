@@ -4,15 +4,52 @@ import {
   consolidatedInvoicesTable,
   consolidatedInvoiceItemsTable,
   tenantInvoicesTable,
+  tenantPaymentsTable,
   tenantsTable,
   mallSitesTable,
 } from "@workspace/db/schema";
-import { eq, and, inArray, sql, desc } from "drizzle-orm";
+import { eq, and, inArray, sql, desc, asc } from "drizzle-orm";
 import { z } from "zod";
 import { logAudit } from "../lib/audit";
 import { sendConsolidatedInvoiceNotification, getSiteCompanyName } from "../lib/whatsapp";
+import { recordPayment, LedgerError } from "../lib/payment-ledger";
 
 const router = Router();
+
+// ── Helper: sync paid/outstanding/status pada consolidated invoice dari individual invoices ──
+type TxOrDb = Parameters<Parameters<typeof db.transaction>[0]>[0] | typeof db;
+
+async function syncConsolidatedStatus(tx: TxOrDb, consolidatedId: number): Promise<void> {
+  const [header] = await tx
+    .select({ totalAmount: consolidatedInvoicesTable.totalAmount })
+    .from(consolidatedInvoicesTable)
+    .where(eq(consolidatedInvoicesTable.id, consolidatedId));
+  if (!header) return;
+
+  const items = await tx
+    .select({ invoiceId: consolidatedInvoiceItemsTable.invoiceId })
+    .from(consolidatedInvoiceItemsTable)
+    .where(eq(consolidatedInvoiceItemsTable.consolidatedInvoiceId, consolidatedId));
+
+  const invoiceIds = items.map((i) => i.invoiceId);
+  let paidAmount = 0;
+  if (invoiceIds.length > 0) {
+    const [sumRow] = await tx
+      .select({ sumPaid: sql<string>`coalesce(sum(paid_amount::numeric), 0)::text` })
+      .from(tenantInvoicesTable)
+      .where(inArray(tenantInvoicesTable.id, invoiceIds));
+    paidAmount = parseFloat(sumRow?.sumPaid ?? "0");
+  }
+
+  const total = Number(header.totalAmount);
+  const outstanding = Math.max(total - paidAmount, 0);
+  const status = paidAmount >= total ? "paid" : paidAmount > 0 ? "partial" : "unpaid";
+
+  await tx
+    .update(consolidatedInvoicesTable)
+    .set({ paidAmount: String(paidAmount), outstandingAmount: String(outstanding), status, updatedAt: new Date() })
+    .where(eq(consolidatedInvoicesTable.id, consolidatedId));
+}
 
 // ── Generate nomor invoice konsolidasi ───────────────────────────────────────
 async function generateConsolidatedInvoiceNumber(siteId: number | null): Promise<string> {
@@ -235,15 +272,44 @@ router.get("/consolidated-invoices/:id", async (req, res) => {
         unitCode: consolidatedInvoiceItemsTable.unitCode,
         description: consolidatedInvoiceItemsTable.description,
         amount: consolidatedInvoiceItemsTable.amount,
+        dueDate: tenantInvoicesTable.dueDate,
         invoiceStatus: tenantInvoicesTable.status,
         invoicePaidAmount: tenantInvoicesTable.paidAmount,
         invoiceOutstanding: tenantInvoicesTable.outstandingAmount,
       })
       .from(consolidatedInvoiceItemsTable)
       .innerJoin(tenantInvoicesTable, eq(consolidatedInvoiceItemsTable.invoiceId, tenantInvoicesTable.id))
-      .where(eq(consolidatedInvoiceItemsTable.consolidatedInvoiceId, id));
+      .where(eq(consolidatedInvoiceItemsTable.consolidatedInvoiceId, id))
+      .orderBy(asc(tenantInvoicesTable.dueDate));
 
-    res.json({ ...header, items });
+    // Auto-sync status dari individual invoices setiap kali detail dibuka
+    await syncConsolidatedStatus(db, id);
+    const [refreshedHeader] = await db
+      .select({
+        id: consolidatedInvoicesTable.id,
+        invoiceNumber: consolidatedInvoicesTable.invoiceNumber,
+        tenantId: consolidatedInvoicesTable.tenantId,
+        tenantName: tenantsTable.businessName,
+        tenantOwner: tenantsTable.ownerName,
+        tenantPhone: tenantsTable.phone,
+        periodLabel: consolidatedInvoicesTable.periodLabel,
+        periodStart: consolidatedInvoicesTable.periodStart,
+        periodEnd: consolidatedInvoicesTable.periodEnd,
+        dueDate: consolidatedInvoicesTable.dueDate,
+        totalAmount: consolidatedInvoicesTable.totalAmount,
+        paidAmount: consolidatedInvoicesTable.paidAmount,
+        outstandingAmount: consolidatedInvoicesTable.outstandingAmount,
+        status: consolidatedInvoicesTable.status,
+        paymentToken: consolidatedInvoicesTable.paymentToken,
+        notes: consolidatedInvoicesTable.notes,
+        createdAt: consolidatedInvoicesTable.createdAt,
+        updatedAt: consolidatedInvoicesTable.updatedAt,
+      })
+      .from(consolidatedInvoicesTable)
+      .innerJoin(tenantsTable, eq(consolidatedInvoicesTable.tenantId, tenantsTable.id))
+      .where(eq(consolidatedInvoicesTable.id, id));
+
+    res.json({ ...(refreshedHeader ?? header), items });
   } catch (err) {
     req.log.error(err, "Gagal mengambil detail consolidated invoice");
     res.status(500).json({ error: "Gagal mengambil data" });
@@ -532,5 +598,179 @@ router.post("/consolidated-invoices/:id/send-wa", async (req, res) => {
     res.status(500).json({ error: "Gagal mengirim WhatsApp" });
   }
 });
+
+// ── POST /consolidated-invoices/:id/record-payment ──────────────────────────
+// Admin catat pembayaran → distribusikan ke invoice individual (FIFO by due_date)
+const recordPaymentSchema = z.object({
+  amount: z.union([z.string(), z.number()]).transform((v) => Number(v)),
+  paymentMethod: z.enum(["tunai", "transfer", "qris", "edc", "other"]).default("transfer"),
+  referenceNumber: z.string().optional().nullable(),
+  notes: z.string().optional().nullable(),
+  paidAt: z.string().optional().nullable(),
+});
+
+router.post("/consolidated-invoices/:id/record-payment", async (req, res) => {
+  const id = Number(req.params.id);
+  if (isNaN(id)) { res.status(400).json({ error: "ID tidak valid" }); return; }
+
+  const parsed = recordPaymentSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Data tidak valid", detail: parsed.error.flatten().fieldErrors });
+    return;
+  }
+
+  const { amount, paymentMethod, referenceNumber, notes, paidAt } = parsed.data;
+
+  if (amount <= 0) {
+    res.status(400).json({ error: "Jumlah pembayaran harus lebih dari 0" });
+    return;
+  }
+
+  try {
+    const siteId = req.siteId > 0 ? req.siteId : null;
+
+    // 1. Ambil header consolidated invoice
+    const [consolidated] = await db
+      .select({
+        id: consolidatedInvoicesTable.id,
+        invoiceNumber: consolidatedInvoicesTable.invoiceNumber,
+        tenantId: consolidatedInvoicesTable.tenantId,
+        status: consolidatedInvoicesTable.status,
+        totalAmount: consolidatedInvoicesTable.totalAmount,
+        outstandingAmount: consolidatedInvoicesTable.outstandingAmount,
+      })
+      .from(consolidatedInvoicesTable)
+      .where(eq(consolidatedInvoicesTable.id, id));
+
+    if (!consolidated) { res.status(404).json({ error: "Invoice tidak ditemukan" }); return; }
+    if (consolidated.status === "paid") { res.status(409).json({ error: "Invoice ini sudah lunas" }); return; }
+    if (consolidated.status === "cancelled") { res.status(409).json({ error: "Invoice sudah dibatalkan" }); return; }
+
+    // 2. Sync dulu outstanding terkini dari individual invoices
+    await syncConsolidatedStatus(db, id);
+    const [fresh] = await db
+      .select({ outstandingAmount: consolidatedInvoicesTable.outstandingAmount })
+      .from(consolidatedInvoicesTable)
+      .where(eq(consolidatedInvoicesTable.id, id));
+
+    const currentOutstanding = Number(fresh?.outstandingAmount ?? consolidated.outstandingAmount);
+    if (amount > currentOutstanding * 1.001) {
+      res.status(400).json({
+        error: `Jumlah melebihi sisa tagihan (${formatRupiahServer(currentOutstanding)})`,
+      });
+      return;
+    }
+
+    // 3. Ambil item diurutkan berdasarkan due_date ASC (FIFO)
+    const items = await db
+      .select({
+        invoiceId: consolidatedInvoiceItemsTable.invoiceId,
+        bookingId: tenantInvoicesTable.bookingId,
+        outstandingAmount: tenantInvoicesTable.outstandingAmount,
+      })
+      .from(consolidatedInvoiceItemsTable)
+      .innerJoin(tenantInvoicesTable, eq(consolidatedInvoiceItemsTable.invoiceId, tenantInvoicesTable.id))
+      .where(eq(consolidatedInvoiceItemsTable.consolidatedInvoiceId, id))
+      .orderBy(asc(tenantInvoicesTable.dueDate));
+
+    // 4. Hitung distribusi FIFO
+    const distributions: { invoiceId: number; bookingId: number | null; amount: number }[] = [];
+    let remaining = amount;
+    for (const item of items) {
+      if (remaining <= 0.001) break;
+      const outstanding = Math.max(Number(item.outstandingAmount), 0);
+      if (outstanding <= 0) continue;
+      const toPay = Math.min(outstanding, remaining);
+      distributions.push({ invoiceId: item.invoiceId, bookingId: item.bookingId ?? null, amount: toPay });
+      remaining -= toPay;
+    }
+
+    if (distributions.length === 0) {
+      res.status(400).json({ error: "Semua invoice dalam konsolidasi sudah lunas" });
+      return;
+    }
+
+    // 5. Generate nomor kwitansi dasar
+    const datePart = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+    const receiptPrefix = `KONS-PAY-${datePart}-`;
+    const [cntRow] = await db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(tenantPaymentsTable)
+      .where(sql`receipt_number LIKE ${receiptPrefix + "%"}`);
+    const baseSeq = ((cntRow?.count ?? 0) + 1).toString().padStart(4, "0");
+    const baseReceipt = `${receiptPrefix}${baseSeq}`;
+
+    // 6. Eksekusi semua pembayaran dalam satu transaksi
+    const paidAtDate = paidAt ? new Date(paidAt) : new Date();
+
+    await db.transaction(async (tx) => {
+      for (let i = 0; i < distributions.length; i++) {
+        const dist = distributions[i];
+        await recordPayment(tx, {
+          invoiceId: dist.invoiceId,
+          amount: dist.amount,
+          paymentMethod,
+          sourceType: "manual",
+          receiptNumber: `${baseReceipt}-${String(i + 1).padStart(2, "0")}`,
+          referenceNumber: referenceNumber ?? null,
+          notes: notes
+            ? `[Kons: ${consolidated.invoiceNumber}] ${notes}`
+            : `Pembayaran via Invoice Konsolidasi ${consolidated.invoiceNumber}`,
+          paidAt: paidAtDate,
+          siteId,
+          tenantId: consolidated.tenantId,
+          bookingId: dist.bookingId,
+        });
+      }
+
+      // 7. Sync status consolidated setelah semua pembayaran
+      await syncConsolidatedStatus(tx, id);
+    });
+
+    // 8. Ambil data terbaru untuk respons
+    const [updated] = await db
+      .select({
+        id: consolidatedInvoicesTable.id,
+        invoiceNumber: consolidatedInvoicesTable.invoiceNumber,
+        status: consolidatedInvoicesTable.status,
+        paidAmount: consolidatedInvoicesTable.paidAmount,
+        outstandingAmount: consolidatedInvoicesTable.outstandingAmount,
+        totalAmount: consolidatedInvoicesTable.totalAmount,
+      })
+      .from(consolidatedInvoicesTable)
+      .where(eq(consolidatedInvoicesTable.id, id));
+
+    logAudit(req, {
+      action: "record_consolidated_payment",
+      entityType: "consolidated_invoice",
+      entityId: id,
+      afterData: {
+        invoiceNumber: consolidated.invoiceNumber,
+        amount,
+        paymentMethod,
+        distributedTo: distributions.length,
+        baseReceipt,
+      },
+    });
+
+    res.status(201).json({
+      ok: true,
+      invoice: updated,
+      baseReceiptNumber: baseReceipt,
+      distributedCount: distributions.length,
+    });
+  } catch (err) {
+    if (err instanceof LedgerError) {
+      res.status(400).json({ error: err.message });
+      return;
+    }
+    req.log.error(err, "Gagal catat pembayaran konsolidasi");
+    res.status(500).json({ error: "Gagal mencatat pembayaran" });
+  }
+});
+
+function formatRupiahServer(n: number): string {
+  return `Rp ${n.toLocaleString("id-ID")}`;
+}
 
 export default router;

@@ -51,6 +51,8 @@ import {
   Receipt,
   MessageCircle,
   Send,
+  CreditCard,
+  ArrowRight,
 } from "lucide-react";
 
 const BASE = "";
@@ -93,6 +95,7 @@ type ConsolidatedInvoiceDetail = ConsolidatedInvoice & {
     unitCode: string | null;
     description: string | null;
     amount: string;
+    dueDate: string | null;
     invoiceStatus: string;
     invoicePaidAmount: string;
     invoiceOutstanding: string;
@@ -142,6 +145,9 @@ function StatusBadge({ status }: { status: string }) {
 // ── Modal Detail ──────────────────────────────────────────────────────────────
 function DetailModal({ id, onClose }: { id: number; onClose: () => void }) {
   const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const [showPaymentModal, setShowPaymentModal] = useState(false);
+
   const { data, isLoading } = useQuery<ConsolidatedInvoiceDetail>({
     queryKey: ["consolidated-invoice-detail", id],
     queryFn: async () => {
@@ -171,6 +177,7 @@ function DetailModal({ id, onClose }: { id: number; onClose: () => void }) {
   });
 
   return (
+    <>
     <Dialog open onOpenChange={onClose}>
       <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
@@ -266,20 +273,228 @@ function DetailModal({ id, onClose }: { id: number; onClose: () => void }) {
         )}
         <DialogFooter className="flex-col sm:flex-row gap-2">
           {data && data.status !== "paid" && data.status !== "cancelled" && (
-            <Button
-              variant="outline"
-              className="gap-2 border-green-600 text-green-700 hover:bg-green-50"
-              disabled={sendWaMutation.isPending}
-              onClick={() => sendWaMutation.mutate()}
-            >
-              {sendWaMutation.isPending ? (
-                <><RefreshCw className="w-4 h-4 animate-spin" />Mengirim...</>
-              ) : (
-                <><Send className="w-4 h-4" />Kirim via WhatsApp</>
-              )}
-            </Button>
+            <>
+              <Button
+                className="gap-2 bg-emerald-600 hover:bg-emerald-700 text-white"
+                onClick={() => setShowPaymentModal(true)}
+              >
+                <CreditCard className="w-4 h-4" />
+                Catat Pembayaran
+              </Button>
+              <Button
+                variant="outline"
+                className="gap-2 border-green-600 text-green-700 hover:bg-green-50"
+                disabled={sendWaMutation.isPending}
+                onClick={() => sendWaMutation.mutate()}
+              >
+                {sendWaMutation.isPending ? (
+                  <><RefreshCw className="w-4 h-4 animate-spin" />Mengirim...</>
+                ) : (
+                  <><Send className="w-4 h-4" />Kirim via WhatsApp</>
+                )}
+              </Button>
+            </>
           )}
           <Button variant="outline" onClick={onClose}>Tutup</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+
+    {showPaymentModal && data && (
+      <RecordPaymentModal
+        invoice={data}
+        onClose={() => setShowPaymentModal(false)}
+        onSuccess={() => {
+          setShowPaymentModal(false);
+          queryClient.invalidateQueries({ queryKey: ["consolidated-invoice-detail", id] });
+          queryClient.invalidateQueries({ queryKey: ["consolidated-invoices"] });
+        }}
+      />
+    )}
+    </>
+  );
+}
+
+// ── Modal Catat Pembayaran Invoice Konsolidasi ────────────────────────────────
+function RecordPaymentModal({
+  invoice,
+  onClose,
+  onSuccess,
+}: {
+  invoice: ConsolidatedInvoiceDetail;
+  onClose: () => void;
+  onSuccess: () => void;
+}) {
+  const { toast } = useToast();
+  const [amount, setAmount] = useState(String(Number(invoice.outstandingAmount)));
+  const [paymentMethod, setPaymentMethod] = useState("transfer");
+  const [referenceNumber, setReferenceNumber] = useState("");
+  const [notes, setNotes] = useState("");
+  const [paidAt, setPaidAt] = useState(new Date().toISOString().slice(0, 10));
+
+  const distributions = useMemo(() => {
+    let remaining = Number(amount) || 0;
+    const result: { invoiceNumber: string; unitCode: string | null; pay: number; outstanding: number }[] = [];
+    const sorted = [...invoice.items].sort((a, b) => {
+      if (!a.dueDate && !b.dueDate) return 0;
+      if (!a.dueDate) return 1;
+      if (!b.dueDate) return -1;
+      return a.dueDate.localeCompare(b.dueDate);
+    });
+    for (const item of sorted) {
+      if (remaining <= 0) break;
+      const outstanding = Math.max(Number(item.invoiceOutstanding), 0);
+      if (outstanding <= 0) continue;
+      const pay = Math.min(outstanding, remaining);
+      result.push({ invoiceNumber: item.invoiceNumber, unitCode: item.unitCode, pay, outstanding });
+      remaining -= pay;
+    }
+    return result;
+  }, [amount, invoice.items]);
+
+  const mutation = useMutation({
+    mutationFn: async () => {
+      const r = await fetch(`${BASE}/api/consolidated-invoices/${invoice.id}/record-payment`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          amount: Number(amount),
+          paymentMethod,
+          referenceNumber: referenceNumber || null,
+          notes: notes || null,
+          paidAt: paidAt || null,
+        }),
+      });
+      const data = await r.json() as { ok?: boolean; error?: string; distributedCount?: number };
+      if (!r.ok) throw new Error(data.error ?? "Gagal mencatat pembayaran");
+      return data;
+    },
+    onSuccess: (data) => {
+      toast({
+        title: "Pembayaran Dicatat",
+        description: `Berhasil didistribusikan ke ${data.distributedCount ?? distributions.length} invoice individual.`,
+      });
+      onSuccess();
+    },
+    onError: (e: Error) => toast({ title: "Gagal", description: e.message, variant: "destructive" }),
+  });
+
+  const outstanding = Number(invoice.outstandingAmount);
+  const inputAmount = Number(amount) || 0;
+  const isOverpay = inputAmount > outstanding * 1.001;
+  const isValid = inputAmount > 0 && !isOverpay && distributions.length > 0;
+
+  return (
+    <Dialog open onOpenChange={onClose}>
+      <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <CreditCard className="w-5 h-5 text-emerald-600" />
+            Catat Pembayaran
+          </DialogTitle>
+          <p className="text-xs text-muted-foreground">{invoice.invoiceNumber} · Sisa: <span className="font-semibold text-amber-700">{formatRupiah(invoice.outstandingAmount)}</span></p>
+        </DialogHeader>
+
+        <div className="space-y-4">
+          {/* Form input */}
+          <div className="grid grid-cols-2 gap-3">
+            <div className="col-span-2 space-y-1.5">
+              <Label>Jumlah Pembayaran</Label>
+              <Input
+                type="number"
+                min={1}
+                max={outstanding}
+                value={amount}
+                onChange={(e) => setAmount(e.target.value)}
+                className={isOverpay ? "border-red-400" : ""}
+                placeholder="Rp"
+              />
+              {isOverpay && (
+                <p className="text-xs text-red-500">Melebihi sisa tagihan ({formatRupiah(outstanding)})</p>
+              )}
+            </div>
+            <div className="space-y-1.5">
+              <Label>Metode Bayar</Label>
+              <Select value={paymentMethod} onValueChange={setPaymentMethod}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="transfer">Transfer Bank</SelectItem>
+                  <SelectItem value="tunai">Tunai</SelectItem>
+                  <SelectItem value="qris">QRIS</SelectItem>
+                  <SelectItem value="edc">EDC/Kartu</SelectItem>
+                  <SelectItem value="other">Lainnya</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Tanggal Bayar</Label>
+              <Input type="date" value={paidAt} onChange={(e) => setPaidAt(e.target.value)} />
+            </div>
+            <div className="col-span-2 space-y-1.5">
+              <Label>No. Referensi / Kode Transfer <span className="text-muted-foreground">(opsional)</span></Label>
+              <Input
+                value={referenceNumber}
+                onChange={(e) => setReferenceNumber(e.target.value)}
+                placeholder="contoh: TRF-20260626-001"
+              />
+            </div>
+            <div className="col-span-2 space-y-1.5">
+              <Label>Catatan <span className="text-muted-foreground">(opsional)</span></Label>
+              <Textarea
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                rows={2}
+                placeholder="Keterangan tambahan..."
+              />
+            </div>
+          </div>
+
+          {/* Preview distribusi */}
+          {distributions.length > 0 && (
+            <div className="border rounded-lg overflow-hidden">
+              <div className="bg-slate-50 px-3 py-2 border-b">
+                <p className="text-xs font-semibold text-slate-600 uppercase tracking-wide flex items-center gap-1.5">
+                  <ArrowRight className="w-3.5 h-3.5" />
+                  Distribusi Pembayaran (FIFO — jatuh tempo terlama dahulu)
+                </p>
+              </div>
+              <div className="divide-y">
+                {distributions.map((d, i) => (
+                  <div key={i} className="flex items-center justify-between px-3 py-2 text-sm">
+                    <div>
+                      <p className="font-mono text-xs">{d.invoiceNumber}</p>
+                      {d.unitCode && <p className="text-xs text-muted-foreground">{d.unitCode}</p>}
+                    </div>
+                    <div className="text-right">
+                      <p className="font-semibold text-emerald-700">{formatRupiah(d.pay)}</p>
+                      {d.pay < d.outstanding && (
+                        <p className="text-xs text-muted-foreground">dari {formatRupiah(d.outstanding)}</p>
+                      )}
+                      {d.pay >= d.outstanding && (
+                        <span className="text-xs text-emerald-600 font-medium">✓ Lunas</span>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+
+        <DialogFooter className="gap-2">
+          <Button variant="outline" onClick={onClose} disabled={mutation.isPending}>Batal</Button>
+          <Button
+            onClick={() => mutation.mutate()}
+            disabled={!isValid || mutation.isPending}
+            className="bg-emerald-600 hover:bg-emerald-700 text-white gap-2"
+          >
+            {mutation.isPending ? (
+              <><RefreshCw className="w-4 h-4 animate-spin" />Memproses...</>
+            ) : (
+              <><CreditCard className="w-4 h-4" />Catat Pembayaran</>
+            )}
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
