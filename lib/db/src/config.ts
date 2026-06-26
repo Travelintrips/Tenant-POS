@@ -10,13 +10,13 @@ function resolveDbUrl(): string {
       (() => { throw new Error("SUPABASE_PG_URL_PROD harus diset di production"); })()
     );
   }
-  // Development: SUPABASE_PG_URL_PROD → SUPABASE_PG_URL → DATABASE_URL
-  // SUPABASE_PG_URL adalah alias yang umum dipakai; diterima di dev mode sebagai fallback.
+  // Development: SUPABASE_PG_URL_DEV → DATABASE_URL
+  // TIDAK menggunakan SUPABASE_PG_URL_PROD agar dev dan prod benar-benar terpisah.
+  // Set SUPABASE_PG_URL_DEV di Replit Secrets ke URL Supabase project dev Anda.
   return (
-    process.env["SUPABASE_PG_URL_PROD"] ??
-    process.env["SUPABASE_PG_URL"] ??
+    process.env["SUPABASE_PG_URL_DEV"] ??
     process.env["DATABASE_URL"] ??
-    (() => { throw new Error("SUPABASE_PG_URL_PROD, SUPABASE_PG_URL, atau DATABASE_URL harus diset"); })()
+    (() => { throw new Error("SUPABASE_PG_URL_DEV atau DATABASE_URL harus diset di development"); })()
   );
 }
 
