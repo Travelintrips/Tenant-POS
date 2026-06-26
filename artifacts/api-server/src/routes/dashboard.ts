@@ -8,7 +8,7 @@ import {
   operationalExpensesTable,
   mallSitesTable,
 } from "@workspace/db/schema";
-import { eq, sql, and } from "drizzle-orm";
+import { eq, sql, and, isNull, or } from "drizzle-orm";
 import { requireAnyRole } from "../middlewares/auth";
 
 const router: IRouter = Router();
@@ -68,10 +68,16 @@ router.get("/dashboard/summary", async (req, res) => {
         .where(and(payClause, sql`${tenantPaymentsTable.approvalStatus} = 'pending_review'`)),
 
       // Invoice lunas — bulan yang dipilih (default: bulan ini)
+      // Menggunakan WHERE biasa (bukan FILTER) agar Drizzle parameterisasi bekerja benar
       db.select({
-        count:  sql<number>`COUNT(*) FILTER (WHERE ${tenantInvoicesTable.status} = 'paid' AND EXTRACT(YEAR FROM ${tenantInvoicesTable.updatedAt}) = ${paidYear} AND EXTRACT(MONTH FROM ${tenantInvoicesTable.updatedAt}) = ${paidMonth})::int`,
-        amount: sql<number>`COALESCE(SUM(${tenantInvoicesTable.paidAmount}) FILTER (WHERE ${tenantInvoicesTable.status} = 'paid' AND EXTRACT(YEAR FROM ${tenantInvoicesTable.updatedAt}) = ${paidYear} AND EXTRACT(MONTH FROM ${tenantInvoicesTable.updatedAt}) = ${paidMonth}), 0)::numeric`,
-      }).from(tenantInvoicesTable).where(invClause),
+        count:  sql<number>`COUNT(*)::int`,
+        amount: sql<number>`COALESCE(SUM(${tenantInvoicesTable.paidAmount}), 0)::numeric`,
+      }).from(tenantInvoicesTable).where(and(
+        invClause,
+        eq(tenantInvoicesTable.status, "paid"),
+        sql`EXTRACT(YEAR  FROM ${tenantInvoicesTable.updatedAt}) = ${paidYear}`,
+        sql`EXTRACT(MONTH FROM ${tenantInvoicesTable.updatedAt}) = ${paidMonth}`,
+      )),
     ]);
 
     res.json({
