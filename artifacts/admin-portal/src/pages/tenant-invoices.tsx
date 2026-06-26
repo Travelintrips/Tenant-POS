@@ -789,7 +789,7 @@ type GenerateForm = { bookingId: string; notes: string };
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function TenantInvoices() {
-  const { activeSite } = useSite();
+  const { activeSite, activeSiteId } = useSite();
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const printRef = useRef<Invoice | null>(null);
@@ -1187,6 +1187,89 @@ export default function TenantInvoices() {
       notes: createForm.notes || null,
       status: createForm.status,
     });
+  }
+
+  async function handlePreviewCreate() {
+    const tenant = (tenants ?? []).find(t => String(t.id) === createForm.tenantId);
+
+    const rent     = Number(createForm.rentAmount             || 0);
+    const service  = Number(createForm.serviceChargeAmount    || 0);
+    const elec     = Number(createForm.electricityChargeAmount|| 0);
+    const water    = Number(createForm.waterChargeAmount      || 0);
+    const other    = Number(createForm.otherChargeAmount      || 0);
+    const trash    = Number(createForm.trashChargeAmount      || 0);
+    const discount = Number(createForm.discountAmount         || 0);
+    const penalty  = Number(createForm.penaltyAmount          || 0);
+
+    const subtotal = rent + service + elec + water + other + trash - discount + penalty;
+    const taxAmt   = createForm.usePpn ? Math.round(rent * 0.11 / 1.11) : 0;
+    const total    = subtotal;
+
+    const draftInv: Invoice = {
+      id: 0,
+      invoiceNumber: "DRAFT-PREVIEW",
+      siteId: activeSiteId ?? null,
+      tenantId: Number(createForm.tenantId) || 0,
+      bookingId: createForm.bookingId ? Number(createForm.bookingId) : null,
+      unitCode: createForm.unitCode || null,
+      periodStart: createForm.periodStart || null,
+      periodEnd: createForm.periodEnd || null,
+      dueDate: createForm.dueDate || null,
+      rentAmount: String(rent),
+      serviceChargeAmount: String(service),
+      electricityChargeAmount: String(elec),
+      waterChargeAmount: String(water),
+      otherChargeAmount: String(other),
+      trashChargeAmount: String(trash),
+      discountAmount: String(discount),
+      penaltyAmount: String(penalty),
+      usePpn: createForm.usePpn,
+      subtotal: String(subtotal),
+      taxAmount: String(taxAmt),
+      totalAmount: String(total),
+      paidAmount: "0",
+      outstandingAmount: String(total),
+      status: createForm.status,
+      notes: createForm.notes || null,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      tenantName: tenant?.businessName ?? null,
+      ownerName: null,
+      boothNumber: tenant?.boothNumber ?? null,
+      areaName: null,
+      email: null,
+      phone: null,
+    };
+
+    const cfg = await fetchInvoiceConfig(activeSiteId ?? null);
+    let html = buildInvoiceHtml(draftInv, cfg);
+
+    // Watermark DRAFT di tengah halaman
+    const draftCss = `
+      body::before {
+        content: 'DRAFT';
+        position: fixed; top: 50%; left: 50%;
+        transform: translate(-50%, -50%) rotate(-30deg);
+        font-size: 130px; font-weight: 900;
+        color: rgba(220,38,38,0.07); white-space: nowrap;
+        pointer-events: none; z-index: 9999;
+      }
+    `;
+    html = html.replace("</style>", draftCss + "</style>");
+
+    // Banner peringatan di atas invoice
+    const banner = `<div style="background:#fef2f2;border:2px solid #fca5a5;border-radius:8px;padding:10px 18px;margin-bottom:22px;text-align:center;font-size:13px;color:#dc2626;font-weight:600">
+      ⚠️ PREVIEW DRAFT — Invoice ini <u>belum disimpan</u>. Kembali ke portal admin dan klik <strong>Buat Invoice</strong> untuk menyimpan.
+    </div>`;
+    html = html.replace("<body>", "<body>" + banner);
+
+    const win = window.open("", "_blank", "width=820,height=920");
+    if (!win) {
+      toast({ title: "Popup diblokir", description: "Izinkan popup di browser Anda untuk melihat preview invoice.", variant: "destructive" });
+      return;
+    }
+    win.document.write(html);
+    win.document.close();
   }
 
   function handleGenerateSubmit(e: React.FormEvent) {
@@ -1913,11 +1996,22 @@ export default function TenantInvoices() {
               </Field>
             </form>
           </ScrollArea>
-          <DialogFooter>
+          <DialogFooter className="flex-col sm:flex-row gap-2">
             <Button variant="outline" onClick={() => setCreateOpen(false)}>Batal</Button>
-            <Button type="submit" form="create-invoice-form" disabled={createMutation.isPending}>
-              {createMutation.isPending ? "Menyimpan..." : "Buat Invoice"}
-            </Button>
+            <div className="flex gap-2 sm:ml-auto">
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => void handlePreviewCreate()}
+                disabled={!createForm.tenantId}
+                title="Lihat tampilan invoice sebelum disimpan"
+              >
+                👁 Preview
+              </Button>
+              <Button type="submit" form="create-invoice-form" disabled={createMutation.isPending}>
+                {createMutation.isPending ? "Menyimpan..." : "Buat Invoice"}
+              </Button>
+            </div>
           </DialogFooter>
         </DialogContent>
       </Dialog>
