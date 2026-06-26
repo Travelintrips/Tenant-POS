@@ -7,16 +7,16 @@ function resolveDbUrl(): string {
       process.env["SUPABASE_PG_URL_PROD"] ??
       process.env["SUPABASE_PG_URL"] ??
       process.env["DATABASE_URL"] ??
-      (() => { throw new Error("SUPABASE_PG_URL_PROD harus diset di production"); })()
+      (() => { throw new Error("SUPABASE_PG_URL atau DATABASE_URL harus diset di production"); })()
     );
   }
-  // Development: SUPABASE_PG_URL_PROD → SUPABASE_PG_URL → DATABASE_URL
-  // SUPABASE_PG_URL adalah alias yang umum dipakai; diterima di dev mode sebagai fallback.
+  // Development: pakai DB dev terpisah dari prod
+  // SUPABASE_PG_URL_DEV → SUPABASE_DATABASE_URL_DEV → DATABASE_URL (Replit internal, last resort)
   return (
-    process.env["SUPABASE_PG_URL_PROD"] ??
-    process.env["SUPABASE_PG_URL"] ??
+    process.env["SUPABASE_PG_URL_DEV"] ??
+    process.env["SUPABASE_DATABASE_URL_DEV"] ??
     process.env["DATABASE_URL"] ??
-    (() => { throw new Error("SUPABASE_PG_URL_PROD, SUPABASE_PG_URL, atau DATABASE_URL harus diset"); })()
+    (() => { throw new Error("SUPABASE_PG_URL_DEV atau SUPABASE_DATABASE_URL_DEV harus diset di development"); })()
   );
 }
 

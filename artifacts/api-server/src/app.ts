@@ -121,12 +121,12 @@ if (!sessionSecret) {
 // Sesi disimpan ke PostgreSQL agar tidak hilang saat server restart.
 // Tabel `session` harus sudah ada di DB (dibuat oleh migration 0069).
 // Prioritas URL DB konsisten dengan lib/db/src/config.ts:
-//   dev  : SUPABASE_PG_URL_PROD → SUPABASE_PG_URL → DATABASE_URL
+//   dev  : SUPABASE_PG_URL_DEV → SUPABASE_DATABASE_URL_DEV → DATABASE_URL
 //   prod : SUPABASE_PG_URL_PROD → SUPABASE_PG_URL → DATABASE_URL
 const sessionDbUrl =
   isProduction
     ? (process.env.SUPABASE_PG_URL_PROD ?? process.env.SUPABASE_PG_URL ?? process.env.DATABASE_URL ?? "")
-    : (process.env.SUPABASE_PG_URL_PROD ?? process.env.SUPABASE_PG_URL ?? process.env.DATABASE_URL ?? "");
+    : (process.env.SUPABASE_PG_URL_DEV ?? process.env.SUPABASE_DATABASE_URL_DEV ?? process.env.DATABASE_URL ?? "");
 
 const PgSession = connectPgSimple(session);
 // Tambahkan options search_path=public agar Supabase PgBouncer (port 6543)
@@ -141,7 +141,8 @@ app.use(
     store: new PgSession({
       pool: sessionPool,
       tableName: "session",
-      createTableIfMissing: false,
+      schemaName: "public",
+      createTableIfMissing: true,
     }),
     secret: sessionSecret,
     resave: false,

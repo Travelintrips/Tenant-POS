@@ -1979,6 +1979,33 @@ export async function runMigrations(): Promise<void> {
       )
     `);
 
+    // Deteksi "DB kosong dengan schema_migrations basi":
+    // Jika schema_migrations punya banyak entri tapi tabel-tabel kritis tidak ada,
+    // berarti ini DB baru yang schema_migrationsnya diisi dari tempat lain (bukan hasil
+    // menjalankan migration SQL di DB ini). Reset agar semua migration bisa jalan ulang.
+    const migrationsCountRes = await client.query(
+      `SELECT COUNT(*) as cnt FROM "${MIGRATIONS_TABLE}"`
+    );
+    const migrationsCount = parseInt(migrationsCountRes.rows[0]?.cnt ?? "0", 10);
+
+    if (migrationsCount > 5) {
+      const criticalRes = await client.query(`
+        SELECT COUNT(*) as cnt
+        FROM information_schema.tables
+        WHERE table_schema = 'public'
+          AND table_name IN ('users', 'tenants', 'tenant_bookings', 'mall_units')
+      `);
+      const criticalCount = parseInt(criticalRes.rows[0]?.cnt ?? "0", 10);
+
+      if (criticalCount === 0) {
+        console.log(
+          `[migrate] DB kosong terdeteksi (schema_migrations=${migrationsCount} entri, tabel kritis=0). ` +
+          "Mereset schema_migrations agar semua migration dijalankan ulang..."
+        );
+        await client.query(`DELETE FROM "${MIGRATIONS_TABLE}"`);
+      }
+    }
+
     for (const migration of MIGRATIONS) {
       const result = await client.query(
         `SELECT 1 FROM "${MIGRATIONS_TABLE}" WHERE name = $1`,
@@ -2919,6 +2946,25 @@ ALTER TABLE mall_sites ADD COLUMN IF NOT EXISTS invoice_color TEXT;
 MIGRATIONS.push({
   name: "0065_operational_expenses_coa",
   sql: `
+CREATE TABLE IF NOT EXISTS "operational_expenses" (
+  "id" serial PRIMARY KEY,
+  "site_id" integer REFERENCES "mall_sites"("id"),
+  "tenant_id" integer REFERENCES "tenants"("id"),
+  "category" text NOT NULL DEFAULT 'lain-lain',
+  "description" text,
+  "amount" numeric NOT NULL,
+  "payment_method" text NOT NULL DEFAULT 'cash',
+  "paid_at" timestamptz NOT NULL DEFAULT now(),
+  "created_by" integer,
+  "receipt_url" text,
+  "notes" text,
+  "created_at" timestamptz NOT NULL DEFAULT now(),
+  "updated_at" timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS "oe_site_id_idx" ON "operational_expenses"("site_id");
+CREATE INDEX IF NOT EXISTS "oe_tenant_id_idx" ON "operational_expenses"("tenant_id");
+CREATE INDEX IF NOT EXISTS "oe_category_idx" ON "operational_expenses"("category");
+CREATE INDEX IF NOT EXISTS "oe_paid_at_idx" ON "operational_expenses"("paid_at");
 ALTER TABLE operational_expenses ADD COLUMN IF NOT EXISTS coa_code text;
 ALTER TABLE operational_expenses ADD COLUMN IF NOT EXISTS coa_name text;
 ALTER TABLE operational_expenses ADD COLUMN IF NOT EXISTS coa_account_type text;
@@ -3054,17 +3100,69 @@ CREATE TABLE IF NOT EXISTS "session" (
   "sess" json NOT NULL,
   "expire" timestamp(6) NOT NULL
 ) WITH (OIDS=FALSE);
-
 DO $$ BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'session_pkey') THEN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.table_constraints
+    WHERE table_name = 'session' AND constraint_name = 'session_pkey'
+  ) THEN
     ALTER TABLE "session" ADD CONSTRAINT "session_pkey" PRIMARY KEY ("sid") NOT DEFERRABLE INITIALLY IMMEDIATE;
   END IF;
 END $$;
+CREATE INDEX IF NOT EXISTS idx_session_expire ON "session" ("expire");
+  `.trim(),
+});
 
+MIGRATIONS.push({
+  name: "0070_ensure_other_income_table",
+  sql: `
+CREATE TABLE IF NOT EXISTS "other_income" (
+  "id" serial PRIMARY KEY NOT NULL,
+  "site_id" integer REFERENCES "mall_sites"("id"),
+  "tenant_id" integer REFERENCES "tenants"("id"),
+  "category" text NOT NULL DEFAULT 'other',
+  "coa_code" text,
+  "coa_name" text,
+  "description" text NOT NULL,
+  "amount" numeric NOT NULL,
+  "date" timestamptz NOT NULL DEFAULT now(),
+  "created_by" text,
+  "created_at" timestamptz NOT NULL DEFAULT now(),
+  "updated_at" timestamptz NOT NULL DEFAULT now()
+);
 DO $$ BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_indexes WHERE tablename = 'session' AND indexname = 'IDX_session_expire') THEN
-    CREATE INDEX "IDX_session_expire" ON "session" ("expire");
+  IF NOT EXISTS (SELECT 1 FROM pg_indexes WHERE tablename = 'other_income' AND indexname = 'other_income_site_id_idx') THEN
+    CREATE INDEX other_income_site_id_idx ON "other_income" ("site_id");
   END IF;
 END $$;
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_indexes WHERE tablename = 'other_income' AND indexname = 'other_income_date_idx') THEN
+    CREATE INDEX other_income_date_idx ON "other_income" ("date");
+  END IF;
+END $$;
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_indexes WHERE tablename = 'other_income' AND indexname = 'other_income_category_idx') THEN
+    CREATE INDEX other_income_category_idx ON "other_income" ("category");
+  END IF;
+END $$;
+  `.trim(),
+});
+
+MIGRATIONS.push({
+  name: "0071_ensure_session_table",
+  sql: `
+CREATE TABLE IF NOT EXISTS "session" (
+  "sid" varchar NOT NULL COLLATE "default",
+  "sess" json NOT NULL,
+  "expire" timestamp(6) NOT NULL
+) WITH (OIDS=FALSE);
+DO $$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.table_constraints
+    WHERE table_name = 'session' AND constraint_name = 'session_pkey'
+  ) THEN
+    ALTER TABLE "session" ADD CONSTRAINT "session_pkey" PRIMARY KEY ("sid") NOT DEFERRABLE INITIALLY IMMEDIATE;
+  END IF;
+END $$;
+CREATE INDEX IF NOT EXISTS idx_session_expire ON "session" ("expire");
   `.trim(),
 });
