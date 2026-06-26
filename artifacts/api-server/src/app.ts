@@ -7,6 +7,7 @@ import helmet from "helmet";
 import pinoHttp from "pino-http";
 import path from "path";
 import fs from "fs";
+import crypto from "crypto";
 import passport from "./lib/auth";
 import router from "./routes";
 import { logger } from "./lib/logger";
@@ -98,22 +99,34 @@ app.use(
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-const sessionSecret = process.env.SESSION_SECRET ?? "fallback-dev-secret";
+// ─── SESSION_SECRET ────────────────────────────────────────────────────────
+// Di production, SESSION_SECRET wajib diset di Replit Secrets.
+// Di development, auto-generate secret acak jika tidak diset agar server
+// tidak pernah gagal start hanya karena secret belum dikonfigurasi.
+// CATATAN: auto-generated secret bersifat ephemeral — sesi akan invalid
+// setiap kali server restart. Tambahkan SESSION_SECRET ke Secrets untuk
+// sesi yang persisten.
+let sessionSecret = process.env.SESSION_SECRET ?? "";
 
-if (isProduction && sessionSecret === "fallback-dev-secret") {
-  logger.warn("SESSION_SECRET menggunakan nilai default! Wajib diganti sebelum production.");
+if (!sessionSecret) {
+  if (isProduction) {
+    logger.warn("SESSION_SECRET tidak diset di production! Menggunakan secret acak — semua sesi akan hilang saat restart.");
+  } else {
+    logger.info("SESSION_SECRET tidak diset — menggunakan secret acak untuk development. Tambahkan SESSION_SECRET ke Secrets untuk sesi yang persisten.");
+  }
+  sessionSecret = crypto.randomBytes(32).toString("hex");
 }
 
 // ─── PostgreSQL Session Store ──────────────────────────────────────────────
 // Sesi disimpan ke PostgreSQL agar tidak hilang saat server restart.
 // Tabel `session` harus sudah ada di DB (dibuat oleh migration 0069).
 // Prioritas URL DB konsisten dengan lib/db/src/config.ts:
-//   dev  : SUPABASE_PG_URL_PROD → DATABASE_URL
+//   dev  : SUPABASE_PG_URL_PROD → SUPABASE_PG_URL → DATABASE_URL
 //   prod : SUPABASE_PG_URL_PROD → SUPABASE_PG_URL → DATABASE_URL
 const sessionDbUrl =
   isProduction
     ? (process.env.SUPABASE_PG_URL_PROD ?? process.env.SUPABASE_PG_URL ?? process.env.DATABASE_URL ?? "")
-    : (process.env.SUPABASE_PG_URL_PROD ?? process.env.DATABASE_URL ?? "");
+    : (process.env.SUPABASE_PG_URL_PROD ?? process.env.SUPABASE_PG_URL ?? process.env.DATABASE_URL ?? "");
 
 const PgSession = connectPgSimple(session);
 // Tambahkan options search_path=public agar Supabase PgBouncer (port 6543)
