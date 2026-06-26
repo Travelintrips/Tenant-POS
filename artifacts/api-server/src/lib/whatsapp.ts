@@ -1011,3 +1011,70 @@ export async function notifyAdminGroup(params: AdminGroupPaymentParams): Promise
 
   return sendMessage(groupJid, message);
 }
+
+// ─── Invoice Konsolidasi ──────────────────────────────────────────────────────
+
+export interface ConsolidatedInvoiceWaParams {
+  phone: string;
+  ownerName: string;
+  businessName: string;
+  invoiceNumber: string;
+  periodLabel: string | null;
+  dueDate: string | null;
+  totalAmount: string | number;
+  outstandingAmount: string | number;
+  paidAmount: string | number;
+  items: Array<{
+    unitCode: string | null;
+    invoiceNumber: string;
+    amount: string | number;
+    invoiceOutstanding: string | number;
+  }>;
+  companyName?: string;
+}
+
+export async function sendConsolidatedInvoiceNotification(
+  params: ConsolidatedInvoiceWaParams
+): Promise<WaResult> {
+  const company = params.companyName ?? "Manajemen CST";
+
+  const itemLines = params.items
+    .map((item, i) => {
+      const unit = item.unitCode ? `Unit ${item.unitCode}` : `Item ${i + 1}`;
+      return `  ${i + 1}. *${unit}* — ${item.invoiceNumber}\n     Tagihan: ${formatRupiah(item.amount)} | Sisa: *${formatRupiah(item.invoiceOutstanding)}*`;
+    })
+    .join("\n");
+
+  const dueLine = params.dueDate
+    ? `• Jatuh Tempo     : *${new Date(params.dueDate).toLocaleDateString("id-ID", { day: "2-digit", month: "long", year: "numeric" })}*\n`
+    : "";
+
+  const periodLine = params.periodLabel
+    ? `• Periode            : ${params.periodLabel}\n`
+    : "";
+
+  const alreadyPaid = Number(params.paidAmount) > 0
+    ? `• Sudah Dibayar  : ${formatRupiah(params.paidAmount)}\n`
+    : "";
+
+  const message =
+    `📦 *Tagihan Konsolidasi — ${params.businessName}*\n` +
+    `━━━━━━━━━━━━━━━━━━━━━\n\n` +
+    `Yth. Bapak/Ibu *${params.ownerName}*,\n\n` +
+    `Berikut tagihan konsolidasi untuk semua unit yang Anda sewa:\n\n` +
+    `• No. Invoice       : *${params.invoiceNumber}*\n` +
+    periodLine +
+    dueLine +
+    `\n📋 *Rincian per Unit:*\n` +
+    itemLines +
+    `\n\n` +
+    `━━━━━━━━━━━━━━━━━━━━━\n` +
+    alreadyPaid +
+    `• *Total Sisa Tagihan : ${formatRupiah(params.outstandingAmount)}*\n\n` +
+    `Mohon lakukan pembayaran sebelum tanggal jatuh tempo.\n` +
+    `Hubungi kami jika ada pertanyaan.\n\n` +
+    `Terima kasih 🙏\n` +
+    `_${company}_`;
+
+  return sendMessage(params.phone, message);
+}

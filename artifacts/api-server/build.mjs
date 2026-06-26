@@ -102,6 +102,7 @@ async function buildAll() {
       "electron",
       "tesseract.js",
       "pdf-parse",
+      "connect-pg-simple",
     ],
     sourcemap: "linked",
     plugins: [

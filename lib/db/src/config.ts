@@ -10,37 +10,10 @@ function resolveDbUrl(): string {
     );
   }
   return (
-    process.env["SUPABASE_PG_URL_DEV"] ??
-    process.env["DATABASE_URL"] ??
-    (() => { throw new Error("SUPABASE_PG_URL_DEV atau DATABASE_URL harus diset di development"); })()
-  // Development: pakai SUPABASE_PG_URL_PROD (SUPABASE_PG_URL_DEV tidak aktif) → DATABASE_URL
-  return (
     process.env["SUPABASE_PG_URL_PROD"] ??
     process.env["DATABASE_URL"] ??
     (() => { throw new Error("SUPABASE_PG_URL_PROD atau DATABASE_URL harus diset"); })()
   );
-    // Production: SUPABASE_PG_URL_PROD → SUPABASE_PG_URL → DATABASE_URL
-    const url =
-      process.env["SUPABASE_PG_URL_PROD"] ??
-      process.env["SUPABASE_PG_URL"] ??
-      process.env["DATABASE_URL"];
-    if (!url) throw new Error("SUPABASE_PG_URL atau DATABASE_URL harus diset di production");
-    return url;
-  }
-    // Production: SUPABASE_PG_URL_PROD → SUPABASE_PG_URL → DATABASE_URL
-    const url =
-      process.env["SUPABASE_PG_URL_PROD"] ??
-      process.env["SUPABASE_PG_URL"] ??
-      process.env["DATABASE_URL"];
-    if (!url) throw new Error("SUPABASE_PG_URL atau DATABASE_URL harus diset di production");
-    return url;
-  }
-  // Development: SUPABASE_PG_URL_DEV → DATABASE_URL
-  const url =
-    process.env["SUPABASE_PG_URL_DEV"] ??
-    process.env["DATABASE_URL"];
-  if (!url) throw new Error("SUPABASE_PG_URL_DEV atau DATABASE_URL harus diset di development");
-  return url;
 }
 
 const rawUrl = resolveDbUrl().trim();

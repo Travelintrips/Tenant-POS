@@ -10,6 +10,7 @@ import {
 import { eq, and, inArray, sql, desc } from "drizzle-orm";
 import { z } from "zod";
 import { logAudit } from "../lib/audit";
+import { sendConsolidatedInvoiceNotification, getSiteCompanyName } from "../lib/whatsapp";
 
 const router = Router();
 
@@ -397,6 +398,92 @@ router.get("/consolidated-invoices/tenant/:tenantId/unpaid-invoices", async (req
   } catch (err) {
     req.log.error(err, "Gagal mengambil unpaid invoices tenant");
     res.status(500).json({ error: "Gagal mengambil data invoice" });
+  }
+});
+
+// ── POST /api/consolidated-invoices/:id/send-wa ───────────────────────────────
+router.post("/consolidated-invoices/:id/send-wa", async (req, res) => {
+  const id = Number(req.params.id);
+  if (isNaN(id)) { res.status(400).json({ error: "ID tidak valid" }); return; }
+
+  try {
+    // Ambil header invoice + data tenant
+    const [header] = await db
+      .select({
+        id: consolidatedInvoicesTable.id,
+        invoiceNumber: consolidatedInvoicesTable.invoiceNumber,
+        tenantId: consolidatedInvoicesTable.tenantId,
+        tenantName: tenantsTable.businessName,
+        tenantOwner: tenantsTable.ownerName,
+        tenantPhone: tenantsTable.phone,
+        periodLabel: consolidatedInvoicesTable.periodLabel,
+        dueDate: consolidatedInvoicesTable.dueDate,
+        totalAmount: consolidatedInvoicesTable.totalAmount,
+        paidAmount: consolidatedInvoicesTable.paidAmount,
+        outstandingAmount: consolidatedInvoicesTable.outstandingAmount,
+        status: consolidatedInvoicesTable.status,
+        siteId: consolidatedInvoicesTable.siteId,
+      })
+      .from(consolidatedInvoicesTable)
+      .innerJoin(tenantsTable, eq(consolidatedInvoicesTable.tenantId, tenantsTable.id))
+      .where(eq(consolidatedInvoicesTable.id, id));
+
+    if (!header) { res.status(404).json({ error: "Invoice tidak ditemukan" }); return; }
+
+    if (!header.tenantPhone) {
+      res.status(422).json({ error: "Nomor WhatsApp tenant belum diisi. Lengkapi data tenant terlebih dahulu." });
+      return;
+    }
+
+    if (header.status === "paid") {
+      res.status(409).json({ error: "Invoice ini sudah lunas" });
+      return;
+    }
+
+    // Ambil item-item invoice
+    const items = await db
+      .select({
+        unitCode: consolidatedInvoiceItemsTable.unitCode,
+        invoiceNumber: tenantInvoicesTable.invoiceNumber,
+        amount: consolidatedInvoiceItemsTable.amount,
+        invoiceOutstanding: tenantInvoicesTable.outstandingAmount,
+      })
+      .from(consolidatedInvoiceItemsTable)
+      .innerJoin(tenantInvoicesTable, eq(consolidatedInvoiceItemsTable.invoiceId, tenantInvoicesTable.id))
+      .where(eq(consolidatedInvoiceItemsTable.consolidatedInvoiceId, id));
+
+    const companyName = await getSiteCompanyName(header.siteId);
+
+    const result = await sendConsolidatedInvoiceNotification({
+      phone: header.tenantPhone,
+      ownerName: header.tenantOwner,
+      businessName: header.tenantName,
+      invoiceNumber: header.invoiceNumber,
+      periodLabel: header.periodLabel,
+      dueDate: header.dueDate,
+      totalAmount: header.totalAmount,
+      paidAmount: header.paidAmount,
+      outstandingAmount: header.outstandingAmount,
+      items,
+      companyName,
+    });
+
+    logAudit(req, {
+      action: "send_wa_consolidated_invoice",
+      entityType: "consolidated_invoice",
+      entityId: id,
+      afterData: { invoiceNumber: header.invoiceNumber, phone: header.tenantPhone, waResult: result.ok },
+    });
+
+    if (!result.ok) {
+      res.status(502).json({ error: result.error ?? "Gagal mengirim WhatsApp" });
+      return;
+    }
+
+    res.json({ ok: true, pending: result.pending ?? false });
+  } catch (err) {
+    req.log.error(err, "Gagal kirim WA consolidated invoice");
+    res.status(500).json({ error: "Gagal mengirim WhatsApp" });
   }
 });
 

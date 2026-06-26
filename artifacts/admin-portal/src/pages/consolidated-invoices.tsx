@@ -49,6 +49,8 @@ import {
   RefreshCw,
   Building2,
   Receipt,
+  MessageCircle,
+  Send,
 } from "lucide-react";
 
 const BASE = "";
@@ -136,12 +138,33 @@ function StatusBadge({ status }: { status: string }) {
 
 // ── Modal Detail ──────────────────────────────────────────────────────────────
 function DetailModal({ id, onClose }: { id: number; onClose: () => void }) {
+  const { toast } = useToast();
   const { data, isLoading } = useQuery<ConsolidatedInvoiceDetail>({
     queryKey: ["consolidated-invoice-detail", id],
     queryFn: async () => {
       const r = await fetch(`${BASE}/api/consolidated-invoices/${id}`, { credentials: "include" });
       return r.json();
     },
+  });
+
+  const sendWaMutation = useMutation<{ ok: boolean; pending?: boolean }, Error, void>({
+    mutationFn: async () => {
+      const r = await fetch(`${BASE}/api/consolidated-invoices/${id}/send-wa`, {
+        method: "POST",
+        credentials: "include",
+      });
+      const json = await r.json() as { ok?: boolean; error?: string; pending?: boolean };
+      if (!r.ok) throw new Error(json.error ?? "Gagal mengirim WhatsApp");
+      return json as { ok: boolean; pending?: boolean };
+    },
+    onSuccess: (res) => {
+      if (res.pending) {
+        toast({ title: "WhatsApp Dikirim (Pending)", description: "Pesan masuk antrian Fonnte. Pastikan device WA terhubung.", variant: "default" });
+      } else {
+        toast({ title: "WhatsApp Terkirim ✓", description: "Tagihan konsolidasi berhasil dikirim ke WhatsApp tenant." });
+      }
+    },
+    onError: (e) => toast({ title: "Gagal Kirim WA", description: e.message, variant: "destructive" }),
   });
 
   return (
@@ -238,7 +261,21 @@ function DetailModal({ id, onClose }: { id: number; onClose: () => void }) {
             )}
           </div>
         )}
-        <DialogFooter>
+        <DialogFooter className="flex-col sm:flex-row gap-2">
+          {data && data.status !== "paid" && data.status !== "cancelled" && (
+            <Button
+              variant="outline"
+              className="gap-2 border-green-600 text-green-700 hover:bg-green-50"
+              disabled={sendWaMutation.isPending}
+              onClick={() => sendWaMutation.mutate()}
+            >
+              {sendWaMutation.isPending ? (
+                <><RefreshCw className="w-4 h-4 animate-spin" />Mengirim...</>
+              ) : (
+                <><Send className="w-4 h-4" />Kirim via WhatsApp</>
+              )}
+            </Button>
+          )}
           <Button variant="outline" onClick={onClose}>Tutup</Button>
         </DialogFooter>
       </DialogContent>
@@ -555,6 +592,28 @@ export default function ConsolidatedInvoicesPage() {
     onError: (e) => toast({ title: "Gagal", description: e.message, variant: "destructive" }),
   });
 
+  const [sendingWaId, setSendingWaId] = useState<number | null>(null);
+  const sendWaFromTable = async (id: number) => {
+    setSendingWaId(id);
+    try {
+      const r = await fetch(`${BASE}/api/consolidated-invoices/${id}/send-wa`, {
+        method: "POST",
+        credentials: "include",
+      });
+      const json = await r.json() as { ok?: boolean; error?: string; pending?: boolean };
+      if (!r.ok) throw new Error(json.error ?? "Gagal mengirim WhatsApp");
+      if (json.pending) {
+        toast({ title: "WhatsApp Dikirim (Pending)", description: "Pesan masuk antrian Fonnte. Pastikan device WA terhubung." });
+      } else {
+        toast({ title: "WhatsApp Terkirim ✓", description: "Tagihan konsolidasi berhasil dikirim ke tenant." });
+      }
+    } catch (e) {
+      toast({ title: "Gagal Kirim WA", description: e instanceof Error ? e.message : "Terjadi kesalahan", variant: "destructive" });
+    } finally {
+      setSendingWaId(null);
+    }
+  };
+
   const filtered = useMemo(() => {
     const q = search.toLowerCase();
     return invoices.filter((inv) => {
@@ -735,6 +794,22 @@ export default function ConsolidatedInvoicesPage() {
                         >
                           <Eye className="w-3.5 h-3.5" />
                         </Button>
+                        {inv.status !== "paid" && inv.status !== "cancelled" && (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-7 w-7 p-0 text-green-600 hover:text-green-800 hover:bg-green-50"
+                            onClick={() => void sendWaFromTable(inv.id)}
+                            disabled={sendingWaId === inv.id}
+                            title="Kirim tagihan via WhatsApp"
+                          >
+                            {sendingWaId === inv.id ? (
+                              <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                            ) : (
+                              <MessageCircle className="w-3.5 h-3.5" />
+                            )}
+                          </Button>
+                        )}
                         {inv.status !== "paid" && (
                           <Button
                             size="sm"
