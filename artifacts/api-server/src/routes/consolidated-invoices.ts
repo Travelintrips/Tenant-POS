@@ -91,8 +91,22 @@ router.get("/consolidated-invoices", async (req, res) => {
         tenantId: consolidatedInvoicesTable.tenantId,
         tenantName: tenantsTable.businessName,
         tenantOwner: tenantsTable.ownerName,
-        periodLabel: consolidatedInvoicesTable.periodLabel,
-        dueDate: consolidatedInvoicesTable.dueDate,
+        periodLabel: sql<string | null>`COALESCE(
+          ${consolidatedInvoicesTable.periodLabel},
+          (SELECT to_char(MIN(ti.period_start), 'MM/YYYY')
+           FROM consolidated_invoice_items cii
+           JOIN tenant_invoices ti ON ti.id = cii.invoice_id
+           WHERE cii.consolidated_invoice_id = ${consolidatedInvoicesTable.id}
+             AND ti.period_start IS NOT NULL)
+        )`,
+        dueDate: sql<string | null>`COALESCE(
+          ${consolidatedInvoicesTable.dueDate}::text,
+          (SELECT MIN(ti.due_date)::text
+           FROM consolidated_invoice_items cii
+           JOIN tenant_invoices ti ON ti.id = cii.invoice_id
+           WHERE cii.consolidated_invoice_id = ${consolidatedInvoicesTable.id}
+             AND ti.due_date IS NOT NULL)
+        )`,
         totalAmount: consolidatedInvoicesTable.totalAmount,
         paidAmount: consolidatedInvoicesTable.paidAmount,
         outstandingAmount: consolidatedInvoicesTable.outstandingAmount,

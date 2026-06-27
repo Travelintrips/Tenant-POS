@@ -936,7 +936,29 @@ function CreateModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: (
           {step === 1 ? (
             <Button
               className="bg-blue-600 hover:bg-blue-700 text-white"
-              onClick={() => setStep(2)}
+              onClick={() => {
+                // Auto-populate periode dan jatuh tempo dari invoice yang dipilih
+                if (!periodLabel) {
+                  const starts = selectedInvoices
+                    .map((i) => i.periodStart)
+                    .filter(Boolean)
+                    .sort();
+                  if (starts.length > 0) {
+                    const d = new Date(starts[0]!);
+                    const mm = String(d.getMonth() + 1).padStart(2, "0");
+                    const yyyy = d.getFullYear();
+                    setPeriodLabel(`${mm}/${yyyy}`);
+                  }
+                }
+                if (!dueDate) {
+                  const dates = selectedInvoices
+                    .map((i) => i.dueDate)
+                    .filter(Boolean)
+                    .sort();
+                  if (dates.length > 0) setDueDate(dates[0]!);
+                }
+                setStep(2);
+              }}
               disabled={!canProceed}
             >
               Lanjut →
