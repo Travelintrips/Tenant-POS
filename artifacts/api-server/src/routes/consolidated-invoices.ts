@@ -13,6 +13,7 @@ import { z } from "zod";
 import { logAudit } from "../lib/audit";
 import { sendConsolidatedInvoiceNotification, getSiteCompanyName } from "../lib/whatsapp";
 import { recordPayment, LedgerError } from "../lib/payment-ledger";
+import { postTenantPaymentAccountingEntry } from "../lib/accounting-entry";
 
 const router = Router();
 
@@ -773,6 +774,50 @@ router.post("/consolidated-invoices/:id/record-payment", async (req, res) => {
       baseReceiptNumber: baseReceipt,
       distributedCount: distributions.length,
     });
+
+    // ── Fire-and-forget: Accounting journal + double-entry per distribusi ──────
+    void (async () => {
+      // Ambil businessName tenant
+      const [tenantRow] = consolidated.tenantId
+        ? await db
+            .select({ businessName: tenantsTable.businessName })
+            .from(tenantsTable)
+            .where(eq(tenantsTable.id, consolidated.tenantId))
+        : [];
+
+      // Posting accounting untuk setiap sub-payment yang sudah dibuat
+      for (let i = 0; i < distributions.length; i++) {
+        const dist = distributions[i];
+        const receiptNum = `${baseReceipt}-${String(i + 1).padStart(2, "0")}`;
+
+        // Cari payment ID yang baru dibuat (by receiptNumber)
+        const [payRow] = await db
+          .select({ id: tenantPaymentsTable.id, paidAt: tenantPaymentsTable.paidAt })
+          .from(tenantPaymentsTable)
+          .where(eq(tenantPaymentsTable.receiptNumber, receiptNum))
+          .limit(1);
+        if (!payRow) continue;
+
+        const txDate = payRow.paidAt ?? paidAtDate;
+
+        try {
+          await postTenantPaymentAccountingEntry({
+            paymentId: payRow.id,
+            siteId: siteId ?? null,
+            invoiceNumber: consolidated.invoiceNumber,
+            businessName: tenantRow?.businessName ?? null,
+            amountPaid: dist.amount,
+            paymentMethod,
+            transactionDate: txDate,
+            receiptNumber: receiptNum,
+            sourceModule: "consolidated_invoice_payment",
+          });
+        } catch (e) {
+          const { logger } = await import("../lib/logger");
+          logger.error({ err: e }, `[kons-pay] postTenantPaymentAccountingEntry gagal untuk ${receiptNum}`);
+        }
+      }
+    })();
   } catch (err) {
     if (err instanceof LedgerError) {
       res.status(400).json({ error: err.message });
