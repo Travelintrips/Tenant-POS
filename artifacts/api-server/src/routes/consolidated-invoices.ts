@@ -13,6 +13,7 @@ import { z } from "zod";
 import { logAudit } from "../lib/audit";
 import { sendConsolidatedInvoiceNotification, getSiteCompanyName } from "../lib/whatsapp";
 import { recordPayment, LedgerError } from "../lib/payment-ledger";
+import { postPosPaymentJournal } from "../lib/pos-journal";
 
 const router = Router();
 
@@ -739,6 +740,58 @@ router.post("/consolidated-invoices/:id/record-payment", async (req, res) => {
       })
       .from(consolidatedInvoicesTable)
       .where(eq(consolidatedInvoicesTable.id, id));
+
+    // 9. Post accounting journal untuk setiap pembayaran yang dibuat (fire-and-forget)
+    void (async () => {
+      try {
+        const newPayments = await db
+          .select({
+            id: tenantPaymentsTable.id,
+            amount: tenantPaymentsTable.amount,
+            invoiceId: tenantPaymentsTable.invoiceId,
+            tenantId: tenantPaymentsTable.tenantId,
+            siteId: tenantPaymentsTable.siteId,
+            receiptNumber: tenantPaymentsTable.receiptNumber,
+            paymentMethod: tenantPaymentsTable.paymentMethod,
+            paidAt: tenantPaymentsTable.paidAt,
+          })
+          .from(tenantPaymentsTable)
+          .where(sql`receipt_number LIKE ${receiptPrefix + "%"} AND created_at >= NOW() - INTERVAL '1 minute'`);
+
+        const tenantRow = await db
+          .select({ businessName: tenantsTable.businessName })
+          .from(tenantsTable)
+          .where(eq(tenantsTable.id, consolidated.tenantId))
+          .then((r) => r[0]);
+
+        for (const p of newPayments) {
+          const inv = await db
+            .select({ invoiceNumber: tenantInvoicesTable.invoiceNumber })
+            .from(tenantInvoicesTable)
+            .where(eq(tenantInvoicesTable.id, p.invoiceId ?? 0))
+            .then((r) => r[0]);
+
+          await postPosPaymentJournal({
+            paymentId: p.id,
+            tenantId: p.tenantId ?? consolidated.tenantId,
+            invoiceId: p.invoiceId ?? null,
+            invoiceNumber: inv?.invoiceNumber ?? null,
+            businessName: tenantRow?.businessName ?? null,
+            amountPaid: parseFloat(String(p.amount)),
+            paymentMethod: p.paymentMethod ?? paymentMethod,
+            transactionDate: p.paidAt ?? paidAtDate,
+            kasirName: req.user?.name ?? "Admin",
+            siteId: p.siteId ?? siteId,
+            receiptNumber: p.receiptNumber ?? `KONS-${p.id}`,
+            journalPrefix: "KONS",
+            sourceApp: "tenant_management",
+            sourceModule: "consolidated_invoice_payment",
+          });
+        }
+      } catch (err) {
+        req.log?.error?.(err, "[consolidated-payment] post-journal gagal — non-fatal");
+      }
+    })();
 
     logAudit(req, {
       action: "record_consolidated_payment",
