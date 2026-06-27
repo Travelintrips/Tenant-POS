@@ -85,12 +85,19 @@ export async function postPosPaymentJournal(
   const journalRow = await db.execute(
     sql`SELECT id, default_debit_account_id FROM accounting_journals WHERE company_id = ${companyId} AND type = 'cash' LIMIT 1`
   );
-  const journalDbId = (journalRow as any).rows?.[0]?.id
+  const journalDbId: number | null = (journalRow as any).rows?.[0]?.id != null
     ? Number((journalRow as any).rows[0].id)
-    : 1;
+    : null;
   const kasAccountId: number | null = (journalRow as any).rows?.[0]?.default_debit_account_id
     ? Number((journalRow as any).rows[0].default_debit_account_id)
     : null;
+
+  // Jika tidak ada cash journal untuk company ini, skip accounting (jangan pakai journal_id=1 yang tidak ada)
+  if (journalDbId == null) {
+    const { logger: log } = await import("./logger");
+    log.warn(`[pos-journal] Tidak ada cash journal untuk company_id=${companyId} — skip accounting`);
+    return { journalId: correlationId, alreadyPosted: false, netAmount, taxAmount };
+  }
 
   // Lookup COA Pendapatan Sewa: 4-1021-{code} (migration 0061), fallback 4-1025-%
   const pendapatanRow = await db.execute(sql`
