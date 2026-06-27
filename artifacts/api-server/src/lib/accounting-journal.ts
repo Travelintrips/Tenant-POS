@@ -140,7 +140,7 @@ export async function postAccountingJournal(opts: PostJournalOptions): Promise<P
       VALUES
         (${entryNumber}, ${journalDbId}, ${opts.transactionDate}::date,
          ${"BM-" + opts.mutationId}, ${opts.description}, 'draft',
-         ${opts.sourceApp ?? "tenant_management"},
+         ${"bank_mutation_import"}::accounting_entry_source,
          ${srcModule}, ${"bank_mutations"}, ${opts.mutationId},
          ${opts.amount}, ${opts.amount},
          ${companyId}, ${correlationId}, NOW())

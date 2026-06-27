@@ -26,6 +26,25 @@ export interface PostPosJournalOptions {
   companyId?: number | null;
 }
 
+async function resolveCompanyFromSite(siteId: number | null | undefined): Promise<number> {
+  if (!siteId) return 1;
+  try {
+    const row = await db.execute<{ company_id: number }>(sql`
+      SELECT c.id AS company_id
+      FROM mall_sites ms
+      JOIN companies c
+        ON UPPER(TRIM(c.name))         = UPPER(TRIM(ms.company_name))
+        OR UPPER(TRIM(c.company_name)) = UPPER(TRIM(ms.company_name))
+      WHERE ms.id = ${siteId}
+      LIMIT 1
+    `);
+    const id = (row as any).rows?.[0]?.company_id;
+    return id ? Number(id) : 1;
+  } catch {
+    return 1;
+  }
+}
+
 export interface PostPosJournalResult {
   journalId: string;
   alreadyPosted: boolean;
@@ -53,7 +72,7 @@ export async function postPosPaymentJournal(
     return { journalId: correlationId, alreadyPosted: true, netAmount, taxAmount };
   }
 
-  const companyId = opts.companyId ?? 1;
+  const companyId = opts.companyId ?? await resolveCompanyFromSite(opts.siteId);
   const srcModule = opts.sourceModule ?? "pos_payment";
   const transactionDateStr = opts.transactionDate.toISOString().slice(0, 10);
 
