@@ -169,16 +169,23 @@ export async function postPosPaymentJournal(
       : opts.paymentMethod === "qris" ? "qris"
       : "bank";
     const paidAtStr = opts.transactionDate.toISOString();
+    // Gunakan WHERE NOT EXISTS agar idempoten meski kolom correlation_id baru ditambahkan
     await db.execute(sql`
       INSERT INTO accounting_payments
         (entry_id, company_id, source_module, source_table, source_id,
          payment_method, amount, currency, paid_at,
-         ref, description, status, correlation_id, created_at, updated_at)
-      VALUES
-        (${entryId}, ${companyId}, ${srcModule}, ${"tenant_payments"}, ${opts.paymentId},
-         ${paymentMethodMapped}, ${opts.amountPaid}, ${"IDR"}, ${paidAtStr}::timestamptz,
-         ${opts.receiptNumber}, ${description}, ${"completed"}, ${payCorrelationId}, NOW(), NOW())
-      ON CONFLICT (correlation_id) DO NOTHING
+         ref, description, correlation_id,
+         journal_id, partner_name,
+         created_at, updated_at)
+      SELECT
+        ${entryId}, ${companyId}, ${srcModule}, ${"tenant_payments"}, ${opts.paymentId},
+        ${paymentMethodMapped}, ${opts.amountPaid}, ${"IDR"}, ${paidAtStr}::timestamptz,
+        ${opts.receiptNumber}, ${description}, ${payCorrelationId},
+        ${journalDbId}, ${opts.businessName ?? null},
+        NOW(), NOW()
+      WHERE NOT EXISTS (
+        SELECT 1 FROM accounting_payments WHERE correlation_id = ${payCorrelationId}
+      )
     `);
 
     // Catat di tax_transactions (idempoten via correlation_id)
