@@ -53,12 +53,21 @@ const SITE_TYPE_CONFIG: Record<string, { label: string; color: string; bg: strin
 
 type TenantStatus = "active" | "inactive" | "blacklisted" | "aktif" | "kosong" | "nonaktif";
 
-const COMPANY_MAP: Record<number, { name: string; short: string; color: string }> = {
-  1: { name: "PT Cahaya Sejati Teknologi", short: "CST", color: "bg-blue-50 text-blue-700 border-blue-200" },
-  2: { name: "PT Wangsamas",               short: "WGS", color: "bg-purple-50 text-purple-700 border-purple-200" },
-  3: { name: "PT Diva Servis",             short: "DVS", color: "bg-pink-50 text-pink-700 border-pink-200" },
-  4: { name: "PT Elmira Ratu Abadi",       short: "ERA", color: "bg-amber-50 text-amber-700 border-amber-200" },
+const COMPANY_CODE_STYLE: Record<string, { color: string }> = {
+  CST: { color: "bg-blue-50 text-blue-700 border-blue-200" },
+  WGS: { color: "bg-purple-50 text-purple-700 border-purple-200" },
+  DVS: { color: "bg-pink-50 text-pink-700 border-pink-200" },
+  ERA: { color: "bg-amber-50 text-amber-700 border-amber-200" },
 };
+const DEFAULT_COMPANY_COLOR = "bg-gray-50 text-gray-700 border-gray-200";
+
+type CompanyRow = { id: number; code: string; name: string; companyName: string | null; companyCode: string | null };
+
+async function fetchCompanies(): Promise<CompanyRow[]> {
+  const res = await apiFetch(`${BASE}/api/companies`, { credentials: "include" });
+  if (!res.ok) return [];
+  return res.json() as Promise<CompanyRow[]>;
+}
 
 type Tenant = {
   id: number;
@@ -413,6 +422,22 @@ export default function DataTenant() {
     queryKey: ["/api/mall-units"],
     queryFn: fetchMallUnits,
   });
+
+  const { data: companiesData = [] } = useQuery<CompanyRow[]>({
+    queryKey: ["/api/companies"],
+    queryFn: fetchCompanies,
+  });
+
+  const companyMap = Object.fromEntries(
+    companiesData.map((c) => [
+      c.id,
+      {
+        name: c.companyName ?? c.name,
+        short: c.companyCode ?? c.code,
+        color: (COMPANY_CODE_STYLE[c.code] ?? { color: DEFAULT_COMPANY_COLOR }).color,
+      },
+    ])
+  ) as Record<number, { name: string; short: string; color: string }>;
 
   // Map unit_code → status dan id untuk badge di tabel
   const unitStatusByCode = new Map(mallUnits.map(u => [u.unitCode, u.status as string]));
@@ -1175,12 +1200,12 @@ export default function DataTenant() {
                         </TableCell>
                         <TableCell className="font-mono text-sm">{tenant.id}</TableCell>
                         <TableCell>
-                          {tenant.companyId && COMPANY_MAP[tenant.companyId] ? (
+                          {tenant.companyId && companyMap[tenant.companyId] ? (
                             <span
-                              className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold ${COMPANY_MAP[tenant.companyId].color}`}
-                              title={COMPANY_MAP[tenant.companyId].name}
+                              className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold ${companyMap[tenant.companyId].color}`}
+                              title={companyMap[tenant.companyId].name}
                             >
-                              {COMPANY_MAP[tenant.companyId].short}
+                              {companyMap[tenant.companyId].short}
                             </span>
                           ) : (
                             <span className="text-xs text-muted-foreground">—</span>

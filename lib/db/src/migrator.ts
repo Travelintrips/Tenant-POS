@@ -3268,37 +3268,20 @@ END $$;
 MIGRATIONS.push({
   name: "0074_seed_companies_and_fix_tenant_company_id",
   sql: `
-DO $$
-BEGIN
-  IF EXISTS (
-    SELECT 1 FROM information_schema.columns
-    WHERE table_name = 'companies' AND column_name = 'company_code'
-  ) THEN
-    INSERT INTO companies (code, name, company_name, company_code)
-    VALUES ('WGS', 'PT Wangsamas', 'PT Wangsamas', 'WGS')
-    ON CONFLICT (code) DO NOTHING;
+ALTER TABLE companies ADD COLUMN IF NOT EXISTS company_code text;
+UPDATE companies SET company_code = code WHERE company_code IS NULL;
 
-    INSERT INTO companies (code, name, company_name, company_code)
-    VALUES ('DVS', 'PT Diva Servis', 'PT Diva Servis', 'DVS')
-    ON CONFLICT (code) DO NOTHING;
+INSERT INTO companies (code, name, company_name, company_code)
+VALUES ('WGS', 'PT Wangsamas', 'PT Wangsamas', 'WGS')
+ON CONFLICT (code) DO NOTHING;
 
-    INSERT INTO companies (code, name, company_name, company_code)
-    VALUES ('ERA', 'PT Elmira Ratu Abadi', 'PT Elmira Ratu Abadi', 'ERA')
-    ON CONFLICT (code) DO NOTHING;
-  ELSE
-    INSERT INTO companies (code, name, company_name)
-    VALUES ('WGS', 'PT Wangsamas', 'PT Wangsamas')
-    ON CONFLICT (code) DO NOTHING;
+INSERT INTO companies (code, name, company_name, company_code)
+VALUES ('DVS', 'PT Diva Servis', 'PT Diva Servis', 'DVS')
+ON CONFLICT (code) DO NOTHING;
 
-    INSERT INTO companies (code, name, company_name)
-    VALUES ('DVS', 'PT Diva Servis', 'PT Diva Servis')
-    ON CONFLICT (code) DO NOTHING;
-
-    INSERT INTO companies (code, name, company_name)
-    VALUES ('ERA', 'PT Elmira Ratu Abadi', 'PT Elmira Ratu Abadi')
-    ON CONFLICT (code) DO NOTHING;
-  END IF;
-END $$;
+INSERT INTO companies (code, name, company_name, company_code)
+VALUES ('ERA', 'PT Elmira Ratu Abadi', 'PT Elmira Ratu Abadi', 'ERA')
+ON CONFLICT (code) DO NOTHING;
 
 UPDATE companies
 SET name = 'PT Cahaya Sejati Teknologi', company_name = 'PT Cahaya Sejati Teknologi'
@@ -3346,5 +3329,40 @@ ALTER TABLE accounting_payments
 CREATE UNIQUE INDEX IF NOT EXISTS ap_correlation_id_idx
   ON accounting_payments(correlation_id)
   WHERE correlation_id IS NOT NULL;
+  `.trim(),
+});
+
+MIGRATIONS.push({
+  name: "0077_fix_companies_seed_and_tenant_company_id",
+  sql: `
+ALTER TABLE companies ADD COLUMN IF NOT EXISTS company_code text;
+UPDATE companies SET company_code = code WHERE company_code IS NULL;
+
+INSERT INTO companies (code, name, company_name, company_code)
+VALUES ('WGS', 'PT Wangsamas', 'PT Wangsamas', 'WGS')
+ON CONFLICT (code) DO NOTHING;
+
+INSERT INTO companies (code, name, company_name, company_code)
+VALUES ('DVS', 'PT Diva Servis', 'PT Diva Servis', 'DVS')
+ON CONFLICT (code) DO NOTHING;
+
+INSERT INTO companies (code, name, company_name, company_code)
+VALUES ('ERA', 'PT Elmira Ratu Abadi', 'PT Elmira Ratu Abadi', 'ERA')
+ON CONFLICT (code) DO NOTHING;
+
+UPDATE companies
+SET name = 'PT Cahaya Sejati Teknologi', company_name = 'PT Cahaya Sejati Teknologi'
+WHERE code = 'CST' AND name IN ('Mall Admin', 'CST');
+
+UPDATE tenants t
+SET company_id = c.id
+FROM mall_sites ms, companies c
+WHERE t.site_id = ms.id
+  AND (
+    (ms.company_name ILIKE '%Elmira%'        AND c.code = 'ERA') OR
+    (ms.company_name ILIKE '%Cahaya Sejati%' AND c.code = 'CST') OR
+    (ms.company_name ILIKE '%Wangsamas%'     AND c.code = 'WGS') OR
+    (ms.company_name ILIKE '%Diva%'          AND c.code = 'DVS')
+  );
   `.trim(),
 });

@@ -409,4 +409,16 @@ router.patch("/tenants/:id/logo", async (req, res) => {
   }
 });
 
+router.get("/companies", async (req, res) => {
+  try {
+    const rows = await db.execute(
+      sql`SELECT id, code, name, company_name AS "companyName", company_code AS "companyCode" FROM companies ORDER BY id`
+    );
+    res.json(rows.rows);
+  } catch (err) {
+    req.log.error(err, "Failed to fetch companies");
+    res.status(500).json({ error: "Gagal mengambil data perusahaan" });
+  }
+});
+
 export default router;
