@@ -56,6 +56,7 @@ router.get("/tenant-pos/overview", async (req, res) => {
 
     const tenantSiteFilter = siteId > 0 ? eq(tenantsTable.siteId, siteId) : undefined;
     const bookingSiteFilter = siteId > 0 ? eq(tenantBookingsTable.siteId, siteId) : undefined;
+    const invoiceSiteFilter = siteId > 0 ? eq(tenantInvoicesTable.siteId, siteId) : undefined;
     const paymentSiteFilter = siteId > 0 ? eq(tenantPaymentsTable.siteId, siteId) : undefined;
     const shiftSiteFilter = siteId > 0 ? eq(cashierShiftsTable.siteId, siteId) : undefined;
 
@@ -67,7 +68,8 @@ router.get("/tenant-pos/overview", async (req, res) => {
         tenantSiteFilter
       ));
 
-    const [unpaid] = await db
+    // Hitung belum lunas: gabungkan dari booking aktif + invoice terbuka
+    const [unpaidBooking] = await db
       .select({ count: sql<number>`count(*)::int` })
       .from(tenantBookingsTable)
       .where(
@@ -78,12 +80,22 @@ router.get("/tenant-pos/overview", async (req, res) => {
         )
       );
 
+    const [unpaidInvoice] = await db
+      .select({ count: sql<number>`count(distinct ${tenantInvoicesTable.tenantId})` })
+      .from(tenantInvoicesTable)
+      .where(and(
+        sql`${tenantInvoicesTable.status} IN ('unpaid', 'partial')`,
+        invoiceSiteFilter
+      ));
+
+    const unpaidCount = (unpaidBooking?.count ?? 0) + Number(unpaidInvoice?.count ?? 0);
+
     const [overdue] = await db
       .select({ count: sql<number>`count(*)::int` })
-      .from(tenantBookingsTable)
+      .from(tenantInvoicesTable)
       .where(and(
-        sql`upper(${tenantBookingsTable.paymentStatus}) = 'OVERDUE'`,
-        bookingSiteFilter
+        sql`${tenantInvoicesTable.status} = 'overdue'`,
+        invoiceSiteFilter
       ));
 
     const [paidToday] = await db
@@ -110,7 +122,7 @@ router.get("/tenant-pos/overview", async (req, res) => {
 
     res.json({
       totalActiveTenants: totalActive?.count ?? 0,
-      unpaidCount: unpaid?.count ?? 0,
+      unpaidCount: unpaidCount,
       overdueCount: overdue?.count ?? 0,
       paidTodayAmount: paidToday?.total ?? 0,
       currentShift: openShift ?? null,
@@ -170,6 +182,7 @@ router.get("/tenant-pos/floor-plan", async (req, res) => {
       .where(tenantSiteFilter)
       .orderBy(tenantsTable.areaName, tenantsTable.id);
 
+    // Hitung invoice terbuka (belum lunas) per tenant
     const invoiceCounts = await db
       .select({
         tenantId: tenantInvoicesTable.tenantId,
@@ -186,31 +199,69 @@ router.get("/tenant-pos/floor-plan", async (req, res) => {
       invoiceCounts.map((r) => [r.tenantId, r.openCount])
     );
 
-    const result = rows.map((row: typeof rows[number], idx: number) => ({
-      id: `${row.areaName.replace(/\s+/g, "-").toUpperCase()}-${String(idx + 1).padStart(2, "0")}`,
-      tenantId: row.tenantId,
-      bookingId: row.bookingId ?? null,
-      businessName: row.businessName,
-      ownerName: row.ownerName,
-      email: row.email ?? null,
-      phone: row.phone ?? null,
-      category: row.category ?? null,
-      boothNumber: row.boothNumber ?? `T-${String(idx + 1).padStart(3, "0")}`,
-      areaName: row.areaName,
-      startDate: row.startDate ?? null,
-      endDate: row.endDate ?? null,
-      totalAmount: Number(row.totalAmount ?? 0),
-      paidAmount: Number(row.paidAmount ?? 0),
-      remainingAmount: Number(row.remainingAmount ?? 0),
-      paymentStatus: (row.paymentStatus ?? "UNPAID").toUpperCase() as string,
-      bookingStatus: row.bookingStatus ?? "aktif",
-      dueDate: row.dueDate ?? null,
-      periodLabel: row.periodLabel ?? null,
-      openInvoiceCount: invoiceCountMap.get(row.tenantId) ?? 0,
-      logoUrl: row.logoUrl ?? null,
-      tenantStatus: row.tenantStatus ?? null,
-      unitStatus: row.unitStatus ?? null,
-    }));
+    // Hitung apakah tenant punya invoice apapun (untuk bedain "lunas" vs "belum ada invoice")
+    const invoiceExistRes = await db
+      .select({
+        tenantId: tenantInvoicesTable.tenantId,
+        totalCount: sql<number>`count(*)::int`,
+        paidCount: sql<number>`count(*) filter (where ${tenantInvoicesTable.status} = 'paid')::int`,
+      })
+      .from(tenantInvoicesTable)
+      .where(invoiceSiteFilter)
+      .groupBy(tenantInvoicesTable.tenantId);
+
+    const invoiceExistMap = new Map<number, { total: number; paid: number }>(
+      invoiceExistRes.map((r) => [r.tenantId, { total: r.totalCount, paid: r.paidCount }])
+    );
+
+    const result = rows.map((row: typeof rows[number], idx: number) => {
+      // Hitung paymentStatus yang akurat:
+      // 1. Jika ada booking aktif → pakai booking.paymentStatus
+      // 2. Jika tidak ada booking → derive dari invoice
+      //    - Ada invoice terbuka (unpaid/partial/overdue) → UNPAID
+      //    - Semua invoice paid → PAID
+      //    - Tidak ada invoice sama sekali → VACANT
+      let derivedPaymentStatus: string;
+      if (row.bookingId != null) {
+        derivedPaymentStatus = (row.paymentStatus ?? "UNPAID").toUpperCase();
+      } else {
+        const openCount = invoiceCountMap.get(row.tenantId) ?? 0;
+        const invStat = invoiceExistMap.get(row.tenantId);
+        if (openCount > 0) {
+          derivedPaymentStatus = "UNPAID";
+        } else if (invStat && invStat.total > 0 && invStat.paid === invStat.total) {
+          derivedPaymentStatus = "PAID";
+        } else {
+          derivedPaymentStatus = "VACANT";
+        }
+      }
+
+      return {
+        id: `${row.areaName.replace(/\s+/g, "-").toUpperCase()}-${String(idx + 1).padStart(2, "0")}`,
+        tenantId: row.tenantId,
+        bookingId: row.bookingId ?? null,
+        businessName: row.businessName,
+        ownerName: row.ownerName,
+        email: row.email ?? null,
+        phone: row.phone ?? null,
+        category: row.category ?? null,
+        boothNumber: row.boothNumber ?? `T-${String(idx + 1).padStart(3, "0")}`,
+        areaName: row.areaName,
+        startDate: row.startDate ?? null,
+        endDate: row.endDate ?? null,
+        totalAmount: Number(row.totalAmount ?? 0),
+        paidAmount: Number(row.paidAmount ?? 0),
+        remainingAmount: Number(row.remainingAmount ?? 0),
+        paymentStatus: derivedPaymentStatus,
+        bookingStatus: row.bookingStatus ?? "aktif",
+        dueDate: row.dueDate ?? null,
+        periodLabel: row.periodLabel ?? null,
+        openInvoiceCount: invoiceCountMap.get(row.tenantId) ?? 0,
+        logoUrl: row.logoUrl ?? null,
+        tenantStatus: row.tenantStatus ?? null,
+        unitStatus: row.unitStatus ?? null,
+      };
+    });
 
     res.json(result);
   } catch (err) {
