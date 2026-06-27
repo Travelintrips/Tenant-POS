@@ -3323,3 +3323,28 @@ MIGRATIONS.push({
 ALTER TABLE "tenant_invoices" ADD COLUMN IF NOT EXISTS "invoice_notified_at" timestamptz;
   `.trim(),
 });
+
+
+MIGRATIONS.push({
+  name: "0076_accounting_payments_compat",
+  sql: `
+ALTER TABLE accounting_payments
+  ADD COLUMN IF NOT EXISTS entry_id        integer,
+  ADD COLUMN IF NOT EXISTS company_id      integer,
+  ADD COLUMN IF NOT EXISTS source_module   text,
+  ADD COLUMN IF NOT EXISTS source_table    text,
+  ADD COLUMN IF NOT EXISTS source_id       integer,
+  ADD COLUMN IF NOT EXISTS payment_method  text,
+  ADD COLUMN IF NOT EXISTS currency        text,
+  ADD COLUMN IF NOT EXISTS paid_at         timestamptz,
+  ADD COLUMN IF NOT EXISTS ref             text,
+  ADD COLUMN IF NOT EXISTS description     text,
+  ADD COLUMN IF NOT EXISTS correlation_id  text,
+  ADD COLUMN IF NOT EXISTS created_at      timestamptz,
+  ADD COLUMN IF NOT EXISTS updated_at      timestamptz;
+
+CREATE UNIQUE INDEX IF NOT EXISTS ap_correlation_id_idx
+  ON accounting_payments(correlation_id)
+  WHERE correlation_id IS NOT NULL;
+  `.trim(),
+});
