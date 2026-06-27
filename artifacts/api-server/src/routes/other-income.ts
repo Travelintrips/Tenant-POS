@@ -138,16 +138,13 @@ router.post("/other-income", async (req, res) => {
   const data = parsed.data;
   const effectiveSiteId = ctxSiteId ?? data.siteId ?? null;
   try {
-    // Resolve company_id dari site_id
+    // Resolve company_id dari site_id via kolom company_id di mall_sites
     let resolvedCompanyId: number | null = null;
     if (effectiveSiteId) {
-      const companyRow = await db.execute<{ id: number }>(sql`
-        SELECT c.id FROM companies c
-        JOIN mall_sites ms ON ms.id = ${effectiveSiteId}
-        WHERE LOWER(c.company_name) LIKE LOWER(CONCAT('%', SPLIT_PART(ms.name, ' ', 1), '%'))
-        ORDER BY c.id LIMIT 1
-      `).catch(() => ({ rows: [] as { id: number }[] }));
-      resolvedCompanyId = (companyRow as unknown as { rows: { id: number }[] }).rows?.[0]?.id ?? null;
+      const companyRow = await db.execute<{ company_id: number }>(sql`
+        SELECT company_id FROM mall_sites WHERE id = ${effectiveSiteId} LIMIT 1
+      `).catch(() => ({ rows: [] as { company_id: number }[] }));
+      resolvedCompanyId = (companyRow as unknown as { rows: { company_id: number }[] }).rows?.[0]?.company_id ?? null;
     }
     const [row] = await db.insert(otherIncomeTable).values({ siteId: effectiveSiteId, companyId: resolvedCompanyId, tenantId: data.tenantId ?? null, category: data.category, coaCode: data.coaCode ?? null, coaName: data.coaName ?? null, description: data.description, amount: String(data.amount), date: data.date ? new Date(data.date) : new Date(), createdBy: userId }).returning();
     logAudit(req, { action: "create_other_income", entityType: "other_income", entityId: row.id, afterData: { ...data, id: row.id } });

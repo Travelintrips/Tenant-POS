@@ -3457,4 +3457,36 @@ SET company_id = (
 )
 WHERE site_id IS NOT NULL AND company_id IS NULL;
   `.trim(),
+},
+{
+  name: "0081_mall_sites_company_id",
+  sql: `
+-- Tambah kolom company_id ke mall_sites sebagai FK ke companies
+ALTER TABLE mall_sites ADD COLUMN IF NOT EXISTS company_id integer REFERENCES companies(id);
+
+-- Mapping site ke perusahaan yang benar:
+-- Site 1 = TOD M1         → ERA (PT ELMIRA RATU ABADI, id=4)
+-- Site 2 = Sport Center   → CST (PT CAHAYA SEJATI TEKNOLOGI, id=1)
+-- Site 4 = Kantin SC      → CST (id=1)
+-- Site 5 = Kantin TOD M1  → CST (id=1, sesuai company_name "Manajemen CST")
+UPDATE mall_sites SET company_id = (
+  SELECT id FROM companies WHERE code = 'ERA' LIMIT 1
+) WHERE code = 'TOD_M1_BANDARA' AND company_id IS NULL;
+
+UPDATE mall_sites SET company_id = (
+  SELECT id FROM companies WHERE code = 'CST' LIMIT 1
+) WHERE code IN ('SPORT_CENTER_BANDARA','KANTIN_SPORT_CENTER','KANTIN_TOD_M1') AND company_id IS NULL;
+
+-- Perbaiki backfill operational_expenses: gunakan ms.company_id langsung
+UPDATE operational_expenses oe
+SET company_id = ms.company_id
+FROM mall_sites ms
+WHERE ms.id = oe.site_id AND oe.company_id IS NULL AND ms.company_id IS NOT NULL;
+
+-- Perbaiki backfill other_income: gunakan ms.company_id langsung
+UPDATE other_income oi
+SET company_id = ms.company_id
+FROM mall_sites ms
+WHERE ms.id = oi.site_id AND oi.company_id IS NULL AND ms.company_id IS NOT NULL;
+  `.trim(),
 });

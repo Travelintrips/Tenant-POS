@@ -1,4 +1,4 @@
-import { pgTable, serial, text, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, serial, integer, text, timestamp } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -16,6 +16,7 @@ export const mallSitesTable = pgTable("mall_sites", {
   address: text("address"),
   status: text("status").notNull().default("active"),
   companyName: text("company_name").notNull().default("Manajemen CST"),
+  companyId: integer("company_id"),
   invoicePrefix: text("invoice_prefix").notNull().default("INV"),
   logoUrl: text("logo_url"),
   invoiceColor: text("invoice_color"),
