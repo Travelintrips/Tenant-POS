@@ -3366,3 +3366,53 @@ WHERE t.site_id = ms.id
   );
   `.trim(),
 });
+
+MIGRATIONS.push({
+  name: "0078_seed_coa_and_journals_for_all_companies",
+  sql: `
+ALTER TABLE chart_of_accounts ADD COLUMN IF NOT EXISTS account_type text NOT NULL DEFAULT 'other';
+ALTER TABLE chart_of_accounts ADD COLUMN IF NOT EXISTS is_active boolean NOT NULL DEFAULT true;
+
+INSERT INTO chart_of_accounts (company_id, code, name, account_type, is_active)
+SELECT id, '1-1001', 'Kas dan Bank', 'kas', true FROM companies WHERE code = 'WGS'
+ON CONFLICT (company_id, code) DO NOTHING;
+
+INSERT INTO chart_of_accounts (company_id, code, name, account_type, is_active)
+SELECT id, '4-1010-WGS', 'Pendapatan Sewa Tenant', 'pendapatan', true FROM companies WHERE code = 'WGS'
+ON CONFLICT (company_id, code) DO NOTHING;
+
+INSERT INTO accounting_journals (company_id, code, name, type, default_debit_account_id)
+SELECT c.id, 'CSH-WGS', 'Jurnal Kas WGS', 'cash',
+  (SELECT coa.id FROM chart_of_accounts coa WHERE coa.company_id = c.id AND coa.code = '1-1001')
+FROM companies c WHERE c.code = 'WGS'
+  AND NOT EXISTS (SELECT 1 FROM accounting_journals WHERE code = 'CSH-WGS');
+
+INSERT INTO chart_of_accounts (company_id, code, name, account_type, is_active)
+SELECT id, '1-1001', 'Kas dan Bank', 'kas', true FROM companies WHERE code = 'DVS'
+ON CONFLICT (company_id, code) DO NOTHING;
+
+INSERT INTO chart_of_accounts (company_id, code, name, account_type, is_active)
+SELECT id, '4-1010-DVS', 'Pendapatan Sewa Tenant', 'pendapatan', true FROM companies WHERE code = 'DVS'
+ON CONFLICT (company_id, code) DO NOTHING;
+
+INSERT INTO accounting_journals (company_id, code, name, type, default_debit_account_id)
+SELECT c.id, 'CSH-DVS', 'Jurnal Kas DVS', 'cash',
+  (SELECT coa.id FROM chart_of_accounts coa WHERE coa.company_id = c.id AND coa.code = '1-1001')
+FROM companies c WHERE c.code = 'DVS'
+  AND NOT EXISTS (SELECT 1 FROM accounting_journals WHERE code = 'CSH-DVS');
+
+INSERT INTO chart_of_accounts (company_id, code, name, account_type, is_active)
+SELECT id, '1-1001', 'Kas dan Bank', 'kas', true FROM companies WHERE code = 'ERA'
+ON CONFLICT (company_id, code) DO NOTHING;
+
+INSERT INTO chart_of_accounts (company_id, code, name, account_type, is_active)
+SELECT id, '4-1010-ERA', 'Pendapatan Sewa Tenant', 'pendapatan', true FROM companies WHERE code = 'ERA'
+ON CONFLICT (company_id, code) DO NOTHING;
+
+INSERT INTO accounting_journals (company_id, code, name, type, default_debit_account_id)
+SELECT c.id, 'CSH-ERA', 'Jurnal Kas ERA', 'cash',
+  (SELECT coa.id FROM chart_of_accounts coa WHERE coa.company_id = c.id AND coa.code = '1-1001')
+FROM companies c WHERE c.code = 'ERA'
+  AND NOT EXISTS (SELECT 1 FROM accounting_journals WHERE code = 'CSH-ERA');
+  `.trim(),
+});

@@ -2084,10 +2084,10 @@ router.get("/bank-reconciliation/account-balances", async (req, res) => {
 
 
 // ── GET /bank-reconciliation/journal-entries ──────────────────────────────────
+// Buku Jurnal: semua entri akuntansi double-entry untuk site aktif
 
 router.get("/bank-reconciliation/journal-entries", async (req, res) => {
   try {
-    const ctx = appCtx(req);
     const {
       date_from,
       date_to,
@@ -2099,42 +2099,80 @@ router.get("/bank-reconciliation/journal-entries", async (req, res) => {
     const limit = Math.min(200, Math.max(1, parseInt(limitStr, 10) || 50));
     const offset = (page - 1) * limit;
 
-    const conditions: any[] = [
-      sql`${accountingEntriesTable.sourceModule} IN ('bank_reconciliation', 'pos_payment')`,
-    ];
-
-    if (ctx.ownerTenantId != null) {
-      conditions.push(
-        sql`EXISTS (
-          SELECT 1 FROM bank_mutations bm
-          WHERE bm.id = ${accountingEntriesTable.sourceId}
-            AND bm.owner_tenant_id = ${ctx.ownerTenantId}
-        )` as any
+    // Resolve company_id dari siteId aktif
+    const siteId: number = (req as any).siteId ?? 0;
+    let companyId: number | null = null;
+    if (siteId > 0) {
+      const compRes = await db.execute(
+        sql`SELECT DISTINCT company_id FROM tenants WHERE site_id = ${siteId} AND company_id IS NOT NULL LIMIT 1`
       );
+      const cRow = ((compRes as any).rows ?? [])[0];
+      if (cRow?.company_id) companyId = Number(cRow.company_id);
     }
 
-    if (date_from) conditions.push(sql`${accountingEntriesTable.date}::text >= ${date_from}` as any);
-    if (date_to) conditions.push(sql`${accountingEntriesTable.date}::text <= ${date_to}` as any);
+    const companyFilter = companyId != null
+      ? sql`AND ae.company_id = ${companyId}`
+      : sql``;
+    const dfFilter = date_from ? sql`AND ae.date >= ${date_from}::date` : sql``;
+    const dtFilter = date_to   ? sql`AND ae.date <= ${date_to}::date`   : sql``;
 
-    const whereClause = and(...conditions);
-
-    const [rows, countResult] = await Promise.all([
-      db.select().from(accountingEntriesTable)
-        .where(whereClause)
-        .orderBy(desc(accountingEntriesTable.createdAt))
-        .limit(limit)
-        .offset(offset),
-      db.select({ count: sql<number>`count(*)::int` })
-        .from(accountingEntriesTable)
-        .where(whereClause),
+    const [rowsRes, countRes] = await Promise.all([
+      db.execute(sql`
+        SELECT
+          ae.id,
+          ae.entry_number        AS "journalId",
+          NULL::integer          AS "mutationId",
+          ae.date::text          AS "transactionDate",
+          ae.description,
+          ae.status,
+          ae.source,
+          ae.source_module       AS "sourceModule",
+          ae.total_debit         AS "debitAmount",
+          ae.total_credit        AS "creditAmount",
+          ae.company_id          AS "companyId",
+          ae.created_at          AS "createdAt",
+          'IDR'                  AS currency,
+          NULL::numeric          AS "taxAmount",
+          NULL::text             AS "taxAccountId",
+          NULL::text             AS "taxAccountName",
+          (SELECT coa.code FROM accounting_entry_lines ael
+           JOIN chart_of_accounts coa ON coa.id = ael.account_id
+           WHERE ael.entry_id = ae.id AND ael.debit > 0
+           ORDER BY ael.id LIMIT 1) AS "debitAccountId",
+          (SELECT coa.name FROM accounting_entry_lines ael
+           JOIN chart_of_accounts coa ON coa.id = ael.account_id
+           WHERE ael.entry_id = ae.id AND ael.debit > 0
+           ORDER BY ael.id LIMIT 1) AS "debitAccountName",
+          (SELECT coa.code FROM accounting_entry_lines ael
+           JOIN chart_of_accounts coa ON coa.id = ael.account_id
+           WHERE ael.entry_id = ae.id AND ael.credit > 0
+           ORDER BY ael.id LIMIT 1) AS "creditAccountId",
+          (SELECT coa.name FROM accounting_entry_lines ael
+           JOIN chart_of_accounts coa ON coa.id = ael.account_id
+           WHERE ael.entry_id = ae.id AND ael.credit > 0
+           ORDER BY ael.id LIMIT 1) AS "creditAccountName"
+        FROM accounting_entries ae
+        WHERE 1=1
+          ${companyFilter}
+          ${dfFilter}
+          ${dtFilter}
+        ORDER BY ae.date DESC, ae.id DESC
+        LIMIT ${limit} OFFSET ${offset}
+      `),
+      db.execute(sql`
+        SELECT COUNT(*)::int AS count
+        FROM accounting_entries ae
+        WHERE 1=1
+          ${companyFilter}
+          ${dfFilter}
+          ${dtFilter}
+      `),
     ]);
 
-    res.json({
-      data: rows,
-      total: countResult[0]?.count ?? 0,
-      page,
-      limit,
-    });
+    const rows = (rowsRes as any).rows ?? [];
+    const total = ((countRes as any).rows ?? [])[0]?.count ?? 0;
+
+    res.json({ data: rows, total, page, limit });
   } catch (err) {
     console.error("journal-entries error:", err);
     res.status(500).json({ error: "Gagal memuat jurnal" });
@@ -2371,35 +2409,6 @@ async function updateSyncResult(result: { success: boolean; newRows: number; tot
 
 // ─── Journal Entries ─────────────────────────────────────────────────────────
 
-router.get("/bank-reconciliation/journal-entries", async (req, res) => {
-  try {
-    const { from, to, page: pageStr, limit: limitStr } = req.query as Record<string, string>;
-    const page = Math.max(1, parseInt(pageStr ?? "1", 10) || 1);
-    const limit = Math.min(200, Math.max(1, parseInt(limitStr ?? "50", 10) || 50));
-    const offset = (page - 1) * limit;
-
-    const conditions: any[] = [
-      sql`${accountingEntriesTable.sourceModule} IN ('bank_reconciliation', 'pos_payment')`,
-    ];
-    if (from) conditions.push(sql`${accountingEntriesTable.date}::text >= ${from}`);
-    if (to) conditions.push(sql`${accountingEntriesTable.date}::text <= ${to}`);
-
-    const where = and(...conditions);
-
-    const [rows, [{ count }]] = await Promise.all([
-      db.select().from(accountingEntriesTable)
-        .where(where)
-        .orderBy(desc(accountingEntriesTable.date), desc(accountingEntriesTable.id))
-        .limit(limit)
-        .offset(offset),
-      db.select({ count: sql<number>`count(*)::int` }).from(accountingEntriesTable).where(where),
-    ]);
-
-    res.json({ data: rows, total: count, page, limit });
-  } catch (err) {
-    res.status(500).json({ error: "Gagal memuat jurnal" });
-  }
-});
 
 // ─── COA Rules ───────────────────────────────────────────────────────────────
 
