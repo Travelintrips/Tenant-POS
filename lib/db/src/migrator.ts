@@ -3373,6 +3373,15 @@ MIGRATIONS.push({
 ALTER TABLE chart_of_accounts ADD COLUMN IF NOT EXISTS account_type text NOT NULL DEFAULT 'other';
 ALTER TABLE chart_of_accounts ADD COLUMN IF NOT EXISTS is_active boolean NOT NULL DEFAULT true;
 
+DO $$ BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema='public' AND table_name='chart_of_accounts' AND column_name='type'
+  ) THEN
+    ALTER TABLE chart_of_accounts ALTER COLUMN "type" DROP NOT NULL;
+  END IF;
+END $$;
+
 INSERT INTO chart_of_accounts (company_id, code, name, account_type, is_active)
 SELECT id, '1-1001', 'Kas dan Bank', 'kas', true FROM companies WHERE code = 'WGS'
 ON CONFLICT (company_id, code) DO NOTHING;
