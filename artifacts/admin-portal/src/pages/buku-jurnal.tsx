@@ -192,7 +192,7 @@ export default function BukuJurnal() {
       </Card>
 
       {/* Ringkasan */}
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-3 gap-2 sm:gap-3">
         <Card>
           <CardHeader className="pb-1 pt-3 px-4">
             <CardTitle className="text-xs text-muted-foreground font-medium uppercase tracking-wide">Total Entri</CardTitle>

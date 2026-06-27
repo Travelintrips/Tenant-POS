@@ -2235,7 +2235,7 @@ function ModalPembayaran({ item, invoice, shiftId, cashierName, onClose, onSucce
               {/* Metode */}
               <div className="flex flex-col gap-2">
                 <Label>Metode Pembayaran <span className="text-red-500">*</span></Label>
-                <div className="grid grid-cols-5 gap-2">
+                <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
                   {METODE_OPTIONS.map((m) => (
                     <button type="button" key={m.value} onClick={() => setMetode(m.value)} disabled={mutation.isPending}
                       className={cn("flex flex-col items-center gap-1 rounded-xl border-2 py-2.5 px-1 text-[11px] font-medium transition-all",

@@ -483,7 +483,7 @@ function IuranSampahSection({ filter, tahun }: { filter: FilterState; tahun: str
       <CardContent className="pt-0">
         {/* KPI mini cards */}
         {grand && (
-          <div className="grid grid-cols-3 gap-3 mb-4">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">
             <div className="rounded-lg bg-slate-50 border border-slate-200 p-3">
               <p className="text-[11px] text-slate-500 font-medium uppercase tracking-wide">Total Tagihan</p>
               <p className="text-lg font-bold mt-0.5 tracking-tight text-slate-800">{fmtFull(grand.totalIuran)}</p>
