@@ -70,8 +70,12 @@ type Invoice = {
   areaName: string | null;
   email: string | null;
   phone: string | null;
+  companyId: number | null;
+  companyName: string | null;
   payments?: Payment[];
 };
+
+type CompanyRow = { id: number; code: string; name: string; companyName: string | null; companyCode: string | null };
 
 type Payment = {
   id: number;
@@ -796,6 +800,7 @@ export default function TenantInvoices() {
 
   const [filterStatus, setFilterStatus] = useState("all");
   const [filterTenant, setFilterTenant] = useState("all");
+  const [filterCompany, setFilterCompany] = useState("all");
   const [filterDueDate, setFilterDueDate] = useState("all");
   const [search, setSearch] = useState("");
 
@@ -854,10 +859,11 @@ export default function TenantInvoices() {
   const qParams = new URLSearchParams();
   if (filterStatus !== "all") qParams.set("status", filterStatus);
   if (filterTenant !== "all") qParams.set("tenantId", filterTenant);
+  if (filterCompany !== "all") qParams.set("companyId", filterCompany);
   if (search) qParams.set("search", search);
 
   const { data: invoices, isLoading, isError } = useQuery<Invoice[]>({
-    queryKey: ["/api/tenant-invoices", filterStatus, filterTenant, search],
+    queryKey: ["/api/tenant-invoices", filterStatus, filterTenant, filterCompany, search],
     queryFn: () => apiFetch<Invoice[]>(`${BASE}/api/tenant-invoices?${qParams}`),
     refetchInterval: 30000,
   });
@@ -865,6 +871,11 @@ export default function TenantInvoices() {
   const { data: tenants } = useQuery<Tenant[]>({
     queryKey: ["/api/tenants"],
     queryFn: () => apiFetch<Tenant[]>(`${BASE}/api/tenants`),
+  });
+
+  const { data: companies = [] } = useQuery<CompanyRow[]>({
+    queryKey: ["/api/companies"],
+    queryFn: () => apiFetch<CompanyRow[]>(`${BASE}/api/companies`),
   });
 
   const { data: bookings } = useQuery<Booking[]>({
@@ -1635,6 +1646,17 @@ export default function TenantInvoices() {
                   ))}
                 </SelectContent>
               </Select>
+              <Select value={filterCompany} onValueChange={setFilterCompany}>
+                <SelectTrigger className="w-56 h-9"><SelectValue placeholder="Semua Perusahaan" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Semua Perusahaan</SelectItem>
+                  {companies.map((c) => (
+                    <SelectItem key={c.id} value={String(c.id)}>
+                      {c.companyName ?? c.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
               <Select value={filterDueDate} onValueChange={setFilterDueDate}>
                 <SelectTrigger className="w-48 h-9"><SelectValue placeholder="Semua Tanggal" /></SelectTrigger>
                 <SelectContent>
@@ -1667,6 +1689,7 @@ export default function TenantInvoices() {
                 <TableRow>
                   <TableHead className="min-w-[180px]">No. Invoice</TableHead>
                   <TableHead className="min-w-[140px]">Tenant</TableHead>
+                  <TableHead className="min-w-[160px]">Perusahaan</TableHead>
                   <TableHead>Unit</TableHead>
                   <TableHead className="min-w-[120px]">Periode</TableHead>
                   <TableHead className="min-w-[100px]">Jatuh Tempo</TableHead>
@@ -1681,7 +1704,7 @@ export default function TenantInvoices() {
                 {isLoading
                   ? Array.from({ length: 4 }).map((_, i) => (
                     <TableRow key={i}>
-                      {Array.from({ length: 10 }).map((_, j) => (
+                      {Array.from({ length: 11 }).map((_, j) => (
                         <TableCell key={j}><Skeleton className="h-4 w-full" /></TableCell>
                       ))}
                     </TableRow>
@@ -1689,7 +1712,7 @@ export default function TenantInvoices() {
                   : filteredInvoices.length === 0
                   ? (
                     <TableRow>
-                      <TableCell colSpan={10} className="text-center py-10 text-muted-foreground">
+                      <TableCell colSpan={11} className="text-center py-10 text-muted-foreground">
                         <FileText className="h-10 w-10 mx-auto mb-2 opacity-20" />
                         {filterDueDate !== "all"
                           ? <p>Tidak ada invoice untuk filter tanggal ini.</p>
@@ -1704,6 +1727,17 @@ export default function TenantInvoices() {
                       <TableCell>
                         <p className="font-medium">{inv.tenantName ?? "-"}</p>
                         <p className="text-xs text-muted-foreground">{inv.ownerName ?? ""}</p>
+                      </TableCell>
+                      <TableCell>
+                        {inv.companyName ? (
+                          <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold ${
+                            inv.companyId === 4 ? "bg-amber-50 text-amber-700 border-amber-200" :
+                            inv.companyId === 1 ? "bg-blue-50 text-blue-700 border-blue-200" :
+                            "bg-gray-50 text-gray-700 border-gray-200"
+                          }`} title={inv.companyName}>
+                            {inv.companyName}
+                          </span>
+                        ) : <span className="text-muted-foreground text-xs">-</span>}
                       </TableCell>
                       <TableCell className="text-sm">{inv.unitCode ?? (inv.boothNumber ?? "-")}</TableCell>
                       <TableCell className="text-sm">{formatPeriod(inv.periodStart, inv.periodEnd)}</TableCell>

@@ -216,6 +216,8 @@ const invoiceSelect = {
   areaName: tenantsTable.areaName,
   email: tenantsTable.email,
   phone: tenantsTable.phone,
+  companyId: tenantsTable.companyId,
+  companyName: sql<string | null>`(SELECT company_name FROM companies WHERE id = ${tenantsTable.companyId} LIMIT 1)`,
 } as const;
 
 // ─── GET /api/tenant-invoices/ppn-report ─────────────────────────────────────
@@ -357,7 +359,7 @@ router.get("/tenant-invoices/upcoming", async (req, res) => {
 // ─── GET /api/tenant-invoices ─────────────────────────────────────────────────
 router.get("/tenant-invoices", async (req, res) => {
   try {
-    const { status, tenantId, search } = req.query;
+    const { status, tenantId, search, companyId } = req.query;
 
     let query = db
       .select(invoiceSelect)
@@ -374,6 +376,9 @@ router.get("/tenant-invoices", async (req, res) => {
     }
     if (tenantId && !isNaN(Number(tenantId))) {
       conditions.push(eq(tenantInvoicesTable.tenantId, Number(tenantId)));
+    }
+    if (companyId && companyId !== "all" && !isNaN(Number(companyId))) {
+      conditions.push(eq(tenantsTable.companyId, Number(companyId)));
     }
     if (search) {
       const s = `%${String(search)}%`;
