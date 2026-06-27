@@ -1,19 +1,14 @@
 const isProduction = (process.env["NODE_ENV"] ?? "development") === "production";
 
 function resolveDbUrl(): string {
-  if (isProduction) {
-    const url =
-      process.env["SUPABASE_PG_URL_PROD"] ??
-      process.env["SUPABASE_PG_URL"] ??
-      process.env["DATABASE_URL"];
-    if (!url) throw new Error("SUPABASE_PG_URL_PROD harus diset di production");
-    return url;
-  }
-  // Development: gunakan SUPABASE_PG_URL_DEV (project dev terpisah) → DATABASE_URL
+  // Selalu prioritaskan SUPABASE_PG_URL_PROD agar data masuk ke Supabase
+  // baik di development maupun production
   const url =
+    process.env["SUPABASE_PG_URL_PROD"] ??
+    process.env["SUPABASE_PG_URL"] ??
     process.env["SUPABASE_PG_URL_DEV"] ??
     process.env["DATABASE_URL"];
-  if (!url) throw new Error("SUPABASE_PG_URL_DEV atau DATABASE_URL harus diset");
+  if (!url) throw new Error("SUPABASE_PG_URL_PROD harus diset di Secrets");
   return url;
 }
 
