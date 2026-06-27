@@ -3425,3 +3425,10 @@ FROM companies c WHERE c.code = 'ERA'
   AND NOT EXISTS (SELECT 1 FROM accounting_journals WHERE code = 'CSH-ERA');
   `.trim(),
 });
+
+MIGRATIONS.push({
+  name: "0079_invoice_due_reminder_7d",
+  sql: `
+ALTER TABLE "tenant_invoices" ADD COLUMN IF NOT EXISTS "due_reminder_7d_at" timestamptz;
+  `.trim(),
+});

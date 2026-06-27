@@ -197,12 +197,12 @@ async function runInvoiceNotificationCheck(): Promise<void> {
 // ─── H-3 dan H-1: Reminder sebelum jatuh tempo ───────────────────────────────
 
 /**
- * Kirim WA pengingat 3 hari (H-3) dan 1 hari (H-1) sebelum jatuh tempo.
+ * Kirim WA pengingat 7 hari (H-7), 3 hari (H-3), dan 1 hari (H-1) sebelum jatuh tempo.
  * Menggunakan template sendInvoiceNotification — menyertakan link bayar.
- * Kolom dueReminder3dAt / dueReminder1dAt diset agar tidak kirim ulang.
+ * Kolom dueReminder7dAt / dueReminder3dAt / dueReminder1dAt diset agar tidak kirim ulang.
  */
 async function runDueReminderCheck(): Promise<void> {
-  logger.info("[scheduler] Menjalankan cek reminder H-3 / H-1...");
+  logger.info("[scheduler] Menjalankan cek reminder H-7 / H-3 / H-1...");
 
   const now = new Date();
 
@@ -221,6 +221,19 @@ async function runDueReminderCheck(): Promise<void> {
   } as const;
 
   const baseWhere = inArray(tenantInvoicesTable.status, ["unpaid", "partial"]);
+
+  // H-7: jatuh tempo 7 hari lagi, belum dikirim
+  const h7Invoices = await db
+    .select(selectFields)
+    .from(tenantInvoicesTable)
+    .innerJoin(tenantsTable, eq(tenantInvoicesTable.tenantId, tenantsTable.id))
+    .where(
+      and(
+        baseWhere,
+        isNull(tenantInvoicesTable.dueReminder7dAt),
+        sql`"due_date" = CURRENT_DATE + INTERVAL '7 days'`,
+      ),
+    );
 
   // H-3: jatuh tempo 3 hari lagi, belum dikirim
   const h3Invoices = await db
@@ -249,12 +262,45 @@ async function runDueReminderCheck(): Promise<void> {
     );
 
   logger.info(
-    { h3: h3Invoices.length, h1: h1Invoices.length },
+    { h7: h7Invoices.length, h3: h3Invoices.length, h1: h1Invoices.length },
     "[scheduler] Invoice perlu reminder",
   );
 
+  let sentH7 = 0;
   let sentH3 = 0;
   let sentH1 = 0;
+
+  for (const invoice of h7Invoices) {
+    await db
+      .update(tenantInvoicesTable)
+      .set({ dueReminder7dAt: now, updatedAt: now })
+      .where(eq(tenantInvoicesTable.id, invoice.id));
+
+    if (invoice.phone) {
+      const dueStr = invoice.dueDate
+        ? new Date(invoice.dueDate).toLocaleDateString("id-ID", {
+            day: "numeric",
+            month: "long",
+            year: "numeric",
+          })
+        : "-";
+
+      const result = await sendDueReminder({
+        ownerName: invoice.ownerName,
+        businessName: invoice.businessName,
+        invoiceNumber: invoice.invoiceNumber,
+        periodLabel: formatPeriodLabel(invoice.periodStart, invoice.periodEnd),
+        totalAmount: invoice.totalAmount,
+        outstandingAmount: invoice.outstandingAmount,
+        dueDate: dueStr,
+        daysUntilDue: 7,
+        phone: invoice.phone,
+        paymentLink: await buildPaymentLink(invoice.paymentToken),
+      });
+
+      if (result.ok && !result.skipped) sentH7++;
+    }
+  }
 
   for (const invoice of h3Invoices) {
     await db
@@ -321,8 +367,8 @@ async function runDueReminderCheck(): Promise<void> {
   }
 
   logger.info(
-    { sentH3, sentH1 },
-    "[scheduler] Pengingat WA H-3/H-1 selesai",
+    { sentH7, sentH3, sentH1 },
+    "[scheduler] Pengingat WA H-7/H-3/H-1 selesai",
   );
 }
 
