@@ -162,6 +162,25 @@ export async function postPosPaymentJournal(
     `);
     await db.execute(sql`UPDATE accounting_entries SET status = 'posted' WHERE id = ${entryId}`);
 
+    // Catat di accounting_payments (idempoten via correlation_id)
+    const payCorrelationId = `pay-${correlationId}`;
+    const paymentMethodMapped =
+      opts.paymentMethod === "cash" ? "cash"
+      : opts.paymentMethod === "qris" ? "qris"
+      : "bank";
+    const paidAtStr = opts.transactionDate.toISOString();
+    await db.execute(sql`
+      INSERT INTO accounting_payments
+        (entry_id, company_id, source_module, source_table, source_id,
+         payment_method, amount, currency, paid_at,
+         ref, description, status, correlation_id, created_at, updated_at)
+      VALUES
+        (${entryId}, ${companyId}, ${srcModule}, ${"tenant_payments"}, ${opts.paymentId},
+         ${paymentMethodMapped}, ${opts.amountPaid}, ${"IDR"}, ${paidAtStr}::timestamptz,
+         ${opts.receiptNumber}, ${description}, ${"completed"}, ${payCorrelationId}, NOW(), NOW())
+      ON CONFLICT (correlation_id) DO NOTHING
+    `);
+
     // Catat di tax_transactions (idempoten via correlation_id)
     if (taxAmount > 0) {
       const period = transactionDateStr.slice(0, 7); // "YYYY-MM"
