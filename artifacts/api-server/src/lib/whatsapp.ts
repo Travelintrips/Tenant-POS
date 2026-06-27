@@ -421,6 +421,7 @@ export interface AdminPaymentAlertParams {
   paymentId: number;
   adminPhone: string;
   reviewLink: string;
+  proofUrl?: string | null;
 }
 
 /**
@@ -446,10 +447,11 @@ export async function sendAdminPaymentAlert(params: AdminPaymentAlertParams): Pr
     `• Jumlah   : *${formatRupiah(params.amount)}*\n` +
     `• Metode   : ${methodLabel[params.paymentMethod] ?? params.paymentMethod}\n` +
     (params.referenceNumber ? `• Ref No   : ${params.referenceNumber}\n` : "") +
+    (params.proofUrl ? `\n📎 *Bukti Transfer:*\n${params.proofUrl}\n` : "") +
     `\n*Balas pesan ini untuk memproses:*\n` +
     `✅ SETUJU ${params.paymentId}\n` +
     `❌ TOLAK ${params.paymentId} <alasan>\n\n` +
-    `🔗 ${params.reviewLink}`;
+    `🔗 Portal Admin: ${params.reviewLink}`;
 
   return sendMessage(params.adminPhone, message);
 }

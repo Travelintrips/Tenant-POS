@@ -1379,7 +1379,23 @@ export default function TenantInvoices() {
     setBulkPrices(prices);
     const activeTenants = allTenants.filter(isActiveTenant);
     setBulkSelected(new Set((activeTenants.length > 0 ? activeTenants : allTenants).map((t) => t.id)));
-    setBulkCommon({ periodStart: "", periodEnd: "", dueDate: "", status: "unpaid", notes: "" });
+
+    // Auto-isi periode bulan berjalan
+    const nowD = new Date();
+    const m = nowD.getMonth() + 1;
+    const y = nowD.getFullYear();
+    const pad2 = (n: number) => String(n).padStart(2, "0");
+    const lastDay = new Date(y, m, 0).getDate();
+    const dueM = m === 12 ? 1 : m + 1;
+    const dueY = m === 12 ? y + 1 : y;
+    setBulkMonth({ month: m, year: y });
+    setBulkCommon({
+      periodStart: `${y}-${pad2(m)}-01`,
+      periodEnd: `${y}-${pad2(m)}-${pad2(lastDay)}`,
+      dueDate: `${dueY}-${pad2(dueM)}-14`,
+      status: "unpaid",
+      notes: "",
+    });
     setBulkExpanded(null);
     setBulkResult(null);
     setBulkOpen(true);

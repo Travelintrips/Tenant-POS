@@ -341,6 +341,7 @@ router.post("/pay/:token/proof", uploadRateLimiter, async (req, res) => {
               paymentId: payment.id,
               adminPhone: owner.phone,
               reviewLink,
+              proofUrl,
             }),
           ),
         );
