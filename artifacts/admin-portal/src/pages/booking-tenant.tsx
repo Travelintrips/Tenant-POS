@@ -766,7 +766,7 @@ export default function BookingTenant() {
 
       {/* Dialog Form Kontrak */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="max-w-2xl">
+        <DialogContent className="w-[calc(100vw-2rem)] max-w-2xl sm:max-w-2xl max-h-[90dvh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{editTarget ? "Edit Kontrak Sewa" : "Tambah Kontrak Sewa Baru"}</DialogTitle>
           </DialogHeader>

@@ -3215,3 +3215,136 @@ END $$;
 CREATE INDEX IF NOT EXISTS idx_session_expire ON "session" ("expire");
   `.trim(),
 });
+
+MIGRATIONS.push({
+  name: "0073_ensure_consolidated_invoices",
+  sql: `
+CREATE TABLE IF NOT EXISTS "consolidated_invoices" (
+  "id" serial PRIMARY KEY NOT NULL,
+  "site_id" integer REFERENCES "mall_sites"("id"),
+  "invoice_number" text NOT NULL UNIQUE,
+  "tenant_id" integer NOT NULL REFERENCES "tenants"("id"),
+  "period_label" text,
+  "period_start" date,
+  "period_end" date,
+  "due_date" date,
+  "total_amount" numeric NOT NULL DEFAULT '0',
+  "paid_amount" numeric NOT NULL DEFAULT '0',
+  "outstanding_amount" numeric NOT NULL DEFAULT '0',
+  "status" text NOT NULL DEFAULT 'unpaid',
+  "payment_token" text UNIQUE,
+  "notes" text,
+  "created_at" timestamptz NOT NULL DEFAULT now(),
+  "updated_at" timestamptz NOT NULL DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS "consolidated_invoice_items" (
+  "id" serial PRIMARY KEY NOT NULL,
+  "consolidated_invoice_id" integer NOT NULL REFERENCES "consolidated_invoices"("id") ON DELETE CASCADE,
+  "invoice_id" integer NOT NULL REFERENCES "tenant_invoices"("id"),
+  "booking_id" integer REFERENCES "tenant_bookings"("id"),
+  "unit_code" text,
+  "description" text,
+  "amount" numeric NOT NULL DEFAULT '0',
+  "created_at" timestamptz NOT NULL DEFAULT now()
+);
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_indexes WHERE tablename='consolidated_invoices' AND indexname='consolidated_invoices_tenant_id_idx') THEN
+    CREATE INDEX consolidated_invoices_tenant_id_idx ON "consolidated_invoices" ("tenant_id");
+  END IF;
+END $$;
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_indexes WHERE tablename='consolidated_invoices' AND indexname='consolidated_invoices_site_id_idx') THEN
+    CREATE INDEX consolidated_invoices_site_id_idx ON "consolidated_invoices" ("site_id");
+  END IF;
+END $$;
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_indexes WHERE tablename='consolidated_invoice_items' AND indexname='consolidated_invoice_items_inv_id_idx') THEN
+    CREATE INDEX consolidated_invoice_items_inv_id_idx ON "consolidated_invoice_items" ("invoice_id");
+  END IF;
+END $$;
+  `.trim(),
+});
+
+MIGRATIONS.push({
+  name: "0074_seed_companies_and_fix_tenant_company_id",
+  sql: `
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'companies' AND column_name = 'company_code'
+  ) THEN
+    INSERT INTO companies (code, name, company_name, company_code)
+    VALUES ('WGS', 'PT Wangsamas', 'PT Wangsamas', 'WGS')
+    ON CONFLICT (code) DO NOTHING;
+
+    INSERT INTO companies (code, name, company_name, company_code)
+    VALUES ('DVS', 'PT Diva Servis', 'PT Diva Servis', 'DVS')
+    ON CONFLICT (code) DO NOTHING;
+
+    INSERT INTO companies (code, name, company_name, company_code)
+    VALUES ('ERA', 'PT Elmira Ratu Abadi', 'PT Elmira Ratu Abadi', 'ERA')
+    ON CONFLICT (code) DO NOTHING;
+  ELSE
+    INSERT INTO companies (code, name, company_name)
+    VALUES ('WGS', 'PT Wangsamas', 'PT Wangsamas')
+    ON CONFLICT (code) DO NOTHING;
+
+    INSERT INTO companies (code, name, company_name)
+    VALUES ('DVS', 'PT Diva Servis', 'PT Diva Servis')
+    ON CONFLICT (code) DO NOTHING;
+
+    INSERT INTO companies (code, name, company_name)
+    VALUES ('ERA', 'PT Elmira Ratu Abadi', 'PT Elmira Ratu Abadi')
+    ON CONFLICT (code) DO NOTHING;
+  END IF;
+END $$;
+
+UPDATE companies
+SET name = 'PT Cahaya Sejati Teknologi', company_name = 'PT Cahaya Sejati Teknologi'
+WHERE code = 'CST' AND name IN ('Mall Admin', 'CST');
+
+UPDATE tenants t
+SET company_id = c.id
+FROM mall_sites ms, companies c
+WHERE t.site_id = ms.id
+  AND (
+    (ms.company_name ILIKE '%Elmira%'        AND c.code = 'ERA') OR
+    (ms.company_name ILIKE '%Cahaya Sejati%' AND c.code = 'CST') OR
+    (ms.company_name ILIKE '%Wangsamas%'     AND c.code = 'WGS') OR
+    (ms.company_name ILIKE '%Diva%'          AND c.code = 'DVS')
+  );
+  `.trim(),
+});
+
+MIGRATIONS.push({
+  name: "0075_invoice_notified_at",
+  sql: `
+ALTER TABLE "tenant_invoices" ADD COLUMN IF NOT EXISTS "invoice_notified_at" timestamptz;
+  `.trim(),
+});
+
+
+MIGRATIONS.push({
+  name: "0076_accounting_payments_compat",
+  sql: `
+ALTER TABLE accounting_payments
+  ADD COLUMN IF NOT EXISTS entry_id        integer,
+  ADD COLUMN IF NOT EXISTS company_id      integer,
+  ADD COLUMN IF NOT EXISTS source_module   text,
+  ADD COLUMN IF NOT EXISTS source_table    text,
+  ADD COLUMN IF NOT EXISTS source_id       integer,
+  ADD COLUMN IF NOT EXISTS payment_method  text,
+  ADD COLUMN IF NOT EXISTS currency        text,
+  ADD COLUMN IF NOT EXISTS paid_at         timestamptz,
+  ADD COLUMN IF NOT EXISTS ref             text,
+  ADD COLUMN IF NOT EXISTS description     text,
+  ADD COLUMN IF NOT EXISTS correlation_id  text,
+  ADD COLUMN IF NOT EXISTS created_at      timestamptz,
+  ADD COLUMN IF NOT EXISTS updated_at      timestamptz;
+
+CREATE UNIQUE INDEX IF NOT EXISTS ap_correlation_id_idx
+  ON accounting_payments(correlation_id)
+  WHERE correlation_id IS NOT NULL;
+  `.trim(),
+});

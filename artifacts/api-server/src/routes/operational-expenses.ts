@@ -390,7 +390,7 @@ router.post("/operational-expenses", requireAnyRole("owner", "admin", "finance")
 
 // ─── PATCH /api/operational-expenses/:id ──────────────────────────────────────
 router.patch("/operational-expenses/:id", async (req, res) => {
-  const id = parseInt(req.params.id, 10);
+  const id = parseInt(String(req.params.id), 10);
   if (isNaN(id)) { res.status(400).json({ error: "ID tidak valid" }); return; }
 
   const parsed = expenseSchema.partial().safeParse(req.body);
@@ -448,7 +448,7 @@ router.patch("/operational-expenses/:id", async (req, res) => {
 
 // ─── DELETE /api/operational-expenses/:id ─────────────────────────────────────
 router.delete("/operational-expenses/:id", requireAnyRole("owner", "admin", "finance"), async (req, res) => {
-  const id = parseInt(req.params.id, 10);
+  const id = parseInt(String(req.params.id), 10);
   if (isNaN(id)) { res.status(400).json({ error: "ID tidak valid" }); return; }
 
   try {

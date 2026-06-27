@@ -1,18 +1,26 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   Users, FileText, AlertTriangle, Wallet, TrendingUp,
   Clock, ArrowRight, ClipboardCheck, Store, CalendarRange,
-  BarChart3, CheckCircle2, CircleDollarSign, LayoutGrid, Calculator,
+  BarChart3, CheckCircle2, CircleDollarSign, LayoutGrid, Calculator, BadgeCheck,
+  Download, Loader2,
 } from "lucide-react";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer, AreaChart, Area,
+  ResponsiveContainer, AreaChart, Area, Cell,
 } from "recharts";
 import { useAuth } from "@/hooks/use-auth";
 import { useSite } from "@/contexts/site-context";
@@ -39,6 +47,9 @@ type DashSummary = {
   totalPiutang: number;
   revenueThisMonth: number;
   pendingPayments: number;
+  invoicePaidCount: number;
+  invoicePaidAmount: number;
+  paidMonth: string;
 };
 
 type MonthlySummary = {
@@ -71,6 +82,13 @@ type UnitStats = {
   occupancyRate: number;
 };
 
+type TrendPoint = {
+  label: string;
+  month: string;
+  count: number;
+  amount: number;
+};
+
 const UNIT_STATUS_CONFIG: Record<string, { label: string; color: string; bg: string }> = {
   occupied:    { label: "Terisi",      color: "bg-emerald-500", bg: "bg-emerald-50 text-emerald-700" },
   available:   { label: "Tersedia",   color: "bg-sky-400",     bg: "bg-sky-50 text-sky-700" },
@@ -95,6 +113,21 @@ const CustomTooltip = ({ active, payload, label }: any) => {
   return null;
 };
 
+// Buat opsi bulan: 12 bulan terakhir
+function buildMonthOptions() {
+  const opts: { value: string; label: string }[] = [];
+  const now = new Date();
+  for (let i = 0; i < 13; i++) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    const value = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+    const label = d.toLocaleDateString("id-ID", { month: "long", year: "numeric" });
+    opts.push({ value, label });
+  }
+  return opts;
+}
+
+const MONTH_OPTIONS = buildMonthOptions();
+
 export default function Dashboard() {
   const { data: user } = useAuth();
   const { activeSite } = useSite();
@@ -105,10 +138,38 @@ export default function Dashboard() {
   const tahun = new Date().getFullYear();
   const bulanSekarang = new Date().getMonth();
 
+  const defaultMonth = MONTH_OPTIONS[0].value;
+  const [paidMonthFilter, setPaidMonthFilter] = useState<string>(defaultMonth);
+  const [isDownloading, setIsDownloading] = useState(false);
+
+  const handleDownloadPdf = async () => {
+    setIsDownloading(true);
+    try {
+      const params = new URLSearchParams({ month: paidMonthFilter });
+      if (activeSite && activeSite.code !== "ALL") params.set("siteId", String(activeSite.id));
+      const res = await fetch(`${BASE}/api/dashboard/export-monthly-pdf?${params}`, {
+        headers: siteHeader,
+      });
+      if (!res.ok) throw new Error("Gagal mengunduh laporan");
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `laporan-${paidMonthFilter}.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      alert("Gagal mengunduh laporan PDF. Coba lagi.");
+    } finally {
+      setIsDownloading(false);
+    }
+  };
+
   const { data: summary, isLoading: loadSummary } = useQuery<DashSummary>({
-    queryKey: ["dashboard-summary", activeSite?.id],
+    queryKey: ["dashboard-summary", activeSite?.id, paidMonthFilter],
     queryFn: async () => {
-      const res = await fetch(`${BASE}/api/dashboard/summary`, { headers: siteHeader });
+      const url = `${BASE}/api/dashboard/summary?paidMonth=${paidMonthFilter}`;
+      const res = await fetch(url, { headers: siteHeader });
       if (!res.ok) throw new Error("Gagal memuat summary");
       return res.json();
     },
@@ -130,6 +191,16 @@ export default function Dashboard() {
     queryFn: async () => {
       const res = await fetch(`${BASE}/api/dashboard/unit-stats`);
       if (!res.ok) throw new Error("Gagal memuat statistik unit");
+      return res.json();
+    },
+    refetchInterval: 120_000,
+  });
+
+  const { data: paidTrend } = useQuery<{ trend: TrendPoint[] }>({
+    queryKey: ["dashboard-paid-trend", activeSite?.id],
+    queryFn: async () => {
+      const res = await fetch(`${BASE}/api/dashboard/paid-trend`, { headers: siteHeader });
+      if (!res.ok) return { trend: [] };
       return res.json();
     },
     refetchInterval: 120_000,
@@ -162,17 +233,17 @@ export default function Dashboard() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex flex-col gap-1">
-        <h1 className="text-2xl font-bold text-foreground">
+      <div className="flex flex-col gap-0.5">
+        <h1 className="text-xl sm:text-2xl font-bold text-foreground">
           {greeting}, {user?.name?.split(" ")[0] ?? "Admin"} 👋
         </h1>
-        <p className="text-sm text-muted-foreground">
-          Ringkasan operasional · {activeSite?.name ?? "Semua Lokasi"} · {now.toLocaleDateString("id-ID", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}
+        <p className="text-[11px] sm:text-sm text-muted-foreground">
+          Ringkasan operasional · {activeSite?.name ?? "Semua Lokasi"} · <span className="hidden sm:inline">{now.toLocaleDateString("id-ID", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}</span><span className="sm:hidden">{now.toLocaleDateString("id-ID", { day: "numeric", month: "short", year: "numeric" })}</span>
         </p>
       </div>
 
       {/* Stat Cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
         <Card className="border-l-4 border-l-emerald-500">
           <CardContent className="pt-4 pb-3 px-4">
             {loadSummary ? (
@@ -240,6 +311,89 @@ export default function Dashboard() {
                 <p className="text-xs text-muted-foreground mt-0.5">
                   Pendapatan {namaBulan}: {formatRp(summary?.revenueThisMonth ?? 0)}
                 </p>
+              </>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card className="border-l-4 border-l-violet-500 col-span-2 sm:col-span-3 lg:col-span-1">
+          <CardContent className="pt-3 pb-3 px-4">
+            {loadSummary ? (
+              <Skeleton className="h-28 w-full" />
+            ) : (
+              <>
+                <div className="flex items-center justify-between mb-1">
+                  <p className="text-xs text-muted-foreground font-medium flex items-center gap-1">
+                    <BadgeCheck className="h-3.5 w-3.5 text-violet-500" />
+                    Invoice Terbayar
+                  </p>
+                  <div className="flex items-center gap-1">
+                    <Select value={paidMonthFilter} onValueChange={setPaidMonthFilter}>
+                      <SelectTrigger className="h-6 text-[10px] px-2 py-0 w-auto border-violet-200 text-violet-700 bg-violet-50 hover:bg-violet-100 focus:ring-violet-300 rounded-md">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent align="end" className="text-xs max-h-56">
+                        {MONTH_OPTIONS.map((opt) => (
+                          <SelectItem key={opt.value} value={opt.value} className="text-xs">
+                            {opt.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-6 w-6 text-violet-600 hover:bg-violet-100"
+                      onClick={handleDownloadPdf}
+                      disabled={isDownloading}
+                      title="Download laporan PDF"
+                    >
+                      {isDownloading
+                        ? <Loader2 className="h-3 w-3 animate-spin" />
+                        : <Download className="h-3 w-3" />}
+                    </Button>
+                  </div>
+                </div>
+                <p className="text-3xl font-bold text-violet-600">{summary?.invoicePaidCount ?? 0}</p>
+                <p className="text-xs text-muted-foreground mt-0.5 mb-2">
+                  {formatRp(summary?.invoicePaidAmount ?? 0)} masuk
+                </p>
+                {/* Mini sparkline 6 bulan */}
+                {(paidTrend?.trend?.length ?? 0) > 0 && (
+                  <ResponsiveContainer width="100%" height={44}>
+                    <BarChart data={paidTrend!.trend} margin={{ top: 0, right: 0, left: 0, bottom: 0 }} barSize={8}>
+                      <Tooltip
+                        content={({ active, payload, label }) =>
+                          active && payload?.length ? (
+                            <div className="bg-white border rounded shadow px-2 py-1 text-[10px]">
+                              <p className="font-semibold text-violet-700">{label}</p>
+                              <p>{payload[0]?.value} invoice</p>
+                              <p className="text-muted-foreground">{formatRp(Number(payload[0]?.payload?.amount ?? 0))}</p>
+                            </div>
+                          ) : null
+                        }
+                      />
+                      <Bar dataKey="count" radius={[2, 2, 0, 0]}>
+                        {paidTrend!.trend.map((entry) => (
+                          <Cell
+                            key={entry.month}
+                            fill={entry.month === paidMonthFilter ? "#7c3aed" : "#ddd6fe"}
+                          />
+                        ))}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                )}
+                <div className="flex justify-between mt-0.5">
+                  {(paidTrend?.trend ?? []).map((t) => (
+                    <span
+                      key={t.month}
+                      className={`text-[9px] ${t.month === paidMonthFilter ? "text-violet-700 font-bold" : "text-muted-foreground"}`}
+                    >
+                      {t.label}
+                    </span>
+                  ))}
+                </div>
               </>
             )}
           </CardContent>

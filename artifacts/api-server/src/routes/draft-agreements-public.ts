@@ -302,7 +302,7 @@ router.post("/dokumen/:token/setuju", async (req: Request, res: Response) => {
           durationMonths,
         }).catch((err) => console.error("[draft-public] Auto-invoice error:", err));
 
-        console.log(`[draft-public] Auto-booking created: bookingId=${bookingId} tenantId=${tenantId} for draft token=${token}`);
+        req.log.info({ bookingId, tenantId, token }, "[draft-public] Auto-booking created");
       } catch (err) {
         console.error("[draft-public] Auto-booking error (non-fatal):", err);
       }

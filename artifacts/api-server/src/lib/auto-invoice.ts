@@ -4,6 +4,7 @@
  */
 import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
+import { logger } from "./logger";
 
 function calcAmounts(rentAmount: number) {
   const total = rentAmount;
@@ -65,15 +66,28 @@ function toDateStr(d: Date): string {
   return d.toISOString().slice(0, 10);
 }
 
-/** Kembalikan tanggal awal bulan ke-N dari referensi bulan (0-indexed) */
+/**
+ * Tambah N bulan ke tanggal base, MEMPERTAHANKAN hari asli.
+ * Contoh: base=15 Juli + 1 bulan → 15 Agustus.
+ * Jika hari melebihi akhir bulan tujuan (misal 31 Jan + 1 bln), pakai hari terakhir bulan itu.
+ */
 function addMonths(base: Date, months: number): Date {
-  const d = new Date(base.getFullYear(), base.getMonth() + months, 1);
-  return d;
+  const targetMonth = base.getMonth() + months;
+  const year = base.getFullYear() + Math.floor(targetMonth / 12);
+  const month = ((targetMonth % 12) + 12) % 12;
+  const day = base.getDate();
+  // Clamp ke hari terakhir bulan jika perlu
+  const lastDay = new Date(year, month + 1, 0).getDate();
+  return new Date(year, month, Math.min(day, lastDay));
 }
 
-/** Kembalikan tanggal akhir bulan */
-function endOfMonth(d: Date): Date {
-  return new Date(d.getFullYear(), d.getMonth() + 1, 0);
+/**
+ * Akhir periode = 1 hari sebelum periode berikutnya dimulai.
+ * Contoh: start=15 Juli → end=14 Agustus.
+ */
+function calcPeriodEnd(periodStart: Date): Date {
+  const nextStart = addMonths(periodStart, 1);
+  return new Date(nextStart.getFullYear(), nextStart.getMonth(), nextStart.getDate() - 1);
 }
 
 async function insertOneInvoice(opts: {
@@ -113,7 +127,7 @@ async function insertOneInvoice(opts: {
         RETURNING id
       `);
       const id = (insertResult as unknown as { rows: { id: number }[] }).rows[0]?.id ?? null;
-      console.log(`[auto-invoice] Invoice ${invoiceNumber} (${periodStartStr}) dibuat (bookingId=${bookingId})`);
+      logger.info(`[auto-invoice] Invoice ${invoiceNumber} (${periodStartStr}) dibuat (bookingId=${bookingId})`);
       return id;
     } catch (err: unknown) {
       const code = (err as { cause?: { code?: string } })?.cause?.code;
@@ -152,21 +166,24 @@ export async function createAllInvoicesForBooking(opts: {
     sql`SELECT period_start FROM tenant_invoices WHERE booking_id = ${bookingId}`
   );
   const existingMonths = new Set(
-    (existingResult as unknown as { rows: { period_start: string }[] }).rows.map((r) => r.period_start.slice(0, 7))
+    (existingResult as unknown as { rows: { period_start: string }[] }).rows.map((r) => r.period_start.slice(0, 10))
   );
 
   for (let i = 0; i < durationMonths; i++) {
     const monthStart = addMonths(baseDate, i);
-    const monthEnd = endOfMonth(monthStart);
-    const dueDate = new Date(monthStart.getFullYear(), monthStart.getMonth() + 1, 5);
+    const monthEnd = calcPeriodEnd(monthStart);
+    // Jatuh tempo = tanggal terbit + 5 hari
+    const dueDate = new Date(monthStart.getTime() + 5 * 24 * 60 * 60 * 1000);
 
     const periodStartStr = toDateStr(monthStart);
     const periodEndStr = toDateStr(monthEnd);
     const dueDateStr = toDateStr(dueDate);
-    const monthKey = periodStartStr.slice(0, 7);
+    // Key idempoten: YYYY-MM-DD (tanggal persis, bukan hanya bulan)
+    // agar tenant tanggal 1 dan 15 bisa koeksis di bulan yang sama jika perlu
+    const monthKey = periodStartStr;
 
     if (existingMonths.has(monthKey)) {
-      console.log(`[auto-invoice] Invoice ${monthKey} sudah ada, dilewati (bookingId=${bookingId})`);
+      logger.debug(`[auto-invoice] Invoice ${monthKey} sudah ada, dilewati (bookingId=${bookingId})`);
       continue;
     }
 
@@ -180,7 +197,7 @@ export async function createAllInvoicesForBooking(opts: {
     }
   }
 
-  console.log(`[auto-invoice] Selesai: ${createdIds.length} invoice dibuat untuk bookingId=${bookingId} (${durationMonths} bulan)`);
+  logger.info(`[auto-invoice] Selesai: ${createdIds.length} invoice dibuat untuk bookingId=${bookingId} (${durationMonths} bulan)`);
   return createdIds;
 }
 

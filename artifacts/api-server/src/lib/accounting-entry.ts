@@ -15,8 +15,8 @@ interface AccountingEntryParams {
 }
 
 /**
- * Posting pembayaran sewa tenant ke accounting_entries + accounting_entry_lines.
- * Idempotent via correlation_id = "tenant_payment_{paymentId}".
+ * Posting pembayaran sewa tenant ke accounting_entries + accounting_entry_lines + accounting_payments.
+ * Idempotent via correlation_id = "tenant_payment_{paymentId}" ATAU via unique index (source, source_id).
  * Pilih journal: tunai/qris → CSH, transfer/edc → BNK.
  * Company di-lookup dari mall_sites.company_name → companies.name.
  */
@@ -32,17 +32,27 @@ export async function postTenantPaymentAccountingEntry(
     paymentMethod,
     transactionDate,
     receiptNumber,
-    sourceModule = "tenant_rent_payment",
+    sourceModule = "direct_invoice_payment",
   } = params;
 
   const correlationId = `tenant_payment_${paymentId}`;
 
   try {
     // --- Idempotency check ---
-    const existing = await db.execute(
-      sql`SELECT id FROM accounting_entries WHERE correlation_id = ${correlationId} LIMIT 1`
-    );
-    if ((existing as any).rows?.length > 0) return;
+    // Cek via correlation_id ATAU via unique index (source, source_id)
+    // Ini menangani kasus pos-journal.ts sudah membuat entry dengan correlation_id berbeda
+    const existing = await db.execute(sql`
+      SELECT id FROM accounting_entries
+      WHERE correlation_id = ${correlationId}
+         OR (source = 'tenant_rent_payment'::accounting_entry_source
+             AND source_id IS NOT NULL
+             AND source_id = ${paymentId})
+      LIMIT 1
+    `);
+    if ((existing as any).rows?.length > 0) {
+      logger.info(`[accounting_entry] Entry sudah ada untuk payment_id=${paymentId} — dilewati`);
+      return;
+    }
 
     // --- Lookup company via site ---
     let companyId = 1;
@@ -86,12 +96,10 @@ export async function postTenantPaymentAccountingEntry(
     }
 
     const journalId: number = Number(journal.id);
-    const journalCode: string = String(journal.code); // e.g. "CSH-CST"
+    const journalCode: string = String(journal.code);
     const debitAccountId: number = Number(journal.default_debit_account_id);
 
     // --- Lookup credit account: 4-1021-{code} (Pendapatan Sewa Tenant) ---
-    // Migration 0061 menyeed 4-1021-{company_code} per company.
-    // Fallback: pakai 4-1025-% (Pendapatan Tenant) jika 4-1021 belum ada.
     const coaRow = await db.execute(sql`
       SELECT id, code FROM chart_of_accounts
       WHERE company_id = ${companyId}
@@ -105,7 +113,6 @@ export async function postTenantPaymentAccountingEntry(
       (coaRow as any).rows?.[0]?.id != null
         ? Number((coaRow as any).rows[0].id)
         : null;
-    const creditAccountCode: string = (coaRow as any).rows?.[0]?.code ?? "?";
 
     if (!creditAccountId) {
       logger.warn(
@@ -115,10 +122,8 @@ export async function postTenantPaymentAccountingEntry(
     }
 
     // --- Generate entry_number sequential ---
-    // Gunakan full journalCode sebagai prefix agar unique antar company
-    // e.g. "CSH-CST/2026/0001", bukan "CSH/2026/0001" (bisa collision antar company)
     const year = transactionDate.getFullYear();
-    const journalPrefix = journalCode; // e.g. "CSH-CST" (full code, bukan split)
+    const journalPrefix = journalCode;
     const likePattern = `${journalPrefix}/${year}/%`;
 
     const maxRow = await db.execute(sql`
@@ -141,8 +146,6 @@ export async function postTenantPaymentAccountingEntry(
     const description = `Pembayaran Sewa Tenant (${ref})`;
     const dateStr = transactionDate.toISOString().split("T")[0];
 
-    // --- Insert accounting_entries dengan status 'draft' dulu ---
-    // (trigger DB melarang mutasi lines pada entry yang sudah 'posted')
     const entryResult = await db.execute(sql`
       INSERT INTO accounting_entries
         (entry_number, journal_id, date, ref, description, status,
@@ -154,12 +157,26 @@ export async function postTenantPaymentAccountingEntry(
          ${"tenant_rent_payment"}::accounting_entry_source,
          ${sourceModule}, ${paymentId}, ${amountPaid}, ${amountPaid},
          ${companyId}, ${correlationId}, NOW())
+      ON CONFLICT DO NOTHING
       RETURNING id
     `);
-    const entryId: number | null =
+    let entryId: number | null =
       (entryResult as any).rows?.[0]?.id != null
         ? Number((entryResult as any).rows[0].id)
         : null;
+
+    // Jika ON CONFLICT DO NOTHING → ambil id yang sudah ada
+    if (!entryId) {
+      const existing2 = await db.execute(sql`
+        SELECT id FROM accounting_entries
+        WHERE source = 'tenant_rent_payment'::accounting_entry_source AND source_id = ${paymentId}
+        LIMIT 1
+      `);
+      entryId = (existing2 as any).rows?.[0]?.id != null
+        ? Number((existing2 as any).rows[0].id)
+        : null;
+    }
+
     if (!entryId) {
       logger.warn("[accounting_entry] Insert accounting_entries gagal (tidak ada RETURNING id)");
       return;
@@ -167,27 +184,63 @@ export async function postTenantPaymentAccountingEntry(
 
     // --- Insert accounting_entry_lines (debit + credit) ---
     const bizLabel = businessName ?? "Tenant";
+    try {
+      await db.execute(sql`
+        INSERT INTO accounting_entry_lines (entry_id, account_id, description, debit, credit)
+        VALUES
+          (${entryId}, ${debitAccountId},
+           ${"Penerimaan sewa " + ref},
+           ${amountPaid}, 0),
+          (${entryId}, ${creditAccountId},
+           ${"Pendapatan Sewa Tenant — " + bizLabel},
+           0, ${amountPaid})
+        ON CONFLICT DO NOTHING
+      `);
+    } catch {
+      // Lines mungkin sudah ada jika entry di-recover dari conflict
+    }
+
+    // --- Update status ke 'posted' ---
     await db.execute(sql`
-      INSERT INTO accounting_entry_lines (entry_id, account_id, description, debit, credit)
-      VALUES
-        (${entryId}, ${debitAccountId},
-         ${"Penerimaan sewa " + ref},
-         ${amountPaid}, 0),
-        (${entryId}, ${creditAccountId},
-         ${"Pendapatan Sewa Tenant — " + bizLabel},
-         0, ${amountPaid})
+      UPDATE accounting_entries SET status = 'posted' WHERE id = ${entryId} AND status = 'draft'
     `);
 
-    // --- Update status ke 'posted' setelah lines berhasil dimasukkan ---
-    await db.execute(sql`
-      UPDATE accounting_entries SET status = 'posted' WHERE id = ${entryId}
-    `);
-
-    console.log(
+    logger.info(
       `[accounting_entry] ✅ ${entryNumber} | company_id=${companyId} | Rp ${amountPaid} | ${description} | lines: 2`
     );
+
+    // --- Insert accounting_payments (idempoten via correlation_id) ---
+    const payCorrelationId = `pay-tenant-${paymentId}`;
+    const paymentMethodMapped =
+      (paymentMethod ?? "").toLowerCase() === "cash" ? "cash"
+      : (paymentMethod ?? "").toLowerCase() === "qris" ? "qris"
+      : "bank";
+    try {
+      await db.execute(sql`
+        INSERT INTO accounting_payments
+          (entry_id, company_id, source_module, source_table, source_id,
+           payment_type, payment_method, amount, currency, paid_at, date,
+           ref, description, correlation_id, journal_id, partner_name,
+           created_at, updated_at)
+        SELECT
+          ${entryId}, ${companyId}, ${sourceModule}, ${"tenant_payments"}, ${paymentId},
+          ${"inbound"}::accounting_payment_type, ${paymentMethodMapped},
+          ${amountPaid}, ${"IDR"},
+          ${transactionDate.toISOString()}::timestamptz, ${dateStr}::date,
+          ${ref}, ${description}, ${payCorrelationId},
+          ${journalId}, ${businessName ?? null},
+          NOW(), NOW()
+        WHERE NOT EXISTS (
+          SELECT 1 FROM accounting_payments
+          WHERE correlation_id = ${payCorrelationId}
+             OR (source_table = 'tenant_payments' AND source_id = ${paymentId})
+        )
+      `);
+      logger.info(`[accounting_entry] ✅ accounting_payments tersimpan untuk payment_id=${paymentId}`);
+    } catch (e) {
+      logger.warn({ err: e }, "[accounting_entry] accounting_payments insert gagal — non-fatal");
+    }
   } catch (err) {
-    // Non-critical — jangan block payment flow utama
     logger.error({ err }, "[accounting_entry] Gagal posting ke accounting_entries");
   }
 }

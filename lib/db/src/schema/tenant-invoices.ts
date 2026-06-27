@@ -40,6 +40,7 @@ export const tenantInvoicesTable = pgTable("tenant_invoices", {
   usePpn: boolean("use_ppn").notNull().default(true),
   dueReminder3dAt: timestamp("due_reminder_3d_at", { withTimezone: true }),
   dueReminder1dAt: timestamp("due_reminder_1d_at", { withTimezone: true }),
+  invoiceNotifiedAt: timestamp("invoice_notified_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });

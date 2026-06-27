@@ -61,9 +61,26 @@ router.post("/tenants", async (req, res) => {
     return;
   }
   try {
+    // Auto-assign company_id dari site jika belum diset
+    let companyId = parsed.data.companyId ?? null;
+    if (!companyId && parsed.data.siteId) {
+      const rows = await db.execute<{ company_id: number }>(sql`
+        SELECT c.id AS company_id
+        FROM mall_sites ms, companies c
+        WHERE ms.id = ${parsed.data.siteId}
+          AND (
+            (ms.company_name ILIKE '%Elmira%'        AND c.code = 'ERA') OR
+            (ms.company_name ILIKE '%Cahaya Sejati%' AND c.code = 'CST') OR
+            (ms.company_name ILIKE '%Wangsamas%'     AND c.code = 'WGS') OR
+            (ms.company_name ILIKE '%Diva%'          AND c.code = 'DVS')
+          )
+        LIMIT 1
+      `);
+      if (rows.rows?.[0]?.company_id) companyId = rows.rows[0].company_id;
+    }
     const [tenant] = await db
       .insert(tenantsTable)
-      .values(parsed.data)
+      .values({ ...parsed.data, companyId: companyId ?? parsed.data.companyId })
       .returning();
     logAudit(req, {
       action: "create_tenant",
@@ -368,7 +385,7 @@ router.patch("/tenants/:id/logo", async (req, res) => {
   const { logoUrl } = req.body as { logoUrl?: unknown };
   const isValidLogoUrl =
     typeof logoUrl === "string" &&
-    (logoUrl.startsWith("/uploads/") || logoUrl.startsWith("https://"));
+    (logoUrl.startsWith("https://") || logoUrl.startsWith("http://"));
   if (!isValidLogoUrl) {
     res.status(400).json({ error: "logoUrl tidak valid" });
     return;

@@ -14,6 +14,7 @@ import { logAudit } from "../lib/audit";
 import { sendConsolidatedInvoiceNotification, getSiteCompanyName } from "../lib/whatsapp";
 import { recordPayment, LedgerError } from "../lib/payment-ledger";
 import { postPosPaymentJournal } from "../lib/pos-journal";
+import { postTenantPaymentAccountingEntry } from "../lib/accounting-entry";
 
 const router = Router();
 
@@ -92,8 +93,22 @@ router.get("/consolidated-invoices", async (req, res) => {
         tenantId: consolidatedInvoicesTable.tenantId,
         tenantName: tenantsTable.businessName,
         tenantOwner: tenantsTable.ownerName,
-        periodLabel: consolidatedInvoicesTable.periodLabel,
-        dueDate: consolidatedInvoicesTable.dueDate,
+        periodLabel: sql<string | null>`COALESCE(
+          ${consolidatedInvoicesTable.periodLabel},
+          (SELECT to_char(MIN(ti.period_start), 'MM/YYYY')
+           FROM consolidated_invoice_items cii
+           JOIN tenant_invoices ti ON ti.id = cii.invoice_id
+           WHERE cii.consolidated_invoice_id = ${consolidatedInvoicesTable.id}
+             AND ti.period_start IS NOT NULL)
+        )`,
+        dueDate: sql<string | null>`COALESCE(
+          ${consolidatedInvoicesTable.dueDate}::text,
+          (SELECT MIN(ti.due_date)::text
+           FROM consolidated_invoice_items cii
+           JOIN tenant_invoices ti ON ti.id = cii.invoice_id
+           WHERE cii.consolidated_invoice_id = ${consolidatedInvoicesTable.id}
+             AND ti.due_date IS NOT NULL)
+        )`,
         totalAmount: consolidatedInvoicesTable.totalAmount,
         paidAmount: consolidatedInvoicesTable.paidAmount,
         outstandingAmount: consolidatedInvoicesTable.outstandingAmount,
@@ -812,6 +827,50 @@ router.post("/consolidated-invoices/:id/record-payment", async (req, res) => {
       baseReceiptNumber: baseReceipt,
       distributedCount: distributions.length,
     });
+
+    // ── Fire-and-forget: Accounting journal + double-entry per distribusi ──────
+    void (async () => {
+      // Ambil businessName tenant
+      const [tenantRow] = consolidated.tenantId
+        ? await db
+            .select({ businessName: tenantsTable.businessName })
+            .from(tenantsTable)
+            .where(eq(tenantsTable.id, consolidated.tenantId))
+        : [];
+
+      // Posting accounting untuk setiap sub-payment yang sudah dibuat
+      for (let i = 0; i < distributions.length; i++) {
+        const dist = distributions[i];
+        const receiptNum = `${baseReceipt}-${String(i + 1).padStart(2, "0")}`;
+
+        // Cari payment ID yang baru dibuat (by receiptNumber)
+        const [payRow] = await db
+          .select({ id: tenantPaymentsTable.id, paidAt: tenantPaymentsTable.paidAt })
+          .from(tenantPaymentsTable)
+          .where(eq(tenantPaymentsTable.receiptNumber, receiptNum))
+          .limit(1);
+        if (!payRow) continue;
+
+        const txDate = payRow.paidAt ?? paidAtDate;
+
+        try {
+          await postTenantPaymentAccountingEntry({
+            paymentId: payRow.id,
+            siteId: siteId ?? null,
+            invoiceNumber: consolidated.invoiceNumber,
+            businessName: tenantRow?.businessName ?? null,
+            amountPaid: dist.amount,
+            paymentMethod,
+            transactionDate: txDate,
+            receiptNumber: receiptNum,
+            sourceModule: "consolidated_invoice_payment",
+          });
+        } catch (e) {
+          const { logger } = await import("../lib/logger");
+          logger.error({ err: e }, `[kons-pay] postTenantPaymentAccountingEntry gagal untuk ${receiptNum}`);
+        }
+      }
+    })();
   } catch (err) {
     if (err instanceof LedgerError) {
       res.status(400).json({ error: err.message });

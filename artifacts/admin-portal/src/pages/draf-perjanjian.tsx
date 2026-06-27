@@ -2038,9 +2038,9 @@ export default function DrafPerjanjian() {
       </div>
 
       {/* Tabel + Detail */}
-      <div className="flex gap-4">
+      <div className="flex flex-col md:flex-row gap-4">
         {/* Tabel */}
-        <div className={`flex-1 min-w-0 rounded-lg border overflow-hidden ${selected ? "hidden md:block" : ""}`}>
+        <div className={`flex-1 min-w-0 rounded-lg border overflow-x-auto ${selected ? "hidden md:block" : ""}`}>
           <Table>
             <TableHeader>
               <TableRow className="bg-muted/40">
