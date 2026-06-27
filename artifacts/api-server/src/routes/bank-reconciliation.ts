@@ -2093,6 +2093,8 @@ router.get("/bank-reconciliation/journal-entries", async (req, res) => {
       date_to,
       page: pageStr = "1",
       limit: limitStr = "50",
+      search = "",
+      source_type = "",
     } = req.query as Record<string, string>;
 
     const page = Math.max(1, parseInt(pageStr, 10) || 1);
@@ -2115,6 +2117,24 @@ router.get("/bank-reconciliation/journal-entries", async (req, res) => {
       : sql``;
     const dfFilter = date_from ? sql`AND ae.date >= ${date_from}::date` : sql``;
     const dtFilter = date_to   ? sql`AND ae.date <= ${date_to}::date`   : sql``;
+
+    // Filter pencarian nomor jurnal atau keterangan
+    const searchFilter = search.trim()
+      ? sql`AND (ae.entry_number ILIKE ${"%" + search.trim() + "%"} OR ae.description ILIKE ${"%" + search.trim() + "%"} OR ae.ref ILIKE ${"%" + search.trim() + "%"})`
+      : sql``;
+
+    // Filter jenis jurnal berdasarkan prefix entry_number
+    // pos → entry_number LIKE 'POS-%' OR 'SC-CSH/%' OR source_module LIKE 'pos%'
+    // invoice → entry_number LIKE 'JNL/%' OR source = 'tenant_rent_payment'
+    // bank → entry_number LIKE 'OCR/%' OR source LIKE '%bank%' OR source_module LIKE '%bank%'
+    let sourceFilter = sql``;
+    if (source_type === "pos") {
+      sourceFilter = sql`AND (ae.entry_number LIKE 'POS-%' OR ae.entry_number LIKE 'SC-CSH/%' OR ae.source_module ILIKE 'pos%' OR ae.source_module ILIKE '%kasir%')`;
+    } else if (source_type === "invoice") {
+      sourceFilter = sql`AND (ae.entry_number LIKE 'JNL/%' OR ae.entry_number LIKE 'CSH-%' OR ae.entry_number LIKE 'BNK-%' OR ae.source = ${"tenant_rent_payment"}::accounting_entry_source)`;
+    } else if (source_type === "bank") {
+      sourceFilter = sql`AND (ae.entry_number LIKE 'OCR/%' OR ae.source_module ILIKE '%bank%' OR ae.source_module ILIKE '%recon%')`;
+    }
 
     const [rowsRes, countRes] = await Promise.all([
       db.execute(sql`
@@ -2156,6 +2176,8 @@ router.get("/bank-reconciliation/journal-entries", async (req, res) => {
           ${companyFilter}
           ${dfFilter}
           ${dtFilter}
+          ${searchFilter}
+          ${sourceFilter}
         ORDER BY ae.date DESC, ae.id DESC
         LIMIT ${limit} OFFSET ${offset}
       `),
@@ -2166,6 +2188,8 @@ router.get("/bank-reconciliation/journal-entries", async (req, res) => {
           ${companyFilter}
           ${dfFilter}
           ${dtFilter}
+          ${searchFilter}
+          ${sourceFilter}
       `),
     ]);
 

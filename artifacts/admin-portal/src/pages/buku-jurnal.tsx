@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api";
 import {
@@ -42,6 +42,8 @@ type JournalResponse = {
   limit: number;
 };
 
+type SourceType = "" | "pos" | "invoice" | "bank";
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function fmt(val: string | null | undefined): string {
@@ -62,6 +64,13 @@ const STATUS_COLOR: Record<string, string> = {
   reversed: "bg-red-100 text-red-700 border-red-200",
 };
 
+const SOURCE_TYPE_OPTIONS: { value: SourceType; label: string; color: string }[] = [
+  { value: "", label: "Semua Jenis", color: "bg-gray-100 text-gray-700 border-gray-300 hover:bg-gray-200" },
+  { value: "pos", label: "POS Kasir", color: "bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100" },
+  { value: "invoice", label: "Invoice Sewa", color: "bg-purple-50 text-purple-700 border-purple-200 hover:bg-purple-100" },
+  { value: "bank", label: "Rekonsiliasi Bank", color: "bg-orange-50 text-orange-700 border-orange-200 hover:bg-orange-100" },
+];
+
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function BukuJurnal() {
@@ -72,13 +81,21 @@ export default function BukuJurnal() {
 
   const [dateFrom, setDateFrom] = useState(firstOfMonth);
   const [dateTo, setDateTo] = useState(todayStr);
+  const [searchInput, setSearchInput] = useState("");
+  const [sourceType, setSourceType] = useState<SourceType>("");
   const [page, setPage] = useState(1);
+
+  // "Applied" state — only changes when user clicks Cari
   const [appliedFrom, setAppliedFrom] = useState(firstOfMonth);
   const [appliedTo, setAppliedTo] = useState(todayStr);
+  const [appliedSearch, setAppliedSearch] = useState("");
+  const [appliedSource, setAppliedSource] = useState<SourceType>("");
+
+  const searchRef = useRef<HTMLInputElement>(null);
   const LIMIT = 50;
 
   const { data, isLoading, isFetching } = useQuery<JournalResponse>({
-    queryKey: ["journal-entries", appliedFrom, appliedTo, page],
+    queryKey: ["journal-entries", appliedFrom, appliedTo, appliedSearch, appliedSource, page],
     queryFn: async () => {
       const params = new URLSearchParams({
         date_from: appliedFrom,
@@ -86,6 +103,8 @@ export default function BukuJurnal() {
         page: String(page),
         limit: String(LIMIT),
       });
+      if (appliedSearch.trim()) params.set("search", appliedSearch.trim());
+      if (appliedSource) params.set("source_type", appliedSource);
       const r = await apiFetch(`/api/bank-reconciliation/journal-entries?${params}`);
       if (!r.ok) throw new Error("Gagal memuat jurnal");
       return r.json();
@@ -103,14 +122,26 @@ export default function BukuJurnal() {
     setPage(1);
     setAppliedFrom(dateFrom);
     setAppliedTo(dateTo);
+    setAppliedSearch(searchInput);
+    setAppliedSource(sourceType);
   }
 
   function handleReset() {
     setDateFrom(firstOfMonth);
     setDateTo(todayStr);
+    setSearchInput("");
+    setSourceType("");
     setPage(1);
     setAppliedFrom(firstOfMonth);
     setAppliedTo(todayStr);
+    setAppliedSearch("");
+    setAppliedSource("");
+  }
+
+  function handleSourceType(val: SourceType) {
+    setSourceType(val);
+    setPage(1);
+    setAppliedSource(val);
   }
 
   function handleExport() {
@@ -139,6 +170,8 @@ export default function BukuJurnal() {
     URL.revokeObjectURL(url);
   }
 
+  const hasActiveFilter = appliedSearch || appliedSource;
+
   return (
     <div className="space-y-4">
       <div>
@@ -153,7 +186,8 @@ export default function BukuJurnal() {
 
       {/* Filter */}
       <Card>
-        <CardContent className="pt-4 pb-3">
+        <CardContent className="pt-4 pb-3 space-y-3">
+          {/* Baris 1: Tanggal + Cari */}
           <div className="flex flex-wrap items-end gap-3">
             <div className="flex flex-col gap-1">
               <Label className="text-xs">Dari Tanggal</Label>
@@ -173,6 +207,29 @@ export default function BukuJurnal() {
                 className="h-8 w-40 text-sm"
               />
             </div>
+            {/* Pencarian nomor jurnal / keterangan */}
+            <div className="flex flex-col gap-1 flex-1 min-w-[180px]">
+              <Label className="text-xs">Cari No. Jurnal / Keterangan</Label>
+              <div className="relative">
+                <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+                <Input
+                  ref={searchRef}
+                  value={searchInput}
+                  onChange={e => setSearchInput(e.target.value)}
+                  onKeyDown={e => e.key === "Enter" && handleCari()}
+                  placeholder="cth: JNL/2026 atau sport center…"
+                  className="h-8 pl-7 text-sm"
+                />
+                {searchInput && (
+                  <button
+                    onClick={() => { setSearchInput(""); searchRef.current?.focus(); }}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                )}
+              </div>
+            </div>
             <Button size="sm" onClick={handleCari} className="h-8 gap-1">
               <Search className="h-3.5 w-3.5" />
               Cari
@@ -187,6 +244,29 @@ export default function BukuJurnal() {
                 Ekspor CSV
               </Button>
             </div>
+          </div>
+
+          {/* Baris 2: Filter Jenis Jurnal */}
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs text-muted-foreground font-medium">Jenis:</span>
+            {SOURCE_TYPE_OPTIONS.map(opt => (
+              <button
+                key={opt.value}
+                onClick={() => handleSourceType(opt.value)}
+                className={`text-xs px-2.5 py-1 rounded-full border font-medium transition-colors ${opt.color} ${
+                  appliedSource === opt.value
+                    ? "ring-2 ring-offset-1 ring-current opacity-100"
+                    : "opacity-70 hover:opacity-100"
+                }`}
+              >
+                {opt.label}
+              </button>
+            ))}
+            {hasActiveFilter && (
+              <span className="ml-1 text-xs text-muted-foreground italic">
+                — filter aktif
+              </span>
+            )}
           </div>
         </CardContent>
       </Card>
@@ -231,7 +311,7 @@ export default function BukuJurnal() {
               <TableHeader>
                 <TableRow className="text-xs">
                   <TableHead className="w-24">Tanggal</TableHead>
-                  <TableHead className="w-32">No Jurnal</TableHead>
+                  <TableHead className="w-36">No Jurnal</TableHead>
                   <TableHead>Keterangan</TableHead>
                   <TableHead>Akun Debit</TableHead>
                   <TableHead>Akun Kredit</TableHead>
@@ -242,7 +322,7 @@ export default function BukuJurnal() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {isLoading ? (
+                {isLoading || isFetching ? (
                   Array.from({ length: 8 }).map((_, i) => (
                     <TableRow key={i}>
                       {Array.from({ length: 9 }).map((__, j) => (
@@ -253,7 +333,9 @@ export default function BukuJurnal() {
                 ) : entries.length === 0 ? (
                   <TableRow>
                     <TableCell colSpan={9} className="text-center text-muted-foreground py-12 text-sm">
-                      Tidak ada entri jurnal untuk periode ini
+                      {hasActiveFilter
+                        ? "Tidak ada entri yang cocok dengan filter ini"
+                        : "Tidak ada entri jurnal untuk periode ini"}
                     </TableCell>
                   </TableRow>
                 ) : (
