@@ -197,7 +197,7 @@ router.get("/dashboard/export-monthly-pdf", async (req, res) => {
         ti.period_end,
         ti.updated_at AS paid_at,
         t.business_name,
-        t.unit_code
+        ti.unit_code
       FROM tenant_invoices ti
       LEFT JOIN tenants t ON t.id = ti.tenant_id
       WHERE ti.status = 'paid'
