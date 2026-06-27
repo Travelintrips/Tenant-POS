@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { db } from "@workspace/db";
-import { otherIncomeTable, tenantsTable, mallSitesTable } from "@workspace/db/schema";
+import { otherIncomeTable, tenantsTable, mallSitesTable, companiesTable } from "@workspace/db/schema";
 import { eq, and, gte, lte, sql, desc } from "drizzle-orm";
 import { z } from "zod";
 import { logAudit } from "../lib/audit";
@@ -62,6 +62,7 @@ router.get("/other-income/summary", async (req, res) => {
 
 router.get("/other-income", async (req, res) => {
   const tenantId = req.query.tenantId ? parseInt(String(req.query.tenantId), 10) : null;
+  const companyId = req.query.companyId ? parseInt(String(req.query.companyId), 10) : null;
   const category = String(req.query.category ?? "").trim() || null;
   const dateFrom = String(req.query.dateFrom ?? "").trim() || null;
   const dateTo = String(req.query.dateTo ?? "").trim() || null;
@@ -71,13 +72,33 @@ router.get("/other-income", async (req, res) => {
   try {
     const conditions: ReturnType<typeof eq>[] = [];
     if (ctxSiteId) conditions.push(eq(otherIncomeTable.siteId, ctxSiteId));
+    if (companyId && !isNaN(companyId)) conditions.push(eq(otherIncomeTable.companyId, companyId));
     if (tenantId) conditions.push(eq(otherIncomeTable.tenantId, tenantId));
     if (category && VALID_CATEGORIES.includes(category as typeof VALID_CATEGORIES[number])) conditions.push(eq(otherIncomeTable.category, category));
     if (dateFrom) conditions.push(gte(otherIncomeTable.date, new Date(dateFrom)));
     if (dateTo) { const to = new Date(dateTo); to.setHours(23,59,59,999); conditions.push(lte(otherIncomeTable.date, to)); }
     const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
     const [countRow] = await db.select({ total: sql<number>`count(*)::int`, totalAmount: sql<string>`coalesce(sum(amount),0)::text` }).from(otherIncomeTable).where(whereClause);
-    const rows = await db.select({ id: otherIncomeTable.id, siteId: otherIncomeTable.siteId, tenantId: otherIncomeTable.tenantId, category: otherIncomeTable.category, coaCode: otherIncomeTable.coaCode, coaName: otherIncomeTable.coaName, description: otherIncomeTable.description, amount: otherIncomeTable.amount, date: otherIncomeTable.date, createdAt: otherIncomeTable.createdAt, tenantName: tenantsTable.businessName, siteName: mallSitesTable.name }).from(otherIncomeTable).leftJoin(tenantsTable, eq(otherIncomeTable.tenantId, tenantsTable.id)).leftJoin(mallSitesTable, eq(otherIncomeTable.siteId, mallSitesTable.id)).where(whereClause).orderBy(desc(otherIncomeTable.date)).limit(limit).offset(offset);
+    const rows = await db.select({
+      id: otherIncomeTable.id,
+      siteId: otherIncomeTable.siteId,
+      companyId: otherIncomeTable.companyId,
+      tenantId: otherIncomeTable.tenantId,
+      category: otherIncomeTable.category,
+      coaCode: otherIncomeTable.coaCode,
+      coaName: otherIncomeTable.coaName,
+      description: otherIncomeTable.description,
+      amount: otherIncomeTable.amount,
+      date: otherIncomeTable.date,
+      createdAt: otherIncomeTable.createdAt,
+      tenantName: tenantsTable.businessName,
+      siteName: mallSitesTable.name,
+      companyName: companiesTable.companyName,
+    }).from(otherIncomeTable)
+      .leftJoin(tenantsTable, eq(otherIncomeTable.tenantId, tenantsTable.id))
+      .leftJoin(mallSitesTable, eq(otherIncomeTable.siteId, mallSitesTable.id))
+      .leftJoin(companiesTable, eq(otherIncomeTable.companyId, companiesTable.id))
+      .where(whereClause).orderBy(desc(otherIncomeTable.date)).limit(limit).offset(offset);
     res.json({ success: true, data: rows, summary: { totalRecords: countRow?.total ?? 0, totalAmount: countRow?.totalAmount ?? "0" }, pagination: { total: countRow?.total ?? 0, limit, offset, hasMore: offset + rows.length < (countRow?.total ?? 0) } });
   } catch (err) {
     console.error("[GET /other-income]", err);
@@ -117,7 +138,18 @@ router.post("/other-income", async (req, res) => {
   const data = parsed.data;
   const effectiveSiteId = ctxSiteId ?? data.siteId ?? null;
   try {
-    const [row] = await db.insert(otherIncomeTable).values({ siteId: effectiveSiteId, tenantId: data.tenantId ?? null, category: data.category, coaCode: data.coaCode ?? null, coaName: data.coaName ?? null, description: data.description, amount: String(data.amount), date: data.date ? new Date(data.date) : new Date(), createdBy: userId }).returning();
+    // Resolve company_id dari site_id
+    let resolvedCompanyId: number | null = null;
+    if (effectiveSiteId) {
+      const companyRow = await db.execute<{ id: number }>(sql`
+        SELECT c.id FROM companies c
+        JOIN mall_sites ms ON ms.id = ${effectiveSiteId}
+        WHERE LOWER(c.company_name) LIKE LOWER(CONCAT('%', SPLIT_PART(ms.name, ' ', 1), '%'))
+        ORDER BY c.id LIMIT 1
+      `).catch(() => ({ rows: [] as { id: number }[] }));
+      resolvedCompanyId = (companyRow as unknown as { rows: { id: number }[] }).rows?.[0]?.id ?? null;
+    }
+    const [row] = await db.insert(otherIncomeTable).values({ siteId: effectiveSiteId, companyId: resolvedCompanyId, tenantId: data.tenantId ?? null, category: data.category, coaCode: data.coaCode ?? null, coaName: data.coaName ?? null, description: data.description, amount: String(data.amount), date: data.date ? new Date(data.date) : new Date(), createdBy: userId }).returning();
     logAudit(req, { action: "create_other_income", entityType: "other_income", entityId: row.id, afterData: { ...data, id: row.id } });
     if (data.coaCode && data.coaName) { void postIncomeJournal({ incomeId: row.id, siteId: effectiveSiteId, amount: data.amount, description: data.description, date: row.date ?? new Date(), coaCode: data.coaCode, coaName: data.coaName }); }
     res.status(201).json({ success: true, data: row });

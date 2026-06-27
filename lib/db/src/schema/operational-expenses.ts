@@ -2,10 +2,12 @@ import { pgTable, serial, integer, text, numeric, timestamp } from "drizzle-orm/
 import { mallSitesTable } from "./mall-sites";
 import { tenantsTable } from "./tenants";
 import { usersTable } from "./users";
+import { companiesTable } from "./companies";
 
 export const operationalExpensesTable = pgTable("operational_expenses", {
   id: serial("id").primaryKey(),
   siteId: integer("site_id").references(() => mallSitesTable.id),
+  companyId: integer("company_id").references(() => companiesTable.id),
   tenantId: integer("tenant_id").references(() => tenantsTable.id),
   category: text("category").notNull().default("lain-lain"),
   coaCode: text("coa_code"),

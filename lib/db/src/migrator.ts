@@ -3432,3 +3432,29 @@ MIGRATIONS.push({
 ALTER TABLE "tenant_invoices" ADD COLUMN IF NOT EXISTS "due_reminder_7d_at" timestamptz;
   `.trim(),
 });
+
+MIGRATIONS.push({
+  name: "0080_company_id_expense_income",
+  sql: `
+ALTER TABLE operational_expenses ADD COLUMN IF NOT EXISTS company_id integer REFERENCES companies(id);
+ALTER TABLE other_income ADD COLUMN IF NOT EXISTS company_id integer REFERENCES companies(id);
+
+UPDATE operational_expenses oe
+SET company_id = (
+  SELECT c.id FROM companies c
+  JOIN mall_sites ms ON ms.id = oe.site_id
+  WHERE LOWER(c.company_name) LIKE LOWER(CONCAT('%', SPLIT_PART(ms.name, ' ', 1), '%'))
+  ORDER BY c.id LIMIT 1
+)
+WHERE site_id IS NOT NULL AND company_id IS NULL;
+
+UPDATE other_income oi
+SET company_id = (
+  SELECT c.id FROM companies c
+  JOIN mall_sites ms ON ms.id = oi.site_id
+  WHERE LOWER(c.company_name) LIKE LOWER(CONCAT('%', SPLIT_PART(ms.name, ' ', 1), '%'))
+  ORDER BY c.id LIMIT 1
+)
+WHERE site_id IS NOT NULL AND company_id IS NULL;
+  `.trim(),
+});

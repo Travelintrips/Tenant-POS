@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { db } from "@workspace/db";
-import { operationalExpensesTable, tenantsTable, mallSitesTable } from "@workspace/db/schema";
+import { operationalExpensesTable, tenantsTable, mallSitesTable, companiesTable } from "@workspace/db/schema";
 import { eq, and, gte, lte, sql, desc } from "drizzle-orm";
 import { z } from "zod";
 import { logAudit } from "../lib/audit";
@@ -142,6 +142,7 @@ router.get("/operational-expenses/monthly-summary", async (req, res) => {
 // ─── GET /api/operational-expenses ────────────────────────────────────────────
 router.get("/operational-expenses", async (req, res) => {
   const siteId = req.query.siteId ? parseInt(String(req.query.siteId), 10) : null;
+  const companyId = req.query.companyId ? parseInt(String(req.query.companyId), 10) : null;
   const tenantId = req.query.tenantId ? parseInt(String(req.query.tenantId), 10) : null;
   const category = String(req.query.category ?? "").trim() || null;
   const dateFrom = String(req.query.dateFrom ?? "").trim() || null;
@@ -155,6 +156,7 @@ router.get("/operational-expenses", async (req, res) => {
     const conditions: ReturnType<typeof eq>[] = [];
     if (ctxSiteId) conditions.push(eq(operationalExpensesTable.siteId, ctxSiteId));
     else if (siteId) conditions.push(eq(operationalExpensesTable.siteId, siteId));
+    if (companyId && !isNaN(companyId)) conditions.push(eq(operationalExpensesTable.companyId, companyId));
     if (tenantId) conditions.push(eq(operationalExpensesTable.tenantId, tenantId));
     if (category && ["expense","asset","liability","other"].includes(category)) {
       conditions.push(eq(operationalExpensesTable.coaAccountType, category));
@@ -179,6 +181,7 @@ router.get("/operational-expenses", async (req, res) => {
       .select({
         id: operationalExpensesTable.id,
         siteId: operationalExpensesTable.siteId,
+        companyId: operationalExpensesTable.companyId,
         tenantId: operationalExpensesTable.tenantId,
         category: operationalExpensesTable.category,
         coaCode: operationalExpensesTable.coaCode,
@@ -193,10 +196,12 @@ router.get("/operational-expenses", async (req, res) => {
         createdAt: operationalExpensesTable.createdAt,
         tenantName: tenantsTable.businessName,
         siteName: mallSitesTable.name,
+        companyName: companiesTable.companyName,
       })
       .from(operationalExpensesTable)
       .leftJoin(tenantsTable, eq(operationalExpensesTable.tenantId, tenantsTable.id))
       .leftJoin(mallSitesTable, eq(operationalExpensesTable.siteId, mallSitesTable.id))
+      .leftJoin(companiesTable, eq(operationalExpensesTable.companyId, companiesTable.id))
       .where(whereClause)
       .orderBy(desc(operationalExpensesTable.paidAt))
       .limit(limit)
@@ -342,10 +347,23 @@ router.post("/operational-expenses", requireAnyRole("owner", "admin", "finance")
   const derivedCategory = data.category ?? deriveCategoryFromCoa(coaCode, coaAccountType, coaName);
 
   try {
+    // Resolve company_id dari site_id
+    let resolvedCompanyId: number | null = null;
+    if (effectiveSiteId) {
+      const companyRow = await db.execute<{ id: number }>(sql`
+        SELECT c.id FROM companies c
+        JOIN mall_sites ms ON ms.id = ${effectiveSiteId}
+        WHERE LOWER(c.company_name) LIKE LOWER(CONCAT('%', SPLIT_PART(ms.name, ' ', 1), '%'))
+        ORDER BY c.id LIMIT 1
+      `).catch(() => ({ rows: [] as { id: number }[] }));
+      resolvedCompanyId = (companyRow as unknown as { rows: { id: number }[] }).rows?.[0]?.id ?? null;
+    }
+
     const [row] = await db
       .insert(operationalExpensesTable)
       .values({
         siteId: effectiveSiteId,
+        companyId: resolvedCompanyId,
         tenantId: data.tenantId ?? null,
         category: derivedCategory,
         coaCode,
