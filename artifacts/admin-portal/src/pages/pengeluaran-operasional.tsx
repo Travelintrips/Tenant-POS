@@ -31,8 +31,9 @@ import {
   Plus, TrendingDown, Filter, Pencil, Trash2, ExternalLink,
   Loader2, AlertCircle, Receipt, Zap, Wifi, Wrench, MoreHorizontal,
   Upload, ImageIcon, CheckCircle2, X, ScanLine, BarChart2, ChevronLeft, ChevronRight,
-  ChevronsUpDown, Check,
+  ChevronsUpDown, Check, Building2,
 } from "lucide-react";
+import { useSite } from "@/contexts/site-context";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -204,6 +205,7 @@ const EMPTY_FORM: FormData = {
 export default function PengeluaranOperasional() {
   const { toast } = useToast();
   const qc = useQueryClient();
+  const { activeSite } = useSite();
 
   // Filters
   const [dateFrom, setDateFrom] = useState("");
@@ -452,6 +454,12 @@ export default function PengeluaranOperasional() {
           <p className="text-sm text-muted-foreground mt-0.5">
             Catat pengeluaran operasional seperti token listrik, internet, dan perbaikan.
           </p>
+          {activeSite?.companyName && activeSite.code !== "ALL" && (
+            <div className="mt-2 inline-flex items-center gap-1.5 rounded-md border border-orange-200 bg-orange-50 px-2.5 py-1 text-xs font-medium text-orange-700">
+              <Building2 className="h-3.5 w-3.5" />
+              {activeSite.companyName}
+            </div>
+          )}
         </div>
         <Button onClick={openCreate} className="gap-2">
           <Plus className="h-4 w-4" />

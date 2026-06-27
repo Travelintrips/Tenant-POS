@@ -15,7 +15,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, TrendingUp, Filter, Trash2, Loader2, AlertCircle, ChevronLeft, ChevronRight, Banknote, Hash, ChevronsUpDown, Check } from "lucide-react";
+import { Plus, TrendingUp, Filter, Trash2, Loader2, AlertCircle, ChevronLeft, ChevronRight, Banknote, Hash, ChevronsUpDown, Check, Building2 } from "lucide-react";
+import { useSite } from "@/contexts/site-context";
 import { cn } from "@/lib/utils";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -46,6 +47,7 @@ const emptyForm = (): FormState => ({ category: "other", description: "", amount
 export default function PemasukanLain() {
   const { toast } = useToast();
   const qc = useQueryClient();
+  const { activeSite } = useSite();
   const [offset, setOffset] = useState(0);
   const [filterCategory, setFilterCategory] = useState("all");
   const [filterDateFrom, setFilterDateFrom] = useState("");
@@ -129,6 +131,12 @@ export default function PemasukanLain() {
             Pemasukan Lain-lain
           </h1>
           <p className="text-muted-foreground text-sm mt-1">Catat pemasukan non-sewa: denda, refund, jasa, dan lainnya</p>
+          {activeSite?.companyName && activeSite.code !== "ALL" && (
+            <div className="mt-2 inline-flex items-center gap-1.5 rounded-md border border-green-200 bg-green-50 px-2.5 py-1 text-xs font-medium text-green-700">
+              <Building2 className="h-3.5 w-3.5" />
+              {activeSite.companyName}
+            </div>
+          )}
         </div>
         <Button onClick={() => { setForm(emptyForm()); setShowForm(true); }} className="gap-2">
           <Plus className="h-4 w-4" /> Tambah Pemasukan
