@@ -15,6 +15,7 @@ import { logAudit } from "../lib/audit";
 import { writePaymentEvent, normalizePaymentMethod } from "../lib/payment-events";
 import { approveExistingPayment, LedgerError } from "../lib/payment-ledger";
 import { postPosPaymentJournal } from "../lib/pos-journal";
+import { postTenantPaymentAccountingEntry } from "../lib/accounting-entry";
 
 const router: IRouter = Router();
 
@@ -209,6 +210,19 @@ router.post("/pending-payments/:id/approve", async (req, res) => {
           receiptNumber: p.receiptNumber ?? `RCT-${p.id}`,
           journalPrefix: "OCR",
           sourceModule: "ocr_payment_approval",
+        });
+
+        // Double-entry accounting (accounting_entries + accounting_payments)
+        await postTenantPaymentAccountingEntry({
+          paymentId: p.id,
+          siteId: p.siteId ?? null,
+          invoiceNumber: inv.invoiceNumber ?? null,
+          businessName: tenantRow?.businessName ?? null,
+          amountPaid: parseFloat(String(p.amount)),
+          paymentMethod: p.paymentMethod ?? "transfer",
+          transactionDate: p.paidAt ?? new Date(),
+          receiptNumber: p.receiptNumber ?? `RCT-${p.id}`,
+          sourceModule: "payment_proof_approval",
         });
       } catch (err) {
         console.error("[approve_payment] post-commit side-effects gagal:", err);
