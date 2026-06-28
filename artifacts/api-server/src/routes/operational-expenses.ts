@@ -29,6 +29,16 @@ const expenseSchema = z.object({
 router.get("/operational-expenses/coa-accounts", async (req, res) => {
   const ctxSiteId = (req as unknown as { siteId?: number }).siteId;
   try {
+    // Resolve company_id dari site aktif
+    let companyId: number | null = null;
+    if (ctxSiteId) {
+      const siteRow = await db.execute<{ company_id: number }>(sql`
+        SELECT company_id FROM mall_sites WHERE id = ${ctxSiteId} LIMIT 1
+      `).catch(() => ({ rows: [] as { company_id: number }[] }));
+      companyId = (siteRow as unknown as { rows: { company_id: number }[] }).rows?.[0]?.company_id ?? null;
+    }
+
+    // Query COA: prioritaskan company_id site aktif, fallback ke semua company
     const rows = await db.execute<{
       id: number;
       company_id: number;
@@ -36,24 +46,44 @@ router.get("/operational-expenses/coa-accounts", async (req, res) => {
       name: string;
       account_type: string;
     }>(sql`
-      SELECT DISTINCT ON (coa.code)
+      SELECT
         coa.id,
         coa.company_id,
         coa.code,
         coa.name,
-        COALESCE(coa.type::text, coa.account_type) AS account_type
+        coa.account_type
       FROM chart_of_accounts coa
       WHERE coa.is_active = true
-        AND COALESCE(coa.type::text, coa.account_type) IN (
+        AND coa.account_type IN (
           'expense', 'biaya',
           'asset', 'aset',
           'liability', 'kewajiban',
           'other'
         )
-      ORDER BY coa.code, coa.id
+        ${companyId ? sql`AND coa.company_id = ${companyId}` : sql``}
+      ORDER BY coa.account_type, coa.code
     `);
 
-    const accounts = (rows as unknown as { rows: Array<{ id: number; company_id: number; code: string; name: string; account_type: string }> }).rows ?? [];
+    let accounts = (rows as unknown as { rows: Array<{ id: number; company_id: number; code: string; name: string; account_type: string }> }).rows ?? [];
+
+    // Fallback: jika company tidak punya COA sendiri, ambil dari company_id=1 (default)
+    if (accounts.length === 0 && companyId && companyId !== 1) {
+      const fallbackRows = await db.execute<{
+        id: number;
+        company_id: number;
+        code: string;
+        name: string;
+        account_type: string;
+      }>(sql`
+        SELECT coa.id, coa.company_id, coa.code, coa.name, coa.account_type
+        FROM chart_of_accounts coa
+        WHERE coa.is_active = true
+          AND coa.account_type IN ('expense','biaya','asset','aset','liability','kewajiban','other')
+          AND coa.company_id = 1
+        ORDER BY coa.account_type, coa.code
+      `);
+      accounts = (fallbackRows as unknown as { rows: typeof accounts }).rows ?? [];
+    }
 
     const normalize = (t: string) => {
       if (t === 'biaya') return 'expense';

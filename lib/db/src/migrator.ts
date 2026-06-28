@@ -3490,3 +3490,38 @@ FROM mall_sites ms
 WHERE ms.id = oi.site_id AND oi.company_id IS NULL AND ms.company_id IS NOT NULL;
   `.trim(),
 });
+
+MIGRATIONS.push({
+  name: "0082_seed_coa_per_company",
+  sql: `
+-- Seed COA expense/asset/liability untuk setiap perusahaan yang belum punya
+DO $$
+DECLARE
+  v_company RECORD;
+BEGIN
+  FOR v_company IN
+    SELECT DISTINCT c.id, c.code
+    FROM companies c
+    WHERE NOT EXISTS (
+      SELECT 1 FROM chart_of_accounts coa
+      WHERE coa.company_id = c.id
+        AND coa.account_type IN ('expense','asset','liability')
+    )
+  LOOP
+    INSERT INTO chart_of_accounts (company_id, code, name, account_type, is_active)
+    VALUES
+      (v_company.id, '1105-' || v_company.code, 'Piutang Kasbon Karyawan',       'asset',     true),
+      (v_company.id, '2101-' || v_company.code, 'Hutang Usaha',                  'liability', true),
+      (v_company.id, '2102-' || v_company.code, 'Titipan / Deposit Tenant',      'liability', true),
+      (v_company.id, '6101-' || v_company.code, 'Biaya Listrik',                 'expense',   true),
+      (v_company.id, '6102-' || v_company.code, 'Biaya Internet & Telepon',      'expense',   true),
+      (v_company.id, '6103-' || v_company.code, 'Biaya Perbaikan & Pemeliharaan','expense',   true),
+      (v_company.id, '6104-' || v_company.code, 'Biaya Operasional Lainnya',     'expense',   true),
+      (v_company.id, '6105-' || v_company.code, 'Biaya Kebersihan & Keamanan',   'expense',   true),
+      (v_company.id, '6106-' || v_company.code, 'Biaya ATK & Perlengkapan',      'expense',   true),
+      (v_company.id, '6107-' || v_company.code, 'Biaya Transportasi',            'expense',   true)
+    ON CONFLICT DO NOTHING;
+  END LOOP;
+END $$;
+  `.trim(),
+});
