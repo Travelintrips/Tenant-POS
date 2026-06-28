@@ -59,6 +59,7 @@ export default function PemasukanLain() {
   const [deleteId, setDeleteId] = useState<number | null>(null);
   const [tenantOpen, setTenantOpen] = useState(false);
   const [tenantSearch, setTenantSearch] = useState("");
+  const [coaOpen, setCoaOpen] = useState(false);
 
   const params = new URLSearchParams();
   if (filterCategory !== "all") params.set("category", filterCategory);
@@ -344,13 +345,69 @@ export default function PemasukanLain() {
             </div>
             <div className="space-y-1.5">
               <Label>Akun COA (opsional)</Label>
-              <Select value={form.coaCode || "__none__"} onValueChange={code => { if (code === '__none__') { setForm(f => ({ ...f, coaCode: '', coaName: '' })); return; } const coa = coaData?.data.find(c => c.code === code); setForm(f => ({ ...f, coaCode: code, coaName: coa?.name ?? '' })); }}>
-                <SelectTrigger><SelectValue placeholder="Pilih akun pendapatan" /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="__none__">— Tanpa COA —</SelectItem>
-                  {coaData?.data.map(c => <SelectItem key={c.code} value={c.code}>{c.code} — {c.name}</SelectItem>)}
-                </SelectContent>
-              </Select>
+              <Popover open={coaOpen} onOpenChange={setCoaOpen}>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="outline"
+                    role="combobox"
+                    aria-expanded={coaOpen}
+                    className="w-full justify-between font-normal"
+                  >
+                    {form.coaCode
+                      ? <span><span className="font-mono text-xs text-muted-foreground mr-1.5">{form.coaCode}</span>{form.coaName}</span>
+                      : <span className="text-muted-foreground">— Pilih akun pendapatan —</span>
+                    }
+                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
+                  <Command>
+                    <CommandInput placeholder="Ketik kode atau nama akun..." />
+                    <CommandList className="max-h-56">
+                      <CommandEmpty>Akun tidak ditemukan.</CommandEmpty>
+                      {!coaData && (
+                        <div className="px-2 py-3 text-xs text-center text-muted-foreground">Memuat akun COA...</div>
+                      )}
+                      {form.coaCode && (
+                        <CommandGroup>
+                          <CommandItem
+                            value="__none__"
+                            onSelect={() => { setForm(f => ({ ...f, coaCode: '', coaName: '' })); setCoaOpen(false); }}
+                          >
+                            <Check className="mr-2 h-4 w-4 opacity-0" />
+                            — Hapus pilihan —
+                          </CommandItem>
+                        </CommandGroup>
+                      )}
+                      {["pendapatan", "kas", "income", "revenue"].map(type => {
+                        const grouped = (coaData?.data ?? []).filter(a => a.accountType === type);
+                        if (grouped.length === 0) return null;
+                        const label: Record<string, string> = { pendapatan: "Pendapatan", kas: "Kas & Bank", income: "Pendapatan", revenue: "Pendapatan" };
+                        return (
+                          <CommandGroup key={type} heading={label[type] ?? type}>
+                            {grouped.map(a => (
+                              <CommandItem
+                                key={a.code}
+                                value={`${a.code} ${a.name}`}
+                                onSelect={() => { setForm(f => ({ ...f, coaCode: a.code, coaName: a.name })); setCoaOpen(false); }}
+                              >
+                                <Check className={cn("mr-2 h-4 w-4", form.coaCode === a.code ? "opacity-100" : "opacity-0")} />
+                                <span className="font-mono text-xs text-muted-foreground mr-1.5">{a.code}</span>
+                                {a.name}
+                              </CommandItem>
+                            ))}
+                          </CommandGroup>
+                        );
+                      })}
+                    </CommandList>
+                  </Command>
+                </PopoverContent>
+              </Popover>
+              {form.coaCode && (
+                <p className="text-[11px] text-muted-foreground">
+                  Dipilih: <strong>{form.coaCode}</strong> — {form.coaName}
+                </p>
+              )}
             </div>
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setShowForm(false)}>Batal</Button>
