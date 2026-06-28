@@ -11,7 +11,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { BookOpen, ChevronLeft, ChevronRight, Download, Search, X } from "lucide-react";
+import { BookOpen, Building2, ChevronLeft, ChevronRight, Download, Search, X } from "lucide-react";
+import { useSite } from "@/contexts/site-context";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -74,6 +75,7 @@ const SOURCE_TYPE_OPTIONS: { value: SourceType; label: string; color: string }[]
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function BukuJurnal() {
+  const { activeSite } = useSite();
   const today = new Date();
   const firstOfMonth = new Date(today.getFullYear(), today.getMonth(), 1)
     .toISOString().slice(0, 10);
@@ -182,6 +184,18 @@ export default function BukuJurnal() {
         <p className="text-muted-foreground text-sm mt-0.5">
           Semua entri jurnal debit/kredit yang tercatat di sistem
         </p>
+        {activeSite && activeSite.code !== "ALL" && activeSite.companyName && (
+          <div className="mt-2 inline-flex items-center gap-1.5 rounded-md border border-blue-200 bg-blue-50 px-2.5 py-1 text-xs font-medium text-blue-700">
+            <Building2 className="h-3.5 w-3.5" />
+            {activeSite.companyName}
+          </div>
+        )}
+        {activeSite?.code === "ALL" && (
+          <div className="mt-2 inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-medium text-slate-600">
+            <Building2 className="h-3.5 w-3.5" />
+            Semua Perusahaan
+          </div>
+        )}
       </div>
 
       {/* Filter */}

@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from "react";
+import { apiFetch } from "@/lib/api";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -169,7 +170,7 @@ export default function BankRekonPanel() {
   const { data: appCtx } = useQuery<AppContext>({
     queryKey: ["/api/bank-reconciliation/context"],
     queryFn: async () => {
-      const r = await fetch("/api/bank-reconciliation/context");
+      const r = await apiFetch("/api/bank-reconciliation/context");
       if (!r.ok) return { ownerApp: "tenant_management", sourceApp: "tenant_management", ownerTenantId: null, ownerCompanyId: null, role: "admin", isBizPortal: false, isFullAccess: false };
       return r.json();
     },
@@ -228,7 +229,7 @@ export default function BankRekonPanel() {
 
   const { data: syncConfig, refetch: refetchSyncConfig } = useQuery<SyncConfig>({
     queryKey: ["/api/bank-reconciliation/sync-config"],
-    queryFn: async () => { const r = await fetch("/api/bank-reconciliation/sync-config"); if (!r.ok) throw new Error(); return r.json(); },
+    queryFn: async () => { const r = await apiFetch("/api/bank-reconciliation/sync-config"); if (!r.ok) throw new Error(); return r.json(); },
     refetchInterval: 30_000,
   });
 
@@ -258,7 +259,7 @@ export default function BankRekonPanel() {
 
   const saveSyncConfigMut = useMutation({
     mutationFn: async (cfg: typeof syncForm) => {
-      const r = await fetch("/api/bank-reconciliation/sync-config", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(cfg) });
+      const r = await apiFetch("/api/bank-reconciliation/sync-config", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(cfg) });
       const d = await r.json(); if (!r.ok) throw new Error(d.error ?? "Gagal menyimpan"); return d;
     },
     onSuccess: () => { toast({ title: "Konfigurasi disimpan" }); refetchSyncConfig(); },
@@ -267,7 +268,7 @@ export default function BankRekonPanel() {
 
   const syncNowMut = useMutation({
     mutationFn: async () => {
-      const r = await fetch("/api/bank-reconciliation/sync-now", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({}) });
+      const r = await apiFetch("/api/bank-reconciliation/sync-now", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({}) });
       const d = await r.json(); if (!r.ok) throw new Error(d.error ?? "Gagal sinkronisasi"); return d as { newRows: number; totalRows: number; skipped: number; autoMatched: number };
     },
     onSuccess: (d) => {
@@ -301,7 +302,7 @@ export default function BankRekonPanel() {
       try {
         const params = new URLSearchParams({ spreadsheetId: id });
         if (syncForm.sheetName) params.set("sheetName", syncForm.sheetName);
-        const r = await fetch(`/api/bank-reconciliation/sheet-preview?${params}`);
+        const r = await apiFetch(`/api/bank-reconciliation/sheet-preview?${params}`);
         const d = await r.json();
         if (!r.ok) { setSyncPreviewError(d.error ?? "Gagal mengambil preview"); return; }
         setSyncPreview(d as SyncSheetPreview);
@@ -339,7 +340,7 @@ export default function BankRekonPanel() {
   // ── KPI ───────────────────────────────────────────────────────────────────────
   const { data: kpi, refetch: refetchKpi } = useQuery<KpiData>({
     queryKey: ["/api/bank-reconciliation/kpi"],
-    queryFn: async () => { const r = await fetch("/api/bank-reconciliation/kpi"); if (!r.ok) throw new Error("Gagal memuat KPI"); return r.json(); },
+    queryFn: async () => { const r = await apiFetch("/api/bank-reconciliation/kpi"); if (!r.ok) throw new Error("Gagal memuat KPI"); return r.json(); },
     refetchInterval: 60_000,
   });
 
@@ -353,12 +354,12 @@ export default function BankRekonPanel() {
 
   const { data: mutations = [], isLoading, refetch } = useQuery<BankMutation[]>({
     queryKey: ["/api/bank-reconciliation/mutations", mutParams.toString()],
-    queryFn: async () => { const r = await fetch(`/api/bank-reconciliation/mutations?${mutParams}`); if (!r.ok) throw new Error("Gagal memuat data"); return r.json(); },
+    queryFn: async () => { const r = await apiFetch(`/api/bank-reconciliation/mutations?${mutParams}`); if (!r.ok) throw new Error("Gagal memuat data"); return r.json(); },
   });
 
   const { data: matchData, isLoading: loadingMatches } = useQuery<MutationWithMatches>({
     queryKey: ["/api/bank-reconciliation/matches", selectedMutation?.id],
-    queryFn: async () => { const r = await fetch(`/api/bank-reconciliation/matches/${selectedMutation!.id}`); if (!r.ok) throw new Error("Gagal memuat kandidat"); return r.json(); },
+    queryFn: async () => { const r = await apiFetch(`/api/bank-reconciliation/matches/${selectedMutation!.id}`); if (!r.ok) throw new Error("Gagal memuat kandidat"); return r.json(); },
     enabled: !!selectedMutation,
   });
 
@@ -371,40 +372,40 @@ export default function BankRekonPanel() {
 
   const { data: auditLogsData, isLoading: loadingAuditLogs, refetch: refetchAuditLogs } = useQuery<{ data: BankReconAuditLog[]; total: number; page: number; limit: number }>({
     queryKey: ["/api/bank-reconciliation/audit-logs", auditParams.toString()],
-    queryFn: async () => { const r = await fetch(`/api/bank-reconciliation/audit-logs?${auditParams}`); if (!r.ok) throw new Error("Gagal memuat audit log"); return r.json(); },
+    queryFn: async () => { const r = await apiFetch(`/api/bank-reconciliation/audit-logs?${auditParams}`); if (!r.ok) throw new Error("Gagal memuat audit log"); return r.json(); },
   });
   const auditLogs = auditLogsData?.data ?? [];
 
   // ── Exception Audit ───────────────────────────────────────────────────────────
   const { data: auditException } = useQuery<AuditException>({
     queryKey: ["/api/bank-reconciliation/audit"],
-    queryFn: async () => { const r = await fetch("/api/bank-reconciliation/audit"); if (!r.ok) throw new Error(); return r.json(); },
+    queryFn: async () => { const r = await apiFetch("/api/bank-reconciliation/audit"); if (!r.ok) throw new Error(); return r.json(); },
     staleTime: 120_000,
   });
 
   // ── Dashboard mutations (unfiltered, for exception table) ─────────────────────
   const { data: dashboardMuts = [], refetch: refetchDashboardMuts } = useQuery<BankMutation[]>({
     queryKey: ["/api/bank-reconciliation/mutations", "dashboard-all"],
-    queryFn: async () => { const r = await fetch("/api/bank-reconciliation/mutations"); if (!r.ok) return []; return r.json(); },
+    queryFn: async () => { const r = await apiFetch("/api/bank-reconciliation/mutations"); if (!r.ok) return []; return r.json(); },
     staleTime: 60_000,
   });
 
   // ── Laporan ───────────────────────────────────────────────────────────────────
   const { data: laporanData, isLoading: loadingLaporan } = useQuery<{ year: number; rows: LaporanRow[] }>({
     queryKey: ["/api/bank-reconciliation/laporan", laporanYear],
-    queryFn: async () => { const r = await fetch(`/api/bank-reconciliation/laporan?year=${laporanYear}`); if (!r.ok) throw new Error("Gagal memuat laporan"); return r.json(); },
+    queryFn: async () => { const r = await apiFetch(`/api/bank-reconciliation/laporan?year=${laporanYear}`); if (!r.ok) throw new Error("Gagal memuat laporan"); return r.json(); },
   });
 
   // ── Closing Bank ──────────────────────────────────────────────────────────────
   const { data: closingPeriods = [], refetch: refetchClosing } = useQuery<ClosingPeriod[]>({
     queryKey: ["/api/bank-reconciliation/closing"],
-    queryFn: async () => { const r = await fetch("/api/bank-reconciliation/closing"); if (!r.ok) throw new Error(); return r.json(); },
+    queryFn: async () => { const r = await apiFetch("/api/bank-reconciliation/closing"); if (!r.ok) throw new Error(); return r.json(); },
   });
 
   // ── COA Rules ─────────────────────────────────────────────────────────────────
   const { data: coaRules = [], refetch: refetchCoa } = useQuery<CoaRule[]>({
     queryKey: ["/api/bank-reconciliation/coa-rules"],
-    queryFn: async () => { const r = await fetch("/api/bank-reconciliation/coa-rules"); if (!r.ok) throw new Error(); return r.json(); },
+    queryFn: async () => { const r = await apiFetch("/api/bank-reconciliation/coa-rules"); if (!r.ok) throw new Error(); return r.json(); },
   });
 
   // ── Cek Kesesuaian ────────────────────────────────────────────────────────────
@@ -415,7 +416,7 @@ export default function BankRekonPanel() {
 
   const { data: kesesuaianData, isLoading: loadingKesesuaian, refetch: refetchKesesuaian } = useQuery<KesesuaianData>({
     queryKey: ["/api/bank-reconciliation/cek-kesesuaian", kesesuaianParams.toString()],
-    queryFn: async () => { const r = await fetch(`/api/bank-reconciliation/cek-kesesuaian?${kesesuaianParams}`); if (!r.ok) throw new Error("Gagal memuat data kesesuaian"); return r.json(); },
+    queryFn: async () => { const r = await apiFetch(`/api/bank-reconciliation/cek-kesesuaian?${kesesuaianParams}`); if (!r.ok) throw new Error("Gagal memuat data kesesuaian"); return r.json(); },
     staleTime: 30_000,
   });
 
@@ -423,7 +424,7 @@ export default function BankRekonPanel() {
   const importMutation = useMutation({
     mutationFn: async (file: File) => {
       const fd = new FormData(); fd.append("file", file);
-      const r = await fetch("/api/bank-reconciliation/import", { method: "POST", body: fd });
+      const r = await apiFetch("/api/bank-reconciliation/import", { method: "POST", body: fd });
       const data = await r.json(); if (!r.ok) throw new Error(data.error ?? "Import gagal"); return data;
     },
     onSuccess: (data) => {
@@ -436,7 +437,7 @@ export default function BankRekonPanel() {
 
   const runMatchMutation = useMutation({
     mutationFn: async () => {
-      const r = await fetch("/api/bank-reconciliation/run-matching", { method: "POST" });
+      const r = await apiFetch("/api/bank-reconciliation/run-matching", { method: "POST" });
       const data = await r.json(); if (!r.ok) throw new Error(data.error ?? "Gagal"); return data;
     },
     onSuccess: (data) => {
@@ -449,7 +450,7 @@ export default function BankRekonPanel() {
 
   const approveMutation = useMutation({
     mutationFn: async ({ mutationId, matchId }: { mutationId: number; matchId: number }) => {
-      const r = await fetch(`/api/bank-reconciliation/${mutationId}/approve`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ matchId }) });
+      const r = await apiFetch(`/api/bank-reconciliation/${mutationId}/approve`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ matchId }) });
       const data = await r.json(); if (!r.ok) throw new Error(data.error ?? "Gagal approve"); return data;
     },
     onSuccess: () => {
@@ -464,7 +465,7 @@ export default function BankRekonPanel() {
 
   const rejectMutation = useMutation({
     mutationFn: async (mutationId: number) => {
-      const r = await fetch(`/api/bank-reconciliation/${mutationId}/reject`, { method: "POST" });
+      const r = await apiFetch(`/api/bank-reconciliation/${mutationId}/reject`, { method: "POST" });
       const data = await r.json(); if (!r.ok) throw new Error(data.error ?? "Gagal reject"); return data;
     },
     onSuccess: () => {
@@ -478,7 +479,7 @@ export default function BankRekonPanel() {
 
   const manualMatchMut = useMutation({
     mutationFn: async ({ mutationId, candidateType, candidateId }: { mutationId: number; candidateType: string; candidateId: number }) => {
-      const r = await fetch(`/api/bank-reconciliation/${mutationId}/manual-match`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ candidateType, candidateId }) });
+      const r = await apiFetch(`/api/bank-reconciliation/${mutationId}/manual-match`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ candidateType, candidateId }) });
       const data = await r.json(); if (!r.ok) throw new Error(data.error ?? "Gagal"); return data;
     },
     onSuccess: () => {
@@ -492,7 +493,7 @@ export default function BankRekonPanel() {
 
   const exportSheetMut = useMutation({
     mutationFn: async (payload: { spreadsheetId: string; sheetTitle?: string; dateFrom?: string; dateTo?: string }) => {
-      const r = await fetch("/api/bank-reconciliation/export-google-sheet", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+      const r = await apiFetch("/api/bank-reconciliation/export-google-sheet", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
       const data = await r.json(); if (!r.ok) throw new Error(data.error ?? "Gagal export"); return data as { success: boolean; sheetTitle: string; rowCount: number; sheetUrl: string };
     },
     onSuccess: (data) => { toast({ title: "Export berhasil!", description: `${data.rowCount} baris ditulis ke sheet "${data.sheetTitle}"` }); setShowExport(false); },
@@ -501,7 +502,7 @@ export default function BankRekonPanel() {
 
   const previewSheetMut = useMutation({
     mutationFn: async (payload: { spreadsheetId: string; sheetName?: string; bankAccountId?: string }) => {
-      const r = await fetch("/api/bank-reconciliation/preview-from-sheet", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+      const r = await apiFetch("/api/bank-reconciliation/preview-from-sheet", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
       const data = await r.json(); if (!r.ok) throw new Error(data.error ?? "Gagal membaca sheet");
       return data as SheetPreview & { success: boolean };
     },
@@ -511,7 +512,7 @@ export default function BankRekonPanel() {
 
   const importSheetMut = useMutation({
     mutationFn: async (payload: { spreadsheetId: string; sheetName?: string; bankAccountId?: string }) => {
-      const r = await fetch("/api/bank-reconciliation/import-from-sheet", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+      const r = await apiFetch("/api/bank-reconciliation/import-from-sheet", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
       const data = await r.json(); if (!r.ok) throw new Error(data.error ?? "Import gagal");
       return data as { success: boolean; imported: number; autoMatched: number; duplicates: number };
     },
@@ -528,7 +529,7 @@ export default function BankRekonPanel() {
 
   const sendWaMut = useMutation({
     mutationFn: async (payload: { types: string[] }) => {
-      const r = await fetch("/api/bank-reconciliation/send-reminder-wa", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+      const r = await apiFetch("/api/bank-reconciliation/send-reminder-wa", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
       const data = await r.json(); if (!r.ok) throw new Error(data.error ?? "Gagal kirim"); return data as { sent: string[]; failed: { ref: string; error: string }[]; skipped: { ref: string; reason: string }[]; summary: Record<string, number> };
     },
     onSuccess: (data) => {
@@ -541,7 +542,7 @@ export default function BankRekonPanel() {
 
   const lockClosingMut = useMutation({
     mutationFn: async ({ yearMonth, notes }: { yearMonth: string; notes?: string }) => {
-      const r = await fetch(`/api/bank-reconciliation/closing/${yearMonth}/lock`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ notes }) });
+      const r = await apiFetch(`/api/bank-reconciliation/closing/${yearMonth}/lock`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ notes }) });
       const data = await r.json(); if (!r.ok) throw new Error(data.error ?? "Gagal kunci"); return data;
     },
     onSuccess: () => { toast({ title: "Periode dikunci" }); setShowClosingDialog(false); setClosingNotes(""); refetchClosing(); },
@@ -550,7 +551,7 @@ export default function BankRekonPanel() {
 
   const unlockClosingMut = useMutation({
     mutationFn: async (yearMonth: string) => {
-      const r = await fetch(`/api/bank-reconciliation/closing/${yearMonth}/lock`, { method: "DELETE" });
+      const r = await apiFetch(`/api/bank-reconciliation/closing/${yearMonth}/lock`, { method: "DELETE" });
       const data = await r.json(); if (!r.ok) throw new Error(data.error ?? "Gagal buka"); return data;
     },
     onSuccess: () => { toast({ title: "Periode dibuka kembali" }); refetchClosing(); },
@@ -562,7 +563,7 @@ export default function BankRekonPanel() {
       const { id, ...body } = payload;
       const url = id ? `/api/bank-reconciliation/coa-rules/${id}` : "/api/bank-reconciliation/coa-rules";
       const method = id ? "PUT" : "POST";
-      const r = await fetch(url, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      const r = await apiFetch(url, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
       const data = await r.json(); if (!r.ok) throw new Error(data.error ?? "Gagal simpan"); return data;
     },
     onSuccess: () => { toast({ title: editingCoa ? "Aturan diperbarui" : "Aturan ditambahkan" }); setShowCoaDialog(false); setEditingCoa(null); setCoaForm({ providerName: "", direction: "ALL", descriptionPattern: "", coaCode: "", coaName: "", description: "", isActive: true }); refetchCoa(); },
@@ -571,7 +572,7 @@ export default function BankRekonPanel() {
 
   const deleteCoaMut = useMutation({
     mutationFn: async (id: number) => {
-      const r = await fetch(`/api/bank-reconciliation/coa-rules/${id}`, { method: "DELETE" });
+      const r = await apiFetch(`/api/bank-reconciliation/coa-rules/${id}`, { method: "DELETE" });
       const data = await r.json(); if (!r.ok) throw new Error(data.error ?? "Gagal hapus"); return data;
     },
     onSuccess: () => { toast({ title: "Aturan dihapus" }); refetchCoa(); },

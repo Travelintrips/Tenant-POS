@@ -169,6 +169,7 @@ function fmtShort(v: number) {
 // ─── Empty form state ──────────────────────────────────────────────────────────
 
 type FormData = {
+  siteId: string;
   tenantId: string;
   coaCode: string;
   coaName: string;
@@ -188,6 +189,7 @@ type UploadState =
   | { status: "error"; message: string };
 
 const EMPTY_FORM: FormData = {
+  siteId: "",
   tenantId: "",
   coaCode: "",
   coaName: "",
@@ -205,7 +207,9 @@ const EMPTY_FORM: FormData = {
 export default function PengeluaranOperasional() {
   const { toast } = useToast();
   const qc = useQueryClient();
-  const { activeSite } = useSite();
+  const { activeSite, sites } = useSite();
+  const isAllSites = activeSite?.code === "ALL";
+  const availableSites = sites.filter((s) => s.code !== "ALL");
 
   // Filters
   const [dateFrom, setDateFrom] = useState("");
@@ -370,7 +374,10 @@ export default function PengeluaranOperasional() {
 
   function openCreate() {
     setEditTarget(null);
-    setForm(EMPTY_FORM);
+    setForm({
+      ...EMPTY_FORM,
+      siteId: isAllSites ? "" : String(activeSite?.id ?? ""),
+    });
     setUploadState({ status: "idle" });
     setFormOpen(true);
   }
@@ -378,6 +385,7 @@ export default function PengeluaranOperasional() {
   function openEdit(exp: Expense) {
     setEditTarget(exp);
     setForm({
+      siteId: exp.siteId ? String(exp.siteId) : (isAllSites ? "" : String(activeSite?.id ?? "")),
       tenantId: exp.tenantId ? String(exp.tenantId) : "",
       coaCode: exp.coaCode ?? "",
       coaName: exp.coaName ?? "",
@@ -408,7 +416,13 @@ export default function PengeluaranOperasional() {
       toast({ title: "Akun COA belum dipilih", description: "Pilih akun COA untuk menentukan jenis pengeluaran.", variant: "destructive" });
       return;
     }
+    if (isAllSites && !form.siteId) {
+      toast({ title: "Lokasi belum dipilih", description: "Pilih lokasi / perusahaan untuk pengeluaran ini.", variant: "destructive" });
+      return;
+    }
+    const effectiveSiteId = form.siteId ? parseInt(form.siteId, 10) : (activeSite?.id ?? null);
     const body = {
+      siteId: effectiveSiteId,
       tenantId: form.tenantId ? parseInt(form.tenantId, 10) : null,
       coaCode: form.coaCode || null,
       coaName: form.coaName || null,
@@ -752,6 +766,35 @@ export default function PengeluaranOperasional() {
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-4 py-2">
+            {/* ─── Selector Perusahaan/Lokasi (tampil saat mode Semua) ─── */}
+            {isAllSites ? (
+              <div className="flex flex-col gap-1.5">
+                <Label className="text-xs">Perusahaan / Lokasi <span className="text-red-500">*</span></Label>
+                <Select value={form.siteId} onValueChange={(v) => setForm((f) => ({ ...f, siteId: v }))}>
+                  <SelectTrigger className="h-9 text-sm">
+                    <SelectValue placeholder="Pilih lokasi pengeluaran..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {availableSites.map((s) => (
+                      <SelectItem key={s.id} value={String(s.id)}>
+                        <span className="flex items-center gap-2">
+                          <Building2 className="h-3.5 w-3.5 text-muted-foreground" />
+                          {s.companyName ?? s.name}
+                        </span>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            ) : (
+              activeSite?.companyName && (
+                <div className="flex items-center gap-1.5 rounded-md border border-orange-200 bg-orange-50 px-2.5 py-1.5 text-xs font-medium text-orange-700">
+                  <Building2 className="h-3.5 w-3.5" />
+                  {activeSite.companyName}
+                </div>
+              )
+            )}
+
             <div className="flex flex-col gap-1.5">
               <Label className="text-xs">Akun COA <span className="text-red-500">*</span></Label>
               <Popover open={coaOpen} onOpenChange={setCoaOpen}>

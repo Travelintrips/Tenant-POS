@@ -41,13 +41,15 @@ const LIMIT = 20;
 const fmt = (n: number | string) => Number(n).toLocaleString("id-ID", { style: "currency", currency: "IDR", minimumFractionDigits: 0 });
 const fmtDate = (s: string) => new Date(s).toLocaleDateString("id-ID", { day: "2-digit", month: "short", year: "numeric" });
 
-type FormState = { category: string; description: string; amount: string; date: string; tenantId: string; coaCode: string; coaName: string };
-const emptyForm = (): FormState => ({ category: "other", description: "", amount: "", date: new Date().toISOString().slice(0, 10), tenantId: "", coaCode: "", coaName: "" });
+type FormState = { siteId: string; category: string; description: string; amount: string; date: string; tenantId: string; coaCode: string; coaName: string };
+const emptyForm = (): FormState => ({ siteId: "", category: "other", description: "", amount: "", date: new Date().toISOString().slice(0, 10), tenantId: "", coaCode: "", coaName: "" });
 
 export default function PemasukanLain() {
   const { toast } = useToast();
   const qc = useQueryClient();
-  const { activeSite } = useSite();
+  const { activeSite, sites } = useSite();
+  const isAllSites = activeSite?.code === "ALL";
+  const availableSites = sites.filter((s) => s.code !== "ALL");
   const [offset, setOffset] = useState(0);
   const [filterCategory, setFilterCategory] = useState("all");
   const [filterDateFrom, setFilterDateFrom] = useState("");
@@ -115,7 +117,9 @@ export default function PemasukanLain() {
     const amount = parseFloat(form.amount);
     if (!amount || amount <= 0) { toast({ title: "Validasi", description: "Nominal harus lebih dari 0", variant: "destructive" }); return; }
     if (!form.date) { toast({ title: "Validasi", description: "Tanggal wajib diisi", variant: "destructive" }); return; }
-    createMutation.mutate({ category: form.category, description: form.description, amount, date: new Date(form.date).toISOString(), tenantId: form.tenantId ? parseInt(form.tenantId, 10) : null, coaCode: form.coaCode || null, coaName: form.coaName || null });
+    if (isAllSites && !form.siteId) { toast({ title: "Lokasi belum dipilih", description: "Pilih lokasi / perusahaan untuk pemasukan ini.", variant: "destructive" }); return; }
+    const effectiveSiteId = form.siteId ? parseInt(form.siteId, 10) : (activeSite?.id ?? null);
+    createMutation.mutate({ siteId: effectiveSiteId, category: form.category, description: form.description, amount, date: new Date(form.date).toISOString(), tenantId: form.tenantId ? parseInt(form.tenantId, 10) : null, coaCode: form.coaCode || null, coaName: form.coaName || null });
   }
 
   const total = data?.pagination.total ?? 0;
@@ -138,7 +142,7 @@ export default function PemasukanLain() {
             </div>
           )}
         </div>
-        <Button onClick={() => { setForm(emptyForm()); setShowForm(true); }} className="gap-2">
+        <Button onClick={() => { setForm({ ...emptyForm(), siteId: isAllSites ? "" : String(activeSite?.id ?? "") }); setShowForm(true); }} className="gap-2">
           <Plus className="h-4 w-4" /> Tambah Pemasukan
         </Button>
       </div>
@@ -239,6 +243,31 @@ export default function PemasukanLain() {
         <DialogContent className="max-w-lg">
           <DialogHeader><DialogTitle className="flex items-center gap-2"><TrendingUp className="h-5 w-5 text-green-600" />Tambah Pemasukan Lain-lain</DialogTitle></DialogHeader>
           <form onSubmit={handleSubmit} className="space-y-4">
+            {/* ─── Selector Perusahaan/Lokasi ─── */}
+            {isAllSites ? (
+              <div className="space-y-1.5">
+                <Label>Perusahaan / Lokasi <span className="text-destructive">*</span></Label>
+                <Select value={form.siteId} onValueChange={v => setForm(f => ({ ...f, siteId: v }))}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Pilih lokasi pemasukan..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {availableSites.map((s) => (
+                      <SelectItem key={s.id} value={String(s.id)}>
+                        {s.companyName ?? s.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            ) : (
+              activeSite?.companyName && (
+                <div className="flex items-center gap-1.5 rounded-md border border-green-200 bg-green-50 px-2.5 py-1.5 text-xs font-medium text-green-700">
+                  <Building2 className="h-3.5 w-3.5" />
+                  {activeSite.companyName}
+                </div>
+              )
+            )}
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-1.5">
                 <Label>Tanggal <span className="text-destructive">*</span></Label>
