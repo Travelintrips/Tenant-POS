@@ -1,3 +1,4 @@
+- [coa-type-column-bug](coa-type-column-bug.md) — `chart_of_accounts` TIDAK punya kolom `type`; hanya `account_type`; jangan pakai `COALESCE(coa.type::text, coa.account_type)` → error 500 silent; migration 0082 seed COA per company jika belum ada
 - [accounting-entry-source-enum](accounting-entry-source-enum.md) — `accounting_entries.source` pakai PG enum `accounting_entry_source`; gunakan `'tenant_rent_payment'::accounting_entry_source` (hardcoded), bukan `opts.sourceApp` atau `sourceModule` yang bisa bukan valid enum — error ini silent karena fire-and-forget try-catch
 - [raw-sql-camelcase](raw-sql-camelcase.md) — db.execute(sql`...`) returns snake_case; always apply toCamel() helper before sending response
 - [api-zod duplicate exports](api-zod-exports.md) — only export from `./generated/api`, not `./generated/types` (same names clash)

@@ -21,18 +21,38 @@ const incomeSchema = z.object({
 });
 
 router.get("/other-income/coa-accounts", async (req, res) => {
+  const ctxSiteId = (req as unknown as { siteId?: number }).siteId;
   try {
-    const rows = await db.execute<{
-      id: number; company_id: number; code: string; name: string; account_type: string;
-    }>(sql`
-      SELECT DISTINCT ON (coa.code) coa.id, coa.company_id, coa.code, coa.name,
-        COALESCE(coa.type::text, coa.account_type) AS account_type
-      FROM chart_of_accounts coa
-      WHERE coa.is_active = true
-        AND COALESCE(coa.type::text, coa.account_type) IN ('income','revenue','pendapatan')
-      ORDER BY coa.code, coa.id
-    `);
-    const accounts = (rows as unknown as { rows: Array<{ id: number; company_id: number; code: string; name: string; account_type: string }> }).rows ?? [];
+    // Resolve company_id dari site aktif
+    let companyId: number | null = null;
+    if (ctxSiteId) {
+      const siteRow = await db.execute<{ company_id: number }>(sql`
+        SELECT company_id FROM mall_sites WHERE id = ${ctxSiteId} LIMIT 1
+      `).catch(() => ({ rows: [] as { company_id: number }[] }));
+      companyId = (siteRow as unknown as { rows: { company_id: number }[] }).rows?.[0]?.company_id ?? null;
+    }
+
+    const fetchCoa = async (cid: number | null) => {
+      const rows = await db.execute<{
+        id: number; company_id: number; code: string; name: string; account_type: string;
+      }>(sql`
+        SELECT coa.id, coa.company_id, coa.code, coa.name, coa.account_type
+        FROM chart_of_accounts coa
+        WHERE coa.is_active = true
+          AND coa.account_type IN ('income', 'revenue', 'pendapatan', 'kas')
+          ${cid ? sql`AND coa.company_id = ${cid}` : sql``}
+        ORDER BY coa.account_type, coa.code
+      `);
+      return (rows as unknown as { rows: Array<{ id: number; company_id: number; code: string; name: string; account_type: string }> }).rows ?? [];
+    };
+
+    let accounts = await fetchCoa(companyId);
+
+    // Fallback ke company_id=1 jika tidak ada akun pendapatan untuk company ini
+    if (accounts.length === 0 && companyId && companyId !== 1) {
+      accounts = await fetchCoa(1);
+    }
+
     res.json({ success: true, data: accounts.map(a => ({ id: a.id, companyId: a.company_id, code: a.code, name: a.name, accountType: a.account_type })) });
   } catch (err) {
     console.error("[GET /other-income/coa-accounts]", err);
