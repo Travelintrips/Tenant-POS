@@ -49,7 +49,18 @@ type ContractStatus = "draft" | "active" | "expiring_soon" | "expired" | "termin
 type PaymentStatus = "unpaid" | "partial" | "paid" | "overdue" | "UNPAID" | "PARTIAL" | "PAID" | "OVERDUE";
 type BillingCycle = "monthly" | "quarterly" | "yearly" | "custom";
 
-type Tenant = { id: number; businessName: string; boothNumber: string | null; areaName: string };
+type Tenant = {
+  id: number;
+  businessName: string;
+  boothNumber: string | null;
+  areaName: string;
+  defaultRentAmount: string | null;
+  defaultServiceChargeAmount: string | null;
+  defaultElectricityChargeAmount: string | null;
+  defaultWaterChargeAmount: string | null;
+  defaultOtherChargeAmount: string | null;
+  defaultTrashChargeAmount: string | null;
+};
 
 type BookingWithTenant = {
   id: number;
@@ -779,7 +790,29 @@ export default function BookingTenant() {
                 <Field label="Tenant" required>
                   <Select
                     value={form.tenantId}
-                    onValueChange={(v) => setForm(f => ({ ...f, tenantId: v }))}
+                    onValueChange={(v) => {
+                      const tenant = (tenants ?? []).find(t => String(t.id) === v);
+                      setForm(f => ({
+                        ...f,
+                        tenantId: v,
+                        // Auto-isi lokasi & harga dari data tenant (hanya saat tambah baru)
+                        ...(tenant && !editTarget ? {
+                          unitCode: tenant.boothNumber ? tenant.boothNumber : f.unitCode,
+                          rentAmount: Number(tenant.defaultRentAmount ?? 0) > 0
+                            ? String(tenant.defaultRentAmount)
+                            : f.rentAmount,
+                          serviceChargeAmount: Number(tenant.defaultServiceChargeAmount ?? 0) > 0
+                            ? String(tenant.defaultServiceChargeAmount)
+                            : f.serviceChargeAmount,
+                          electricityChargeAmount: Number(tenant.defaultElectricityChargeAmount ?? 0) > 0
+                            ? String(tenant.defaultElectricityChargeAmount)
+                            : f.electricityChargeAmount,
+                          waterChargeAmount: Number(tenant.defaultWaterChargeAmount ?? 0) > 0
+                            ? String(tenant.defaultWaterChargeAmount)
+                            : f.waterChargeAmount,
+                        } : {}),
+                      }));
+                    }}
                     disabled={!!editTarget}
                   >
                     <SelectTrigger><SelectValue placeholder="Pilih tenant..." /></SelectTrigger>
