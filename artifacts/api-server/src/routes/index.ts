@@ -32,6 +32,7 @@ import operationalExpensesRouter from "./operational-expenses";
 import otherIncomeRouter from "./other-income";
 import tenantSheetSyncRouter from "./tenant-sheet-sync";
 import consolidatedInvoicesRouter from "./consolidated-invoices";
+import blastTagihanRouter from "./blast-tagihan";
 import { requireAuth, requireNonTenantUser } from "../middlewares/auth";
 import { siteContext } from "../middlewares/site-context";
 
@@ -83,5 +84,6 @@ router.use(operationalExpensesRouter);
 router.use(otherIncomeRouter);
 router.use(tenantSheetSyncRouter);
 router.use(consolidatedInvoicesRouter);
+router.use(blastTagihanRouter);
 
 export default router;

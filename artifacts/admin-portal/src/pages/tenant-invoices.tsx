@@ -1147,6 +1147,39 @@ export default function TenantInvoices() {
     onError: (e: Error) => toast({ title: "Gagal Hitung Ulang", description: e.message, variant: "destructive" }),
   });
 
+  // ─── Blast Tagihan Scheduler ─────────────────────────────────────────────────
+
+  type BlastStatusResp = {
+    isRunning: boolean;
+    lastRunAt: string | null;
+    lastRunLabel: string | null;
+    lastRunAtFormatted: string | null;
+    scheduledTimesWib: string[];
+    lastResult: {
+      invoiceSent: number;
+      reminderH7: number;
+      reminderH3: number;
+      reminderH1: number;
+      overdueSent: number;
+    } | null;
+  };
+
+  const { data: blastStatus, refetch: refetchBlastStatus } = useQuery<BlastStatusResp>({
+    queryKey: ["/api/blast-tagihan/status"],
+    queryFn: () => apiFetch<BlastStatusResp>(`${BASE}/api/blast-tagihan/status`),
+    refetchInterval: 5000,
+  });
+
+  const blastTriggerMutation = useMutation({
+    mutationFn: () =>
+      apiPost<{ ok: boolean; message: string; startedAt: string }>(`${BASE}/api/blast-tagihan/trigger`, {}),
+    onSuccess: (res) => {
+      toast({ title: "Blast Tagihan Dimulai", description: res.message });
+      setTimeout(() => refetchBlastStatus(), 3000);
+    },
+    onError: (e: Error) => toast({ title: "Gagal Trigger Blast", description: e.message, variant: "destructive" }),
+  });
+
   // ─── Derived ────────────────────────────────────────────────────────────────
 
   const summary = useMemo(() => {
@@ -1597,6 +1630,93 @@ export default function TenantInvoices() {
             <Plus className="h-4 w-4" />
             Buat Invoice
           </Button>
+        </div>
+      </div>
+
+      {/* ── Panel Blast Tagihan Otomatis ─────────────────────────────────────── */}
+      <div className="rounded-xl border border-blue-200 bg-blue-50/60 p-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          {/* Info jadwal */}
+          <div className="flex items-start gap-3">
+            <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-blue-100">
+              <Send className="h-4 w-4 text-blue-600" />
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-blue-900">Blast Tagihan Otomatis via WhatsApp</p>
+              <p className="mt-0.5 text-xs text-blue-700">
+                Setiap awal bulan, sistem otomatis mengirim tagihan + link bayar ke semua tenant pada{" "}
+                <span className="font-semibold">08:00 WIB</span>.
+                Reminder H-7, H-3, H-1 jatuh tempo dan pengingat overdue juga dikirim otomatis.
+              </p>
+              <div className="mt-1.5 flex flex-wrap gap-1.5">
+                {blastStatus?.scheduledTimesWib?.map((t) => (
+                  <span key={t} className="inline-flex items-center gap-1 rounded-md bg-blue-100 px-2 py-0.5 text-[11px] font-medium text-blue-700">
+                    <Clock className="h-3 w-3" />
+                    {t}
+                  </span>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* Status + Tombol */}
+          <div className="flex shrink-0 flex-col gap-2 sm:items-end">
+            {/* Status terakhir */}
+            <div className="flex items-center gap-2">
+              {blastStatus?.isRunning ? (
+                <span className="inline-flex items-center gap-1 rounded-full bg-yellow-100 px-2.5 py-1 text-xs font-medium text-yellow-800">
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                  Sedang berjalan...
+                </span>
+              ) : blastStatus?.lastRunAtFormatted ? (
+                <span className="inline-flex items-center gap-1 rounded-full bg-green-100 px-2.5 py-1 text-xs font-medium text-green-800">
+                  <CheckCircle2 className="h-3 w-3" />
+                  Terakhir: {blastStatus.lastRunAtFormatted}
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2.5 py-1 text-xs font-medium text-gray-600">
+                  <Clock className="h-3 w-3" />
+                  Belum pernah dijalankan
+                </span>
+              )}
+            </div>
+
+            {/* Tombol trigger manual */}
+            <Button
+              size="sm"
+              className="gap-2 bg-blue-600 hover:bg-blue-700 text-white"
+              disabled={blastTriggerMutation.isPending || blastStatus?.isRunning}
+              onClick={() => blastTriggerMutation.mutate()}
+              title="Kirim tagihan + pengingat sekarang ke semua tenant yang belum bayar"
+            >
+              {blastTriggerMutation.isPending || blastStatus?.isRunning ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Send className="h-4 w-4" />
+              )}
+              {blastTriggerMutation.isPending || blastStatus?.isRunning
+                ? "Mengirim..."
+                : "Kirim Sekarang"}
+            </Button>
+          </div>
+        </div>
+
+        {/* Keterangan alur notifikasi */}
+        <div className="mt-3 grid grid-cols-2 gap-1.5 border-t border-blue-200 pt-3 sm:grid-cols-4">
+          {[
+            { icon: <MessageCircle className="h-3.5 w-3.5" />, label: "Tagihan Baru", desc: "Awal periode (hari ini)" },
+            { icon: <Clock className="h-3.5 w-3.5" />, label: "Pengingat H-7", desc: "7 hari sebelum jatuh tempo" },
+            { icon: <Clock className="h-3.5 w-3.5" />, label: "Pengingat H-3 & H-1", desc: "3 & 1 hari sebelum jatuh tempo" },
+            { icon: <AlertCircle className="h-3.5 w-3.5" />, label: "Peringatan Overdue", desc: "Setelah melewati jatuh tempo" },
+          ].map(({ icon, label, desc }) => (
+            <div key={label} className="flex items-start gap-1.5 rounded-lg bg-white/70 p-2">
+              <span className="mt-0.5 text-blue-500">{icon}</span>
+              <div>
+                <p className="text-[11px] font-semibold text-blue-900">{label}</p>
+                <p className="text-[10px] text-blue-600">{desc}</p>
+              </div>
+            </div>
+          ))}
         </div>
       </div>
 

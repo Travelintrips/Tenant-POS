@@ -8,27 +8,77 @@ import { getBaseUrl } from "./app-url";
 let _started = false;
 
 // Jam eksekusi scheduler (dalam WIB = UTC+7, diperhitungkan sbg UTC)
-// Cek dilakukan 2x sehari: jam 06:00 WIB (23:00 UTC) dan jam 18:00 WIB (11:00 UTC)
-const SCHEDULE_HOURS_UTC = [23, 11]; // 23 UTC = 06:00 WIB, 11 UTC = 18:00 WIB
+// Cek dilakukan 3x sehari:
+//   01 UTC = 08:00 WIB  → blast tagihan awal bulan (permintaan user)
+//   23 UTC = 06:00 WIB  → pengecekan pagi
+//   11 UTC = 18:00 WIB  → pengecekan sore
+const SCHEDULE_HOURS_UTC = [1, 23, 11]; // 01 UTC = 08:00 WIB, 23 UTC = 06:00 WIB, 11 UTC = 18:00 WIB
 
 let _lastRunDateKey = ""; // format: "YYYY-MM-DD-HH"
 
+// ─── Status tracker (diakses oleh route /blast-tagihan/status) ────────────────
+
+export interface BlastStatus {
+  lastRunAt: string | null;
+  lastRunLabel: string | null;
+  lastResult: {
+    invoiceSent: number;
+    reminderH7: number;
+    reminderH3: number;
+    reminderH1: number;
+    overdueSent: number;
+  } | null;
+  nextScheduledHoursUtc: number[];
+  isRunning: boolean;
+}
+
+let _blastStatus: BlastStatus = {
+  lastRunAt: null,
+  lastRunLabel: null,
+  lastResult: null,
+  nextScheduledHoursUtc: SCHEDULE_HOURS_UTC,
+  isRunning: false,
+};
+
+export function getBlastStatus(): BlastStatus {
+  return { ..._blastStatus };
+}
+
 async function runAllChecks(label: string): Promise<void> {
+  if (_blastStatus.isRunning) {
+    logger.info("[scheduler] Pengecekan sedang berjalan, dilewati");
+    return;
+  }
+  _blastStatus.isRunning = true;
   logger.info(`[scheduler] Menjalankan semua pengecekan (${label})...`);
-  await Promise.allSettled([
-    runInvoiceNotificationCheck().catch((err) =>
-      logger.warn({ err }, "[scheduler] Cek kirim tagihan gagal"),
-    ),
-    runDueReminderCheck().catch((err) =>
-      logger.warn({ err }, "[scheduler] Cek reminder H-7/H-3/H-1 gagal"),
-    ),
-    runOverdueCheck().catch((err) =>
-      logger.warn({ err }, "[scheduler] Cek overdue gagal"),
-    ),
-    runUnmatchedMutationCheck().catch((err) =>
-      logger.warn({ err }, "[scheduler] Cek mutasi unmatched gagal"),
-    ),
-  ]);
+  try {
+    await Promise.allSettled([
+      runInvoiceNotificationCheck().catch((err) =>
+        logger.warn({ err }, "[scheduler] Cek kirim tagihan gagal"),
+      ),
+      runDueReminderCheck().catch((err) =>
+        logger.warn({ err }, "[scheduler] Cek reminder H-7/H-3/H-1 gagal"),
+      ),
+      runOverdueCheck().catch((err) =>
+        logger.warn({ err }, "[scheduler] Cek overdue gagal"),
+      ),
+      runUnmatchedMutationCheck().catch((err) =>
+        logger.warn({ err }, "[scheduler] Cek mutasi unmatched gagal"),
+      ),
+    ]);
+    _blastStatus.lastRunAt = new Date().toISOString();
+    _blastStatus.lastRunLabel = label;
+  } finally {
+    _blastStatus.isRunning = false;
+  }
+}
+
+/**
+ * Trigger blast tagihan manual (dari API endpoint).
+ * Menjalankan runInvoiceNotificationCheck + runDueReminderCheck + runOverdueCheck.
+ */
+export async function runManualBlast(label: string): Promise<void> {
+  await runAllChecks(label);
 }
 
 export function startOverdueScheduler(): void {
