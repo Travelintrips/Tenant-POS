@@ -28,11 +28,12 @@ import {
   sendPaymentApproved,
   sendPaymentRejected,
 } from "../lib/whatsapp";
+import { webhookRateLimiter } from "../middlewares/rate-limit";
 
 const router: IRouter = Router();
 
 // ─── POST /api/whatsapp/webhook ───────────────────────────────────────────────
-router.post("/whatsapp/webhook", async (req, res) => {
+router.post("/whatsapp/webhook", webhookRateLimiter, async (req, res) => {
   // Segera balas 200 agar Fonnte tidak retry
   res.json({ ok: true });
 

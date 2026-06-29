@@ -143,6 +143,16 @@ export const otpVerifyRateLimiter = makeLoggingRateLimiter({
 });
 
 /**
+ * 120 req / 15 menit per IP — Fonnte incoming webhook
+ * Cukup longgar untuk burst Fonnte (retry logic), tapi mencegah abuse.
+ */
+export const webhookRateLimiter = makeLoggingRateLimiter({
+  name: "webhook",
+  max: 120,
+  windowMs: 15 * 60 * 1000,
+});
+
+/**
  * 5 pendaftaran / 10 menit per IP — self-registration calon tenant (publik)
  * Melindungi endpoint POST /api/calon-tenant/daftar dari spam.
  */
