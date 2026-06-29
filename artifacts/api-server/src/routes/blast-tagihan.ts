@@ -6,7 +6,7 @@
  */
 import { Router, type IRouter } from "express";
 import { requireAnyRole } from "../middlewares/auth";
-import { getBlastStatus, runManualBlast } from "../lib/overdue-scheduler";
+import { getBlastStatus, getBlastHistory, runManualBlast } from "../lib/overdue-scheduler";
 import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
@@ -80,6 +80,25 @@ router.post("/blast-tagihan/trigger", (req, res) => {
       "Periksa status di beberapa detik untuk melihat hasilnya.",
     startedAt: new Date().toISOString(),
   });
+});
+
+/**
+ * GET /blast-tagihan/history
+ * Kembalikan histori 20 run terakhir scheduler (in-memory, reset saat server restart).
+ */
+router.get("/blast-tagihan/history", (_req, res) => {
+  const history = getBlastHistory().map((run) => ({
+    ...run,
+    runAtFormatted: new Date(run.runAt).toLocaleString("id-ID", {
+      timeZone: "Asia/Jakarta",
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    }),
+  }));
+  res.json({ ok: true, history });
 });
 
 export default router;

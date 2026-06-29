@@ -1156,12 +1156,25 @@ export default function TenantInvoices() {
     lastRunAtFormatted: string | null;
     scheduledTimesWib: string[];
     lastResult: {
+      invoicesCreated: number;
       invoiceSent: number;
       reminderH7: number;
       reminderH3: number;
       reminderH1: number;
       overdueSent: number;
     } | null;
+  };
+
+  type BlastRun = {
+    runAt: string;
+    runAtFormatted: string;
+    label: string;
+    invoicesCreated: number;
+    invoicesSent: number;
+    reminderH7: number;
+    reminderH3: number;
+    reminderH1: number;
+    overdueSent: number;
   };
 
   const { data: blastStatus, refetch: refetchBlastStatus } = useQuery<BlastStatusResp>({
@@ -1175,9 +1188,15 @@ export default function TenantInvoices() {
       apiPost<{ ok: boolean; message: string; startedAt: string }>(`${BASE}/api/blast-tagihan/trigger`, {}),
     onSuccess: (res) => {
       toast({ title: "Blast Tagihan Dimulai", description: res.message });
-      setTimeout(() => refetchBlastStatus(), 3000);
+      setTimeout(() => { void refetchBlastStatus(); void refetchBlastHistory(); }, 3000);
     },
     onError: (e: Error) => toast({ title: "Gagal Trigger Blast", description: e.message, variant: "destructive" }),
+  });
+
+  const { data: blastHistoryData, refetch: refetchBlastHistory } = useQuery<{ ok: boolean; history: BlastRun[] }>({
+    queryKey: ["/api/blast-tagihan/history"],
+    queryFn: () => apiFetch<{ ok: boolean; history: BlastRun[] }>(`${BASE}/api/blast-tagihan/history`),
+    refetchInterval: blastStatus?.isRunning ? 5000 : false,
   });
 
   // ─── Derived ────────────────────────────────────────────────────────────────
@@ -1718,6 +1737,62 @@ export default function TenantInvoices() {
             </div>
           ))}
         </div>
+
+        {/* ── Histori Blast ─────────────────────────────────────────────────── */}
+        {(blastHistoryData?.history?.length ?? 0) > 0 && (
+          <div className="mt-3 border-t border-blue-200 pt-3">
+            <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-blue-700">
+              Histori Pengiriman (sesi terakhir)
+            </p>
+            <div className="overflow-x-auto rounded-lg border border-blue-100">
+              <table className="w-full text-[11px]">
+                <thead>
+                  <tr className="bg-blue-100/60 text-left text-blue-800">
+                    <th className="px-2.5 py-1.5 font-semibold">Waktu (WIB)</th>
+                    <th className="px-2.5 py-1.5 font-semibold text-center">Invoice Dibuat</th>
+                    <th className="px-2.5 py-1.5 font-semibold text-center">WA Terkirim</th>
+                    <th className="px-2.5 py-1.5 font-semibold text-center">H-7</th>
+                    <th className="px-2.5 py-1.5 font-semibold text-center">H-3</th>
+                    <th className="px-2.5 py-1.5 font-semibold text-center">H-1</th>
+                    <th className="px-2.5 py-1.5 font-semibold text-center">Overdue</th>
+                    <th className="px-2.5 py-1.5 font-semibold text-blue-600">Pemicu</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {blastHistoryData?.history.map((run, idx) => (
+                    <tr key={run.runAt} className={idx % 2 === 0 ? "bg-white" : "bg-blue-50/40"}>
+                      <td className="px-2.5 py-1.5 font-medium text-blue-900 whitespace-nowrap">{run.runAtFormatted}</td>
+                      <td className="px-2.5 py-1.5 text-center">
+                        <span className={`font-semibold ${run.invoicesCreated > 0 ? "text-green-700" : "text-gray-400"}`}>
+                          {run.invoicesCreated}
+                        </span>
+                      </td>
+                      <td className="px-2.5 py-1.5 text-center">
+                        <span className={`font-semibold ${run.invoicesSent > 0 ? "text-blue-700" : "text-gray-400"}`}>
+                          {run.invoicesSent}
+                        </span>
+                      </td>
+                      <td className="px-2.5 py-1.5 text-center text-gray-600">{run.reminderH7 || "-"}</td>
+                      <td className="px-2.5 py-1.5 text-center text-gray-600">{run.reminderH3 || "-"}</td>
+                      <td className="px-2.5 py-1.5 text-center text-gray-600">{run.reminderH1 || "-"}</td>
+                      <td className="px-2.5 py-1.5 text-center">
+                        <span className={run.overdueSent > 0 ? "font-semibold text-orange-600" : "text-gray-400"}>
+                          {run.overdueSent || "-"}
+                        </span>
+                      </td>
+                      <td className="px-2.5 py-1.5 text-blue-500 truncate max-w-[120px]" title={run.label}>
+                        {run.label.startsWith("manual") ? "👆 Manual" : "🕐 Otomatis"}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <p className="mt-1.5 text-[10px] text-blue-500">
+              * Histori disimpan di memori server — akan kosong kembali setelah server restart.
+            </p>
+          </div>
+        )}
       </div>
 
       {/* Summary Cards */}
