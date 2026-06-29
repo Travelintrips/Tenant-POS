@@ -329,7 +329,7 @@ async function runMonthlyInvoiceGeneration(): Promise<number> {
  * dan belum pernah dikirimkan notifikasinya (invoice_notified_at IS NULL)
  * akan dikirim sekarang.
  */
-async function runInvoiceNotificationCheck(): Promise<number> {
+export async function runInvoiceNotificationCheck(): Promise<number> {
   logger.info("[scheduler] Menjalankan cek kirim tagihan awal periode...");
 
   const invoices = await db

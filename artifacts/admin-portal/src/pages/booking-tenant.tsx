@@ -855,6 +855,14 @@ export default function BookingTenant() {
                                       } : {}),
                                     }));
                                     setTenantComboOpen(false);
+                                    // Auto-generate nomor kontrak jika field masih kosong
+                                    apiFetch(`${BASE}/api/bookings/next-contract-number`)
+                                      .then(async (resp) => {
+                                        if (!resp.ok) return;
+                                        const data = await resp.json() as { contractNumber: string };
+                                        setForm(f => ({ ...f, contractNumber: f.contractNumber || data.contractNumber }));
+                                      })
+                                      .catch(() => {});
                                   }}
                                 >
                                   <Check
