@@ -7,46 +7,58 @@ import { getBaseUrl } from "./app-url";
 
 let _started = false;
 
+// Jam eksekusi scheduler (dalam WIB = UTC+7, diperhitungkan sbg UTC)
+// Cek dilakukan 2x sehari: jam 06:00 WIB (23:00 UTC) dan jam 18:00 WIB (11:00 UTC)
+const SCHEDULE_HOURS_UTC = [23, 11]; // 23 UTC = 06:00 WIB, 11 UTC = 18:00 WIB
+
+let _lastRunDateKey = ""; // format: "YYYY-MM-DD-HH"
+
+async function runAllChecks(label: string): Promise<void> {
+  logger.info(`[scheduler] Menjalankan semua pengecekan (${label})...`);
+  await Promise.allSettled([
+    runInvoiceNotificationCheck().catch((err) =>
+      logger.warn({ err }, "[scheduler] Cek kirim tagihan gagal"),
+    ),
+    runDueReminderCheck().catch((err) =>
+      logger.warn({ err }, "[scheduler] Cek reminder H-7/H-3/H-1 gagal"),
+    ),
+    runOverdueCheck().catch((err) =>
+      logger.warn({ err }, "[scheduler] Cek overdue gagal"),
+    ),
+    runUnmatchedMutationCheck().catch((err) =>
+      logger.warn({ err }, "[scheduler] Cek mutasi unmatched gagal"),
+    ),
+  ]);
+}
+
 export function startOverdueScheduler(): void {
   if (_started) return;
   _started = true;
 
-  // Jalankan semua pengecekan 30 detik setelah startup
-  setTimeout(() => {
-    runInvoiceNotificationCheck().catch((err) =>
-      logger.warn({ err }, "[scheduler] Cek kirim tagihan awal periode gagal"),
-    );
-    runDueReminderCheck().catch((err) =>
-      logger.warn({ err }, "[scheduler] Cek reminder H-3/H-1 awal gagal"),
-    );
-    runOverdueCheck().catch((err) =>
-      logger.warn({ err }, "[scheduler] Cek overdue awal gagal"),
-    );
-    runUnmatchedMutationCheck().catch((err) =>
-      logger.warn({ err }, "[scheduler] Cek mutasi unmatched awal gagal"),
-    );
-  }, 30_000);
-
-  // Ulangi setiap 12 jam
-  setInterval(
-    () => {
-      runInvoiceNotificationCheck().catch((err) =>
-        logger.warn({ err }, "[scheduler] Cek kirim tagihan awal periode berkala gagal"),
-      );
-      runDueReminderCheck().catch((err) =>
-        logger.warn({ err }, "[scheduler] Cek reminder H-3/H-1 berkala gagal"),
-      );
-      runOverdueCheck().catch((err) =>
-        logger.warn({ err }, "[scheduler] Cek overdue berkala gagal"),
-      );
-      runUnmatchedMutationCheck().catch((err) =>
-        logger.warn({ err }, "[scheduler] Cek mutasi unmatched berkala gagal"),
-      );
-    },
-    12 * 60 * 60 * 1000,
+  // Jalankan sekali 30 detik setelah startup (catch-up jika server baru restart)
+  setTimeout(
+    () => runAllChecks("startup").catch(() => {}),
+    30_000,
   );
 
-  logger.info("[scheduler] Scheduler aktif (tagihan, H-3, H-1, overdue, unmatched) — cek setiap 12 jam");
+  // Cron sederhana: cek setiap 5 menit, eksekusi jika jam-nya tepat
+  // Ini memastikan scheduler berjalan pada jam yang terprediksi (06:00 dan 18:00 WIB)
+  // meski server restart kapan saja
+  setInterval(() => {
+    const now = new Date();
+    const hourUtc = now.getUTCHours();
+    const dateKey = `${now.toISOString().slice(0, 10)}-${hourUtc}`;
+
+    // Hanya eksekusi jika jam-nya sesuai jadwal DAN belum dijalankan di jam ini
+    if (SCHEDULE_HOURS_UTC.includes(hourUtc) && dateKey !== _lastRunDateKey) {
+      _lastRunDateKey = dateKey;
+      runAllChecks(`cron ${hourUtc}:00 UTC`).catch(() => {});
+    }
+  }, 5 * 60 * 1000); // setiap 5 menit
+
+  logger.info(
+    "[scheduler] Scheduler aktif — cron 06:00 & 18:00 WIB (tagihan, H-7, H-3, H-1, overdue, unmatched)",
+  );
 }
 
 // getAdminPhones → pakai getAdminNotifyPhones() dari whatsapp.ts (sudah handle ADMIN_WA_GROUP)
