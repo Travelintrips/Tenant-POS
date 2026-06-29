@@ -318,7 +318,7 @@ export default function BookingTenant() {
   }, [dialogOpen, editTarget]);
 
   const { data: bookings, isLoading, isError } = useQuery<BookingWithTenant[]>({
-    queryKey: ["/api/bookings"],
+    queryKey: ["/api/bookings", activeSite?.id ?? null],
     queryFn: fetchBookings,
     refetchInterval: 30000,
   });

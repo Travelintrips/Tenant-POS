@@ -222,9 +222,9 @@ router.get("/bookings/next-contract-number", async (req, res) => {
 router.get("/bookings", async (req, res) => {
   try {
     const siteId = req.siteId;
-    // Pemilik (owner) bisa lihat booking dari semua site
-    const isOwner = req.user?.role === "owner";
-    const siteConditions = (!isOwner && siteId > 0) ? [eq(tenantBookingsTable.siteId, siteId)] : [];
+    // Filter by site: siteId=0 berarti "Semua" (ALL mode), tampilkan semua
+    // siteId>0 berarti site spesifik — filter ketat, termasuk untuk owner
+    const siteConditions = siteId > 0 ? [eq(tenantBookingsTable.siteId, siteId)] : [];
 
     const rows = await db
       .select(bookingSelect)
