@@ -1,5 +1,5 @@
 import { apiFetch } from "@/lib/api";
-import { useState, useMemo, useRef } from "react";
+import { useState, useMemo, useRef, useEffect } from "react";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
@@ -304,6 +304,18 @@ export default function BookingTenant() {
 
   const [docFile, setDocFile] = useState<File | null>(null);
   const [isUploadingDoc, setIsUploadingDoc] = useState(false);
+
+  useEffect(() => {
+    if (dialogOpen && !editTarget) {
+      apiFetch(`${BASE}/api/bookings/next-contract-number`)
+        .then(async (resp) => {
+          if (!resp.ok) return;
+          const data = await resp.json() as { contractNumber: string };
+          setForm(f => ({ ...f, contractNumber: f.contractNumber || data.contractNumber }));
+        })
+        .catch(() => {});
+    }
+  }, [dialogOpen, editTarget]);
 
   const { data: bookings, isLoading, isError } = useQuery<BookingWithTenant[]>({
     queryKey: ["/api/bookings"],
