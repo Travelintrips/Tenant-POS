@@ -839,6 +839,7 @@ export default function BookingTenant() {
                                       tenantId: v,
                                       ...(tenant ? {
                                         unitCode: tenant.boothNumber ? tenant.boothNumber : f.unitCode,
+                                        floor: tenant.areaName ? tenant.areaName : f.floor,
                                         rentAmount: Number(tenant.defaultRentAmount ?? 0) > 0
                                           ? String(tenant.defaultRentAmount)
                                           : f.rentAmount,
