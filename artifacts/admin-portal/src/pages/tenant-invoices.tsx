@@ -1312,6 +1312,8 @@ export default function TenantInvoices() {
       areaName: null,
       email: null,
       phone: null,
+      companyId: null,
+      companyName: null,
     };
 
     const cfg = await fetchInvoiceConfig(activeSiteId ?? null);
