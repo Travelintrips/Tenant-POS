@@ -1,5 +1,5 @@
 import { apiFetch } from "@/lib/api";
-import { useState, useMemo, useRef, useEffect } from "react";
+import { useState, useMemo, useRef, useEffect, useCallback } from "react";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
@@ -23,7 +23,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, Pencil, AlertTriangle, Clock, Search, Upload, FileText, ExternalLink, X, Building2, Dumbbell, Trash2, ChevronsUpDown, Check } from "lucide-react";
+import { Plus, Pencil, AlertTriangle, Clock, Search, Upload, FileText, ExternalLink, X, Building2, Dumbbell, Trash2, ChevronsUpDown, Check, Download, FileSpreadsheet } from "lucide-react";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
@@ -531,6 +531,175 @@ export default function BookingTenant() {
   const jumlahAktif = (bookings ?? []).filter(b => b.contractStatus === "active" || b.contractStatus === "expiring_soon").length;
   const siteCfg = activeSite ? (SITE_TYPE_CONFIG[activeSite.type] ?? null) : null;
 
+  const CONTRACT_STATUS_LABEL: Record<string, string> = {
+    draft: "Draft", active: "Aktif", expiring_soon: "Segera Habis",
+    expired: "Kadaluarsa", terminated: "Diakhiri",
+  };
+  const PAYMENT_STATUS_LABEL: Record<string, string> = {
+    unpaid: "Belum Bayar", partial: "Sebagian", paid: "Lunas", overdue: "Jatuh Tempo",
+  };
+
+  const exportToExcel = useCallback(async () => {
+    const ExcelJS = (await import("exceljs")).default;
+    const wb = new ExcelJS.Workbook();
+    wb.creator = "Mall Admin Portal";
+    const ws = wb.addWorksheet("Daftar Kontrak");
+
+    const siteName = activeSite?.name ?? "Semua Site";
+    const now = new Date().toLocaleDateString("id-ID", { day: "2-digit", month: "long", year: "numeric" });
+
+    ws.mergeCells("A1:K1");
+    const titleCell = ws.getCell("A1");
+    titleCell.value = `Daftar Kontrak Sewa Tenant — ${siteName}`;
+    titleCell.font = { bold: true, size: 13 };
+    titleCell.alignment = { horizontal: "center" };
+
+    ws.mergeCells("A2:K2");
+    const subCell = ws.getCell("A2");
+    subCell.value = `Dicetak: ${now}  |  Total: ${filtered.length} kontrak`;
+    subCell.alignment = { horizontal: "center" };
+    subCell.font = { color: { argb: "FF666666" }, size: 10 };
+
+    ws.addRow([]);
+
+    const headers = [
+      "No. Kontrak", "Nama Tenant", "Kode Unit", "Lantai",
+      "Tgl Mulai", "Tgl Selesai", "Harga Sewa (Rp)",
+      "Total Tagihan (Rp)", "Terbayar (Rp)", "Sisa (Rp)",
+      "Status Kontrak", "Status Pembayaran",
+    ];
+    const headerRow = ws.addRow(headers);
+    headerRow.eachCell((cell) => {
+      cell.font = { bold: true, color: { argb: "FFFFFFFF" } };
+      cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF2563EB" } };
+      cell.alignment = { horizontal: "center" };
+      cell.border = {
+        bottom: { style: "thin", color: { argb: "FF1D4ED8" } },
+      };
+    });
+
+    ws.columns = [
+      { key: "c0", width: 18 }, { key: "c1", width: 24 }, { key: "c2", width: 16 },
+      { key: "c3", width: 10 }, { key: "c4", width: 14 }, { key: "c5", width: 14 },
+      { key: "c6", width: 18 }, { key: "c7", width: 18 }, { key: "c8", width: 18 },
+      { key: "c9", width: 18 }, { key: "c10", width: 16 }, { key: "c11", width: 18 },
+    ];
+
+    filtered.forEach((b, idx) => {
+      const sisa = Math.max(0, Number(b.totalAmount) - Number(b.paidAmount));
+      const row = ws.addRow([
+        b.contractNumber || b.orderNumber,
+        b.tenantName ?? "",
+        b.unitCode ?? "",
+        b.floor ?? "",
+        b.startDate ? new Date(b.startDate).toLocaleDateString("id-ID") : "",
+        b.endDate   ? new Date(b.endDate).toLocaleDateString("id-ID")   : "",
+        Number(b.rentAmount ?? 0),
+        Number(b.totalAmount),
+        Number(b.paidAmount),
+        sisa,
+        CONTRACT_STATUS_LABEL[b.contractStatus] ?? b.contractStatus,
+        PAYMENT_STATUS_LABEL[b.paymentStatus]   ?? b.paymentStatus,
+      ]);
+      row.getCell(7).numFmt  = '#,##0';
+      row.getCell(8).numFmt  = '#,##0';
+      row.getCell(9).numFmt  = '#,##0';
+      row.getCell(10).numFmt = '#,##0';
+      if (idx % 2 === 0) {
+        row.eachCell((cell) => {
+          cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF0F4FF" } };
+        });
+      }
+    });
+
+    // Summary row
+    ws.addRow([]);
+    const sumRow = ws.addRow([
+      "TOTAL", "", "", "", "", "",
+      filtered.reduce((s, b) => s + Number(b.rentAmount ?? 0), 0),
+      filtered.reduce((s, b) => s + Number(b.totalAmount), 0),
+      filtered.reduce((s, b) => s + Number(b.paidAmount), 0),
+      filtered.reduce((s, b) => s + Math.max(0, Number(b.totalAmount) - Number(b.paidAmount)), 0),
+    ]);
+    sumRow.eachCell((cell) => {
+      cell.font = { bold: true };
+      cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFDBEAFE" } };
+    });
+    sumRow.getCell(7).numFmt  = '#,##0';
+    sumRow.getCell(8).numFmt  = '#,##0';
+    sumRow.getCell(9).numFmt  = '#,##0';
+    sumRow.getCell(10).numFmt = '#,##0';
+
+    const buf = await wb.xlsx.writeBuffer();
+    const blob = new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `kontrak-sewa-${siteName.replace(/\s+/g, "-").toLowerCase()}-${new Date().toISOString().slice(0,10)}.xlsx`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }, [filtered, activeSite]);
+
+  const exportToPDF = useCallback(async () => {
+    const { default: jsPDF } = await import("jspdf");
+    const { default: autoTable } = await import("jspdf-autotable");
+    const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
+
+    const siteName = activeSite?.name ?? "Semua Site";
+    const now = new Date().toLocaleDateString("id-ID", { day: "2-digit", month: "long", year: "numeric" });
+
+    doc.setFontSize(14);
+    doc.setFont("helvetica", "bold");
+    doc.text(`Daftar Kontrak Sewa Tenant — ${siteName}`, 14, 16);
+    doc.setFontSize(9);
+    doc.setFont("helvetica", "normal");
+    doc.text(`Dicetak: ${now}  |  Total: ${filtered.length} kontrak`, 14, 22);
+
+    const fmt = (n: number) => n.toLocaleString("id-ID");
+
+    autoTable(doc, {
+      startY: 27,
+      head: [[
+        "No. Kontrak", "Tenant", "Unit", "Lantai",
+        "Tgl Mulai", "Tgl Selesai",
+        "Harga Sewa", "Total Tagihan", "Terbayar", "Sisa",
+        "Kontrak", "Pembayaran",
+      ]],
+      body: filtered.map((b) => [
+        b.contractNumber || b.orderNumber,
+        b.tenantName ?? "",
+        b.unitCode ?? "",
+        b.floor ?? "",
+        b.startDate ? new Date(b.startDate).toLocaleDateString("id-ID") : "",
+        b.endDate   ? new Date(b.endDate).toLocaleDateString("id-ID")   : "",
+        fmt(Number(b.rentAmount ?? 0)),
+        fmt(Number(b.totalAmount)),
+        fmt(Number(b.paidAmount)),
+        fmt(Math.max(0, Number(b.totalAmount) - Number(b.paidAmount))),
+        CONTRACT_STATUS_LABEL[b.contractStatus] ?? b.contractStatus,
+        PAYMENT_STATUS_LABEL[b.paymentStatus]   ?? b.paymentStatus,
+      ]),
+      foot: [[
+        "TOTAL", "", "", "", "", "",
+        fmt(filtered.reduce((s, b) => s + Number(b.rentAmount ?? 0), 0)),
+        fmt(filtered.reduce((s, b) => s + Number(b.totalAmount), 0)),
+        fmt(filtered.reduce((s, b) => s + Number(b.paidAmount), 0)),
+        fmt(filtered.reduce((s, b) => s + Math.max(0, Number(b.totalAmount) - Number(b.paidAmount)), 0)),
+        "", "",
+      ]],
+      headStyles: { fillColor: [37, 99, 235], textColor: 255, fontStyle: "bold", fontSize: 7.5 },
+      footStyles: { fillColor: [219, 234, 254], textColor: 30, fontStyle: "bold" },
+      alternateRowStyles: { fillColor: [240, 244, 255] },
+      styles: { fontSize: 7, cellPadding: 2 },
+      columnStyles: {
+        6: { halign: "right" }, 7: { halign: "right" },
+        8: { halign: "right" }, 9: { halign: "right" },
+      },
+    });
+
+    doc.save(`kontrak-sewa-${siteName.replace(/\s+/g, "-").toLowerCase()}-${new Date().toISOString().slice(0,10)}.pdf`);
+  }, [filtered, activeSite]);
+
   return (
     <div className="flex flex-col gap-6">
       <div className="flex items-start justify-between">
@@ -646,6 +815,30 @@ export default function BookingTenant() {
                 value={filterFloor}
                 onChange={(e) => setFilterFloor(e.target.value)}
               />
+              <div className="ml-auto flex gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-9 gap-1.5 text-green-700 border-green-300 hover:bg-green-50"
+                  onClick={() => void exportToExcel()}
+                  disabled={filtered.length === 0}
+                  title="Export ke Excel"
+                >
+                  <FileSpreadsheet className="h-4 w-4" />
+                  Excel
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-9 gap-1.5 text-red-700 border-red-300 hover:bg-red-50"
+                  onClick={() => void exportToPDF()}
+                  disabled={filtered.length === 0}
+                  title="Export ke PDF"
+                >
+                  <Download className="h-4 w-4" />
+                  PDF
+                </Button>
+              </div>
             </div>
           </div>
         </CardHeader>
