@@ -19,9 +19,11 @@ import {
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, Pencil, AlertTriangle, Clock, Search, Upload, FileText, ExternalLink, X, Building2, Dumbbell, Trash2 } from "lucide-react";
+import { Plus, Pencil, AlertTriangle, Clock, Search, Upload, FileText, ExternalLink, X, Building2, Dumbbell, Trash2, ChevronsUpDown, Check } from "lucide-react";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
@@ -292,6 +294,7 @@ export default function BookingTenant() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<BookingWithTenant | null>(null);
   const [form, setForm] = useState<BookingForm>(EMPTY_FORM);
+  const [tenantComboOpen, setTenantComboOpen] = useState(false);
   const [filterContract, setFilterContract] = useState("all");
   const [filterPayment, setFilterPayment] = useState("all");
   const [filterFloor, setFilterFloor] = useState("");
@@ -788,42 +791,90 @@ export default function BookingTenant() {
               <SectionLabel>Informasi Kontrak</SectionLabel>
               <div className="grid grid-cols-2 gap-4">
                 <Field label="Tenant" required>
-                  <Select
-                    value={form.tenantId}
-                    onValueChange={(v) => {
-                      const tenant = (tenants ?? []).find(t => String(t.id) === v);
-                      setForm(f => ({
-                        ...f,
-                        tenantId: v,
-                        // Auto-isi lokasi & harga dari data tenant (hanya saat tambah baru)
-                        ...(tenant && !editTarget ? {
-                          unitCode: tenant.boothNumber ? tenant.boothNumber : f.unitCode,
-                          rentAmount: Number(tenant.defaultRentAmount ?? 0) > 0
-                            ? String(tenant.defaultRentAmount)
-                            : f.rentAmount,
-                          serviceChargeAmount: Number(tenant.defaultServiceChargeAmount ?? 0) > 0
-                            ? String(tenant.defaultServiceChargeAmount)
-                            : f.serviceChargeAmount,
-                          electricityChargeAmount: Number(tenant.defaultElectricityChargeAmount ?? 0) > 0
-                            ? String(tenant.defaultElectricityChargeAmount)
-                            : f.electricityChargeAmount,
-                          waterChargeAmount: Number(tenant.defaultWaterChargeAmount ?? 0) > 0
-                            ? String(tenant.defaultWaterChargeAmount)
-                            : f.waterChargeAmount,
-                        } : {}),
-                      }));
-                    }}
-                    disabled={!!editTarget}
-                  >
-                    <SelectTrigger><SelectValue placeholder="Pilih tenant..." /></SelectTrigger>
-                    <SelectContent>
-                      {(tenants ?? []).map((t) => (
-                        <SelectItem key={t.id} value={String(t.id)}>
-                          {t.businessName}{t.boothNumber ? ` · ${t.boothNumber}` : ""}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  {editTarget ? (
+                    // Mode Edit: tampilkan nama tenant saja (tidak bisa diubah)
+                    <div className="flex h-9 w-full items-center rounded-md border border-input bg-muted px-3 py-1 text-sm text-muted-foreground">
+                      {(tenants ?? []).find(t => String(t.id) === form.tenantId)?.businessName ?? "—"}
+                    </div>
+                  ) : (
+                    // Mode Tambah: combobox dengan pencarian
+                    <Popover open={tenantComboOpen} onOpenChange={setTenantComboOpen}>
+                      <PopoverTrigger asChild>
+                        <Button
+                          variant="outline"
+                          role="combobox"
+                          aria-expanded={tenantComboOpen}
+                          className="w-full justify-between font-normal truncate"
+                        >
+                          <span className="truncate">
+                            {form.tenantId
+                              ? (() => {
+                                  const t = (tenants ?? []).find(t => String(t.id) === form.tenantId);
+                                  return t ? `${t.businessName}${t.boothNumber ? ` · ${t.boothNumber}` : ""}` : "Pilih tenant...";
+                                })()
+                              : "Pilih tenant..."}
+                          </span>
+                          <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-[340px] p-0" align="start">
+                        <Command filter={(value, search) => {
+                          const tenant = (tenants ?? []).find(t => String(t.id) === value);
+                          if (!tenant) return 0;
+                          const hay = `${tenant.businessName} ${tenant.boothNumber ?? ""} ${tenant.areaName ?? ""}`.toLowerCase();
+                          return hay.includes(search.toLowerCase()) ? 1 : 0;
+                        }}>
+                          <CommandInput placeholder="Cari nama tenant, kode unit..." />
+                          <CommandList>
+                            <CommandEmpty>Tenant tidak ditemukan.</CommandEmpty>
+                            <CommandGroup>
+                              {(tenants ?? []).map((t) => (
+                                <CommandItem
+                                  key={t.id}
+                                  value={String(t.id)}
+                                  onSelect={(v) => {
+                                    const tenant = (tenants ?? []).find(x => String(x.id) === v);
+                                    setForm(f => ({
+                                      ...f,
+                                      tenantId: v,
+                                      ...(tenant ? {
+                                        unitCode: tenant.boothNumber ? tenant.boothNumber : f.unitCode,
+                                        rentAmount: Number(tenant.defaultRentAmount ?? 0) > 0
+                                          ? String(tenant.defaultRentAmount)
+                                          : f.rentAmount,
+                                        serviceChargeAmount: Number(tenant.defaultServiceChargeAmount ?? 0) > 0
+                                          ? String(tenant.defaultServiceChargeAmount)
+                                          : f.serviceChargeAmount,
+                                        electricityChargeAmount: Number(tenant.defaultElectricityChargeAmount ?? 0) > 0
+                                          ? String(tenant.defaultElectricityChargeAmount)
+                                          : f.electricityChargeAmount,
+                                        waterChargeAmount: Number(tenant.defaultWaterChargeAmount ?? 0) > 0
+                                          ? String(tenant.defaultWaterChargeAmount)
+                                          : f.waterChargeAmount,
+                                      } : {}),
+                                    }));
+                                    setTenantComboOpen(false);
+                                  }}
+                                >
+                                  <Check
+                                    className={`mr-2 h-4 w-4 shrink-0 ${form.tenantId === String(t.id) ? "opacity-100" : "opacity-0"}`}
+                                  />
+                                  <div className="flex flex-col min-w-0">
+                                    <span className="truncate font-medium">{t.businessName}</span>
+                                    {(t.boothNumber || t.areaName) && (
+                                      <span className="truncate text-xs text-muted-foreground">
+                                        {[t.boothNumber, t.areaName].filter(Boolean).join(" · ")}
+                                      </span>
+                                    )}
+                                  </div>
+                                </CommandItem>
+                              ))}
+                            </CommandGroup>
+                          </CommandList>
+                        </Command>
+                      </PopoverContent>
+                    </Popover>
+                  )}
                 </Field>
                 <Field label="Nomor Kontrak">
                   <Input
