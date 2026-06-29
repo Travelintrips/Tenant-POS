@@ -3525,3 +3525,10 @@ BEGIN
 END $$;
   `.trim(),
 });
+
+MIGRATIONS.push({
+  name: "0083_booking_trash_charge_amount",
+  sql: `
+ALTER TABLE tenant_bookings ADD COLUMN IF NOT EXISTS trash_charge_amount NUMERIC;
+  `.trim(),
+});

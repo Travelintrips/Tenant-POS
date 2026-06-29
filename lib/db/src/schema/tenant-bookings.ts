@@ -36,6 +36,7 @@ export const tenantBookingsTable = pgTable("tenant_bookings", {
   serviceChargeAmount: numeric("service_charge_amount"),
   electricityChargeAmount: numeric("electricity_charge_amount"),
   waterChargeAmount: numeric("water_charge_amount"),
+  trashChargeAmount: numeric("trash_charge_amount"),
   price: numeric("price").notNull().default("0"),
   paymentStatus: text("payment_status").notNull().default("unpaid"),
   contractStatus: text("contract_status").notNull().default("draft"),

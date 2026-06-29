@@ -109,6 +109,7 @@ type BookingForm = {
   serviceChargeAmount: string;
   electricityChargeAmount: string;
   waterChargeAmount: string;
+  trashChargeAmount: string;
   totalAmount: string;
   paidAmount: string;
   contractStatus: ContractStatus;
@@ -132,6 +133,7 @@ const EMPTY_FORM: BookingForm = {
   serviceChargeAmount: "",
   electricityChargeAmount: "",
   waterChargeAmount: "",
+  trashChargeAmount: "",
   totalAmount: "",
   paidAmount: "0",
   contractStatus: "draft",
@@ -381,6 +383,7 @@ export default function BookingTenant() {
       serviceChargeAmount: b.serviceChargeAmount ?? "",
       electricityChargeAmount: b.electricityChargeAmount ?? "",
       waterChargeAmount: b.waterChargeAmount ?? "",
+      trashChargeAmount: (b as BookingWithTenant & { trashChargeAmount?: string | null }).trashChargeAmount ?? "",
       totalAmount: b.totalAmount,
       paidAmount: b.paidAmount,
       contractStatus: b.contractStatus,
@@ -445,6 +448,7 @@ export default function BookingTenant() {
     const totalComputed = [
       form.rentAmount, form.serviceChargeAmount,
       form.electricityChargeAmount, form.waterChargeAmount,
+      form.trashChargeAmount,
     ].reduce((sum, v) => sum + Number(v || 0), 0);
 
     const totalAmount = form.totalAmount ? Number(form.totalAmount) : totalComputed;
@@ -463,6 +467,7 @@ export default function BookingTenant() {
       serviceChargeAmount: form.serviceChargeAmount ? String(form.serviceChargeAmount) : null,
       electricityChargeAmount: form.electricityChargeAmount ? String(form.electricityChargeAmount) : null,
       waterChargeAmount: form.waterChargeAmount ? String(form.waterChargeAmount) : null,
+      trashChargeAmount: form.trashChargeAmount ? String(form.trashChargeAmount) : null,
       totalAmount: String(totalAmount),
       paidAmount: String(paidAmount),
       remainingAmount: String(Math.max(0, totalAmount - paidAmount)),
@@ -852,6 +857,9 @@ export default function BookingTenant() {
                                         waterChargeAmount: Number(tenant.defaultWaterChargeAmount ?? 0) > 0
                                           ? String(tenant.defaultWaterChargeAmount)
                                           : f.waterChargeAmount,
+                                        trashChargeAmount: Number(tenant.defaultTrashChargeAmount ?? 0) > 0
+                                          ? String(tenant.defaultTrashChargeAmount)
+                                          : f.trashChargeAmount,
                                       } : {}),
                                     }));
                                     setTenantComboOpen(false);
@@ -894,20 +902,13 @@ export default function BookingTenant() {
                 </Field>
               </div>
 
-              <div className="grid grid-cols-3 gap-4">
+              <div className="grid grid-cols-2 gap-4">
                 <Field label="Kode Unit" required>
                   <Input
                     value={form.unitCode}
                     onChange={(e) => setForm(f => ({ ...f, unitCode: e.target.value }))}
                     placeholder="cth. A-01"
                     required
-                  />
-                </Field>
-                <Field label="Lantai">
-                  <Input
-                    value={form.floor}
-                    onChange={(e) => setForm(f => ({ ...f, floor: e.target.value }))}
-                    placeholder="cth. Lantai 1"
                   />
                 </Field>
                 <Field label="Siklus Tagihan">
@@ -990,6 +991,13 @@ export default function BookingTenant() {
                     type="number" min={0} value={form.waterChargeAmount}
                     onChange={(e) => setForm(f => ({ ...f, waterChargeAmount: e.target.value }))}
                     placeholder="cth. 150000"
+                  />
+                </Field>
+                <Field label="Iuran Sampah / Kebersihan">
+                  <Input
+                    type="number" min={0} value={form.trashChargeAmount}
+                    onChange={(e) => setForm(f => ({ ...f, trashChargeAmount: e.target.value }))}
+                    placeholder="cth. 50000"
                   />
                 </Field>
                 <Field label="Override Total Tagihan">

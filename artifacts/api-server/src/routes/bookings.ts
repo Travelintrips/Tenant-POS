@@ -64,6 +64,7 @@ const bookingSelect = {
   serviceChargeAmount: tenantBookingsTable.serviceChargeAmount,
   electricityChargeAmount: tenantBookingsTable.electricityChargeAmount,
   waterChargeAmount: tenantBookingsTable.waterChargeAmount,
+  trashChargeAmount: tenantBookingsTable.trashChargeAmount,
   price: tenantBookingsTable.price,
   totalPrice: tenantBookingsTable.totalPrice,
   monthlyPrice: tenantBookingsTable.monthlyPrice,
@@ -292,6 +293,7 @@ router.post("/bookings", async (req, res) => {
         serviceChargeAmount: data.serviceChargeAmount !== undefined ? Number(data.serviceChargeAmount) : undefined,
         electricityChargeAmount: data.electricityChargeAmount !== undefined ? Number(data.electricityChargeAmount) : undefined,
         waterChargeAmount: data.waterChargeAmount !== undefined ? Number(data.waterChargeAmount) : undefined,
+        trashChargeAmount: data.trashChargeAmount !== undefined ? Number(data.trashChargeAmount) : undefined,
       }).then((invoiceIds) => {
         if (invoiceIds.length > 0) {
           req.log.info({ bookingId: booking.id, invoiceIds }, "[bookings] Auto-invoice dibuat, mengirim notifikasi WA tagihan...");
