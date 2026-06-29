@@ -6,6 +6,8 @@ import {
   tenantInvoicesTable,
   waLogsTable,
   insertTenantBookingSchema,
+  mallSitesTable,
+  companiesTable,
 } from "@workspace/db/schema";
 import { eq, and, ne, lt, lte, gte, or, sql } from "drizzle-orm";
 import { requireAnyRole } from "../middlewares/auth";
@@ -162,10 +164,36 @@ async function checkUnitOverlap(
 }
 
 // ─── GET /bookings/next-contract-number ──────────────────────────────────────
-// Generate nomor kontrak berikutnya secara sekuensial, format KTR/YYYY/NNN
+// Generate nomor kontrak berikutnya secara sekuensial.
+// Format: <KODE_PERUSAHAAN>/<TAHUN>/<NNN>  e.g. ERA/2026/001 atau SCT/2026/002
+// Kode perusahaan diambil dari companies.company_code (via mall_sites.company_id).
+// Fallback: companies.code → "KTR"
 router.get("/bookings/next-contract-number", async (req, res) => {
   const year = new Date().getFullYear();
-  const prefix = `KTR/${year}/`;
+
+  // Cari kode perusahaan berdasarkan site aktif
+  let companyCode = "KTR";
+  try {
+    if (req.siteId > 0) {
+      const siteRows = await db
+        .select({
+          companyCode: companiesTable.companyCode,
+          code: companiesTable.code,
+        })
+        .from(mallSitesTable)
+        .leftJoin(companiesTable, eq(companiesTable.id, mallSitesTable.companyId))
+        .where(eq(mallSitesTable.id, req.siteId))
+        .limit(1);
+      const co = siteRows[0];
+      if (co) {
+        companyCode = (co.companyCode ?? co.code ?? "KTR").toUpperCase();
+      }
+    }
+  } catch {
+    // fallback ke KTR jika query gagal
+  }
+
+  const prefix = `${companyCode}/${year}/`;
   try {
     const result = await db.execute(sql`
       SELECT contract_number
