@@ -3532,3 +3532,29 @@ MIGRATIONS.push({
 ALTER TABLE tenant_bookings ADD COLUMN IF NOT EXISTS trash_charge_amount NUMERIC;
   `.trim(),
 });
+
+MIGRATIONS.push({
+  name: "0084_indexes_bank_recon_perf",
+  sql: `
+CREATE INDEX IF NOT EXISTS idx_fpe_source_id
+  ON finance_payment_events (source_id);
+
+CREATE INDEX IF NOT EXISTS idx_fpe_site_payment_status
+  ON finance_payment_events (site_id, payment_status);
+
+CREATE INDEX IF NOT EXISTS idx_fpe_payment_method_created
+  ON finance_payment_events (payment_method, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_bank_mutations_site_date
+  ON bank_mutations (site_id, transaction_date DESC);
+
+CREATE INDEX IF NOT EXISTS idx_bank_mutations_status
+  ON bank_mutations (site_id, status);
+
+CREATE INDEX IF NOT EXISTS idx_tenant_payments_invoice_id
+  ON tenant_payments (invoice_id);
+
+CREATE INDEX IF NOT EXISTS idx_tenant_invoices_tenant_site
+  ON tenant_invoices (tenant_id, site_id, status);
+  `.trim(),
+});

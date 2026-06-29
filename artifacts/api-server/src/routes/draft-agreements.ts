@@ -33,12 +33,13 @@ const LIST_COLS = sql`
   tenant_id, booking_id
 `;
 
-const ALLOWED_SORT: Record<string, string> = {
-  created_at: "created_at",
-  tenant_name: "tenant_name",
-  brand_name: "brand_name",
-  status: "status",
-  rent_amount: "rent_amount",
+// Explicit SQL expressions per kolom — menghindari sql.raw dengan dynamic string
+const SORT_EXPRS: Record<string, SQL> = {
+  created_at:  sql`created_at`,
+  tenant_name: sql`tenant_name`,
+  brand_name:  sql`brand_name`,
+  status:      sql`status`,
+  rent_amount: sql`rent_amount`,
 };
 
 // ── Schema validasi ────────────────────────────────────────────────────────────
@@ -128,7 +129,6 @@ router.get("/draft-agreements", async (req: Request, res: Response) => {
     const dateTo    = req.query["dateTo"]   as string | undefined;
     const sortByRaw = String(req.query["sortBy"]  ?? "created_at");
     const sortDir   = String(req.query["sortDir"] ?? "desc").toLowerCase() === "asc" ? "ASC" : "DESC";
-    const sortCol   = ALLOWED_SORT[sortByRaw] ?? "created_at";
 
     // — build WHERE conditions —
     const conditions: SQL[] = [];
@@ -173,10 +173,11 @@ router.get("/draft-agreements", async (req: Request, res: Response) => {
       ? sql`WHERE ${sql.join(conditions, sql` AND `)}`
       : sql`WHERE TRUE`;
 
-    // Sort direction in raw SQL (whitelisted)
+    // Sort — gunakan SORT_EXPRS untuk menghindari sql.raw dinamis
+    const colExpr = SORT_EXPRS[sortByRaw] ?? SORT_EXPRS["created_at"]!;
     const orderClause = sortDir === "ASC"
-      ? sql`ORDER BY ${sql.raw(sortCol)} ASC NULLS LAST`
-      : sql`ORDER BY ${sql.raw(sortCol)} DESC NULLS LAST`;
+      ? sql`ORDER BY ${colExpr} ASC NULLS LAST`
+      : sql`ORDER BY ${colExpr} DESC NULLS LAST`;
 
     // — COUNT query —
     const countResult = await db.execute(sql`

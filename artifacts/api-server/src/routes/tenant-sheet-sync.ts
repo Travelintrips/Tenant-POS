@@ -5,6 +5,7 @@ import { eq, and, inArray } from "drizzle-orm";
 import { requireAnyRole } from "../middlewares/auth";
 import { readFromSheet, writeToSheet, extractSheetId, getServiceAccountEmail } from "../services/google-sheets";
 import { logger } from "../lib/logger";
+import { z } from "zod";
 
 const router: IRouter = Router();
 
@@ -32,6 +33,30 @@ const HEADERS = [
   "Catatan",
 ];
 
+const parsedTenantRowSchema = z.object({
+  businessName: z.string().min(1, "businessName kosong"),
+  ownerName:    z.string().min(1, "ownerName kosong"),
+  phone:        z.string().nullable(),
+  email:        z.string().nullable().refine(
+    (v) => !v || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v),
+    "format email tidak valid"
+  ),
+  category:     z.string().nullable(),
+  boothNumber:  z.string().nullable(),
+  areaName:     z.string(),
+  status:       z.string().default("active"),
+  defaultRentAmount:              z.string().regex(/^\d+(\.\d+)?$/, "bukan angka"),
+  defaultServiceChargeAmount:     z.string().regex(/^\d+(\.\d+)?$/, "bukan angka"),
+  defaultElectricityChargeAmount: z.string().regex(/^\d+(\.\d+)?$/, "bukan angka"),
+  defaultWaterChargeAmount:       z.string().regex(/^\d+(\.\d+)?$/, "bukan angka"),
+  defaultOtherChargeAmount:       z.string().regex(/^\d+(\.\d+)?$/, "bukan angka"),
+  defaultTrashChargeAmount:       z.string().regex(/^\d+(\.\d+)?$/, "bukan angka"),
+  contractStartDate: z.string().nullable(),
+  contractEndDate:   z.string().nullable(),
+  notes:             z.string().nullable(),
+});
+
+// ParsedTenantRow tetap tipe manual agar parseRows kompatibel
 type ParsedTenantRow = {
   businessName: string;
   ownerName: string;
@@ -238,9 +263,21 @@ router.post("/tenant-sheet-sync/import", requireAnyRole("owner", "admin"), async
       return;
     }
 
-    const parsed = parseRows(rows);
+    const rawParsed = parseRows(rows);
+    const parsed: ParsedTenantRow[] = [];
+    let validationErrors = 0;
+    for (const row of rawParsed) {
+      const result = parsedTenantRowSchema.safeParse(row);
+      if (result.success) {
+        parsed.push(result.data);
+      } else {
+        validationErrors++;
+        logger.warn({ row: row.businessName, errors: result.error.errors }, "[tenant-sheet-sync] Baris dilewati karena validasi gagal");
+      }
+    }
+
     if (parsed.length === 0) {
-      res.json({ inserted: 0, updated: 0, skipped: 0, totalRows: 0 });
+      res.json({ inserted: 0, updated: 0, skipped: 0, totalRows: 0, validationErrors });
       return;
     }
 
@@ -292,8 +329,8 @@ router.post("/tenant-sheet-sync/import", requireAnyRole("owner", "admin"), async
       }
     }
 
-    logger.info({ inserted, updated, skipped, totalRows: parsed.length, siteId }, "[tenant-sheet-sync] Import selesai");
-    res.json({ inserted, updated, skipped, totalRows: parsed.length });
+    logger.info({ inserted, updated, skipped, validationErrors, totalRows: rawParsed.length, siteId }, "[tenant-sheet-sync] Import selesai");
+    res.json({ inserted, updated, skipped, totalRows: rawParsed.length, validationErrors });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     logger.warn({ err }, "[tenant-sheet-sync] Import gagal");

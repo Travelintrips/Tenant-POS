@@ -327,6 +327,7 @@ router.post("/bookings", async (req, res) => {
           req.log.info({ bookingId: booking.id, invoiceIds }, "[bookings] Auto-invoice dibuat, mengirim notifikasi WA tagihan...");
           return runInvoiceNotificationCheck();
         }
+        return;
       }).catch((err) => {
         req.log.warn({ err }, "[bookings] Auto-invoice (POST) gagal");
       });
@@ -567,6 +568,7 @@ router.put("/bookings/:id", async (req, res) => {
             req.log.info({ bookingId: withTenant.id, invoiceIds }, "[bookings] Auto-invoice dibuat (PUT aktifkan), mengirim WA tagihan...");
             return runInvoiceNotificationCheck();
           }
+          return;
         }).catch((err) => {
           req.log.warn({ err }, "[bookings] Auto-invoice (PUT) gagal");
         });

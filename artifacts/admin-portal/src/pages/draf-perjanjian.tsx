@@ -672,6 +672,8 @@ function DetailPanel({
   function copyLink() {
     navigator.clipboard.writeText(draft.publicUrl).then(() => {
       toast({ title: "Link disalin!", description: draft.publicUrl });
+    }).catch(() => {
+      toast({ title: "Gagal menyalin link", description: "Salin manual: " + draft.publicUrl, variant: "destructive" });
     });
   }
 
@@ -1405,7 +1407,9 @@ export default function DrafPerjanjian() {
       setForm(BLANK_FORM);
       setSelectedId(created.id);
       toast({ title: "Draf berhasil dibuat!", description: `Link telah dibuat untuk ${created.brandName}` });
-      navigator.clipboard.writeText(created.publicUrl).catch(() => {});
+      navigator.clipboard.writeText(created.publicUrl).catch(() => {
+        toast({ title: "Tidak bisa menyalin link otomatis", description: "Buka detail draf untuk menyalin link secara manual.", variant: "destructive" });
+      });
     },
     onError: (err: Error) => {
       toast({ title: "Gagal membuat draf", description: err.message, variant: "destructive" });
@@ -1721,8 +1725,11 @@ export default function DrafPerjanjian() {
                       size="sm"
                       className="shrink-0 h-7 px-2 border-blue-300 text-blue-700 hover:bg-blue-100"
                       onClick={() => {
-                        navigator.clipboard.writeText(registerUrl);
-                        toast({ title: "Link disalin!", description: "Bagikan link ini kepada calon tenant untuk mendaftar sendiri." });
+                        navigator.clipboard.writeText(registerUrl).then(() => {
+                          toast({ title: "Link disalin!", description: "Bagikan link ini kepada calon tenant untuk mendaftar sendiri." });
+                        }).catch(() => {
+                          toast({ title: "Gagal menyalin link", description: registerUrl, variant: "destructive" });
+                        });
                       }}
                     >
                       <Copy className="h-3.5 w-3.5" />
@@ -2109,8 +2116,11 @@ export default function DrafPerjanjian() {
                             <Eye className="h-3.5 w-3.5" />Detail
                           </DropdownMenuItem>
                           <DropdownMenuItem className="gap-2" onClick={() => {
-                            navigator.clipboard.writeText(d.publicUrl);
-                            toast({ title: "Link disalin!" });
+                            navigator.clipboard.writeText(d.publicUrl).then(() => {
+                              toast({ title: "Link disalin!" });
+                            }).catch(() => {
+                              toast({ title: "Gagal menyalin link", description: d.publicUrl, variant: "destructive" });
+                            });
                           }}>
                             <Copy className="h-3.5 w-3.5" />Salin Link
                           </DropdownMenuItem>
