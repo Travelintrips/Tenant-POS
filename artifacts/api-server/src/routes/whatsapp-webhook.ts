@@ -19,8 +19,9 @@ import {
   tenantPaymentsTable,
   tenantInvoicesTable,
   tenantsTable,
+  usersTable,
 } from "@workspace/db/schema";
-import { eq } from "drizzle-orm";
+import { eq, and, inArray } from "drizzle-orm";
 import { logger } from "../lib/logger";
 import { sseBroker } from "../lib/sse-broker";
 import {
@@ -55,6 +56,30 @@ router.post("/whatsapp/webhook", async (req, res) => {
   const senderPhone: string = String(req.body?.sender ?? "").trim();
 
   if (!rawMessage || !senderPhone) return;
+
+  // Jika FONNTE_WEBHOOK_SECRET tidak diset, verifikasi nomor pengirim
+  // harus terdaftar sebagai admin/owner/finance di DB agar tidak bisa
+  // dieksploitasi oleh siapa pun yang mengetahui paymentId.
+  if (!webhookSecret) {
+    const [authorizedUser] = await db
+      .select({ id: usersTable.id })
+      .from(usersTable)
+      .where(
+        and(
+          eq(usersTable.phoneNumber, senderPhone),
+          inArray(usersTable.role, ["owner", "admin", "finance"]),
+        ),
+      )
+      .limit(1);
+
+    if (!authorizedUser) {
+      logger.warn(
+        { ip: req.ip, senderPhone },
+        "[wa-webhook] FONNTE_WEBHOOK_SECRET tidak diset — pengirim tidak terdaftar sebagai admin, diabaikan",
+      );
+      return;
+    }
+  }
 
   // Parse perintah
   const approveMatch = rawMessage.match(/^SETUJU\s+(\d+)$/i);

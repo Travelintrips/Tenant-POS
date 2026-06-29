@@ -24,6 +24,7 @@ import {
 } from "recharts";
 import { useAuth } from "@/hooks/use-auth";
 import { useSite } from "@/contexts/site-context";
+import { useToast } from "@/hooks/use-toast";
 
 const BASE = "";
 
@@ -131,6 +132,7 @@ const MONTH_OPTIONS = buildMonthOptions();
 export default function Dashboard() {
   const { data: user } = useAuth();
   const { activeSite } = useSite();
+  const { toast } = useToast();
   const siteHeader: Record<string, string> = activeSite && activeSite.code !== "ALL"
     ? { "x-site-id": String(activeSite.id) }
     : {};
@@ -159,7 +161,11 @@ export default function Dashboard() {
       a.click();
       URL.revokeObjectURL(url);
     } catch {
-      alert("Gagal mengunduh laporan PDF. Coba lagi.");
+      toast({
+        title: "Gagal mengunduh laporan",
+        description: "Terjadi kesalahan saat mengunduh laporan PDF. Coba lagi.",
+        variant: "destructive",
+      });
     } finally {
       setIsDownloading(false);
     }

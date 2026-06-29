@@ -474,25 +474,35 @@ async function fetchInvoiceConfig(siteId?: number | null): Promise<MallInvoiceCo
   }
 }
 
+function escapeHtml(str: string | null | undefined): string {
+  if (!str) return "";
+  return str
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
 function buildInvoiceHtml(inv: Invoice, cfg: MallInvoiceConfig): string {
   const accent = cfg.invoiceColor || "#1e3a5f";
   const accentLight = accent + "14";
   // Gunakan companyName (per-site) jika tersedia, fallback ke mallName (global)
-  const displayName = (cfg.companyName && cfg.companyName.trim()) ? cfg.companyName.trim() : cfg.mallName;
+  const displayName = escapeHtml((cfg.companyName && cfg.companyName.trim()) ? cfg.companyName.trim() : cfg.mallName);
 
   const brandBlock = cfg.logoUrl
     ? `<div style="display:flex;align-items:center;gap:14px">
-         <img src="${cfg.logoUrl}" alt="Logo" style="height:56px;width:56px;object-fit:contain;flex-shrink:0" crossorigin="anonymous" />
+         <img src="${escapeHtml(cfg.logoUrl)}" alt="Logo" style="height:56px;width:56px;object-fit:contain;flex-shrink:0" crossorigin="anonymous" />
          <div>
            <div style="font-size:20px;font-weight:700;color:${accent};line-height:1.2">${displayName}</div>
-           <div style="font-size:11px;color:#777;margin-top:3px;letter-spacing:0.02em">${cfg.tagline}</div>
+           <div style="font-size:11px;color:#777;margin-top:3px;letter-spacing:0.02em">${escapeHtml(cfg.tagline)}</div>
          </div>
        </div>`
     : `<div style="font-size:22px;font-weight:700;color:${accent}">${displayName}</div>
-       <div style="font-size:12px;color:#666;margin-top:2px">${cfg.tagline}</div>`;
+       <div style="font-size:12px;color:#666;margin-top:2px">${escapeHtml(cfg.tagline)}</div>`;
 
-  const addressLine = cfg.address ? `<div style="margin-bottom:2px">${cfg.address}</div>` : "";
-  const contactLine = [cfg.phone, cfg.email].filter(Boolean).join("  ·  ");
+  const addressLine = cfg.address ? `<div style="margin-bottom:2px">${escapeHtml(cfg.address)}</div>` : "";
+  const contactLine = [cfg.phone, cfg.email].filter(Boolean).map(escapeHtml).join("  ·  ");
   const contactHtml = (cfg.address || contactLine)
     ? `<div style="font-size:10px;color:#888;margin-top:8px;line-height:1.7">${addressLine}${contactLine ? `<div>${contactLine}</div>` : ""}</div>`
     : "";
@@ -518,7 +528,7 @@ function buildInvoiceHtml(inv: Invoice, cfg: MallInvoiceConfig): string {
      </div>`;
 
   const footerNote = cfg.invoiceFooterNote
-    ? `<div style="margin-bottom:6px;font-weight:500;color:#555">${cfg.invoiceFooterNote}</div>`
+    ? `<div style="margin-bottom:6px;font-weight:500;color:#555">${escapeHtml(cfg.invoiceFooterNote)}</div>`
     : "";
 
   return `<!DOCTYPE html>
@@ -563,24 +573,24 @@ function buildInvoiceHtml(inv: Invoice, cfg: MallInvoiceConfig): string {
   <div class="header">
     <div>${brandBlock}${contactHtml}</div>
     <div class="inv-meta">
-      <div class="inv-number">${inv.invoiceNumber}</div>
+      <div class="inv-number">${escapeHtml(inv.invoiceNumber)}</div>
       <div style="font-size:12px;color:#666;margin-top:4px">Tanggal: ${formatDate(inv.createdAt)}</div>
-      <div class="status-badge">${STATUS_LABEL[inv.status]}</div>
+      <div class="status-badge">${STATUS_LABEL[inv.status] ?? escapeHtml(inv.status)}</div>
     </div>
   </div>
   <hr class="accent-divider" />
   <div class="grid-2">
     <div>
       <div class="label">Tagihan Kepada</div>
-      <div class="value">${inv.tenantName ?? "-"}</div>
-      <div style="font-size:12px;color:#666;margin-top:2px">${inv.ownerName ?? ""}</div>
-      ${inv.email ? `<div style="font-size:12px;color:#666">${inv.email}</div>` : ""}
-      ${inv.phone ? `<div style="font-size:12px;color:#666">${inv.phone}</div>` : ""}
+      <div class="value">${escapeHtml(inv.tenantName) || "-"}</div>
+      <div style="font-size:12px;color:#666;margin-top:2px">${escapeHtml(inv.ownerName)}</div>
+      ${inv.email ? `<div style="font-size:12px;color:#666">${escapeHtml(inv.email)}</div>` : ""}
+      ${inv.phone ? `<div style="font-size:12px;color:#666">${escapeHtml(inv.phone)}</div>` : ""}
     </div>
     <div>
       <div class="label">Detail Invoice</div>
       <table style="width:auto;margin:0">
-        <tr><td style="padding:2px 4px;color:#666;font-size:12px">Unit/Booth</td><td style="padding:2px 8px;font-size:12px;font-weight:500">${inv.unitCode ?? (inv.boothNumber ?? "-")}</td></tr>
+        <tr><td style="padding:2px 4px;color:#666;font-size:12px">Unit/Booth</td><td style="padding:2px 8px;font-size:12px;font-weight:500">${escapeHtml(inv.unitCode ?? inv.boothNumber) || "-"}</td></tr>
         <tr><td style="padding:2px 4px;color:#666;font-size:12px">Periode</td><td style="padding:2px 8px;font-size:12px;font-weight:500">${formatPeriod(inv.periodStart, inv.periodEnd)}</td></tr>
         <tr><td style="padding:2px 4px;color:#666;font-size:12px">Jatuh Tempo</td><td style="padding:2px 8px;font-size:12px;font-weight:500">${formatDate(inv.dueDate)}</td></tr>
       </table>
