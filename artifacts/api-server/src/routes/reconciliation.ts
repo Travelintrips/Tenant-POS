@@ -5,6 +5,7 @@ import { eq, and, gte, lte, sql, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { writeToSheet, readFromSheet, extractSheetId, getServiceAccountEmail } from "../services/google-sheets";
 import { sendReconciliationReminder } from "../lib/whatsapp";
+import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
 
@@ -20,7 +21,7 @@ const exportSchema = z.object({
 });
 
 router.post("/reconciliation/export", async (req, res) => {
-  console.warn("[LEGACY] POST /api/reconciliation/export diakses. Gunakan POST /api/bank-reconciliation/export-google-sheet untuk export dari engine baru.");
+  logger.warn("[LEGACY] POST /api/reconciliation/export diakses. Gunakan POST /api/bank-reconciliation/export-google-sheet untuk export dari engine baru.");
   const parsed = exportSchema.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: "Parameter tidak valid", detail: parsed.error.issues });
@@ -142,7 +143,7 @@ const importSchema = z.object({
 });
 
 router.post("/reconciliation/read", async (req, res) => {
-  console.warn("[LEGACY] POST /api/reconciliation/read diakses. Endpoint ini hanya membaca Google Sheets dan tidak terhubung ke engine bank baru.");
+  logger.warn("[LEGACY] POST /api/reconciliation/read diakses. Endpoint ini hanya membaca Google Sheets dan tidak terhubung ke engine bank baru.");
   const parsed = importSchema.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: "Parameter tidak valid" });
@@ -167,7 +168,7 @@ const notifySchema = z.object({
 });
 
 router.post("/reconciliation/notify", async (req, res) => {
-  console.warn("[LEGACY] POST /api/reconciliation/notify diakses. Gunakan POST /api/bank-reconciliation/send-reminder-wa untuk reminder dari engine baru.");
+  logger.warn("[LEGACY] POST /api/reconciliation/notify diakses. Gunakan POST /api/bank-reconciliation/send-reminder-wa untuk reminder dari engine baru.");
   const parsed = notifySchema.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: "Parameter tidak valid", detail: parsed.error.issues });

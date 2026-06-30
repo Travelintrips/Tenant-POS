@@ -37,6 +37,7 @@ import { postAccountingJournal } from "../lib/accounting-journal";
 import { recordPayment, LedgerError } from "../lib/payment-ledger";
 import { postTenantPaymentAccountingEntry } from "../lib/accounting-entry";
 import { appContextMiddleware, type AppContext } from "../middlewares/app-context";
+import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
@@ -317,7 +318,7 @@ router.post("/bank-reconciliation/preview-from-sheet", async (req, res) => {
     });
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);
-    console.error("[preview-from-sheet]", msg);
+    logger.error({ err: msg }, "[preview-from-sheet]");
     res.status(500).json({ error: "Gagal membaca spreadsheet. Pastikan sheet sudah di-share ke service account dan ID/URL benar.", detail: msg });
   }
 });
@@ -350,7 +351,7 @@ router.post("/bank-reconciliation/import-from-sheet", async (req, res) => {
     rows = await readFromSheet({ spreadsheetId, range });
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);
-    console.error("[import-from-sheet] readFromSheet error:", msg);
+    logger.error({ err: msg }, "[import-from-sheet] readFromSheet error:");
     res.status(500).json({ error: "Gagal membaca spreadsheet. Pastikan sheet sudah di-share ke service account dan ID/URL benar.", detail: msg });
     return;
   }
@@ -1167,7 +1168,7 @@ router.post("/bank-reconciliation/:mutationId/approve", async (req, res) => {
     if (e.status) {
       res.status(e.status).json({ error: e.message });
     } else {
-      console.error("[bank-recon approve]", err);
+      logger.error({ err: err }, "[bank-recon approve]");
       res.status(500).json({ error: "Gagal memproses rekonsiliasi" });
     }
   }
@@ -2077,7 +2078,7 @@ router.get("/bank-reconciliation/account-balances", async (req, res) => {
 
     res.json(rows);
   } catch (err) {
-    console.error("account-balances error:", err);
+    logger.error({ err: err }, "account-balances error:");
     res.status(500).json({ error: "Gagal memuat saldo rekening" });
   }
 });
@@ -2198,7 +2199,7 @@ router.get("/bank-reconciliation/journal-entries", async (req, res) => {
 
     res.json({ data: rows, total, page, limit });
   } catch (err) {
-    console.error("journal-entries error:", err);
+    logger.error({ err: err }, "journal-entries error:");
     res.status(500).json({ error: "Gagal memuat jurnal" });
   }
 });

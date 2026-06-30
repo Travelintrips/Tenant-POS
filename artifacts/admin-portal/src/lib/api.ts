@@ -32,7 +32,17 @@ export async function apiFetchJson<T>(url: string, options?: RequestInit): Promi
   const res = await apiFetch(url, options);
   if (!res.ok) {
     const text = await res.text().catch(() => "");
-    throw new Error(`HTTP ${res.status}: ${text}`);
+    // coba parse JSON error dulu untuk pesan yang lebih informatif
+    try {
+      const json = JSON.parse(text) as { error?: string; message?: string };
+      const msg = json.error ?? json.message ?? text;
+      throw new Error(msg || `HTTP ${res.status}`);
+    } catch (parseErr) {
+      if (parseErr instanceof SyntaxError) {
+        throw new Error(text || `HTTP ${res.status}`);
+      }
+      throw parseErr;
+    }
   }
   return res.json() as Promise<T>;
 }

@@ -16,6 +16,7 @@ import { writePaymentEvent, normalizePaymentMethod } from "../lib/payment-events
 import { approveExistingPayment, LedgerError } from "../lib/payment-ledger";
 import { postPosPaymentJournal } from "../lib/pos-journal";
 import { postTenantPaymentAccountingEntry } from "../lib/accounting-entry";
+import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
 
@@ -225,7 +226,7 @@ router.post("/pending-payments/:id/approve", async (req, res) => {
           sourceModule: "payment_proof_approval",
         });
       } catch (err) {
-        console.error("[approve_payment] post-commit side-effects gagal:", err);
+        logger.error({ err: err }, "[approve_payment] post-commit side-effects gagal:");
       }
     })();
 

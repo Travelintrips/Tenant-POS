@@ -165,22 +165,30 @@ router.get("/tenant-sheet-sync/config", requireAnyRole("owner", "admin"), async 
   }
 });
 
+const syncConfigSchema = z.object({
+  enabled:         z.boolean().default(false),
+  spreadsheetId:   z.string().min(1, "spreadsheetId wajib diisi"),
+  sheetName:       z.string().optional().default(""),
+  intervalMinutes: z.number().int().min(5).max(1440).default(30),
+});
+
 router.post("/tenant-sheet-sync/config", requireAnyRole("owner", "admin"), async (req, res) => {
   try {
+    const parsed = syncConfigSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: "Validasi gagal", details: parsed.error.errors });
+      return;
+    }
+
     const siteId = req.siteId;
     const configKey = siteId > 0 ? `${TENANT_SYNC_CONFIG_KEY}_site_${siteId}` : TENANT_SYNC_CONFIG_KEY;
-    const { enabled, spreadsheetId, sheetName, intervalMinutes } = req.body as {
-      enabled: boolean;
-      spreadsheetId: string;
-      sheetName?: string;
-      intervalMinutes?: number;
-    };
+    const { enabled, spreadsheetId, sheetName, intervalMinutes } = parsed.data;
 
     const newValue = {
-      enabled: !!enabled,
-      spreadsheetId: spreadsheetId?.trim() ?? "",
-      sheetName: sheetName?.trim() ?? "",
-      intervalMinutes: Number(intervalMinutes ?? 30),
+      enabled,
+      spreadsheetId: spreadsheetId.trim(),
+      sheetName: (sheetName ?? "").trim(),
+      intervalMinutes,
       updatedAt: new Date().toISOString(),
     };
 
