@@ -1191,6 +1191,17 @@ export default function DataTenant() {
                               src={tenant.logoUrl}
                               alt={tenant.businessName}
                               className="h-8 w-8 rounded-md object-cover border border-border"
+                              onError={(e) => {
+                                const el = e.currentTarget;
+                                el.style.display = "none";
+                                const parent = el.parentElement;
+                                if (parent && !parent.querySelector(".logo-fallback")) {
+                                  const fb = document.createElement("div");
+                                  fb.className = "logo-fallback h-8 w-8 rounded-md bg-primary/10 flex items-center justify-center text-primary font-bold text-xs";
+                                  fb.textContent = (tenant.businessName ?? "?").slice(0, 2).toUpperCase();
+                                  parent.appendChild(fb);
+                                }
+                              }}
                             />
                           ) : (
                             <div className="h-8 w-8 rounded-md bg-muted flex items-center justify-center">
