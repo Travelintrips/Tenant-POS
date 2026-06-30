@@ -23,7 +23,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, Pencil, AlertTriangle, Clock, Search, Upload, FileText, ExternalLink, X, Building2, Dumbbell, Trash2, ChevronsUpDown, Check, Download, FileSpreadsheet } from "lucide-react";
+import { Plus, Pencil, AlertTriangle, Clock, Search, Upload, FileText, ExternalLink, X, Building2, Dumbbell, Trash2, ChevronsUpDown, Check, Download, FileSpreadsheet, Ban } from "lucide-react";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
@@ -350,6 +350,8 @@ export default function BookingTenant() {
   });
 
   const [deleteTarget, setDeleteTarget] = useState<BookingWithTenant | null>(null);
+  const [terminateTarget, setTerminateTarget] = useState<BookingWithTenant | null>(null);
+  const [terminateReason, setTerminateReason] = useState("");
 
   const createMutation = useMutation({
     mutationFn: createBooking,
@@ -380,6 +382,32 @@ export default function BookingTenant() {
     onError: (e: Error) => {
       toast({ title: "Gagal Menghapus", description: e.message, variant: "destructive" });
       setDeleteTarget(null);
+    },
+  });
+
+  const terminateMutation = useMutation({
+    mutationFn: async ({ id, reason }: { id: number; reason: string }) => {
+      const res = await apiFetch(`${BASE}/api/bookings/${id}/terminate`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reason }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error((err as { error?: string }).error ?? "Gagal mengakhiri kontrak");
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["/api/bookings"] });
+      void queryClient.invalidateQueries({ queryKey: ["/api/tenant-pos"] });
+      toast({ title: "Berhasil", description: "Kontrak berhasil diakhiri." });
+      setTerminateTarget(null);
+      setTerminateReason("");
+    },
+    onError: (e: Error) => {
+      toast({ title: "Gagal Mengakhiri Kontrak", description: e.message, variant: "destructive" });
     },
   });
 
@@ -957,6 +985,17 @@ export default function BookingTenant() {
                               <Button variant="ghost" size="icon" className="h-8 w-8" title="Edit kontrak" onClick={() => openEdit(booking)}>
                                 <Pencil className="h-4 w-4" />
                               </Button>
+                              {(booking.contractStatus === "active" || booking.contractStatus === "expiring_soon") && (
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-8 w-8 text-orange-600 hover:text-orange-700 hover:bg-orange-50"
+                                  title="Akhiri kontrak"
+                                  onClick={() => { setTerminateTarget(booking); setTerminateReason(""); }}
+                                >
+                                  <Ban className="h-4 w-4" />
+                                </Button>
+                              )}
                               {booking.contractStatus !== "active" && booking.contractStatus !== "expiring_soon" && (
                                 <Button
                                   variant="ghost"
@@ -1008,6 +1047,65 @@ export default function BookingTenant() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Dialog: Akhiri Kontrak */}
+      <Dialog
+        open={!!terminateTarget}
+        onOpenChange={(o) => { if (!o) { setTerminateTarget(null); setTerminateReason(""); } }}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-orange-600">
+              <Ban className="h-5 w-5" />
+              Akhiri Kontrak
+            </DialogTitle>
+          </DialogHeader>
+          <div className="flex flex-col gap-4 py-1">
+            <p className="text-sm text-muted-foreground">
+              Anda akan mengakhiri kontrak{" "}
+              <strong className="text-foreground font-mono">
+                {terminateTarget?.contractNumber || terminateTarget?.orderNumber || `#${terminateTarget?.id}`}
+              </strong>{" "}
+              milik <strong className="text-foreground">{terminateTarget?.tenantName}</strong>.
+              Status kontrak akan berubah menjadi{" "}
+              <strong className="text-orange-600">Diakhiri</strong> dan tidak dapat dipulihkan.
+            </p>
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="terminate-reason">
+                Alasan Pengakhiran{" "}
+                <span className="text-muted-foreground font-normal">(opsional)</span>
+              </Label>
+              <Textarea
+                id="terminate-reason"
+                placeholder="Contoh: Kontrak tidak diperpanjang, pelanggaran perjanjian, dll."
+                rows={3}
+                value={terminateReason}
+                onChange={(e) => setTerminateReason(e.target.value)}
+                disabled={terminateMutation.isPending}
+              />
+            </div>
+          </div>
+          <DialogFooter className="gap-2 pt-2">
+            <Button
+              variant="outline"
+              disabled={terminateMutation.isPending}
+              onClick={() => { setTerminateTarget(null); setTerminateReason(""); }}
+            >
+              Batal
+            </Button>
+            <Button
+              disabled={terminateMutation.isPending}
+              className="bg-orange-600 hover:bg-orange-700 text-white"
+              onClick={() =>
+                terminateTarget &&
+                terminateMutation.mutate({ id: terminateTarget.id, reason: terminateReason })
+              }
+            >
+              {terminateMutation.isPending ? "Memproses..." : "Ya, Akhiri Kontrak"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Dialog Form Kontrak */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
