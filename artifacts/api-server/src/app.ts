@@ -165,14 +165,6 @@ app.get("/api/healthz", (_req, res) => {
   res.json({ ok: true });
 });
 
-// ─── Serve upload files (logo, dokumen, dll) ─────────────────────────────
-// Folder uploads/ berisi logo tenant, dokumen kontrak, dll yang diupload via API.
-// Di-serve di path /uploads/ agar bisa diakses dari frontend via Vite proxy.
-app.use("/uploads", express.static(path.join(process.cwd(), "uploads"), {
-  maxAge: "7d",
-  etag: true,
-}));
-
 app.use("/api", router);
 
 // ─── Serve admin portal static files ─────────────────────────────────────

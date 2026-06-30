@@ -2,22 +2,9 @@ import { Router, type Request, type Response, type IRouter } from "express";
 import multer from "multer";
 import crypto from "crypto";
 import path from "path";
-import fs from "fs";
 import { requireAuth } from "../middlewares/auth";
 import { uploadRateLimiter } from "../middlewares/rate-limit";
 import { uploadToStorage } from "../lib/supabase-storage";
-
-// Pastikan folder uploads lokal ada
-const UPLOADS_BASE = path.join(process.cwd(), "uploads");
-for (const sub of ["tenant-logos", "mall-logos", "contract-documents", "expense-receipts", "payment-proofs"]) {
-  fs.mkdirSync(path.join(UPLOADS_BASE, sub), { recursive: true });
-}
-
-function saveToLocalDisk(subfolder: string, filename: string, buffer: Buffer): string {
-  const dest = path.join(UPLOADS_BASE, subfolder, filename);
-  fs.writeFileSync(dest, buffer);
-  return `/uploads/${subfolder}/${filename}`;
-}
 
 const LOGO_ALLOWED_MIME = new Set(["image/jpeg", "image/jpg", "image/png", "image/webp"]);
 const DOC_ALLOWED_MIME = new Set(["application/pdf", "image/jpeg", "image/jpg", "image/png", "image/webp"]);
@@ -84,14 +71,13 @@ router.post("/uploads/tenant-logo", uploadRateLimiter, requireAuth, async (req, 
   try {
     const ext = path.extname(req.file.originalname).toLowerCase() || ".png";
     const filename = `${crypto.randomUUID()}${ext}`;
-
-    // Simpan ke local disk dulu (selalu tersedia, tidak tergantung Supabase)
-    const localUrl = saveToLocalDisk("tenant-logos", filename, req.file.buffer);
-
-    // Coba upload ke Supabase sebagai backup (gagal = tidak apa-apa)
-    void uploadToStorage("tenant-logos", filename, req.file.buffer, req.file.mimetype).catch(() => {});
-
-    res.json({ url: localUrl });
+    const url = await uploadToStorage(
+      "tenant-logos",
+      filename,
+      req.file.buffer,
+      req.file.mimetype,
+    );
+    res.json({ url });
   } catch (err) {
     req.log?.error(err, "Upload tenant logo gagal");
     res.status(500).json({ error: "Gagal menyimpan file ke storage" });
