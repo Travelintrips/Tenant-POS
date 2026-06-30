@@ -17,13 +17,9 @@ function isAllowedUrl(url: string): boolean {
   }
   if (parsed.protocol !== "https:") return false;
 
-  // Jika SUPABASE_URL dikonfigurasi, validasi URL harus mulai dari sana
-  const configured = supabaseUrl.replace(/\/$/, "");
-  if (configured) {
-    return url.startsWith(configured);
-  }
-
-  // Fallback: izinkan URL dari domain Supabase Storage manapun
+  // Izinkan semua domain Supabase Storage (dev maupun prod project)
+  // Logo bisa disimpan di project Supabase berbeda (dev vs prod),
+  // jadi tidak dibatasi hanya ke satu configured project.
   return (
     parsed.hostname.endsWith(".supabase.co") ||
     parsed.hostname.endsWith(".supabase.in")
