@@ -74,6 +74,7 @@ export async function siteContext(req: Request, res: Response, next: NextFunctio
         // "Semua" mode — no site filter; routes handle siteId=0 as "all sites"
         req.siteId = 0;
         req.siteCode = "ALL";
+        res.setHeader("Vary", "x-site-id, x-site-code");
         return next();
       }
       const found = sites.find((s) => s.code === code);
@@ -114,6 +115,8 @@ export async function siteContext(req: Request, res: Response, next: NextFunctio
 
     req.siteId = resolvedSite.id;
     req.siteCode = resolvedSite.code;
+    // Beritahu browser/proxy bahwa response berbeda tergantung site header
+    res.setHeader("Vary", "x-site-id, x-site-code");
     next();
   } catch (err) {
     // Site context failure must not break API — use default

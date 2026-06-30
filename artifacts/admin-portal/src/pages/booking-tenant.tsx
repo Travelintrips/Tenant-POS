@@ -230,19 +230,24 @@ function makeSiteHeaders(siteId: number | null): Record<string, string> {
   return {};
 }
 
+function siteUrl(base: string, siteId: number | null): string {
+  if (siteId === null) return base;
+  return `${base}?_s=${siteId}`;
+}
+
 async function fetchBookings(siteId: number | null): Promise<BookingWithTenant[]> {
-  const res = await fetch(`${BASE}/api/bookings`, {
+  const res = await fetch(siteUrl(`${BASE}/api/bookings`, siteId), {
     credentials: "include",
-    headers: makeSiteHeaders(siteId),
+    headers: { ...makeSiteHeaders(siteId), "Cache-Control": "no-cache" },
   });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json() as Promise<BookingWithTenant[]>;
 }
 
 async function fetchTenants(siteId: number | null): Promise<Tenant[]> {
-  const res = await fetch(`${BASE}/api/tenants`, {
+  const res = await fetch(siteUrl(`${BASE}/api/tenants`, siteId), {
     credentials: "include",
-    headers: makeSiteHeaders(siteId),
+    headers: { ...makeSiteHeaders(siteId), "Cache-Control": "no-cache" },
   });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json() as Promise<Tenant[]>;
