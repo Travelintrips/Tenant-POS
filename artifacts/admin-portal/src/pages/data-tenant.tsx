@@ -191,6 +191,17 @@ const CATEGORIES = ["Kuliner", "Fashion", "F&B", "Elektronik", "Kesehatan", "Kec
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
+/**
+ * Konversi URL logo Supabase ke proxy endpoint lokal.
+ * Ini memastikan gambar tetap tampil meski bucket Supabase
+ * punya RLS policy yang memblokir akses langsung dari browser.
+ */
+function proxyLogoUrl(url: string | null | undefined): string | null {
+  if (!url) return null;
+  if (!url.startsWith("http")) return url;
+  return `/api/logo-proxy?url=${encodeURIComponent(url)}`;
+}
+
 async function fetchTenants(): Promise<Tenant[]> {
   const res = await apiFetch(`${BASE}/api/tenants`, { credentials: "include" });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -1188,7 +1199,7 @@ export default function DataTenant() {
                         <TableCell>
                           {tenant.logoUrl ? (
                             <img
-                              src={tenant.logoUrl}
+                              src={proxyLogoUrl(tenant.logoUrl) ?? tenant.logoUrl}
                               alt={tenant.businessName}
                               className="h-8 w-8 rounded-md object-cover border border-border"
                               onError={(e) => {
@@ -1380,7 +1391,7 @@ export default function DataTenant() {
                   {logoPreview ? (
                     <div className="relative">
                       <img
-                        src={logoPreview}
+                        src={proxyLogoUrl(logoPreview) ?? logoPreview}
                         alt="Preview logo"
                         className="h-16 w-16 rounded-lg object-cover border border-border"
                       />

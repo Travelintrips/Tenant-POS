@@ -33,6 +33,7 @@ import otherIncomeRouter from "./other-income";
 import tenantSheetSyncRouter from "./tenant-sheet-sync";
 import consolidatedInvoicesRouter from "./consolidated-invoices";
 import blastTagihanRouter from "./blast-tagihan";
+import logoProxyRouter from "./logo-proxy";
 import { requireAuth, requireNonTenantUser } from "../middlewares/auth";
 import { siteContext } from "../middlewares/site-context";
 
@@ -43,6 +44,7 @@ router.use(authRouter);
 router.use(whatsappAuthRouter);
 
 // Public routes (tidak perlu login)
+router.use(logoProxyRouter);
 router.use(configRouter);
 router.use(paymentProofRouter);
 router.use(draftAgreementsPublicRouter);
