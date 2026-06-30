@@ -684,6 +684,15 @@ export default function DataTenant() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
 
+    if (!form.businessName.trim()) {
+      toast({ title: "Validasi Gagal", description: "Nama usaha wajib diisi.", variant: "destructive" });
+      return;
+    }
+    if (!form.ownerName.trim()) {
+      toast({ title: "Validasi Gagal", description: "Nama pemilik/penanggungjawab wajib diisi.", variant: "destructive" });
+      return;
+    }
+
     let finalLogoUrl = form.logoUrl;
 
     if (logoFile) {

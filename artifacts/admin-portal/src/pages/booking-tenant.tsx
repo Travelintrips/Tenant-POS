@@ -483,6 +483,10 @@ export default function BookingTenant() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (!editTarget && !form.tenantId) {
+      toast({ title: "Validasi Gagal", description: "Pilih tenant terlebih dahulu.", variant: "destructive" });
+      return;
+    }
     if (!form.startDate || !form.endDate) {
       toast({ title: "Validasi Gagal", description: "Tanggal mulai dan selesai wajib diisi.", variant: "destructive" });
       return;
