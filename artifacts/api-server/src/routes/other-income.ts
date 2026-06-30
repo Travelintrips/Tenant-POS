@@ -169,7 +169,10 @@ router.post("/other-income", async (req, res) => {
     }
     const [row] = await db.insert(otherIncomeTable).values({ siteId: effectiveSiteId, companyId: resolvedCompanyId, tenantId: data.tenantId ?? null, category: data.category, coaCode: data.coaCode ?? null, coaName: data.coaName ?? null, description: data.description, amount: String(data.amount), date: data.date ? new Date(data.date) : new Date(), createdBy: userId }).returning();
     logAudit(req, { action: "create_other_income", entityType: "other_income", entityId: row.id, afterData: { ...data, id: row.id } });
-    if (data.coaCode && data.coaName) { void postIncomeJournal({ incomeId: row.id, siteId: effectiveSiteId, amount: data.amount, description: data.description, date: row.date ?? new Date(), coaCode: data.coaCode, coaName: data.coaName }); }
+    if (data.coaCode && data.coaName) {
+      void postIncomeJournal({ incomeId: row.id, siteId: effectiveSiteId, amount: data.amount, description: data.description, date: row.date ?? new Date(), coaCode: data.coaCode, coaName: data.coaName })
+        .catch((err) => logger.error({ err }, "postIncomeJournal gagal — jurnal akuntansi tidak tercatat"));
+    }
     res.status(201).json({ success: true, data: row });
   } catch (err) {
     logger.error({ err: err }, "[POST /other-income]");

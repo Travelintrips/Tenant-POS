@@ -103,10 +103,13 @@ router.get("/tenants/:id", async (req, res) => {
     return;
   }
   try {
+    const siteCondition = req.siteId > 0
+      ? and(eq(tenantsTable.id, id), eq(tenantsTable.siteId, req.siteId))
+      : eq(tenantsTable.id, id);
     const [tenant] = await db
       .select()
       .from(tenantsTable)
-      .where(eq(tenantsTable.id, id));
+      .where(siteCondition);
     if (!tenant) {
       res.status(404).json({ error: "Tenant tidak ditemukan" });
       return;

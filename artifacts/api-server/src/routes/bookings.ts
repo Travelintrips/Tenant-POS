@@ -705,11 +705,14 @@ router.delete("/bookings/:id", requireAnyRole("owner", "admin"), async (req, res
   if (isNaN(id)) { res.status(400).json({ error: "ID tidak valid" }); return; }
 
   try {
+    const deleteCondition = req.siteId > 0
+      ? and(eq(tenantBookingsTable.id, id), eq(tenantBookingsTable.siteId, req.siteId))
+      : eq(tenantBookingsTable.id, id);
     const [existing] = await db
       .select(bookingSelect)
       .from(tenantBookingsTable)
       .leftJoin(tenantsTable, eq(tenantBookingsTable.tenantId, tenantsTable.id))
-      .where(eq(tenantBookingsTable.id, id));
+      .where(deleteCondition);
 
     if (!existing) { res.status(404).json({ error: "Kontrak tidak ditemukan" }); return; }
 

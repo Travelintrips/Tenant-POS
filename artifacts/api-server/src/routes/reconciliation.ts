@@ -6,10 +6,11 @@ import { z } from "zod";
 import { writeToSheet, readFromSheet, extractSheetId, getServiceAccountEmail } from "../services/google-sheets";
 import { sendReconciliationReminder } from "../lib/whatsapp";
 import { logger } from "../lib/logger";
+import { requireAnyRole } from "../middlewares/auth";
 
 const router: IRouter = Router();
 
-router.get("/reconciliation/info", (_req, res) => {
+router.get("/reconciliation/info", requireAnyRole("owner", "admin", "finance"), (_req, res) => {
   res.json({ serviceAccountEmail: getServiceAccountEmail() });
 });
 
@@ -20,7 +21,7 @@ const exportSchema = z.object({
   sheetTitle: z.string().trim().min(1).optional(),
 });
 
-router.post("/reconciliation/export", async (req, res) => {
+router.post("/reconciliation/export", requireAnyRole("owner", "admin", "finance"), async (req, res) => {
   logger.warn("[LEGACY] POST /api/reconciliation/export diakses. Gunakan POST /api/bank-reconciliation/export-google-sheet untuk export dari engine baru.");
   const parsed = exportSchema.safeParse(req.body);
   if (!parsed.success) {
@@ -142,7 +143,7 @@ const importSchema = z.object({
   sheetTitle: z.string().min(1),
 });
 
-router.post("/reconciliation/read", async (req, res) => {
+router.post("/reconciliation/read", requireAnyRole("owner", "admin", "finance"), async (req, res) => {
   logger.warn("[LEGACY] POST /api/reconciliation/read diakses. Endpoint ini hanya membaca Google Sheets dan tidak terhubung ke engine bank baru.");
   const parsed = importSchema.safeParse(req.body);
   if (!parsed.success) {
@@ -167,7 +168,7 @@ const notifySchema = z.object({
   monthLabel: z.string().min(1),
 });
 
-router.post("/reconciliation/notify", async (req, res) => {
+router.post("/reconciliation/notify", requireAnyRole("owner", "admin", "finance"), async (req, res) => {
   logger.warn("[LEGACY] POST /api/reconciliation/notify diakses. Gunakan POST /api/bank-reconciliation/send-reminder-wa untuk reminder dari engine baru.");
   const parsed = notifySchema.safeParse(req.body);
   if (!parsed.success) {

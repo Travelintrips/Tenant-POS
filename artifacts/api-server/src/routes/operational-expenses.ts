@@ -435,7 +435,7 @@ router.post("/operational-expenses", requireAnyRole("owner", "admin", "finance")
 });
 
 // ─── PATCH /api/operational-expenses/:id ──────────────────────────────────────
-router.patch("/operational-expenses/:id", async (req, res) => {
+router.patch("/operational-expenses/:id", requireAnyRole("owner", "admin", "finance"), async (req, res) => {
   const id = parseInt(String(req.params.id), 10);
   if (isNaN(id)) { res.status(400).json({ error: "ID tidak valid" }); return; }
 

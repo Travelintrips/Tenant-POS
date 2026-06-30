@@ -8,6 +8,9 @@ const { Pool } = pg;
 export const pool = new Pool({
   ...dbConfig.parsed,
   ssl: dbConfig.ssl,
+  max: 20,
+  idleTimeoutMillis: 30_000,
+  connectionTimeoutMillis: 5_000,
 });
 
 // PgBouncer transaction mode (port 6543) bisa menghapus search_path session.
