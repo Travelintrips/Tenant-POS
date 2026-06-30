@@ -278,11 +278,11 @@ router.get("/tenant-pos/tenants/:tenantId/invoices", async (req, res) => {
     return;
   }
   try {
-    const invConditions: ReturnType<typeof eq>[] = [
-      eq(tenantInvoicesTable.tenantId, tenantId) as any,
-      sql`${tenantInvoicesTable.status} IN ('unpaid', 'partial', 'overdue')` as any,
+    const invConditions = [
+      eq(tenantInvoicesTable.tenantId, tenantId),
+      sql`${tenantInvoicesTable.status} IN ('unpaid', 'partial', 'overdue')`,
+      ...(req.siteId > 0 ? [eq(tenantInvoicesTable.siteId, req.siteId)] : []),
     ];
-    if (req.siteId > 0) invConditions.push(eq(tenantInvoicesTable.siteId, req.siteId) as any);
 
     const invoices = await db
       .select()
