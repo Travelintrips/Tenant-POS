@@ -8,6 +8,28 @@ const SUPABASE_KEY =
   process.env["SUPABASE_SERVICE_ROLE_KEY"] ??
   "";
 
+function isAllowedUrl(url: string): boolean {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return false;
+  }
+  if (parsed.protocol !== "https:") return false;
+
+  // Jika SUPABASE_URL dikonfigurasi, validasi URL harus mulai dari sana
+  const configured = supabaseUrl.replace(/\/$/, "");
+  if (configured) {
+    return url.startsWith(configured);
+  }
+
+  // Fallback: izinkan URL dari domain Supabase Storage manapun
+  return (
+    parsed.hostname.endsWith(".supabase.co") ||
+    parsed.hostname.endsWith(".supabase.in")
+  );
+}
+
 /**
  * GET /api/logo-proxy?url=<encoded_supabase_url>
  *
@@ -31,9 +53,7 @@ router.get("/logo-proxy", async (req, res) => {
     return;
   }
 
-  // Validasi: hanya izinkan URL dari Supabase project yang dikonfigurasi
-  const allowedOrigin = supabaseUrl.replace(/\/$/, "");
-  if (!allowedOrigin || !targetUrl.startsWith(allowedOrigin)) {
+  if (!isAllowedUrl(targetUrl)) {
     res.status(403).json({ error: "Origin URL tidak diizinkan" });
     return;
   }
