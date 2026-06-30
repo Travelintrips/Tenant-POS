@@ -319,7 +319,8 @@ router.post("/bank-reconciliation/preview-from-sheet", async (req, res) => {
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);
     logger.error({ err: msg }, "[preview-from-sheet]");
-    res.status(500).json({ error: "Gagal membaca spreadsheet. Pastikan sheet sudah di-share ke service account dan ID/URL benar.", detail: msg });
+    const isProduction = process.env.NODE_ENV === "production";
+    res.status(500).json({ error: "Gagal membaca spreadsheet. Pastikan sheet sudah di-share ke service account dan ID/URL benar.", ...(isProduction ? {} : { detail: msg }) });
   }
 });
 
@@ -352,7 +353,8 @@ router.post("/bank-reconciliation/import-from-sheet", async (req, res) => {
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);
     logger.error({ err: msg }, "[import-from-sheet] readFromSheet error:");
-    res.status(500).json({ error: "Gagal membaca spreadsheet. Pastikan sheet sudah di-share ke service account dan ID/URL benar.", detail: msg });
+    const isProduction = process.env.NODE_ENV === "production";
+    res.status(500).json({ error: "Gagal membaca spreadsheet. Pastikan sheet sudah di-share ke service account dan ID/URL benar.", ...(isProduction ? {} : { detail: msg }) });
     return;
   }
 
@@ -1668,7 +1670,8 @@ router.post("/bank-reconciliation/export-google-sheet", async (req, res) => {
     await writeToSheet({ spreadsheetId, sheetTitle, headers, rows });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
-    res.status(500).json({ error: "Gagal menulis ke Google Sheets", detail: msg });
+    const isProduction = process.env.NODE_ENV === "production";
+    res.status(500).json({ error: "Gagal menulis ke Google Sheets", ...(isProduction ? {} : { detail: msg }) });
     return;
   }
 

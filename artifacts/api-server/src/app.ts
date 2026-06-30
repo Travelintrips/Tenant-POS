@@ -110,11 +110,13 @@ let sessionSecret = process.env.SESSION_SECRET ?? "";
 
 if (!sessionSecret) {
   if (isProduction) {
-    logger.warn("SESSION_SECRET tidak diset di production! Menggunakan secret acak — semua sesi akan hilang saat restart.");
+    // Di production, SESSION_SECRET WAJIB diset. Fail-fast agar tidak ada
+    // sesi tidak aman yang lolos ke production.
+    throw new Error("SESSION_SECRET wajib diset di production. Tambahkan ke Replit Secrets.");
   } else {
     logger.info("SESSION_SECRET tidak diset — menggunakan secret acak untuk development. Tambahkan SESSION_SECRET ke Secrets untuk sesi yang persisten.");
+    sessionSecret = crypto.randomBytes(32).toString("hex");
   }
-  sessionSecret = crypto.randomBytes(32).toString("hex");
 }
 
 // ─── PostgreSQL Session Store ──────────────────────────────────────────────

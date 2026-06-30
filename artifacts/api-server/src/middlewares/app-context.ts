@@ -58,7 +58,10 @@ export function appContextMiddleware(req: Request, _res: Response, next: NextFun
   // ── isBizPortal: owner ATAU request dari app BizPortal ───────────────────────
   // - owner/super_admin: selalu BizPortal
   // - ownerApp=bizportal: Finance/Admin dari portal pusat
-  const isBizPortal = role === "owner" || ownerApp === "bizportal";
+  // KEAMANAN: tenant_user TIDAK boleh claim isBizPortal via header — strict isolation.
+  const NON_TENANT_ROLES = ["owner", "admin", "finance", "cashier"] as const;
+  const canClaimBizportal = (NON_TENANT_ROLES as readonly string[]).includes(role);
+  const isBizPortal = role === "owner" || (canClaimBizportal && ownerApp === "bizportal");
 
   // ── isFullAccess: hanya owner (super admin) ─────────────────────────────────
   const isFullAccess = role === "owner";

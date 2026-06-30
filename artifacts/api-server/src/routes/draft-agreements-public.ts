@@ -1,4 +1,5 @@
 import { Router, type IRouter, type Request, type Response } from "express";
+import { publicReadRateLimiter, publicActionRateLimiter } from "../middlewares/rate-limit";
 import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
 import { z } from "zod";
@@ -106,7 +107,7 @@ async function notifyTenant(opts: {
 
 // ── GET /api/dokumen/:token ───────────────────────────────────────────────────
 // Public — ambil data dokumen berdasarkan token
-router.get("/dokumen/:token", async (req: Request, res: Response) => {
+router.get("/dokumen/:token", publicReadRateLimiter, async (req: Request, res: Response) => {
   const token = req.params["token"] as string;
   if (!token || token.length < 8) {
     res.status(400).json({ error: "Token tidak valid" });
@@ -144,7 +145,7 @@ const setujuSchema = z.object({
   respondedPhone: z.string().max(30).optional(),
 });
 
-router.post("/dokumen/:token/setuju", async (req: Request, res: Response) => {
+router.post("/dokumen/:token/setuju", publicActionRateLimiter, async (req: Request, res: Response) => {
   const token = req.params["token"] as string;
   if (!token || token.length < 8) {
     res.status(400).json({ error: "Token tidak valid" });
@@ -350,7 +351,7 @@ const tolakSchema = z.object({
   rejectionReason: z.string().min(5, "Alasan minimal 5 karakter").max(1000),
 });
 
-router.post("/dokumen/:token/tolak", async (req: Request, res: Response) => {
+router.post("/dokumen/:token/tolak", publicActionRateLimiter, async (req: Request, res: Response) => {
   const token = req.params["token"] as string;
   if (!token || token.length < 8) {
     res.status(400).json({ error: "Token tidak valid" });
@@ -435,7 +436,7 @@ router.post("/dokumen/:token/tolak", async (req: Request, res: Response) => {
 
 // ── GET /api/public/available-units ──────────────────────────────────────────
 // Public — daftar unit yang masih tersedia (belum ada penyewa aktif)
-router.get("/public/available-units", async (req: Request, res: Response) => {
+router.get("/public/available-units", publicReadRateLimiter, async (req: Request, res: Response) => {
   try {
     const siteIdParam = req.query["site_id"];
     const siteId = siteIdParam ? Number(siteIdParam) : null;

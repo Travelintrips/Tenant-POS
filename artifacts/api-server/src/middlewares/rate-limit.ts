@@ -153,6 +153,26 @@ export const webhookRateLimiter = makeLoggingRateLimiter({
 });
 
 /**
+ * 120 req / 15 menit per IP — public GET (token lookup, mall-info, config, available-units)
+ * Melindungi endpoint publik dari enumerasi token dan abuse trafik.
+ */
+export const publicReadRateLimiter = makeLoggingRateLimiter({
+  name: "public-read",
+  max: 120,
+  windowMs: 15 * 60 * 1000,
+});
+
+/**
+ * 30 req / 15 menit per IP — public POST (setuju/tolak dokumen)
+ * Melindungi endpoint aksi dokumen publik dari spam.
+ */
+export const publicActionRateLimiter = makeLoggingRateLimiter({
+  name: "public-action",
+  max: 30,
+  windowMs: 15 * 60 * 1000,
+});
+
+/**
  * 5 pendaftaran / 10 menit per IP — self-registration calon tenant (publik)
  * Melindungi endpoint POST /api/calon-tenant/daftar dari spam.
  */

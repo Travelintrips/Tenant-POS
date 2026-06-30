@@ -364,11 +364,19 @@ export async function runInvoiceNotificationCheck(): Promise<number> {
   for (const invoice of invoices) {
     const now = new Date();
 
-    // Tandai sudah dikirim dulu agar tidak dobel walau WA gagal
-    await db
+    // Atomic claim: UPDATE hanya jika invoiceNotifiedAt masih NULL.
+    // Jika proses lain sudah claim (multi-instance atau restart bersamaan),
+    // RETURNING akan kosong dan kita skip — mencegah WA dobel.
+    const claimed = await db
       .update(tenantInvoicesTable)
       .set({ invoiceNotifiedAt: now, updatedAt: now })
-      .where(eq(tenantInvoicesTable.id, invoice.id));
+      .where(and(eq(tenantInvoicesTable.id, invoice.id), isNull(tenantInvoicesTable.invoiceNotifiedAt)))
+      .returning({ id: tenantInvoicesTable.id });
+
+    if (claimed.length === 0) {
+      logger.info({ invoiceId: invoice.id }, "[scheduler] Invoice sudah di-claim proses lain, dilewati");
+      continue;
+    }
 
     if (invoice.phone) {
       const dueStr = invoice.dueDate

@@ -8,7 +8,7 @@ import { eq, sql, and } from "drizzle-orm";
 import { z } from "zod";
 import { sseBroker } from "../lib/sse-broker";
 import { sendPaymentReceived, sendAdminPaymentAlert, notifyAdminGroup, getSiteCompanyName, getAdminNotifyPhones } from "../lib/whatsapp";
-import { uploadRateLimiter } from "../middlewares/rate-limit";
+import { uploadRateLimiter, publicReadRateLimiter } from "../middlewares/rate-limit";
 import { uploadToStorage } from "../lib/supabase-storage";
 import { getBaseUrl } from "../lib/app-url";
 import { extractAmountFromFile } from "../lib/ocr-service";
@@ -27,7 +27,7 @@ const router: IRouter = Router();
 // ─── GET /api/pay/mall-info ───────────────────────────────────────────────────
 // Public — kembalikan info kontak mall (nama, phone) untuk ditampilkan di halaman
 // pembayaran, termasuk saat token tidak valid. Data diambil dari system_settings.
-router.get("/pay/mall-info", async (_req, res) => {
+router.get("/pay/mall-info", publicReadRateLimiter, async (_req, res) => {
   try {
     const [row] = await db
       .select({ value: systemSettingsTable.value })
@@ -130,7 +130,7 @@ router.post("/pay/:token/scan-proof", uploadRateLimiter, async (req, res) => {
 
 // ─── GET /api/pay/:token ──────────────────────────────────────────────────────
 // Public — ambil info invoice berdasarkan token
-router.get("/pay/:token", async (req, res) => {
+router.get("/pay/:token", publicReadRateLimiter, async (req, res) => {
   const { token } = req.params;
   if (!token) { res.status(400).json({ error: "Token tidak valid" }); return; }
 
