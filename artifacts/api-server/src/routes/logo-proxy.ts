@@ -59,7 +59,10 @@ router.get("/logo-proxy", async (req, res) => {
       "User-Agent": "MallAdminPortal/1.0",
     };
 
-    if (SUPABASE_KEY) {
+    // Bucket public (/object/public/) tidak butuh auth header.
+    // Mengirim key dari project lain justru menyebabkan 401.
+    const isPublicBucket = targetUrl.includes("/object/public/");
+    if (SUPABASE_KEY && !isPublicBucket) {
       headers["Authorization"] = `Bearer ${SUPABASE_KEY}`;
       headers["apikey"] = SUPABASE_KEY;
     }
