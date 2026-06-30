@@ -224,14 +224,26 @@ function isLocalUpload(url: string): boolean {
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
-async function fetchBookings(): Promise<BookingWithTenant[]> {
-  const res = await apiFetch(`${BASE}/api/bookings`, { credentials: "include" });
+function makeSiteHeaders(siteId: number | null): Record<string, string> {
+  if (siteId === 0) return { "x-site-code": "ALL" };
+  if (siteId) return { "x-site-id": String(siteId) };
+  return {};
+}
+
+async function fetchBookings(siteId: number | null): Promise<BookingWithTenant[]> {
+  const res = await fetch(`${BASE}/api/bookings`, {
+    credentials: "include",
+    headers: makeSiteHeaders(siteId),
+  });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json() as Promise<BookingWithTenant[]>;
 }
 
-async function fetchTenants(): Promise<Tenant[]> {
-  const res = await apiFetch(`${BASE}/api/tenants`, { credentials: "include" });
+async function fetchTenants(siteId: number | null): Promise<Tenant[]> {
+  const res = await fetch(`${BASE}/api/tenants`, {
+    credentials: "include",
+    headers: makeSiteHeaders(siteId),
+  });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json() as Promise<Tenant[]>;
 }
@@ -317,15 +329,19 @@ export default function BookingTenant() {
     }
   }, [dialogOpen, editTarget]);
 
+  const activeSiteId = activeSite === null ? null : activeSite.code === "ALL" ? 0 : activeSite.id;
+
   const { data: bookings, isLoading, isError } = useQuery<BookingWithTenant[]>({
-    queryKey: ["/api/bookings", activeSite?.id ?? null],
-    queryFn: fetchBookings,
+    queryKey: ["/api/bookings", activeSiteId],
+    queryFn: () => fetchBookings(activeSiteId),
     refetchInterval: 30000,
+    enabled: activeSiteId !== null,
   });
 
   const { data: tenants } = useQuery<Tenant[]>({
-    queryKey: ["/api/tenants"],
-    queryFn: fetchTenants,
+    queryKey: ["/api/tenants", activeSiteId],
+    queryFn: () => fetchTenants(activeSiteId),
+    enabled: activeSiteId !== null,
   });
 
   const [deleteTarget, setDeleteTarget] = useState<BookingWithTenant | null>(null);
