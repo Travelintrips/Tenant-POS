@@ -1387,7 +1387,7 @@ router.get("/tenant-invoices/export", async (req, res) => {
       "No. Invoice", "Tenant", "Pemilik", "Booth", "Kode Unit",
       "Periode Mulai", "Periode Selesai", "Jatuh Tempo",
       "Sewa (Rp)", "Service Charge (Rp)", "Listrik (Rp)", "Air (Rp)", "Lainnya (Rp)", "Sampah (Rp)",
-      "Diskon (Rp)", "Denda (Rp)", "Gunakan PPN", "PPN 11% (Rp)",
+      "Diskon (Rp)", "Gunakan PPN", "PPN 11% (Rp)",
       "Subtotal (Rp)", "Total (Rp)", "Terbayar (Rp)", "Sisa (Rp)",
       "Status", "Catatan", "Dibuat",
     ];
@@ -1410,7 +1410,6 @@ router.get("/tenant-invoices/export", async (req, res) => {
         Number(r.otherChargeAmount ?? 0),
         Number(r.trashChargeAmount ?? 0),
         Number(r.discountAmount ?? 0),
-        Number(r.penaltyAmount ?? 0),
         r.usePpn ? "Ya" : "Tidak",
         Number(r.taxAmount ?? 0),
         Number(r.subtotal ?? 0),

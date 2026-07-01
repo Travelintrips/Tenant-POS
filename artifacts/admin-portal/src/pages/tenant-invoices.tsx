@@ -601,7 +601,6 @@ function buildInvoiceHtml(inv: Invoice, cfg: MallInvoiceConfig): string {
     <tbody>
       ${rows}
       ${Number(inv.discountAmount) > 0 ? `<tr><td style="padding:5px 10px;color:#059669">Diskon</td><td style="padding:5px 10px;text-align:right;color:#059669">- ${formatRupiah(inv.discountAmount)}</td></tr>` : ""}
-      ${Number(inv.penaltyAmount) > 0 ? `<tr><td style="padding:5px 10px;color:#dc2626">Denda</td><td style="padding:5px 10px;text-align:right;color:#dc2626">+ ${formatRupiah(inv.penaltyAmount)}</td></tr>` : ""}
     </tbody>
   </table>
   <div class="totals">
@@ -2201,9 +2200,6 @@ export default function TenantInvoices() {
                 <Field label="Diskon">
                   <Input type="number" min="0" value={createForm.discountAmount} onChange={e => setCreateForm(f => ({ ...f, discountAmount: e.target.value }))} placeholder="0" />
                 </Field>
-                <Field label="Denda">
-                  <Input type="number" min="0" value={createForm.penaltyAmount} onChange={e => setCreateForm(f => ({ ...f, penaltyAmount: e.target.value }))} placeholder="0" />
-                </Field>
               </div>
 
               {/* Toggle PPN */}
@@ -2227,7 +2223,7 @@ export default function TenantInvoices() {
 
               {/* PPN Preview */}
               {(() => {
-                const sub = (Number(createForm.rentAmount||0)+Number(createForm.serviceChargeAmount||0)+Number(createForm.electricityChargeAmount||0)+Number(createForm.waterChargeAmount||0)+Number(createForm.otherChargeAmount||0)+Number(createForm.trashChargeAmount||0))-Number(createForm.discountAmount||0)+Number(createForm.penaltyAmount||0);
+                const sub = (Number(createForm.rentAmount||0)+Number(createForm.serviceChargeAmount||0)+Number(createForm.electricityChargeAmount||0)+Number(createForm.waterChargeAmount||0)+Number(createForm.otherChargeAmount||0)+Number(createForm.trashChargeAmount||0))-Number(createForm.discountAmount||0);
                 // Tax-inclusive: PPN diekstrak dari dalam Harga Sewa (rent × 11/111)
                 // Total = subtotal (PPN sudah di dalam, TIDAK ditambahkan lagi)
                 const ppn = createForm.usePpn ? Math.round(Number(createForm.rentAmount||0) * 0.11 / 1.11) : 0;
@@ -2430,11 +2426,6 @@ export default function TenantInvoices() {
                   {Number(detailData.discountAmount) > 0 && (
                     <div className="flex justify-between text-green-600">
                       <span>Diskon</span><span>- {formatRupiah(detailData.discountAmount)}</span>
-                    </div>
-                  )}
-                  {Number(detailData.penaltyAmount) > 0 && (
-                    <div className="flex justify-between text-red-600">
-                      <span>Denda</span><span>+ {formatRupiah(detailData.penaltyAmount)}</span>
                     </div>
                   )}
                   <Separator />
@@ -2647,9 +2638,6 @@ export default function TenantInvoices() {
                   <Field label="Diskon (Rp)">
                     <Input type="number" min="0" value={editForm.discountAmount} onChange={e => setEditForm(f => f ? { ...f, discountAmount: e.target.value } : f)} placeholder="0" />
                   </Field>
-                  <Field label="Denda (Rp)">
-                    <Input type="number" min="0" value={editForm.penaltyAmount} onChange={e => setEditForm(f => f ? { ...f, penaltyAmount: e.target.value } : f)} placeholder="0" />
-                  </Field>
                 </div>
 
                 {/* Toggle PPN */}
@@ -2673,7 +2661,7 @@ export default function TenantInvoices() {
 
                 {/* Preview Ringkasan */}
                 {(() => {
-                  const sub = (Number(editForm.rentAmount||0)+Number(editForm.serviceChargeAmount||0)+Number(editForm.electricityChargeAmount||0)+Number(editForm.waterChargeAmount||0)+Number(editForm.otherChargeAmount||0)+Number(editForm.trashChargeAmount||0))-Number(editForm.discountAmount||0)+Number(editForm.penaltyAmount||0);
+                  const sub = (Number(editForm.rentAmount||0)+Number(editForm.serviceChargeAmount||0)+Number(editForm.electricityChargeAmount||0)+Number(editForm.waterChargeAmount||0)+Number(editForm.otherChargeAmount||0)+Number(editForm.trashChargeAmount||0))-Number(editForm.discountAmount||0);
                   if (sub <= 0) return null;
                   // Tax-inclusive: PPN diekstrak dari dalam Harga Sewa (rent × 11/111)
                   // Total = subtotal (PPN sudah di dalam, TIDAK ditambahkan lagi)

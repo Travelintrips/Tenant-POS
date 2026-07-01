@@ -56,7 +56,7 @@ Invoice Anda *${v.invoiceNumber ?? "INV-TENANT-0001"}* telah melewati jatuh temp
 
 💰 Sisa tagihan: *${v.outstandingAmount ?? "Rp 5.000.000"}*
 
-Mohon segera melakukan pembayaran untuk menghindari denda keterlambatan.
+Mohon segera melakukan pembayaran sebelum tanggal jatuh tempo.
 
 Hubungi kami jika ada pertanyaan. Terima kasih. 🙏
 _Manajemen CST_`,

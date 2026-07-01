@@ -226,7 +226,6 @@ export async function cetakStrukPDF(data: DataStruk, config?: MallConfigStruk) {
     <span class="value">${formatRp(data.sewaBulanan)}</span>
   </div>
   ${data.diskon && data.diskon > 0 ? `<div class="row"><span class="label">Diskon</span><span class="value" style="color:#16a34a;">- ${formatRp(data.diskon)}</span></div>` : ""}
-  ${data.denda && data.denda > 0 ? `<div class="row"><span class="label">Denda</span><span class="value" style="color:#dc2626;">+ ${formatRp(data.denda)}</span></div>` : ""}
   <div class="row">
     <span class="label">Metode</span>
     <span class="value">${data.metodeBayar}</span>

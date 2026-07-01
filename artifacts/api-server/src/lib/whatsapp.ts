@@ -248,7 +248,7 @@ export async function sendInvoiceNotification(params: InvoiceNotifParams): Promi
     `• Total Tagihan : *${formatRupiah(params.totalAmount)}*\n` +
     `• Jatuh Tempo  : *${params.dueDate}*\n` +
     linkLine +
-    `\nMohon lakukan pembayaran sebelum tanggal jatuh tempo untuk menghindari denda keterlambatan.\n\n` +
+    `\nMohon lakukan pembayaran sebelum tanggal jatuh tempo.\n\n` +
     `Hubungi kami jika ada pertanyaan.\n\n` +
     `Terima kasih 🙏\n` +
     `_${company}_`;

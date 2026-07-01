@@ -56,11 +56,6 @@ export function generateReceiptHtml(data: PosReceiptData): string {
       ? `<div class="row"><span class="label">Diskon</span><span class="value" style="color:#16a34a;">- ${formatRp(data.discountAmount)}</span></div>`
       : "";
 
-  const dendaRow =
-    data.penaltyAmount > 0
-      ? `<div class="row"><span class="label">Denda</span><span class="value" style="color:#dc2626;">+ ${formatRp(data.penaltyAmount)}</span></div>`
-      : "";
-
   const invoiceRow = data.invoiceNumber
     ? `<div class="row"><span class="label">No. Invoice</span><span class="value">${data.invoiceNumber}</span></div>`
     : "";
@@ -142,7 +137,6 @@ export function generateReceiptHtml(data: PosReceiptData): string {
   <div class="row"><span class="label">Subtotal</span><span class="value">${formatRp(data.netAmount)}</span></div>
   <div class="row"><span class="label">PPN 11%</span><span class="value">${formatRp(data.taxAmount)}</span></div>
   ${diskonRow}
-  ${dendaRow}
   <div class="row"><span class="label">Metode</span><span class="value">${metodeLabel}</span></div>
 
   <hr class="divider-solid" />

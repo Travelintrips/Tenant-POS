@@ -85,7 +85,7 @@ router.post("/reconciliation/export", requireAnyRole("owner", "admin", "finance"
     "Kunci Pencocokan", "Hasil Pencocokan Bank",
     "Periode Mulai", "Periode Selesai", "Jatuh Tempo",
     "Sewa (Rp)", "Service Charge (Rp)", "Listrik (Rp)", "Air (Rp)", "Lainnya (Rp)",
-    "Diskon (Rp)", "Denda (Rp)", "Total Tagihan (Rp)",
+    "Diskon (Rp)", "Total Tagihan (Rp)",
     "Sudah Dibayar (Rp)", "Sisa (Rp)", "Status",
     "Verifikasi Bank ✓", "Catatan Rekonsiliasi", "Catatan Invoice",
   ];
@@ -111,7 +111,6 @@ router.post("/reconciliation/export", requireAnyRole("owner", "admin", "finance"
       Number(inv.waterChargeAmount ?? 0),
       Number(inv.otherChargeAmount ?? 0),
       Number(inv.discountAmount ?? 0),
-      Number(inv.penaltyAmount ?? 0),
       Number(inv.totalAmount ?? 0),
       Number(inv.paidAmount ?? 0),
       Number(inv.outstandingAmount ?? 0),

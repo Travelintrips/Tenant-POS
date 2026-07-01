@@ -229,7 +229,7 @@ export default function Rekonsiliasi() {
 
   const visibleColIndices = headers
     .map((_, i) => i)
-    .filter((i) => !["Sewa (Rp)","Service Charge (Rp)","Listrik (Rp)","Air (Rp)","Lainnya (Rp)","Diskon (Rp)","Denda (Rp)","Catatan Invoice"].includes(headers[i]));
+    .filter((i) => !["Sewa (Rp)","Service Charge (Rp)","Listrik (Rp)","Air (Rp)","Lainnya (Rp)","Diskon (Rp)","Catatan Invoice"].includes(headers[i]));
 
   return (
     <div className="space-y-6 p-6">

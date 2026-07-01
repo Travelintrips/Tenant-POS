@@ -174,7 +174,7 @@ export default function RiwayatPembayaran() {
 
   function exportCsv() {
     if (!payments.length) return;
-    const headers = ["No. Pembayaran", "Tenant", "Booth", "No. Penyewaan", "Metode", "Jumlah", "Diskon", "Denda", "Sumber", "Status", "Tanggal"];
+    const headers = ["No. Pembayaran", "Tenant", "Booth", "No. Penyewaan", "Metode", "Jumlah", "Diskon", "Sumber", "Status", "Tanggal"];
     const rows = payments.map((p) => [
       p.paymentNumber ?? p.receiptNumber ?? "-",
       p.tenantName ?? "-",
@@ -183,7 +183,6 @@ export default function RiwayatPembayaran() {
       METODE_LABELS[p.paymentMethod] ?? p.paymentMethod,
       p.amount,
       p.discountAmount,
-      p.penaltyAmount,
       SOURCE_LABELS[p.sourceType ?? ""] ?? p.sourceType ?? "-",
       p.isVoided ? "Dibatalkan" : p.approvalStatus,
       p.paidAt ? new Date(p.paidAt).toLocaleString("id-ID") : "-",
@@ -373,11 +372,6 @@ export default function RiwayatPembayaran() {
                             -{formatRupiah(p.discountAmount)}
                           </div>
                         )}
-                        {p.penaltyAmount > 0 && (
-                          <div className="text-xs text-red-600 font-normal">
-                            +{formatRupiah(p.penaltyAmount)}
-                          </div>
-                        )}
                       </TableCell>
                       <TableCell>{statusBadge(p)}</TableCell>
                     </TableRow>
@@ -468,12 +462,6 @@ export default function RiwayatPembayaran() {
                   <div>
                     <p className="text-muted-foreground text-xs">Diskon</p>
                     <p className="text-green-600">-{formatRupiah(selectedPayment.discountAmount)}</p>
-                  </div>
-                )}
-                {selectedPayment.penaltyAmount > 0 && (
-                  <div>
-                    <p className="text-muted-foreground text-xs">Denda</p>
-                    <p className="text-red-600">+{formatRupiah(selectedPayment.penaltyAmount)}</p>
                   </div>
                 )}
                 {selectedPayment.referenceNumber && (
