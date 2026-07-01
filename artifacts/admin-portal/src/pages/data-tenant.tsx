@@ -92,6 +92,7 @@ type Tenant = {
   contractEndDate: string | null;
   createdAt: string;
   updatedAt: string;
+  totalOutstanding: number;
 };
 
 function getContractInfo(endDate: string | null | undefined): {
@@ -822,7 +823,7 @@ export default function DataTenant() {
     const rows = scope === "filtered" ? filtered : (tenants ?? []);
     const headers = [
       "No", "Nama Usaha", "Pemilik", "Email", "Telepon",
-      "Kategori", "No. Booth", "Area", "Status", "Akhir Kontrak", "Catatan",
+      "Kategori", "No. Booth", "Area", "Status", "Tunggakan (Rp)", "Akhir Kontrak", "Catatan",
     ];
     const body = rows.map((t, i) => [
       i + 1,
@@ -834,6 +835,7 @@ export default function DataTenant() {
       t.boothNumber ?? "",
       t.areaName,
       STATUS_LABEL[t.status] ?? t.status,
+      t.totalOutstanding > 0 ? t.totalOutstanding : 0,
       t.contractEndDate
         ? new Date(t.contractEndDate).toLocaleDateString("id-ID")
         : "",
@@ -1171,6 +1173,7 @@ export default function DataTenant() {
                   <TableHead>Unit / Lantai</TableHead>
                   <TableHead>Kategori</TableHead>
                   <TableHead>Harga Sewa</TableHead>
+                  <TableHead className="text-right">Tunggakan</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead>Masa Kontrak</TableHead>
                   <TableHead className="w-[100px] text-right">Aksi</TableHead>
@@ -1180,7 +1183,7 @@ export default function DataTenant() {
                 {isLoading
                   ? Array.from({ length: 5 }).map((_, i) => (
                       <TableRow key={i}>
-                        {Array.from({ length: 13 }).map((_, j) => (
+                        {Array.from({ length: 14 }).map((_, j) => (
                           <TableCell key={j}><Skeleton className="h-4 w-full" /></TableCell>
                         ))}
                       </TableRow>
@@ -1188,7 +1191,7 @@ export default function DataTenant() {
                   : filtered.length === 0
                   ? (
                     <TableRow>
-                      <TableCell colSpan={13} className="text-center py-8 text-muted-foreground">
+                      <TableCell colSpan={14} className="text-center py-8 text-muted-foreground">
                         {tenants?.length === 0 ? "Belum ada tenant terdaftar." : "Tidak ada hasil pencarian."}
                       </TableCell>
                     </TableRow>
@@ -1315,6 +1318,15 @@ export default function DataTenant() {
                           {tenant.defaultRentAmount && Number(tenant.defaultRentAmount) > 0
                             ? formatRupiah(Number(tenant.defaultRentAmount))
                             : <span className="text-muted-foreground">—</span>}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          {tenant.totalOutstanding > 0 ? (
+                            <span className="inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold bg-red-50 text-red-700 border-red-200 whitespace-nowrap">
+                              {formatRupiah(tenant.totalOutstanding)}
+                            </span>
+                          ) : (
+                            <span className="text-muted-foreground text-xs">—</span>
+                          )}
                         </TableCell>
                         <TableCell>
                           <span className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium ${statusClass(tenant.status)}`}>
