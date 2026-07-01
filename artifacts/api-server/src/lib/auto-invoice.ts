@@ -139,14 +139,14 @@ async function insertOneInvoice(opts: {
           site_id, tenant_id, booking_id, unit_code,
           invoice_number, period_start, period_end, due_date,
           rent_amount, service_charge_amount, electricity_charge_amount, water_charge_amount,
-          other_charge_amount, discount_amount, penalty_amount,
+          other_charge_amount, trash_charge_amount, discount_amount, penalty_amount,
           tax_amount, subtotal, total_amount,
           paid_amount, outstanding_amount, status
         ) VALUES (
           ${siteId}, ${tenantId}, ${bookingId}, ${unitCode},
           ${invoiceNumber}, ${periodStartStr}, ${periodEndStr}, ${dueDateStr},
           ${String(rentAmount)}, ${String(serviceChargeAmount)}, ${String(electricityChargeAmount)}, ${String(waterChargeAmount)},
-          ${String(otherChargeAmount)}, '0', '0',
+          ${String(otherChargeAmount)}, ${String(trashChargeAmount)}, '0', '0',
           ${taxAmount}, ${subtotal}, ${totalAmount},
           '0', ${outstandingAmount}, ${status}
         )

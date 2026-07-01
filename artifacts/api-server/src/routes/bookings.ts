@@ -31,7 +31,7 @@ router.use("/bookings", requireAnyRole("owner", "admin", "finance"));
 
 const NUMERIC_FIELDS = [
   "rentAmount","depositAmount","serviceChargeAmount","electricityChargeAmount",
-  "waterChargeAmount","totalAmount","paidAmount","remainingAmount","price",
+  "waterChargeAmount","trashChargeAmount","totalAmount","paidAmount","remainingAmount","price",
   "monthlyPrice","yearlyPrice","totalPrice",
 ];
 
@@ -563,6 +563,10 @@ router.put("/bookings/:id", async (req, res) => {
           rentAmount: rentAmt,
           startDate,
           durationMonths: Math.max(1, durMonths),
+          serviceChargeAmount: withTenant.serviceChargeAmount != null ? Number(withTenant.serviceChargeAmount) : undefined,
+          electricityChargeAmount: withTenant.electricityChargeAmount != null ? Number(withTenant.electricityChargeAmount) : undefined,
+          waterChargeAmount: withTenant.waterChargeAmount != null ? Number(withTenant.waterChargeAmount) : undefined,
+          trashChargeAmount: withTenant.trashChargeAmount != null ? Number(withTenant.trashChargeAmount) : undefined,
         }).then((invoiceIds) => {
           if (invoiceIds.length > 0) {
             req.log.info({ bookingId: withTenant.id, invoiceIds }, "[bookings] Auto-invoice dibuat (PUT aktifkan), mengirim WA tagihan...");
