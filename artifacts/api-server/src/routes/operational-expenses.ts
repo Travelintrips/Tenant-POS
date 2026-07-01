@@ -285,14 +285,9 @@ async function postExpenseJournal(opts: {
   try {
     const { expenseId, siteId, amount, description, paidAt, coaCode, coaName, coaAccountType } = opts;
 
+    // Gunakan company_id langsung dari mall_sites (bukan name matching yang tidak akurat)
     const companyRow = await db.execute<{ id: number }>(sql`
-      SELECT c.id FROM companies c
-      JOIN mall_sites ms ON ms.id = ${siteId}
-      WHERE LOWER(c.company_name) LIKE LOWER(CONCAT('%', SPLIT_PART(ms.name, ' ', 1), '%'))
-        OR c.id = 1
-      ORDER BY
-        CASE WHEN LOWER(c.company_name) LIKE LOWER(CONCAT('%', SPLIT_PART(ms.name, ' ', 1), '%')) THEN 0 ELSE 1 END
-      LIMIT 1
+      SELECT company_id AS id FROM mall_sites WHERE id = ${siteId} AND company_id IS NOT NULL LIMIT 1
     `).catch(() => ({ rows: [] as { id: number }[] }));
 
     const companyId: number = (companyRow as unknown as { rows: { id: number }[] }).rows?.[0]?.id ?? 1;

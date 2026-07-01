@@ -130,7 +130,8 @@ router.get("/other-income", async (req, res) => {
 async function postIncomeJournal(opts: { incomeId: number; siteId: number | null; amount: number; description: string; date: Date; coaCode: string; coaName: string }): Promise<void> {
   try {
     const { incomeId, siteId, amount, description, date, coaCode, coaName } = opts;
-    const companyRow = await db.execute<{ id: number }>(sql`SELECT c.id FROM companies c JOIN mall_sites ms ON ms.id = ${siteId} WHERE LOWER(c.company_name) LIKE LOWER(CONCAT('%', SPLIT_PART(ms.name, ' ', 1), '%')) OR c.id = 1 ORDER BY CASE WHEN LOWER(c.company_name) LIKE LOWER(CONCAT('%', SPLIT_PART(ms.name, ' ', 1), '%')) THEN 0 ELSE 1 END LIMIT 1`).catch(() => ({ rows: [] as { id: number }[] }));
+    // Gunakan company_id langsung dari mall_sites (bukan name matching yang tidak akurat)
+    const companyRow = await db.execute<{ id: number }>(sql`SELECT company_id AS id FROM mall_sites WHERE id = ${siteId} AND company_id IS NOT NULL LIMIT 1`).catch(() => ({ rows: [] as { id: number }[] }));
     const companyId: number = (companyRow as unknown as { rows: { id: number }[] }).rows?.[0]?.id ?? 1;
     const journalRow = await db.execute<{ id: number }>(sql`SELECT id FROM accounting_journals WHERE company_id = ${companyId} ORDER BY id LIMIT 1`).catch(() => ({ rows: [] as { id: number }[] }));
     const journalId: number = (journalRow as unknown as { rows: { id: number }[] }).rows?.[0]?.id ?? 1;

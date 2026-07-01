@@ -3534,6 +3534,15 @@ ALTER TABLE tenant_bookings ADD COLUMN IF NOT EXISTS trash_charge_amount NUMERIC
 });
 
 MIGRATIONS.push({
+  name: "0085_fix_accounting_entry_source_enum",
+  sql: `
+-- Tambah nilai enum yang hilang agar postExpenseJournal tidak gagal silent
+ALTER TYPE accounting_entry_source ADD VALUE IF NOT EXISTS 'operational_expense';
+ALTER TYPE accounting_entry_source ADD VALUE IF NOT EXISTS 'tenant_rent_reversal';
+  `.trim(),
+});
+
+MIGRATIONS.push({
   name: "0084_indexes_bank_recon_perf",
   sql: `
 CREATE INDEX IF NOT EXISTS idx_fpe_source_id
