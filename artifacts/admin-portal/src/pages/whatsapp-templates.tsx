@@ -11,7 +11,7 @@ import {
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
-const EXAMPLE_PAYMENT_LINK = "https://myapp.replit.app/bayar/a3f9c2b1d4e7f8...";
+const EXAMPLE_PAYMENT_LINK = "https://tenant.travelintrips.co.id/bayar/a3f9c2b1d4e7f8...";
 
 interface Template {
   key: string;
@@ -349,7 +349,7 @@ export default function WhatsAppTemplates() {
             Setiap invoice punya token unik. Link dikirim otomatis di dalam pesan WA:
           </p>
           <code className="text-xs bg-blue-100 text-blue-900 px-2 py-1 rounded block font-mono">
-            https://[nama-app].replit.app/bayar/[token-unik-invoice]
+            https://tenant.travelintrips.co.id/bayar/[token-unik-invoice]
           </code>
           <p className="text-xs text-blue-600 mt-1">
             Tenant klik link → buka halaman bayar → upload bukti transfer → admin verifikasi.
