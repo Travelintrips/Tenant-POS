@@ -1,3 +1,13 @@
+function esc(v: string | null | undefined): string {
+  if (!v) return "";
+  return v
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
 export interface DataStruk {
   noStruk: string;
   tanggal: string;
@@ -157,16 +167,16 @@ export async function cetakStrukPDF(data: DataStruk, config?: MallConfigStruk) {
   <!-- Header -->
   <div class="center logo-area">
     ${logoHtml}
-    <div class="xlarge bold">${mallName.toUpperCase()}</div>
-    ${companyName ? `<div class="small muted" style="font-size:9px;color:#666;">${companyName}</div>` : ""}
-    <div class="small muted">${tagline}</div>
+    <div class="xlarge bold">${esc(mallName).toUpperCase()}</div>
+    ${companyName ? `<div class="small muted" style="font-size:9px;color:#666;">${esc(companyName)}</div>` : ""}
+    <div class="small muted">${esc(tagline)}</div>
   </div>
 
   <hr class="divider-solid" />
 
   <div class="center" style="margin: 6px 0;">
     <div class="bold large">STRUK PEMBAYARAN</div>
-    <div class="small muted no-struk">${data.noStruk}</div>
+    <div class="small muted no-struk">${esc(data.noStruk)}</div>
   </div>
 
   <hr class="divider" />
@@ -175,22 +185,22 @@ export async function cetakStrukPDF(data: DataStruk, config?: MallConfigStruk) {
   <div class="section-title">Informasi Transaksi</div>
   <div class="row">
     <span class="label">Tanggal</span>
-    <span class="value">${data.tanggal}</span>
+    <span class="value">${esc(data.tanggal)}</span>
   </div>
   <div class="row">
     <span class="label">Jam</span>
-    <span class="value">${data.jam}</span>
+    <span class="value">${esc(data.jam)}</span>
   </div>
   <div class="row">
     <span class="label">Cabang</span>
-    <span class="value">${data.cabang}</span>
+    <span class="value">${esc(data.cabang)}</span>
   </div>
   <div class="row">
     <span class="label">Kasir</span>
-    <span class="value">${data.kasir}</span>
+    <span class="value">${esc(data.kasir)}</span>
   </div>
-  ${data.invoiceNumber ? `<div class="row"><span class="label">No. Invoice</span><span class="value">${data.invoiceNumber}</span></div>` : ""}
-  ${data.referenceNumber ? `<div class="row"><span class="label">No. Referensi</span><span class="value">${data.referenceNumber}</span></div>` : ""}
+  ${data.invoiceNumber ? `<div class="row"><span class="label">No. Invoice</span><span class="value">${esc(data.invoiceNumber)}</span></div>` : ""}
+  ${data.referenceNumber ? `<div class="row"><span class="label">No. Referensi</span><span class="value">${esc(data.referenceNumber)}</span></div>` : ""}
 
   <hr class="divider" />
 
@@ -198,19 +208,19 @@ export async function cetakStrukPDF(data: DataStruk, config?: MallConfigStruk) {
   <div class="section-title">Data Tenant</div>
   <div class="row">
     <span class="label">ID Unit</span>
-    <span class="value">${data.unitId}</span>
+    <span class="value">${esc(data.unitId)}</span>
   </div>
   <div class="row">
     <span class="label">Nama</span>
-    <span class="value">${data.penyewa}</span>
+    <span class="value">${esc(data.penyewa)}</span>
   </div>
   <div class="row">
     <span class="label">Kategori</span>
-    <span class="value">${data.kategori}</span>
+    <span class="value">${esc(data.kategori)}</span>
   </div>
   <div class="row">
     <span class="label">Luas</span>
-    <span class="value">${data.luas}</span>
+    <span class="value">${esc(data.luas)}</span>
   </div>
 
   <hr class="divider" />
@@ -219,7 +229,7 @@ export async function cetakStrukPDF(data: DataStruk, config?: MallConfigStruk) {
   <div class="section-title">Rincian Pembayaran</div>
   <div class="row">
     <span class="label">Periode</span>
-    <span class="value">${data.periodeBayar}</span>
+    <span class="value">${esc(data.periodeBayar)}</span>
   </div>
   <div class="row">
     <span class="label">Sewa/Bulan</span>
@@ -228,7 +238,7 @@ export async function cetakStrukPDF(data: DataStruk, config?: MallConfigStruk) {
   ${data.diskon && data.diskon > 0 ? `<div class="row"><span class="label">Diskon</span><span class="value" style="color:#16a34a;">- ${formatRp(data.diskon)}</span></div>` : ""}
   <div class="row">
     <span class="label">Metode</span>
-    <span class="value">${data.metodeBayar}</span>
+    <span class="value">${esc(data.metodeBayar)}</span>
   </div>
 
   <hr class="divider-solid" />
@@ -257,7 +267,7 @@ export async function cetakStrukPDF(data: DataStruk, config?: MallConfigStruk) {
   <!-- Footer -->
   <div class="footer" style="margin-top: 14px;">
     <div class="terimakasih">Terima Kasih</div>
-    ${footerNote ? `<div style="margin-bottom:4px;">${footerNote}</div>` : ""}
+    ${footerNote ? `<div style="margin-bottom:4px;">${esc(footerNote)}</div>` : ""}
     <div>Struk ini merupakan bukti pembayaran sah</div>
     <div>Simpan struk ini untuk keperluan administrasi</div>
     <div style="margin-top: 6px;">Dicetak oleh sistem pada ${data.tanggal} ${data.jam}</div>
