@@ -1287,6 +1287,8 @@ export default function TenantInvoices() {
       areaName: null,
       email: null,
       phone: null,
+      companyId: null,
+      companyName: null,
     };
 
     const cfg = await fetchInvoiceConfig(activeSiteId ?? null);
@@ -2384,6 +2386,20 @@ export default function TenantInvoices() {
               >
                 <MessageCircle className="h-4 w-4" />
                 {waSendMutation.isPending ? "Mengirim..." : detailData.status === "overdue" ? "Kirim Pengingat WA" : "Kirim Notif WA"}
+              </Button>
+            )}
+            {detailData && detailData.phone && (
+              <Button
+                variant="outline"
+                className="gap-2 border-violet-300 text-violet-700 hover:bg-violet-50 hover:text-violet-800"
+                disabled={sendingPdfId === detailData.id}
+                onClick={() => sendPdfMutation.mutate(detailData)}
+              >
+                {sendingPdfId === detailData.id
+                  ? <Loader2 className="h-4 w-4 animate-spin" />
+                  : <Send className="h-4 w-4" />
+                }
+                {sendingPdfId === detailData.id ? "Memproses PDF..." : "Kirim PDF ke WA"}
               </Button>
             )}
             {detailData && detailData.status !== "cancelled" && Number(detailData.taxAmount) === 0 && Number(detailData.subtotal) > 0 && (
