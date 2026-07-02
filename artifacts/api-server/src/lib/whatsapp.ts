@@ -193,6 +193,42 @@ async function sendMessage(phone: string, message: string): Promise<WaResult> {
   }
 }
 
+/**
+ * Kirim WA dengan lampiran file (PDF/gambar) via Fonnte.
+ * fileUrl harus publicly accessible (misal: Supabase Storage public URL).
+ */
+export async function sendWaWithFile(phone: string, message: string, fileUrl: string): Promise<WaResult> {
+  if (!FONNTE_TOKEN) {
+    return { ok: true, skipped: true };
+  }
+  try {
+    const target = phone.includes("@g.") ? phone : normalizePhone(phone);
+    const params: Record<string, string> = { target, message, url: fileUrl, delay: "2" };
+    if (FONNTE_SENDER) params.sender = FONNTE_SENDER;
+    const body = new URLSearchParams(params);
+    const res = await fetch(FONNTE_URL, {
+      method: "POST",
+      headers: { Authorization: FONNTE_TOKEN, "Content-Type": "application/x-www-form-urlencoded" },
+      body: body.toString(),
+    });
+    const data = await res.json() as Record<string, unknown>;
+    logger.info({ fonnte: data }, "[WA] Fonnte response (with file)");
+    const statusFailed = data["status"] === false || data["status"] === "false";
+    const processedFailed = data["process"] === false || data["process"] === "false";
+    const processPending = data["process"] === "pending";
+    if (!res.ok || statusFailed || processedFailed) {
+      const rawReason = String(data["reason"] ?? data["message"] ?? data["detail"] ?? "Gagal kirim WA");
+      return { ok: false, error: translateFonnteError(rawReason), response: data };
+    }
+    if (processPending) {
+      return { ok: true, pending: true, response: data };
+    }
+    return { ok: true, response: data };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
 // ─── Template Pesan ──────────────────────────────────────────────────────────
 
 export interface InvoiceNotifParams {

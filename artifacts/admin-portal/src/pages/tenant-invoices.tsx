@@ -624,6 +624,64 @@ async function viewOrPrintInvoice(inv: Invoice, mode: "view" | "print" = "print"
   }
 }
 
+async function generateInvoicePdfBlob(inv: Invoice): Promise<Blob> {
+  const [{ default: JsPDF }, { default: html2canvas }] = await Promise.all([
+    import("jspdf"),
+    import("html2canvas"),
+  ]);
+
+  const cfg = await fetchInvoiceConfig(inv.siteId);
+  const html = buildInvoiceHtml(inv, cfg);
+
+  const iframe = document.createElement("iframe");
+  iframe.style.cssText =
+    "position:fixed;top:-99999px;left:-99999px;width:800px;height:1px;border:none;opacity:0;pointer-events:none;";
+  document.body.appendChild(iframe);
+
+  try {
+    const idoc = iframe.contentDocument!;
+    idoc.open();
+    idoc.write(html);
+    idoc.close();
+
+    await new Promise<void>((resolve) => setTimeout(resolve, 700));
+
+    const body = idoc.body;
+    body.style.overflow = "visible";
+    body.style.height = "auto";
+
+    const canvas = await html2canvas(body, {
+      scale: 2,
+      useCORS: true,
+      allowTaint: false,
+      backgroundColor: "#ffffff",
+      windowWidth: 800,
+      logging: false,
+      imageTimeout: 6000,
+    });
+
+    const imgData = canvas.toDataURL("image/jpeg", 0.92);
+    const pdf = new JsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+    const pdfW = pdf.internal.pageSize.getWidth();
+    const pdfH = pdf.internal.pageSize.getHeight();
+    const imgH = (canvas.height * pdfW) / canvas.width;
+
+    pdf.addImage(imgData, "JPEG", 0, 0, pdfW, imgH);
+    let heightLeft = imgH - pdfH;
+    let page = 1;
+    while (heightLeft > 0) {
+      pdf.addPage();
+      pdf.addImage(imgData, "JPEG", 0, -(pdfH * page), pdfW, imgH);
+      heightLeft -= pdfH;
+      page++;
+    }
+
+    return pdf.output("blob");
+  } finally {
+    document.body.removeChild(iframe);
+  }
+}
+
 async function downloadInvoicePdf(
   inv: Invoice,
   onStart: () => void,
@@ -631,61 +689,13 @@ async function downloadInvoicePdf(
 ): Promise<void> {
   onStart();
   try {
-    const [{ default: JsPDF }, { default: html2canvas }] = await Promise.all([
-      import("jspdf"),
-      import("html2canvas"),
-    ]);
-
-    const cfg = await fetchInvoiceConfig(inv.siteId);
-    const html = buildInvoiceHtml(inv, cfg);
-
-    const iframe = document.createElement("iframe");
-    iframe.style.cssText =
-      "position:fixed;top:-99999px;left:-99999px;width:800px;height:1px;border:none;opacity:0;pointer-events:none;";
-    document.body.appendChild(iframe);
-
-    try {
-      const idoc = iframe.contentDocument!;
-      idoc.open();
-      idoc.write(html);
-      idoc.close();
-
-      await new Promise<void>((resolve) => setTimeout(resolve, 700));
-
-      const body = idoc.body;
-      body.style.overflow = "visible";
-      body.style.height = "auto";
-
-      const canvas = await html2canvas(body, {
-        scale: 2,
-        useCORS: true,
-        allowTaint: false,
-        backgroundColor: "#ffffff",
-        windowWidth: 800,
-        logging: false,
-        imageTimeout: 6000,
-      });
-
-      const imgData = canvas.toDataURL("image/jpeg", 0.92);
-      const pdf = new JsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
-      const pdfW = pdf.internal.pageSize.getWidth();
-      const pdfH = pdf.internal.pageSize.getHeight();
-      const imgH = (canvas.height * pdfW) / canvas.width;
-
-      pdf.addImage(imgData, "JPEG", 0, 0, pdfW, imgH);
-      let heightLeft = imgH - pdfH;
-      let page = 1;
-      while (heightLeft > 0) {
-        pdf.addPage();
-        pdf.addImage(imgData, "JPEG", 0, -(pdfH * page), pdfW, imgH);
-        heightLeft -= pdfH;
-        page++;
-      }
-
-      pdf.save(`${inv.invoiceNumber}.pdf`);
-    } finally {
-      document.body.removeChild(iframe);
-    }
+    const blob = await generateInvoicePdfBlob(inv);
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${inv.invoiceNumber}.pdf`;
+    a.click();
+    URL.revokeObjectURL(url);
   } finally {
     onEnd();
   }
@@ -828,6 +838,7 @@ export default function TenantInvoices() {
   const [sendingLinkId, setSendingLinkId] = useState<number | null>(null);
   const [copyingLinkId, setCopyingLinkId] = useState<number | null>(null);
   const [downloadingId, setDownloadingId] = useState<number | null>(null);
+  const [sendingPdfId, setSendingPdfId] = useState<number | null>(null);
   const [paymentLinkDialog, setPaymentLinkDialog] = useState<{ link: string; error?: string; mode: "manual" | "wa-failed" } | null>(null);
   const [linkCopied, setLinkCopied] = useState(false);
 
@@ -1048,6 +1059,32 @@ export default function TenantInvoices() {
       }
     },
     onError: (e: Error) => toast({ title: "Gagal Kirim WA", description: e.message, variant: "destructive" }),
+  });
+
+  const sendPdfMutation = useMutation({
+    mutationFn: async (inv: Invoice) => {
+      setSendingPdfId(inv.id);
+      const blob = await generateInvoicePdfBlob(inv);
+      const formData = new FormData();
+      formData.append("pdf", blob, `${inv.invoiceNumber}.pdf`);
+      const res = await fetch(`${BASE}/api/tenant-invoices/${inv.id}/send-pdf`, {
+        method: "POST",
+        credentials: "include",
+        body: formData,
+      });
+      const data = await res.json() as { ok: boolean; skipped?: boolean; message?: string; error?: string; pdfUrl?: string };
+      if (!res.ok) throw new Error(data.error ?? "Gagal kirim PDF");
+      return data;
+    },
+    onSettled: () => setSendingPdfId(null),
+    onSuccess: (res) => {
+      if (res.skipped) {
+        toast({ title: "PDF Digenerate", description: "FONNTE belum dikonfigurasi — PDF berhasil dibuat namun WA tidak terkirim.", variant: "destructive" });
+      } else {
+        toast({ title: "Invoice PDF Terkirim! 📄", description: res.message });
+      }
+    },
+    onError: (e: Error) => toast({ title: "Gagal Kirim PDF", description: e.message, variant: "destructive" }),
   });
 
   const sendLinkMutation = useMutation({
@@ -1825,6 +1862,20 @@ export default function TenantInvoices() {
                               : <Download className="h-3.5 w-3.5" />
                             }
                           </Button>
+                          {inv.phone && (
+                            <Button
+                              size="sm" variant="ghost"
+                              className="h-7 w-7 p-0 text-violet-600 hover:text-violet-700"
+                              title="Kirim Invoice PDF ke WhatsApp tenant"
+                              disabled={sendingPdfId === inv.id}
+                              onClick={() => sendPdfMutation.mutate(inv)}
+                            >
+                              {sendingPdfId === inv.id
+                                ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                : <Send className="h-3.5 w-3.5" />
+                              }
+                            </Button>
+                          )}
                           <Button size="sm" variant="ghost" className="h-7 w-7 p-0" title="Print" onClick={() => { void viewOrPrintInvoice(inv, "print"); }}>
                             <Printer className="h-3.5 w-3.5" />
                           </Button>

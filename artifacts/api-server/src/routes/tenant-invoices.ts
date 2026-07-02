@@ -14,8 +14,12 @@ import { requireAnyRole } from "../middlewares/auth";
 import { logAudit } from "../lib/audit";
 import { getBaseUrl } from "../lib/app-url";
 import { writePaymentEvent, normalizePaymentMethod } from "../lib/payment-events";
-import { sendInvoiceNotification, sendPaymentConfirmation, sendAdminPosPaymentAlert, notifyAdminGroup, getSiteCompanyName, getAdminNotifyPhones } from "../lib/whatsapp";
+import { sendInvoiceNotification, sendPaymentConfirmation, sendAdminPosPaymentAlert, notifyAdminGroup, getSiteCompanyName, getAdminNotifyPhones, sendWaWithFile } from "../lib/whatsapp";
+import { uploadToStorage } from "../lib/supabase-storage";
 import { postTenantPaymentAccountingEntry } from "../lib/accounting-entry";
+import multer from "multer";
+
+const uploadPdfMemory = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
 
 const router: IRouter = Router();
 router.use("/tenant-invoices", requireAnyRole("owner", "admin", "finance"));
@@ -1431,6 +1435,75 @@ router.get("/tenant-invoices/export", async (req, res) => {
   } catch (err) {
     req.log.error(err, "Failed to export invoices");
     res.status(500).json({ error: "Gagal mengekspor data invoice" });
+  }
+});
+
+// ─── POST /api/tenant-invoices/:id/send-pdf ──────────────────────────────────
+router.post("/tenant-invoices/:id/send-pdf", uploadPdfMemory.single("pdf"), async (req, res) => {
+  const id = Number(req.params.id);
+  if (isNaN(id)) { res.status(400).json({ error: "ID tidak valid" }); return; }
+  if (!req.file) { res.status(400).json({ error: "File PDF wajib disertakan" }); return; }
+
+  try {
+    const [invoice] = await db
+      .select({
+        id: tenantInvoicesTable.id,
+        invoiceNumber: tenantInvoicesTable.invoiceNumber,
+        tenantId: tenantInvoicesTable.tenantId,
+        siteId: tenantInvoicesTable.siteId,
+        totalAmount: tenantInvoicesTable.totalAmount,
+        dueDate: tenantInvoicesTable.dueDate,
+        ownerName: tenantsTable.ownerName,
+        businessName: tenantsTable.businessName,
+        phone: tenantsTable.phone,
+      })
+      .from(tenantInvoicesTable)
+      .innerJoin(tenantsTable, eq(tenantInvoicesTable.tenantId, tenantsTable.id))
+      .where(eq(tenantInvoicesTable.id, id));
+
+    if (!invoice) { res.status(404).json({ error: "Invoice tidak ditemukan" }); return; }
+    if (!invoice.phone) { res.status(400).json({ error: "Nomor HP tenant tidak terdaftar" }); return; }
+
+    const filename = `invoice-${invoice.invoiceNumber}-${Date.now()}.pdf`;
+    const publicUrl = await uploadToStorage("invoice-pdfs", filename, req.file.buffer, "application/pdf", true);
+
+    const companyName = await getSiteCompanyName(invoice.siteId ?? req.siteId);
+    const totalStr = "Rp " + Number(invoice.totalAmount).toLocaleString("id-ID");
+    const dueStr = invoice.dueDate
+      ? new Date(invoice.dueDate).toLocaleDateString("id-ID", { day: "numeric", month: "long", year: "numeric" })
+      : "-";
+
+    const message = [
+      `📄 *Invoice ${invoice.invoiceNumber}*`,
+      ``,
+      `Yth. ${invoice.ownerName ?? invoice.businessName},`,
+      ``,
+      `Berikut kami kirimkan invoice tagihan sewa untuk *${invoice.businessName}*.`,
+      ``,
+      `📅 Jatuh Tempo: ${dueStr}`,
+      `💰 Total Tagihan: *${totalStr}*`,
+      ``,
+      `Silakan buka file PDF terlampir untuk detail lengkap invoice.`,
+      ``,
+      `Hormat kami,`,
+      companyName,
+    ].join("\n");
+
+    const result = await sendWaWithFile(invoice.phone, message, publicUrl);
+
+    if (result.skipped) {
+      res.json({ ok: true, skipped: true, pdfUrl: publicUrl, message: "FONNTE_TOKEN belum dikonfigurasi. PDF berhasil diupload namun WA tidak terkirim." });
+      return;
+    }
+    if (!result.ok) {
+      res.json({ ok: false, error: result.error ?? "Gagal kirim WA", pdfUrl: publicUrl });
+      return;
+    }
+
+    res.json({ ok: true, message: `Invoice PDF berhasil dikirim ke WhatsApp ${invoice.phone}`, pdfUrl: publicUrl });
+  } catch (err) {
+    req.log.error(err, "[send-pdf] Gagal kirim invoice PDF");
+    res.status(500).json({ error: "Terjadi kesalahan server" });
   }
 });
 
