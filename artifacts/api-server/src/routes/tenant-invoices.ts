@@ -208,6 +208,7 @@ const invoiceSelect = {
   status: tenantInvoicesTable.status,
   notes: tenantInvoicesTable.notes,
   paymentToken: tenantInvoicesTable.paymentToken,
+  invoiceNotifiedAt: tenantInvoicesTable.invoiceNotifiedAt,
   createdAt: tenantInvoicesTable.createdAt,
   updatedAt: tenantInvoicesTable.updatedAt,
   tenantName: tenantsTable.businessName,

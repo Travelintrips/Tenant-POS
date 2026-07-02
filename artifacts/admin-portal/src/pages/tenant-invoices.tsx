@@ -62,6 +62,7 @@ type Invoice = {
   outstandingAmount: string;
   status: InvoiceStatus;
   notes: string | null;
+  invoiceNotifiedAt: string | null;
   createdAt: string;
   updatedAt: string;
   tenantName: string | null;
@@ -1903,6 +1904,7 @@ export default function TenantInvoices() {
                   <TableHead className="min-w-[110px]">Terbayar</TableHead>
                   <TableHead className="min-w-[110px]">Sisa</TableHead>
                   <TableHead>Status</TableHead>
+                  <TableHead className="min-w-[120px]">WA Dikirim</TableHead>
                   <TableHead className="w-[220px] text-right">Aksi</TableHead>
                 </TableRow>
               </TableHeader>
@@ -1910,7 +1912,7 @@ export default function TenantInvoices() {
                 {isLoading
                   ? Array.from({ length: 4 }).map((_, i) => (
                     <TableRow key={i}>
-                      {Array.from({ length: 11 }).map((_, j) => (
+                      {Array.from({ length: 12 }).map((_, j) => (
                         <TableCell key={j}><Skeleton className="h-4 w-full" /></TableCell>
                       ))}
                     </TableRow>
@@ -1918,7 +1920,7 @@ export default function TenantInvoices() {
                   : filteredInvoices.length === 0
                   ? (
                     <TableRow>
-                      <TableCell colSpan={11} className="text-center py-10 text-muted-foreground">
+                      <TableCell colSpan={12} className="text-center py-10 text-muted-foreground">
                         <FileText className="h-10 w-10 mx-auto mb-2 opacity-20" />
                         {filterDueDate !== "all"
                           ? <p>Tidak ada invoice untuk filter tanggal ini.</p>
@@ -1958,6 +1960,19 @@ export default function TenantInvoices() {
                           {STATUS_ICON[inv.status]}
                           {STATUS_LABEL[inv.status]}
                         </span>
+                      </TableCell>
+                      <TableCell className="text-xs">
+                        {inv.invoiceNotifiedAt ? (
+                          <span className="inline-flex items-center gap-1 text-green-700" title={`WA terkirim: ${new Date(inv.invoiceNotifiedAt).toLocaleString("id-ID")}`}>
+                            <CheckCheck className="h-3.5 w-3.5 flex-shrink-0" />
+                            {new Date(inv.invoiceNotifiedAt).toLocaleDateString("id-ID", { day: "numeric", month: "short", year: "numeric" })}
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 text-muted-foreground">
+                            <MessageCircle className="h-3.5 w-3.5 flex-shrink-0" />
+                            Belum
+                          </span>
+                        )}
                       </TableCell>
                       <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
                         <div className="flex items-center justify-end gap-1 flex-wrap">
