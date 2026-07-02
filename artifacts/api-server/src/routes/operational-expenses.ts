@@ -5,6 +5,7 @@ import { eq, and, gte, lte, sql, desc } from "drizzle-orm";
 import { z } from "zod";
 import { logAudit } from "../lib/audit";
 import { requireAnyRole } from "../middlewares/auth";
+import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
 
@@ -102,7 +103,7 @@ router.get("/operational-expenses/coa-accounts", async (req, res) => {
 
     res.json({ success: true, data: result });
   } catch (err) {
-    console.error("[GET /operational-expenses/coa-accounts]", err);
+    logger.error({ err: err }, "[GET /operational-expenses/coa-accounts]");
     res.status(500).json({ error: "Gagal mengambil daftar akun COA" });
   }
 });
@@ -164,7 +165,7 @@ router.get("/operational-expenses/monthly-summary", async (req, res) => {
 
     res.json({ success: true, year, months, categoryTotals });
   } catch (err) {
-    console.error("[GET /operational-expenses/monthly-summary]", err);
+    logger.error({ err: err }, "[GET /operational-expenses/monthly-summary]");
     res.status(500).json({ error: "Gagal mengambil ringkasan bulanan" });
   }
 });
@@ -252,7 +253,7 @@ router.get("/operational-expenses", async (req, res) => {
       },
     });
   } catch (err) {
-    console.error("[GET /operational-expenses]", err);
+    logger.error({ err: err }, "[GET /operational-expenses]");
     res.status(500).json({ error: "Gagal mengambil data pengeluaran" });
   }
 });
@@ -284,14 +285,9 @@ async function postExpenseJournal(opts: {
   try {
     const { expenseId, siteId, amount, description, paidAt, coaCode, coaName, coaAccountType } = opts;
 
+    // Gunakan company_id langsung dari mall_sites (bukan name matching yang tidak akurat)
     const companyRow = await db.execute<{ id: number }>(sql`
-      SELECT c.id FROM companies c
-      JOIN mall_sites ms ON ms.id = ${siteId}
-      WHERE LOWER(c.company_name) LIKE LOWER(CONCAT('%', SPLIT_PART(ms.name, ' ', 1), '%'))
-        OR c.id = 1
-      ORDER BY
-        CASE WHEN LOWER(c.company_name) LIKE LOWER(CONCAT('%', SPLIT_PART(ms.name, ' ', 1), '%')) THEN 0 ELSE 1 END
-      LIMIT 1
+      SELECT company_id AS id FROM mall_sites WHERE id = ${siteId} AND company_id IS NOT NULL LIMIT 1
     `).catch(() => ({ rows: [] as { id: number }[] }));
 
     const companyId: number = (companyRow as unknown as { rows: { id: number }[] }).rows?.[0]?.id ?? 1;
@@ -350,10 +346,10 @@ async function postExpenseJournal(opts: {
       VALUES
         (${entryId}, ${debitAccountId}, ${debitName}, ${amount}, 0, NOW()),
         (${entryId}, ${creditAccountId}, ${creditName}, 0, ${amount}, NOW())
-    `).catch((e) => console.warn("[postExpenseJournal] entry lines failed:", e));
+    `).catch((e) => logger.warn({ e }, "[postExpenseJournal] entry lines failed:"));
 
   } catch (err) {
-    console.warn("[postExpenseJournal] Jurnal tidak terposting:", err);
+    logger.warn({ err: err }, "[postExpenseJournal] Jurnal tidak terposting:");
   }
 }
 
@@ -428,13 +424,13 @@ router.post("/operational-expenses", requireAnyRole("owner", "admin", "finance")
 
     res.status(201).json({ success: true, data: row });
   } catch (err) {
-    console.error("[POST /operational-expenses]", err);
+    logger.error({ err: err }, "[POST /operational-expenses]");
     res.status(500).json({ error: "Gagal mencatat pengeluaran" });
   }
 });
 
 // ─── PATCH /api/operational-expenses/:id ──────────────────────────────────────
-router.patch("/operational-expenses/:id", async (req, res) => {
+router.patch("/operational-expenses/:id", requireAnyRole("owner", "admin", "finance"), async (req, res) => {
   const id = parseInt(String(req.params.id), 10);
   if (isNaN(id)) { res.status(400).json({ error: "ID tidak valid" }); return; }
 
@@ -486,7 +482,7 @@ router.patch("/operational-expenses/:id", async (req, res) => {
 
     res.json({ success: true, data: updated });
   } catch (err) {
-    console.error("[PATCH /operational-expenses/:id]", err);
+    logger.error({ err: err }, "[PATCH /operational-expenses/:id]");
     res.status(500).json({ error: "Gagal mengupdate pengeluaran" });
   }
 });
@@ -515,7 +511,7 @@ router.delete("/operational-expenses/:id", requireAnyRole("owner", "admin", "fin
 
     res.json({ success: true, message: "Pengeluaran berhasil dihapus" });
   } catch (err) {
-    console.error("[DELETE /operational-expenses/:id]", err);
+    logger.error({ err: err }, "[DELETE /operational-expenses/:id]");
     res.status(500).json({ error: "Gagal menghapus pengeluaran" });
   }
 });

@@ -1,5 +1,5 @@
 import { apiFetch } from "@/lib/api";
-import { useState, useMemo, useRef } from "react";
+import { useState, useMemo, useRef, useEffect, useCallback } from "react";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
@@ -19,9 +19,11 @@ import {
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, Pencil, AlertTriangle, Clock, Search, Upload, FileText, ExternalLink, X, Building2, Dumbbell, Trash2 } from "lucide-react";
+import { Plus, Pencil, AlertTriangle, Clock, Search, Upload, FileText, ExternalLink, X, Building2, Dumbbell, Trash2, ChevronsUpDown, Check, Download, FileSpreadsheet, Ban } from "lucide-react";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
@@ -49,7 +51,18 @@ type ContractStatus = "draft" | "active" | "expiring_soon" | "expired" | "termin
 type PaymentStatus = "unpaid" | "partial" | "paid" | "overdue" | "UNPAID" | "PARTIAL" | "PAID" | "OVERDUE";
 type BillingCycle = "monthly" | "quarterly" | "yearly" | "custom";
 
-type Tenant = { id: number; businessName: string; boothNumber: string | null; areaName: string };
+type Tenant = {
+  id: number;
+  businessName: string;
+  boothNumber: string | null;
+  areaName: string;
+  defaultRentAmount: string | null;
+  defaultServiceChargeAmount: string | null;
+  defaultElectricityChargeAmount: string | null;
+  defaultWaterChargeAmount: string | null;
+  defaultOtherChargeAmount: string | null;
+  defaultTrashChargeAmount: string | null;
+};
 
 type BookingWithTenant = {
   id: number;
@@ -96,6 +109,7 @@ type BookingForm = {
   serviceChargeAmount: string;
   electricityChargeAmount: string;
   waterChargeAmount: string;
+  trashChargeAmount: string;
   totalAmount: string;
   paidAmount: string;
   contractStatus: ContractStatus;
@@ -119,6 +133,7 @@ const EMPTY_FORM: BookingForm = {
   serviceChargeAmount: "",
   electricityChargeAmount: "",
   waterChargeAmount: "",
+  trashChargeAmount: "",
   totalAmount: "",
   paidAmount: "0",
   contractStatus: "draft",
@@ -209,14 +224,31 @@ function isLocalUpload(url: string): boolean {
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
-async function fetchBookings(): Promise<BookingWithTenant[]> {
-  const res = await apiFetch(`${BASE}/api/bookings`, { credentials: "include" });
+function makeSiteHeaders(siteId: number | null): Record<string, string> {
+  if (siteId === 0) return { "x-site-code": "ALL" };
+  if (siteId) return { "x-site-id": String(siteId) };
+  return {};
+}
+
+function siteUrl(base: string, siteId: number | null): string {
+  if (siteId === null) return base;
+  return `${base}?_s=${siteId}`;
+}
+
+async function fetchBookings(siteId: number | null): Promise<BookingWithTenant[]> {
+  const res = await fetch(siteUrl(`${BASE}/api/bookings`, siteId), {
+    credentials: "include",
+    headers: { ...makeSiteHeaders(siteId), "Cache-Control": "no-cache" },
+  });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json() as Promise<BookingWithTenant[]>;
 }
 
-async function fetchTenants(): Promise<Tenant[]> {
-  const res = await apiFetch(`${BASE}/api/tenants`, { credentials: "include" });
+async function fetchTenants(siteId: number | null): Promise<Tenant[]> {
+  const res = await fetch(siteUrl(`${BASE}/api/tenants`, siteId), {
+    credentials: "include",
+    headers: { ...makeSiteHeaders(siteId), "Cache-Control": "no-cache" },
+  });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json() as Promise<Tenant[]>;
 }
@@ -281,6 +313,7 @@ export default function BookingTenant() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<BookingWithTenant | null>(null);
   const [form, setForm] = useState<BookingForm>(EMPTY_FORM);
+  const [tenantComboOpen, setTenantComboOpen] = useState(false);
   const [filterContract, setFilterContract] = useState("all");
   const [filterPayment, setFilterPayment] = useState("all");
   const [filterFloor, setFilterFloor] = useState("");
@@ -289,18 +322,36 @@ export default function BookingTenant() {
   const [docFile, setDocFile] = useState<File | null>(null);
   const [isUploadingDoc, setIsUploadingDoc] = useState(false);
 
+  useEffect(() => {
+    if (dialogOpen && !editTarget) {
+      apiFetch(`${BASE}/api/bookings/next-contract-number`)
+        .then(async (resp) => {
+          if (!resp.ok) return;
+          const data = await resp.json() as { contractNumber: string };
+          setForm(f => ({ ...f, contractNumber: f.contractNumber || data.contractNumber }));
+        })
+        .catch(() => {});
+    }
+  }, [dialogOpen, editTarget]);
+
+  const activeSiteId = activeSite === null ? null : activeSite.code === "ALL" ? 0 : activeSite.id;
+
   const { data: bookings, isLoading, isError } = useQuery<BookingWithTenant[]>({
-    queryKey: ["/api/bookings"],
-    queryFn: fetchBookings,
+    queryKey: ["/api/bookings", activeSiteId],
+    queryFn: () => fetchBookings(activeSiteId),
     refetchInterval: 30000,
+    enabled: activeSiteId !== null,
   });
 
   const { data: tenants } = useQuery<Tenant[]>({
-    queryKey: ["/api/tenants"],
-    queryFn: fetchTenants,
+    queryKey: ["/api/tenants", activeSiteId],
+    queryFn: () => fetchTenants(activeSiteId),
+    enabled: activeSiteId !== null,
   });
 
   const [deleteTarget, setDeleteTarget] = useState<BookingWithTenant | null>(null);
+  const [terminateTarget, setTerminateTarget] = useState<BookingWithTenant | null>(null);
+  const [terminateReason, setTerminateReason] = useState("");
 
   const createMutation = useMutation({
     mutationFn: createBooking,
@@ -331,6 +382,32 @@ export default function BookingTenant() {
     onError: (e: Error) => {
       toast({ title: "Gagal Menghapus", description: e.message, variant: "destructive" });
       setDeleteTarget(null);
+    },
+  });
+
+  const terminateMutation = useMutation({
+    mutationFn: async ({ id, reason }: { id: number; reason: string }) => {
+      const res = await apiFetch(`${BASE}/api/bookings/${id}/terminate`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reason }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error((err as { error?: string }).error ?? "Gagal mengakhiri kontrak");
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["/api/bookings"] });
+      void queryClient.invalidateQueries({ queryKey: ["/api/tenant-pos"] });
+      toast({ title: "Berhasil", description: "Kontrak berhasil diakhiri." });
+      setTerminateTarget(null);
+      setTerminateReason("");
+    },
+    onError: (e: Error) => {
+      toast({ title: "Gagal Mengakhiri Kontrak", description: e.message, variant: "destructive" });
     },
   });
 
@@ -367,6 +444,7 @@ export default function BookingTenant() {
       serviceChargeAmount: b.serviceChargeAmount ?? "",
       electricityChargeAmount: b.electricityChargeAmount ?? "",
       waterChargeAmount: b.waterChargeAmount ?? "",
+      trashChargeAmount: (b as BookingWithTenant & { trashChargeAmount?: string | null }).trashChargeAmount ?? "",
       totalAmount: b.totalAmount,
       paidAmount: b.paidAmount,
       contractStatus: b.contractStatus,
@@ -405,6 +483,10 @@ export default function BookingTenant() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (!editTarget && !form.tenantId) {
+      toast({ title: "Validasi Gagal", description: "Pilih tenant terlebih dahulu.", variant: "destructive" });
+      return;
+    }
     if (!form.startDate || !form.endDate) {
       toast({ title: "Validasi Gagal", description: "Tanggal mulai dan selesai wajib diisi.", variant: "destructive" });
       return;
@@ -431,6 +513,7 @@ export default function BookingTenant() {
     const totalComputed = [
       form.rentAmount, form.serviceChargeAmount,
       form.electricityChargeAmount, form.waterChargeAmount,
+      form.trashChargeAmount,
     ].reduce((sum, v) => sum + Number(v || 0), 0);
 
     const totalAmount = form.totalAmount ? Number(form.totalAmount) : totalComputed;
@@ -449,6 +532,7 @@ export default function BookingTenant() {
       serviceChargeAmount: form.serviceChargeAmount ? String(form.serviceChargeAmount) : null,
       electricityChargeAmount: form.electricityChargeAmount ? String(form.electricityChargeAmount) : null,
       waterChargeAmount: form.waterChargeAmount ? String(form.waterChargeAmount) : null,
+      trashChargeAmount: form.trashChargeAmount ? String(form.trashChargeAmount) : null,
       totalAmount: String(totalAmount),
       paidAmount: String(paidAmount),
       remainingAmount: String(Math.max(0, totalAmount - paidAmount)),
@@ -499,6 +583,175 @@ export default function BookingTenant() {
   const totalSisa = totalTagihan - totalTerbayar;
   const jumlahAktif = (bookings ?? []).filter(b => b.contractStatus === "active" || b.contractStatus === "expiring_soon").length;
   const siteCfg = activeSite ? (SITE_TYPE_CONFIG[activeSite.type] ?? null) : null;
+
+  const CONTRACT_STATUS_LABEL: Record<string, string> = {
+    draft: "Draft", active: "Aktif", expiring_soon: "Segera Habis",
+    expired: "Kadaluarsa", terminated: "Diakhiri",
+  };
+  const PAYMENT_STATUS_LABEL: Record<string, string> = {
+    unpaid: "Belum Bayar", partial: "Sebagian", paid: "Lunas", overdue: "Jatuh Tempo",
+  };
+
+  const exportToExcel = useCallback(async () => {
+    const ExcelJS = (await import("exceljs")).default;
+    const wb = new ExcelJS.Workbook();
+    wb.creator = "Mall Admin Portal";
+    const ws = wb.addWorksheet("Daftar Kontrak");
+
+    const siteName = activeSite?.name ?? "Semua Site";
+    const now = new Date().toLocaleDateString("id-ID", { day: "2-digit", month: "long", year: "numeric" });
+
+    ws.mergeCells("A1:K1");
+    const titleCell = ws.getCell("A1");
+    titleCell.value = `Daftar Kontrak Sewa Tenant — ${siteName}`;
+    titleCell.font = { bold: true, size: 13 };
+    titleCell.alignment = { horizontal: "center" };
+
+    ws.mergeCells("A2:K2");
+    const subCell = ws.getCell("A2");
+    subCell.value = `Dicetak: ${now}  |  Total: ${filtered.length} kontrak`;
+    subCell.alignment = { horizontal: "center" };
+    subCell.font = { color: { argb: "FF666666" }, size: 10 };
+
+    ws.addRow([]);
+
+    const headers = [
+      "No. Kontrak", "Nama Tenant", "Kode Unit", "Lantai",
+      "Tgl Mulai", "Tgl Selesai", "Harga Sewa (Rp)",
+      "Total Tagihan (Rp)", "Terbayar (Rp)", "Sisa (Rp)",
+      "Status Kontrak", "Status Pembayaran",
+    ];
+    const headerRow = ws.addRow(headers);
+    headerRow.eachCell((cell) => {
+      cell.font = { bold: true, color: { argb: "FFFFFFFF" } };
+      cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF2563EB" } };
+      cell.alignment = { horizontal: "center" };
+      cell.border = {
+        bottom: { style: "thin", color: { argb: "FF1D4ED8" } },
+      };
+    });
+
+    ws.columns = [
+      { key: "c0", width: 18 }, { key: "c1", width: 24 }, { key: "c2", width: 16 },
+      { key: "c3", width: 10 }, { key: "c4", width: 14 }, { key: "c5", width: 14 },
+      { key: "c6", width: 18 }, { key: "c7", width: 18 }, { key: "c8", width: 18 },
+      { key: "c9", width: 18 }, { key: "c10", width: 16 }, { key: "c11", width: 18 },
+    ];
+
+    filtered.forEach((b, idx) => {
+      const sisa = Math.max(0, Number(b.totalAmount) - Number(b.paidAmount));
+      const row = ws.addRow([
+        b.contractNumber || b.orderNumber,
+        b.tenantName ?? "",
+        b.unitCode ?? "",
+        b.floor ?? "",
+        b.startDate ? new Date(b.startDate).toLocaleDateString("id-ID") : "",
+        b.endDate   ? new Date(b.endDate).toLocaleDateString("id-ID")   : "",
+        Number(b.rentAmount ?? 0),
+        Number(b.totalAmount),
+        Number(b.paidAmount),
+        sisa,
+        CONTRACT_STATUS_LABEL[b.contractStatus] ?? b.contractStatus,
+        PAYMENT_STATUS_LABEL[b.paymentStatus]   ?? b.paymentStatus,
+      ]);
+      row.getCell(7).numFmt  = '#,##0';
+      row.getCell(8).numFmt  = '#,##0';
+      row.getCell(9).numFmt  = '#,##0';
+      row.getCell(10).numFmt = '#,##0';
+      if (idx % 2 === 0) {
+        row.eachCell((cell) => {
+          cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF0F4FF" } };
+        });
+      }
+    });
+
+    // Summary row
+    ws.addRow([]);
+    const sumRow = ws.addRow([
+      "TOTAL", "", "", "", "", "",
+      filtered.reduce((s, b) => s + Number(b.rentAmount ?? 0), 0),
+      filtered.reduce((s, b) => s + Number(b.totalAmount), 0),
+      filtered.reduce((s, b) => s + Number(b.paidAmount), 0),
+      filtered.reduce((s, b) => s + Math.max(0, Number(b.totalAmount) - Number(b.paidAmount)), 0),
+    ]);
+    sumRow.eachCell((cell) => {
+      cell.font = { bold: true };
+      cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFDBEAFE" } };
+    });
+    sumRow.getCell(7).numFmt  = '#,##0';
+    sumRow.getCell(8).numFmt  = '#,##0';
+    sumRow.getCell(9).numFmt  = '#,##0';
+    sumRow.getCell(10).numFmt = '#,##0';
+
+    const buf = await wb.xlsx.writeBuffer();
+    const blob = new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `kontrak-sewa-${siteName.replace(/\s+/g, "-").toLowerCase()}-${new Date().toISOString().slice(0,10)}.xlsx`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }, [filtered, activeSite]);
+
+  const exportToPDF = useCallback(async () => {
+    const { default: jsPDF } = await import("jspdf");
+    const { default: autoTable } = await import("jspdf-autotable");
+    const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
+
+    const siteName = activeSite?.name ?? "Semua Site";
+    const now = new Date().toLocaleDateString("id-ID", { day: "2-digit", month: "long", year: "numeric" });
+
+    doc.setFontSize(14);
+    doc.setFont("helvetica", "bold");
+    doc.text(`Daftar Kontrak Sewa Tenant — ${siteName}`, 14, 16);
+    doc.setFontSize(9);
+    doc.setFont("helvetica", "normal");
+    doc.text(`Dicetak: ${now}  |  Total: ${filtered.length} kontrak`, 14, 22);
+
+    const fmt = (n: number) => n.toLocaleString("id-ID");
+
+    autoTable(doc, {
+      startY: 27,
+      head: [[
+        "No. Kontrak", "Tenant", "Unit", "Lantai",
+        "Tgl Mulai", "Tgl Selesai",
+        "Harga Sewa", "Total Tagihan", "Terbayar", "Sisa",
+        "Kontrak", "Pembayaran",
+      ]],
+      body: filtered.map((b) => [
+        b.contractNumber || b.orderNumber,
+        b.tenantName ?? "",
+        b.unitCode ?? "",
+        b.floor ?? "",
+        b.startDate ? new Date(b.startDate).toLocaleDateString("id-ID") : "",
+        b.endDate   ? new Date(b.endDate).toLocaleDateString("id-ID")   : "",
+        fmt(Number(b.rentAmount ?? 0)),
+        fmt(Number(b.totalAmount)),
+        fmt(Number(b.paidAmount)),
+        fmt(Math.max(0, Number(b.totalAmount) - Number(b.paidAmount))),
+        CONTRACT_STATUS_LABEL[b.contractStatus] ?? b.contractStatus,
+        PAYMENT_STATUS_LABEL[b.paymentStatus]   ?? b.paymentStatus,
+      ]),
+      foot: [[
+        "TOTAL", "", "", "", "", "",
+        fmt(filtered.reduce((s, b) => s + Number(b.rentAmount ?? 0), 0)),
+        fmt(filtered.reduce((s, b) => s + Number(b.totalAmount), 0)),
+        fmt(filtered.reduce((s, b) => s + Number(b.paidAmount), 0)),
+        fmt(filtered.reduce((s, b) => s + Math.max(0, Number(b.totalAmount) - Number(b.paidAmount)), 0)),
+        "", "",
+      ]],
+      headStyles: { fillColor: [37, 99, 235], textColor: 255, fontStyle: "bold", fontSize: 7.5 },
+      footStyles: { fillColor: [219, 234, 254], textColor: 30, fontStyle: "bold" },
+      alternateRowStyles: { fillColor: [240, 244, 255] },
+      styles: { fontSize: 7, cellPadding: 2 },
+      columnStyles: {
+        6: { halign: "right" }, 7: { halign: "right" },
+        8: { halign: "right" }, 9: { halign: "right" },
+      },
+    });
+
+    doc.save(`kontrak-sewa-${siteName.replace(/\s+/g, "-").toLowerCase()}-${new Date().toISOString().slice(0,10)}.pdf`);
+  }, [filtered, activeSite]);
 
   return (
     <div className="flex flex-col gap-6">
@@ -615,6 +868,30 @@ export default function BookingTenant() {
                 value={filterFloor}
                 onChange={(e) => setFilterFloor(e.target.value)}
               />
+              <div className="ml-auto flex gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-9 gap-1.5 text-green-700 border-green-300 hover:bg-green-50"
+                  onClick={() => void exportToExcel()}
+                  disabled={filtered.length === 0}
+                  title="Export ke Excel"
+                >
+                  <FileSpreadsheet className="h-4 w-4" />
+                  Excel
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-9 gap-1.5 text-red-700 border-red-300 hover:bg-red-50"
+                  onClick={() => void exportToPDF()}
+                  disabled={filtered.length === 0}
+                  title="Export ke PDF"
+                >
+                  <Download className="h-4 w-4" />
+                  PDF
+                </Button>
+              </div>
             </div>
           </div>
         </CardHeader>
@@ -712,6 +989,17 @@ export default function BookingTenant() {
                               <Button variant="ghost" size="icon" className="h-8 w-8" title="Edit kontrak" onClick={() => openEdit(booking)}>
                                 <Pencil className="h-4 w-4" />
                               </Button>
+                              {(booking.contractStatus === "active" || booking.contractStatus === "expiring_soon") && (
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-8 w-8 text-orange-600 hover:text-orange-700 hover:bg-orange-50"
+                                  title="Akhiri kontrak"
+                                  onClick={() => { setTerminateTarget(booking); setTerminateReason(""); }}
+                                >
+                                  <Ban className="h-4 w-4" />
+                                </Button>
+                              )}
                               {booking.contractStatus !== "active" && booking.contractStatus !== "expiring_soon" && (
                                 <Button
                                   variant="ghost"
@@ -764,6 +1052,65 @@ export default function BookingTenant() {
         </AlertDialogContent>
       </AlertDialog>
 
+      {/* Dialog: Akhiri Kontrak */}
+      <Dialog
+        open={!!terminateTarget}
+        onOpenChange={(o) => { if (!o) { setTerminateTarget(null); setTerminateReason(""); } }}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-orange-600">
+              <Ban className="h-5 w-5" />
+              Akhiri Kontrak
+            </DialogTitle>
+          </DialogHeader>
+          <div className="flex flex-col gap-4 py-1">
+            <p className="text-sm text-muted-foreground">
+              Anda akan mengakhiri kontrak{" "}
+              <strong className="text-foreground font-mono">
+                {terminateTarget?.contractNumber || terminateTarget?.orderNumber || `#${terminateTarget?.id}`}
+              </strong>{" "}
+              milik <strong className="text-foreground">{terminateTarget?.tenantName}</strong>.
+              Status kontrak akan berubah menjadi{" "}
+              <strong className="text-orange-600">Diakhiri</strong> dan tidak dapat dipulihkan.
+            </p>
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="terminate-reason">
+                Alasan Pengakhiran{" "}
+                <span className="text-muted-foreground font-normal">(opsional)</span>
+              </Label>
+              <Textarea
+                id="terminate-reason"
+                placeholder="Contoh: Kontrak tidak diperpanjang, pelanggaran perjanjian, dll."
+                rows={3}
+                value={terminateReason}
+                onChange={(e) => setTerminateReason(e.target.value)}
+                disabled={terminateMutation.isPending}
+              />
+            </div>
+          </div>
+          <DialogFooter className="gap-2 pt-2">
+            <Button
+              variant="outline"
+              disabled={terminateMutation.isPending}
+              onClick={() => { setTerminateTarget(null); setTerminateReason(""); }}
+            >
+              Batal
+            </Button>
+            <Button
+              disabled={terminateMutation.isPending}
+              className="bg-orange-600 hover:bg-orange-700 text-white"
+              onClick={() =>
+                terminateTarget &&
+                terminateMutation.mutate({ id: terminateTarget.id, reason: terminateReason })
+              }
+            >
+              {terminateMutation.isPending ? "Memproses..." : "Ya, Akhiri Kontrak"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Dialog Form Kontrak */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent className="w-[calc(100vw-2rem)] max-w-2xl sm:max-w-2xl max-h-[90dvh] overflow-y-auto">
@@ -777,20 +1124,102 @@ export default function BookingTenant() {
               <SectionLabel>Informasi Kontrak</SectionLabel>
               <div className="grid grid-cols-2 gap-4">
                 <Field label="Tenant" required>
-                  <Select
-                    value={form.tenantId}
-                    onValueChange={(v) => setForm(f => ({ ...f, tenantId: v }))}
-                    disabled={!!editTarget}
-                  >
-                    <SelectTrigger><SelectValue placeholder="Pilih tenant..." /></SelectTrigger>
-                    <SelectContent>
-                      {(tenants ?? []).map((t) => (
-                        <SelectItem key={t.id} value={String(t.id)}>
-                          {t.businessName}{t.boothNumber ? ` · ${t.boothNumber}` : ""}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  {editTarget ? (
+                    // Mode Edit: tampilkan nama tenant saja (tidak bisa diubah)
+                    <div className="flex h-9 w-full items-center rounded-md border border-input bg-muted px-3 py-1 text-sm text-muted-foreground">
+                      {(tenants ?? []).find(t => String(t.id) === form.tenantId)?.businessName ?? "—"}
+                    </div>
+                  ) : (
+                    // Mode Tambah: combobox dengan pencarian
+                    <Popover open={tenantComboOpen} onOpenChange={setTenantComboOpen}>
+                      <PopoverTrigger asChild>
+                        <Button
+                          variant="outline"
+                          role="combobox"
+                          aria-expanded={tenantComboOpen}
+                          className="w-full justify-between font-normal truncate"
+                        >
+                          <span className="truncate">
+                            {form.tenantId
+                              ? (() => {
+                                  const t = (tenants ?? []).find(t => String(t.id) === form.tenantId);
+                                  return t ? `${t.businessName}${t.boothNumber ? ` · ${t.boothNumber}` : ""}` : "Pilih tenant...";
+                                })()
+                              : "Pilih tenant..."}
+                          </span>
+                          <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-[340px] p-0" align="start">
+                        <Command filter={(value, search) => {
+                          const tenant = (tenants ?? []).find(t => String(t.id) === value);
+                          if (!tenant) return 0;
+                          const hay = `${tenant.businessName} ${tenant.boothNumber ?? ""} ${tenant.areaName ?? ""}`.toLowerCase();
+                          return hay.includes(search.toLowerCase()) ? 1 : 0;
+                        }}>
+                          <CommandInput placeholder="Cari nama tenant, kode unit..." />
+                          <CommandList>
+                            <CommandEmpty>Tenant tidak ditemukan.</CommandEmpty>
+                            <CommandGroup>
+                              {(tenants ?? []).map((t) => (
+                                <CommandItem
+                                  key={t.id}
+                                  value={String(t.id)}
+                                  onSelect={(v) => {
+                                    const tenant = (tenants ?? []).find(x => String(x.id) === v);
+                                    setForm(f => ({
+                                      ...f,
+                                      tenantId: v,
+                                      ...(tenant ? {
+                                        unitCode: tenant.boothNumber ? tenant.boothNumber : f.unitCode,
+                                        floor: tenant.areaName ? tenant.areaName : f.floor,
+                                        rentAmount: Number(tenant.defaultRentAmount ?? 0) > 0
+                                          ? String(tenant.defaultRentAmount)
+                                          : f.rentAmount,
+                                        serviceChargeAmount: Number(tenant.defaultServiceChargeAmount ?? 0) > 0
+                                          ? String(tenant.defaultServiceChargeAmount)
+                                          : f.serviceChargeAmount,
+                                        electricityChargeAmount: Number(tenant.defaultElectricityChargeAmount ?? 0) > 0
+                                          ? String(tenant.defaultElectricityChargeAmount)
+                                          : f.electricityChargeAmount,
+                                        waterChargeAmount: Number(tenant.defaultWaterChargeAmount ?? 0) > 0
+                                          ? String(tenant.defaultWaterChargeAmount)
+                                          : f.waterChargeAmount,
+                                        trashChargeAmount: Number(tenant.defaultTrashChargeAmount ?? 0) > 0
+                                          ? String(tenant.defaultTrashChargeAmount)
+                                          : f.trashChargeAmount,
+                                      } : {}),
+                                    }));
+                                    setTenantComboOpen(false);
+                                    // Auto-generate nomor kontrak jika field masih kosong
+                                    apiFetch(`${BASE}/api/bookings/next-contract-number`)
+                                      .then(async (resp) => {
+                                        if (!resp.ok) return;
+                                        const data = await resp.json() as { contractNumber: string };
+                                        setForm(f => ({ ...f, contractNumber: f.contractNumber || data.contractNumber }));
+                                      })
+                                      .catch(() => {});
+                                  }}
+                                >
+                                  <Check
+                                    className={`mr-2 h-4 w-4 shrink-0 ${form.tenantId === String(t.id) ? "opacity-100" : "opacity-0"}`}
+                                  />
+                                  <div className="flex flex-col min-w-0">
+                                    <span className="truncate font-medium">{t.businessName}</span>
+                                    {(t.boothNumber || t.areaName) && (
+                                      <span className="truncate text-xs text-muted-foreground">
+                                        {[t.boothNumber, t.areaName].filter(Boolean).join(" · ")}
+                                      </span>
+                                    )}
+                                  </div>
+                                </CommandItem>
+                              ))}
+                            </CommandGroup>
+                          </CommandList>
+                        </Command>
+                      </PopoverContent>
+                    </Popover>
+                  )}
                 </Field>
                 <Field label="Nomor Kontrak">
                   <Input
@@ -801,20 +1230,13 @@ export default function BookingTenant() {
                 </Field>
               </div>
 
-              <div className="grid grid-cols-3 gap-4">
+              <div className="grid grid-cols-2 gap-4">
                 <Field label="Kode Unit" required>
                   <Input
                     value={form.unitCode}
                     onChange={(e) => setForm(f => ({ ...f, unitCode: e.target.value }))}
                     placeholder="cth. A-01"
                     required
-                  />
-                </Field>
-                <Field label="Lantai">
-                  <Input
-                    value={form.floor}
-                    onChange={(e) => setForm(f => ({ ...f, floor: e.target.value }))}
-                    placeholder="cth. Lantai 1"
                   />
                 </Field>
                 <Field label="Siklus Tagihan">
@@ -897,6 +1319,13 @@ export default function BookingTenant() {
                     type="number" min={0} value={form.waterChargeAmount}
                     onChange={(e) => setForm(f => ({ ...f, waterChargeAmount: e.target.value }))}
                     placeholder="cth. 150000"
+                  />
+                </Field>
+                <Field label="Iuran Sampah / Kebersihan">
+                  <Input
+                    type="number" min={0} value={form.trashChargeAmount}
+                    onChange={(e) => setForm(f => ({ ...f, trashChargeAmount: e.target.value }))}
+                    placeholder="cth. 50000"
                   />
                 </Field>
                 <Field label="Override Total Tagihan">

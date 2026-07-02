@@ -4,6 +4,7 @@ import { otherIncomeTable, tenantsTable, mallSitesTable, companiesTable } from "
 import { eq, and, gte, lte, sql, desc } from "drizzle-orm";
 import { z } from "zod";
 import { logAudit } from "../lib/audit";
+import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
 
@@ -55,7 +56,7 @@ router.get("/other-income/coa-accounts", async (req, res) => {
 
     res.json({ success: true, data: accounts.map(a => ({ id: a.id, companyId: a.company_id, code: a.code, name: a.name, accountType: a.account_type })) });
   } catch (err) {
-    console.error("[GET /other-income/coa-accounts]", err);
+    logger.error({ err: err }, "[GET /other-income/coa-accounts]");
     res.status(500).json({ error: "Gagal mengambil daftar akun COA" });
   }
 });
@@ -75,7 +76,7 @@ router.get("/other-income/summary", async (req, res) => {
     const grandCount = rows.reduce((a, r) => a + Number(r.count), 0);
     res.json({ success: true, data: { totalAmount: grandTotal, totalCount: grandCount, byCategory: rows.map(r => ({ category: r.category, total: Number(r.total), count: Number(r.count) })) } });
   } catch (err) {
-    console.error("[GET /other-income/summary]", err);
+    logger.error({ err: err }, "[GET /other-income/summary]");
     res.status(500).json({ error: "Gagal mengambil ringkasan pemasukan" });
   }
 });
@@ -121,7 +122,7 @@ router.get("/other-income", async (req, res) => {
       .where(whereClause).orderBy(desc(otherIncomeTable.date)).limit(limit).offset(offset);
     res.json({ success: true, data: rows, summary: { totalRecords: countRow?.total ?? 0, totalAmount: countRow?.totalAmount ?? "0" }, pagination: { total: countRow?.total ?? 0, limit, offset, hasMore: offset + rows.length < (countRow?.total ?? 0) } });
   } catch (err) {
-    console.error("[GET /other-income]", err);
+    logger.error({ err: err }, "[GET /other-income]");
     res.status(500).json({ error: "Gagal mengambil data pemasukan" });
   }
 });
@@ -129,7 +130,8 @@ router.get("/other-income", async (req, res) => {
 async function postIncomeJournal(opts: { incomeId: number; siteId: number | null; amount: number; description: string; date: Date; coaCode: string; coaName: string }): Promise<void> {
   try {
     const { incomeId, siteId, amount, description, date, coaCode, coaName } = opts;
-    const companyRow = await db.execute<{ id: number }>(sql`SELECT c.id FROM companies c JOIN mall_sites ms ON ms.id = ${siteId} WHERE LOWER(c.company_name) LIKE LOWER(CONCAT('%', SPLIT_PART(ms.name, ' ', 1), '%')) OR c.id = 1 ORDER BY CASE WHEN LOWER(c.company_name) LIKE LOWER(CONCAT('%', SPLIT_PART(ms.name, ' ', 1), '%')) THEN 0 ELSE 1 END LIMIT 1`).catch(() => ({ rows: [] as { id: number }[] }));
+    // Gunakan company_id langsung dari mall_sites (bukan name matching yang tidak akurat)
+    const companyRow = await db.execute<{ id: number }>(sql`SELECT company_id AS id FROM mall_sites WHERE id = ${siteId} AND company_id IS NOT NULL LIMIT 1`).catch(() => ({ rows: [] as { id: number }[] }));
     const companyId: number = (companyRow as unknown as { rows: { id: number }[] }).rows?.[0]?.id ?? 1;
     const journalRow = await db.execute<{ id: number }>(sql`SELECT id FROM accounting_journals WHERE company_id = ${companyId} ORDER BY id LIMIT 1`).catch(() => ({ rows: [] as { id: number }[] }));
     const journalId: number = (journalRow as unknown as { rows: { id: number }[] }).rows?.[0]?.id ?? 1;
@@ -143,9 +145,9 @@ async function postIncomeJournal(opts: { incomeId: number; siteId: number | null
     const entryRow = await db.execute<{ id: number }>(sql`INSERT INTO accounting_entries (entry_number, journal_id, date, description, status, source, source_id, total_debit, total_credit, company_id, correlation_id, created_at) VALUES (${entryNumber}, ${journalId}, ${dateStr}::date, ${description || `Pemasukan #${incomeId}`}, 'posted', 'other_income'::accounting_entry_source, ${incomeId}, ${amount}, ${amount}, ${companyId}, ${correlationId}, NOW()) ON CONFLICT (correlation_id) DO NOTHING RETURNING id`).catch(() => ({ rows: [] as { id: number }[] }));
     const entryId: number | null = (entryRow as unknown as { rows: { id: number }[] }).rows?.[0]?.id ?? null;
     if (!entryId) return;
-    await db.execute(sql`INSERT INTO accounting_entry_lines (entry_id, account_id, description, debit, credit, created_at) VALUES (${entryId}, ${debitAccountId}, 'Kas dan Bank', ${amount}, 0, NOW()), (${entryId}, ${creditAccountId}, ${coaName}, 0, ${amount}, NOW())`).catch((e) => console.warn("[postIncomeJournal] lines failed:", e));
+    await db.execute(sql`INSERT INTO accounting_entry_lines (entry_id, account_id, description, debit, credit, created_at) VALUES (${entryId}, ${debitAccountId}, 'Kas dan Bank', ${amount}, 0, NOW()), (${entryId}, ${creditAccountId}, ${coaName}, 0, ${amount}, NOW())`).catch((e) => logger.warn({ e }, "[postIncomeJournal] lines failed:"));
   } catch (err) {
-    console.warn("[postIncomeJournal] Jurnal tidak terposting:", err);
+    logger.warn({ err: err }, "[postIncomeJournal] Jurnal tidak terposting:");
   }
 }
 
@@ -168,10 +170,13 @@ router.post("/other-income", async (req, res) => {
     }
     const [row] = await db.insert(otherIncomeTable).values({ siteId: effectiveSiteId, companyId: resolvedCompanyId, tenantId: data.tenantId ?? null, category: data.category, coaCode: data.coaCode ?? null, coaName: data.coaName ?? null, description: data.description, amount: String(data.amount), date: data.date ? new Date(data.date) : new Date(), createdBy: userId }).returning();
     logAudit(req, { action: "create_other_income", entityType: "other_income", entityId: row.id, afterData: { ...data, id: row.id } });
-    if (data.coaCode && data.coaName) { void postIncomeJournal({ incomeId: row.id, siteId: effectiveSiteId, amount: data.amount, description: data.description, date: row.date ?? new Date(), coaCode: data.coaCode, coaName: data.coaName }); }
+    if (data.coaCode && data.coaName) {
+      void postIncomeJournal({ incomeId: row.id, siteId: effectiveSiteId, amount: data.amount, description: data.description, date: row.date ?? new Date(), coaCode: data.coaCode, coaName: data.coaName })
+        .catch((err) => logger.error({ err }, "postIncomeJournal gagal — jurnal akuntansi tidak tercatat"));
+    }
     res.status(201).json({ success: true, data: row });
   } catch (err) {
-    console.error("[POST /other-income]", err);
+    logger.error({ err: err }, "[POST /other-income]");
     res.status(500).json({ error: "Gagal mencatat pemasukan" });
   }
 });
@@ -186,7 +191,7 @@ router.delete("/other-income/:id", async (req, res) => {
     logAudit(req, { action: "delete_other_income", entityType: "other_income", entityId: id, beforeData: existing });
     res.json({ success: true, message: "Pemasukan berhasil dihapus" });
   } catch (err) {
-    console.error("[DELETE /other-income/:id]", err);
+    logger.error({ err: err }, "[DELETE /other-income/:id]");
     res.status(500).json({ error: "Gagal menghapus pemasukan" });
   }
 });

@@ -1945,7 +1945,6 @@ function ModalPembayaran({ item, invoice, shiftId, cashierName, onClose, onSucce
   const defaultAmount = invoice ? String(invoice.outstandingAmount) : String(item.remainingAmount > 0 ? item.remainingAmount : "");
   const [nominal, setNominal] = useState(defaultAmount);
   const [diskon, setDiskon] = useState("0");
-  const [denda, setDenda] = useState("0");
   const [metode, setMetode] = useState<MetodeBayar>("tunai");
   const [tanggalBayar, setTanggalBayar] = useState(todayString());
   const [referenceNumber, setReferenceNumber] = useState("");
@@ -1956,10 +1955,9 @@ function ModalPembayaran({ item, invoice, shiftId, cashierName, onClose, onSucce
 
   const nominalNum = parseInt(nominal.replace(/\D/g, "")) || 0;
   const diskonNum  = parseInt(diskon.replace(/\D/g, ""))  || 0;
-  const dendaNum   = parseInt(denda.replace(/\D/g, ""))   || 0;
   const finalBill  = invoice
-    ? invoice.outstandingAmount - diskonNum + dendaNum
-    : item.totalAmount - diskonNum + dendaNum;
+    ? invoice.outstandingAmount - diskonNum
+    : item.totalAmount - diskonNum;
   const sisaSetelah = invoice
     ? Math.max(finalBill - nominalNum, 0)
     : Math.max(finalBill - item.paidAmount - nominalNum, 0);
@@ -1985,7 +1983,7 @@ function ModalPembayaran({ item, invoice, shiftId, cashierName, onClose, onSucce
           invoiceId: invoice?.id ?? undefined,
           amountPaid: nominalNum,
           discountAmount: diskonNum,
-          penaltyAmount: dendaNum,
+          penaltyAmount: 0,
           paymentMethod: metode,
           paymentDate: tanggalBayar,
           referenceNumber: referenceNumber || undefined,
@@ -2131,7 +2129,6 @@ function ModalPembayaran({ item, invoice, shiftId, cashierName, onClose, onSucce
                 referenceNumber: referenceNumber || undefined,
                 kembalian: change > 0 ? change : undefined,
                 diskon: diskonNum > 0 ? diskonNum : undefined,
-                denda: dendaNum > 0 ? dendaNum : undefined,
               });
             }}>
               <Printer className="w-4 h-4 mr-2" />Cetak Struk
@@ -2185,16 +2182,10 @@ function ModalPembayaran({ item, invoice, shiftId, cashierName, onClose, onSucce
                 )}
               </div>
 
-              {/* Diskon & Denda */}
-              <div className="grid grid-cols-2 gap-4">
-                <div className="flex flex-col gap-1.5">
-                  <Label htmlFor="diskon">Diskon (Rp)</Label>
-                  <Input id="diskon" inputMode="numeric" value={diskon} onChange={(e) => setDiskon(e.target.value)} disabled={mutation.isPending} />
-                </div>
-                <div className="flex flex-col gap-1.5">
-                  <Label htmlFor="denda">Denda (Rp)</Label>
-                  <Input id="denda" inputMode="numeric" value={denda} onChange={(e) => setDenda(e.target.value)} disabled={mutation.isPending} />
-                </div>
+              {/* Diskon */}
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="diskon">Diskon (Rp)</Label>
+                <Input id="diskon" inputMode="numeric" value={diskon} onChange={(e) => setDiskon(e.target.value)} disabled={mutation.isPending} />
               </div>
 
               {/* Nominal */}
@@ -2308,7 +2299,6 @@ function ModalPembayaran({ item, invoice, shiftId, cashierName, onClose, onSucce
                   {invoice && <div className="flex justify-between"><span className="text-slate-500">Invoice</span><span className="font-mono text-xs font-medium">{invoice.invoiceNumber}</span></div>}
                   <div className="flex justify-between"><span className="text-slate-500">Nominal Bayar</span><span className="font-semibold text-primary">{formatRupiah(nominalNum)}</span></div>
                   {diskonNum > 0 && <div className="flex justify-between"><span className="text-slate-500">Diskon</span><span className="text-emerald-600">-{formatRupiah(diskonNum)}</span></div>}
-                  {dendaNum > 0 && <div className="flex justify-between"><span className="text-slate-500">Denda</span><span className="text-red-600">+{formatRupiah(dendaNum)}</span></div>}
                   <div className="flex justify-between"><span className="text-slate-500">Metode</span><span className="font-medium">{metodeLabel}</span></div>
                   {referenceNumber && <div className="flex justify-between"><span className="text-slate-500">No. Referensi</span><span className="font-mono text-xs">{referenceNumber}</span></div>}
                   {kembalian > 0 && <div className="flex justify-between"><span className="text-slate-500">Kembalian</span><span className="font-bold text-blue-600">{formatRupiah(kembalian)}</span></div>}

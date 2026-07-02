@@ -6,6 +6,8 @@ import {
   tenantInvoicesTable,
   waLogsTable,
   insertTenantBookingSchema,
+  mallSitesTable,
+  companiesTable,
 } from "@workspace/db/schema";
 import { eq, and, ne, lt, lte, gte, or, sql } from "drizzle-orm";
 import { requireAnyRole } from "../middlewares/auth";
@@ -20,6 +22,8 @@ import {
   getSiteCompanyName,
 } from "../lib/whatsapp";
 import { z } from "zod";
+import { createAllInvoicesForBooking } from "../lib/auto-invoice";
+import { runInvoiceNotificationCheck } from "../lib/overdue-scheduler";
 
 const router: IRouter = Router();
 
@@ -27,7 +31,7 @@ router.use("/bookings", requireAnyRole("owner", "admin", "finance"));
 
 const NUMERIC_FIELDS = [
   "rentAmount","depositAmount","serviceChargeAmount","electricityChargeAmount",
-  "waterChargeAmount","totalAmount","paidAmount","remainingAmount","price",
+  "waterChargeAmount","trashChargeAmount","totalAmount","paidAmount","remainingAmount","price",
   "monthlyPrice","yearlyPrice","totalPrice",
 ];
 
@@ -62,6 +66,7 @@ const bookingSelect = {
   serviceChargeAmount: tenantBookingsTable.serviceChargeAmount,
   electricityChargeAmount: tenantBookingsTable.electricityChargeAmount,
   waterChargeAmount: tenantBookingsTable.waterChargeAmount,
+  trashChargeAmount: tenantBookingsTable.trashChargeAmount,
   price: tenantBookingsTable.price,
   totalPrice: tenantBookingsTable.totalPrice,
   monthlyPrice: tenantBookingsTable.monthlyPrice,
@@ -158,12 +163,68 @@ async function checkUnitOverlap(
   return existing.length > 0;
 }
 
+// ─── GET /bookings/next-contract-number ──────────────────────────────────────
+// Generate nomor kontrak berikutnya secara sekuensial.
+// Format: <KODE_PERUSAHAAN>/<TAHUN>/<NNN>  e.g. ERA/2026/001 atau SCT/2026/002
+// Kode perusahaan diambil dari companies.company_code (via mall_sites.company_id).
+// Fallback: companies.code → "KTR"
+router.get("/bookings/next-contract-number", async (req, res) => {
+  const year = new Date().getFullYear();
+
+  // Cari kode perusahaan berdasarkan site aktif
+  let companyCode = "KTR";
+  try {
+    if (req.siteId > 0) {
+      const siteRows = await db
+        .select({
+          companyCode: companiesTable.companyCode,
+          code: companiesTable.code,
+        })
+        .from(mallSitesTable)
+        .leftJoin(companiesTable, eq(companiesTable.id, mallSitesTable.companyId))
+        .where(eq(mallSitesTable.id, req.siteId))
+        .limit(1);
+      const co = siteRows[0];
+      if (co) {
+        companyCode = (co.companyCode ?? co.code ?? "KTR").toUpperCase();
+      }
+    }
+  } catch {
+    // fallback ke KTR jika query gagal
+  }
+
+  const prefix = `${companyCode}/${year}/`;
+  try {
+    const result = await db.execute(sql`
+      SELECT contract_number
+      FROM tenant_bookings
+      WHERE contract_number LIKE ${prefix + "%"}
+        AND LENGTH(contract_number) = ${prefix.length + 3}
+      ORDER BY contract_number DESC
+      LIMIT 1
+    `);
+    const rows = (result as unknown as { rows: { contract_number: string | null }[] }).rows;
+    const last = rows[0]?.contract_number ?? null;
+    let nextSeq = 1;
+    if (last) {
+      const seqPart = last.slice(prefix.length);
+      const seq = parseInt(seqPart, 10);
+      if (!isNaN(seq)) nextSeq = seq + 1;
+    }
+    const contractNumber = `${prefix}${String(nextSeq).padStart(3, "0")}`;
+    res.json({ contractNumber });
+  } catch (err) {
+    req.log.error(err, "Failed to generate contract number");
+    res.status(500).json({ error: "Gagal generate nomor kontrak" });
+  }
+});
+
 router.get("/bookings", async (req, res) => {
   try {
     const siteId = req.siteId;
-    // Pemilik (owner) bisa lihat booking dari semua site
-    const isOwner = req.user?.role === "owner";
-    const siteConditions = (!isOwner && siteId > 0) ? [eq(tenantBookingsTable.siteId, siteId)] : [];
+    // Filter by site: siteId=0 berarti "Semua" (ALL mode), tampilkan semua
+    // siteId>0 berarti site spesifik — filter ketat, termasuk untuk owner
+    const siteConditions = siteId > 0 ? [eq(tenantBookingsTable.siteId, siteId)] : [];
 
     const rows = await db
       .select(bookingSelect)
@@ -237,6 +298,40 @@ router.post("/bookings", async (req, res) => {
 
     sseBroker.publish("booking_updated", { bookingId: booking.id });
     res.status(201).json({ ...withTenant, contractStatus: computeContractStatus(withTenant) });
+
+    // Auto-buat invoice untuk seluruh periode jika kontrak langsung aktif — fire-and-forget
+    if (data.contractStatus === "active" && data.startDate && Number(data.rentAmount ?? 0) > 0) {
+      const startDate = data.startDate;
+      const endDate = data.endDate ?? null;
+      const durMonths = data.durationMonths ??
+        (endDate
+          ? Math.max(1, Math.round(
+              (new Date(endDate + "T00:00:00Z").getTime() - new Date(startDate + "T00:00:00Z").getTime())
+              / (30.44 * 24 * 60 * 60 * 1000)
+            ))
+          : 1);
+      void createAllInvoicesForBooking({
+        bookingId: booking.id,
+        siteId: data.siteId ?? req.siteId,
+        tenantId: data.tenantId,
+        unitCode: data.unitCode ?? null,
+        rentAmount: Number(data.rentAmount),
+        startDate,
+        durationMonths: Math.max(1, durMonths),
+        serviceChargeAmount: data.serviceChargeAmount !== undefined ? Number(data.serviceChargeAmount) : undefined,
+        electricityChargeAmount: data.electricityChargeAmount !== undefined ? Number(data.electricityChargeAmount) : undefined,
+        waterChargeAmount: data.waterChargeAmount !== undefined ? Number(data.waterChargeAmount) : undefined,
+        trashChargeAmount: data.trashChargeAmount !== undefined ? Number(data.trashChargeAmount) : undefined,
+      }).then((invoiceIds) => {
+        if (invoiceIds.length > 0) {
+          req.log.info({ bookingId: booking.id, invoiceIds }, "[bookings] Auto-invoice dibuat, mengirim notifikasi WA tagihan...");
+          return runInvoiceNotificationCheck();
+        }
+        return;
+      }).catch((err) => {
+        req.log.warn({ err }, "[bookings] Auto-invoice (POST) gagal");
+      });
+    }
 
     // Kirim notifikasi WA ke tenant — fire-and-forget, tidak memblokir response
     if (withTenant) {
@@ -446,6 +541,43 @@ router.put("/bookings/:id", async (req, res) => {
         }
       }
     }
+
+    // Auto-buat invoice jika booking baru diaktifkan — fire-and-forget
+    if (newStatus === "active" && oldStatus !== "active" && withTenant) {
+      const startDate = withTenant.startDate;
+      const endDate = withTenant.endDate ?? null;
+      const rentAmt = Number(withTenant.rentAmount ?? 0);
+      if (startDate && rentAmt > 0) {
+        const durMonths = withTenant.durationMonths ??
+          (endDate
+            ? Math.max(1, Math.round(
+                (new Date(endDate + "T00:00:00Z").getTime() - new Date(startDate + "T00:00:00Z").getTime())
+                / (30.44 * 24 * 60 * 60 * 1000)
+              ))
+            : 1);
+        void createAllInvoicesForBooking({
+          bookingId: withTenant.id,
+          siteId: withTenant.siteId ?? req.siteId,
+          tenantId: withTenant.tenantId!,
+          unitCode: withTenant.unitCode ?? null,
+          rentAmount: rentAmt,
+          startDate,
+          durationMonths: Math.max(1, durMonths),
+          serviceChargeAmount: withTenant.serviceChargeAmount != null ? Number(withTenant.serviceChargeAmount) : undefined,
+          electricityChargeAmount: withTenant.electricityChargeAmount != null ? Number(withTenant.electricityChargeAmount) : undefined,
+          waterChargeAmount: withTenant.waterChargeAmount != null ? Number(withTenant.waterChargeAmount) : undefined,
+          trashChargeAmount: withTenant.trashChargeAmount != null ? Number(withTenant.trashChargeAmount) : undefined,
+        }).then((invoiceIds) => {
+          if (invoiceIds.length > 0) {
+            req.log.info({ bookingId: withTenant.id, invoiceIds }, "[bookings] Auto-invoice dibuat (PUT aktifkan), mengirim WA tagihan...");
+            return runInvoiceNotificationCheck();
+          }
+          return;
+        }).catch((err) => {
+          req.log.warn({ err }, "[bookings] Auto-invoice (PUT) gagal");
+        });
+      }
+    }
   } catch (err) {
     req.log.error(err, "Failed to update booking");
     res.status(500).json({ error: "Gagal memperbarui kontrak" });
@@ -577,11 +709,14 @@ router.delete("/bookings/:id", requireAnyRole("owner", "admin"), async (req, res
   if (isNaN(id)) { res.status(400).json({ error: "ID tidak valid" }); return; }
 
   try {
+    const deleteCondition = req.siteId > 0
+      ? and(eq(tenantBookingsTable.id, id), eq(tenantBookingsTable.siteId, req.siteId))
+      : eq(tenantBookingsTable.id, id);
     const [existing] = await db
       .select(bookingSelect)
       .from(tenantBookingsTable)
       .leftJoin(tenantsTable, eq(tenantBookingsTable.tenantId, tenantsTable.id))
-      .where(eq(tenantBookingsTable.id, id));
+      .where(deleteCondition);
 
     if (!existing) { res.status(404).json({ error: "Kontrak tidak ditemukan" }); return; }
 

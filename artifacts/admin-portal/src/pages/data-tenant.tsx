@@ -92,6 +92,7 @@ type Tenant = {
   contractEndDate: string | null;
   createdAt: string;
   updatedAt: string;
+  totalOutstanding: number;
 };
 
 function getContractInfo(endDate: string | null | undefined): {
@@ -190,6 +191,17 @@ function statusClass(status: string): string {
 const CATEGORIES = ["Kuliner", "Fashion", "F&B", "Elektronik", "Kesehatan", "Kecantikan", "Olahraga", "Pendidikan", "Lainnya"];
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
+
+/**
+ * Konversi URL logo Supabase ke proxy endpoint lokal.
+ * Ini memastikan gambar tetap tampil meski bucket Supabase
+ * punya RLS policy yang memblokir akses langsung dari browser.
+ */
+function proxyLogoUrl(url: string | null | undefined): string | null {
+  if (!url) return null;
+  if (!url.startsWith("http")) return url;
+  return `/api/logo-proxy?url=${encodeURIComponent(url)}`;
+}
 
 async function fetchTenants(): Promise<Tenant[]> {
   const res = await apiFetch(`${BASE}/api/tenants`, { credentials: "include" });
@@ -673,6 +685,15 @@ export default function DataTenant() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
 
+    if (!form.businessName.trim()) {
+      toast({ title: "Validasi Gagal", description: "Nama usaha wajib diisi.", variant: "destructive" });
+      return;
+    }
+    if (!form.ownerName.trim()) {
+      toast({ title: "Validasi Gagal", description: "Nama pemilik/penanggungjawab wajib diisi.", variant: "destructive" });
+      return;
+    }
+
     let finalLogoUrl = form.logoUrl;
 
     if (logoFile) {
@@ -802,7 +823,7 @@ export default function DataTenant() {
     const rows = scope === "filtered" ? filtered : (tenants ?? []);
     const headers = [
       "No", "Nama Usaha", "Pemilik", "Email", "Telepon",
-      "Kategori", "No. Booth", "Area", "Status", "Akhir Kontrak", "Catatan",
+      "Kategori", "No. Booth", "Area", "Status", "Tunggakan (Rp)", "Akhir Kontrak", "Catatan",
     ];
     const body = rows.map((t, i) => [
       i + 1,
@@ -814,6 +835,7 @@ export default function DataTenant() {
       t.boothNumber ?? "",
       t.areaName,
       STATUS_LABEL[t.status] ?? t.status,
+      t.totalOutstanding > 0 ? t.totalOutstanding : 0,
       t.contractEndDate
         ? new Date(t.contractEndDate).toLocaleDateString("id-ID")
         : "",
@@ -1151,6 +1173,7 @@ export default function DataTenant() {
                   <TableHead>Unit / Lantai</TableHead>
                   <TableHead>Kategori</TableHead>
                   <TableHead>Harga Sewa</TableHead>
+                  <TableHead className="text-right">Tunggakan</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead>Masa Kontrak</TableHead>
                   <TableHead className="w-[100px] text-right">Aksi</TableHead>
@@ -1160,7 +1183,7 @@ export default function DataTenant() {
                 {isLoading
                   ? Array.from({ length: 5 }).map((_, i) => (
                       <TableRow key={i}>
-                        {Array.from({ length: 13 }).map((_, j) => (
+                        {Array.from({ length: 14 }).map((_, j) => (
                           <TableCell key={j}><Skeleton className="h-4 w-full" /></TableCell>
                         ))}
                       </TableRow>
@@ -1168,7 +1191,7 @@ export default function DataTenant() {
                   : filtered.length === 0
                   ? (
                     <TableRow>
-                      <TableCell colSpan={13} className="text-center py-8 text-muted-foreground">
+                      <TableCell colSpan={14} className="text-center py-8 text-muted-foreground">
                         {tenants?.length === 0 ? "Belum ada tenant terdaftar." : "Tidak ada hasil pencarian."}
                       </TableCell>
                     </TableRow>
@@ -1188,9 +1211,20 @@ export default function DataTenant() {
                         <TableCell>
                           {tenant.logoUrl ? (
                             <img
-                              src={tenant.logoUrl}
+                              src={proxyLogoUrl(tenant.logoUrl) ?? tenant.logoUrl}
                               alt={tenant.businessName}
                               className="h-8 w-8 rounded-md object-cover border border-border"
+                              onError={(e) => {
+                                const el = e.currentTarget;
+                                el.style.display = "none";
+                                const parent = el.parentElement;
+                                if (parent && !parent.querySelector(".logo-fallback")) {
+                                  const fb = document.createElement("div");
+                                  fb.className = "logo-fallback h-8 w-8 rounded-md bg-primary/10 flex items-center justify-center text-primary font-bold text-xs";
+                                  fb.textContent = (tenant.businessName ?? "?").slice(0, 2).toUpperCase();
+                                  parent.appendChild(fb);
+                                }
+                              }}
                             />
                           ) : (
                             <div className="h-8 w-8 rounded-md bg-muted flex items-center justify-center">
@@ -1285,6 +1319,15 @@ export default function DataTenant() {
                             ? formatRupiah(Number(tenant.defaultRentAmount))
                             : <span className="text-muted-foreground">—</span>}
                         </TableCell>
+                        <TableCell className="text-right">
+                          {tenant.totalOutstanding > 0 ? (
+                            <span className="inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold bg-red-50 text-red-700 border-red-200 whitespace-nowrap">
+                              {formatRupiah(tenant.totalOutstanding)}
+                            </span>
+                          ) : (
+                            <span className="text-muted-foreground text-xs">—</span>
+                          )}
+                        </TableCell>
                         <TableCell>
                           <span className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium ${statusClass(tenant.status)}`}>
                             {STATUS_LABEL[tenant.status] ?? tenant.status}
@@ -1369,7 +1412,7 @@ export default function DataTenant() {
                   {logoPreview ? (
                     <div className="relative">
                       <img
-                        src={logoPreview}
+                        src={proxyLogoUrl(logoPreview) ?? logoPreview}
                         alt="Preview logo"
                         className="h-16 w-16 rounded-lg object-cover border border-border"
                       />

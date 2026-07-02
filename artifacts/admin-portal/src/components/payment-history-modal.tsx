@@ -1,7 +1,7 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle,
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from "@/components/ui/dialog";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
@@ -10,11 +10,13 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useToast } from "@/hooks/use-toast";
 import {
   History, ChevronLeft, ChevronRight, ExternalLink, AlertCircle,
-  CheckCircle2, Clock, Filter, ReceiptText,
+  CheckCircle2, Clock, Filter, ReceiptText, Pencil, Loader2,
 } from "lucide-react";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -35,6 +37,7 @@ type LedgerRow = {
   proofUrl: string | null;
   createdAt: string;
   kasirName: string | null;
+  isVoided?: boolean;
 };
 
 type Pagination = {
@@ -72,6 +75,11 @@ function formatDateTime(d: string | null | undefined): string {
   }).format(new Date(d));
 }
 
+function toDateInputValue(d: string | null | undefined): string {
+  if (!d) return "";
+  return new Date(d).toISOString().slice(0, 10);
+}
+
 const SOURCE_LABEL: Record<string, string> = {
   pos: "POS",
   ocr: "OCR",
@@ -106,6 +114,176 @@ const STATUS_LABEL: Record<string, string> = {
 
 const LIMIT = 10;
 
+// ─── Edit Payment Dialog ──────────────────────────────────────────────────────
+
+type EditForm = {
+  amount: string;
+  paymentMethod: "tunai" | "transfer" | "qris" | "edc" | "other";
+  paymentDate: string;
+  notes: string;
+};
+
+interface EditDialogProps {
+  open: boolean;
+  onClose: () => void;
+  payment: LedgerRow | null;
+  invoiceId: number | undefined;
+  onSuccess: () => void;
+}
+
+function EditPaymentDialog({ open, onClose, payment, invoiceId, onSuccess }: EditDialogProps) {
+  const { toast } = useToast();
+  const [form, setForm] = useState<EditForm>({
+    amount: "",
+    paymentMethod: "tunai",
+    paymentDate: "",
+    notes: "",
+  });
+
+  // Populate form when payment changes
+  const prevPaymentId = payment?.id;
+  if (payment && payment.id !== prevPaymentId) {
+    setForm({
+      amount: String(Math.round(Number(payment.amount))),
+      paymentMethod: (payment.paymentMethod as EditForm["paymentMethod"]) ?? "tunai",
+      paymentDate: toDateInputValue(payment.paidAt),
+      notes: payment.notes ?? "",
+    });
+  }
+
+  function handleOpen(isOpen: boolean) {
+    if (isOpen && payment) {
+      setForm({
+        amount: String(Math.round(Number(payment.amount))),
+        paymentMethod: (payment.paymentMethod as EditForm["paymentMethod"]) ?? "tunai",
+        paymentDate: toDateInputValue(payment.paidAt),
+        notes: payment.notes ?? "",
+      });
+    }
+    if (!isOpen) onClose();
+  }
+
+  const editMutation = useMutation({
+    mutationFn: async () => {
+      if (!payment) throw new Error("Tidak ada pembayaran dipilih");
+      const res = await fetch(`${BASE}/api/tenant-invoices/payments/${payment.id}`, {
+        method: "PUT",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          amount: Number(form.amount),
+          paymentMethod: form.paymentMethod,
+          paymentDate: form.paymentDate || null,
+          notes: form.notes || null,
+        }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error((body as { error?: string }).error ?? "Gagal menyimpan perubahan");
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: "Pembayaran diperbarui", description: "Data pembayaran berhasil disimpan." });
+      onSuccess();
+      onClose();
+    },
+    onError: (err: Error) => {
+      toast({ title: "Gagal", description: err.message, variant: "destructive" });
+    },
+  });
+
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!form.amount || Number(form.amount) <= 0) {
+      toast({ title: "Validasi gagal", description: "Jumlah bayar harus lebih dari 0.", variant: "destructive" });
+      return;
+    }
+    editMutation.mutate();
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={handleOpen}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Pencil className="h-4 w-4 text-primary" />
+            Edit Pembayaran #{payment?.id}
+          </DialogTitle>
+        </DialogHeader>
+
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="space-y-1.5">
+            <Label htmlFor="ep-amount">Jumlah Bayar (Rp)</Label>
+            <Input
+              id="ep-amount"
+              type="number"
+              min={1}
+              step={1}
+              value={form.amount}
+              onChange={(e) => setForm((f) => ({ ...f, amount: e.target.value }))}
+              placeholder="3000000"
+              required
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="ep-method">Metode Pembayaran</Label>
+            <Select
+              value={form.paymentMethod}
+              onValueChange={(v) => setForm((f) => ({ ...f, paymentMethod: v as EditForm["paymentMethod"] }))}
+            >
+              <SelectTrigger id="ep-method">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="tunai">Tunai</SelectItem>
+                <SelectItem value="transfer">Transfer</SelectItem>
+                <SelectItem value="qris">QRIS</SelectItem>
+                <SelectItem value="edc">EDC</SelectItem>
+                <SelectItem value="other">Lainnya</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="ep-date">Tanggal Bayar</Label>
+            <Input
+              id="ep-date"
+              type="date"
+              value={form.paymentDate}
+              onChange={(e) => setForm((f) => ({ ...f, paymentDate: e.target.value }))}
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="ep-notes">Keterangan</Label>
+            <Textarea
+              id="ep-notes"
+              rows={3}
+              value={form.notes}
+              onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))}
+              placeholder="Contoh: TRSF E-BANKING CR ..."
+            />
+          </div>
+
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={onClose} disabled={editMutation.isPending}>
+              Batal
+            </Button>
+            <Button type="submit" disabled={editMutation.isPending}>
+              {editMutation.isPending && <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />}
+              Simpan Perubahan
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ─── Main Modal ───────────────────────────────────────────────────────────────
+
 interface Props {
   open: boolean;
   onClose: () => void;
@@ -117,6 +295,8 @@ export function PaymentHistoryModal({ open, onClose, invoice }: Props) {
   const [dateTo, setDateTo] = useState("");
   const [sourceType, setSourceType] = useState("all");
   const [offset, setOffset] = useState(0);
+  const [editTarget, setEditTarget] = useState<LedgerRow | null>(null);
+  const queryClient = useQueryClient();
 
   const params = new URLSearchParams({
     invoiceId: String(invoice?.id ?? 0),
@@ -127,8 +307,10 @@ export function PaymentHistoryModal({ open, onClose, invoice }: Props) {
   if (dateTo) params.set("dateTo", dateTo);
   if (sourceType !== "all") params.set("sourceType", sourceType);
 
+  const qKey = ["/api/payments", invoice?.id, offset, dateFrom, dateTo, sourceType];
+
   const { data, isLoading, isError } = useQuery<ApiResponse>({
-    queryKey: ["/api/payments", invoice?.id, offset, dateFrom, dateTo, sourceType],
+    queryKey: qKey,
     queryFn: async () => {
       const res = await fetch(`${BASE}/api/payments?${params.toString()}`, {
         credentials: "include",
@@ -146,6 +328,12 @@ export function PaymentHistoryModal({ open, onClose, invoice }: Props) {
     setOffset(0);
   }
 
+  function handleEditSuccess() {
+    // Invalidate payment list + invoice list agar status invoice ikut update
+    queryClient.invalidateQueries({ queryKey: ["/api/payments"] });
+    queryClient.invalidateQueries({ queryKey: ["/api/tenant-invoices"] });
+  }
+
   const rows = data?.data ?? [];
   const pagination = data?.pagination;
   const total = pagination?.total ?? 0;
@@ -153,216 +341,251 @@ export function PaymentHistoryModal({ open, onClose, invoice }: Props) {
   const totalPages = Math.max(1, Math.ceil(total / LIMIT));
 
   return (
-    <Dialog open={open} onOpenChange={(o) => { if (!o) onClose(); }}>
-      <DialogContent className="max-w-5xl max-h-[90vh] flex flex-col">
-        <DialogHeader className="shrink-0">
-          <DialogTitle className="flex items-center gap-2">
-            <History className="h-4 w-4 text-primary" />
-            Riwayat Pembayaran
-            {invoice && (
-              <span className="font-mono text-sm font-normal text-muted-foreground ml-1">
-                Invoice {invoice.invoiceNumber}
-              </span>
-            )}
-          </DialogTitle>
-        </DialogHeader>
-
-        {invoice && (
-          <div className="shrink-0 flex gap-3 flex-wrap text-sm bg-muted/40 rounded-md px-4 py-2.5 border">
-            <div>
-              <span className="text-muted-foreground">Total: </span>
-              <span className="font-semibold">{formatRupiah(invoice.totalAmount)}</span>
-            </div>
-            <div className="text-muted-foreground">·</div>
-            <div>
-              <span className="text-muted-foreground">Terbayar: </span>
-              <span className="font-semibold text-green-700">{formatRupiah(invoice.paidAmount)}</span>
-            </div>
-            <div className="text-muted-foreground">·</div>
-            <div>
-              <span className="text-muted-foreground">Status: </span>
-              <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium ${STATUS_CLASS[invoice.status] ?? "bg-slate-100 text-slate-600"}`}>
-                {STATUS_LABEL[invoice.status] ?? invoice.status}
-              </span>
-            </div>
-          </div>
-        )}
-
-        {/* Filter bar */}
-        <div className="shrink-0 flex flex-wrap gap-3 items-end pt-1">
-          <div className="flex flex-col gap-1">
-            <Label className="text-xs">Dari Tanggal</Label>
-            <Input
-              type="date"
-              className="h-8 text-sm w-36"
-              value={dateFrom}
-              onChange={(e) => { setDateFrom(e.target.value); setOffset(0); }}
-            />
-          </div>
-          <div className="flex flex-col gap-1">
-            <Label className="text-xs">Sampai Tanggal</Label>
-            <Input
-              type="date"
-              className="h-8 text-sm w-36"
-              value={dateTo}
-              onChange={(e) => { setDateTo(e.target.value); setOffset(0); }}
-            />
-          </div>
-          <div className="flex flex-col gap-1">
-            <Label className="text-xs">Sumber Pembayaran</Label>
-            <Select value={sourceType} onValueChange={(v) => { setSourceType(v); setOffset(0); }}>
-              <SelectTrigger className="h-8 text-sm w-36">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Semua</SelectItem>
-                <SelectItem value="pos">POS</SelectItem>
-                <SelectItem value="ocr">OCR</SelectItem>
-                <SelectItem value="bank">Bank</SelectItem>
-                <SelectItem value="manual">Manual</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          {(dateFrom || dateTo || sourceType !== "all") && (
-            <Button variant="ghost" size="sm" className="h-8 text-xs gap-1 text-muted-foreground" onClick={resetFilters}>
-              <Filter className="h-3 w-3" />
-              Reset filter
-            </Button>
-          )}
-        </div>
-
-        {/* Table */}
-        <div className="flex-1 overflow-auto min-h-0">
-          {isLoading ? (
-            <div className="space-y-2 py-4">
-              {Array.from({ length: 5 }).map((_, i) => (
-                <Skeleton key={i} className="h-10 w-full" />
-              ))}
-            </div>
-          ) : isError ? (
-            <div className="flex flex-col items-center gap-2 py-12 text-muted-foreground">
-              <AlertCircle className="h-8 w-8 text-red-400" />
-              <p className="text-sm">Gagal memuat data. Coba lagi.</p>
-            </div>
-          ) : rows.length === 0 ? (
-            <div className="flex flex-col items-center gap-2 py-12 text-muted-foreground">
-              <ReceiptText className="h-10 w-10 opacity-30" />
-              <p className="text-sm font-medium">Belum ada pembayaran</p>
-              {(dateFrom || dateTo || sourceType !== "all") && (
-                <p className="text-xs">Tidak ada data sesuai filter yang dipilih.</p>
+    <>
+      <Dialog open={open} onOpenChange={(o) => { if (!o) onClose(); }}>
+        <DialogContent className="max-w-5xl max-h-[90vh] flex flex-col">
+          <DialogHeader className="shrink-0">
+            <DialogTitle className="flex items-center gap-2">
+              <History className="h-4 w-4 text-primary" />
+              Riwayat Pembayaran
+              {invoice && (
+                <span className="font-mono text-sm font-normal text-muted-foreground ml-1">
+                  Invoice {invoice.invoiceNumber}
+                </span>
               )}
-            </div>
-          ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead className="text-xs w-14">No</TableHead>
-                  <TableHead className="text-xs">No Ledger</TableHead>
-                  <TableHead className="text-xs text-right">Nominal Bayar</TableHead>
-                  <TableHead className="text-xs text-right">Sisa Bayar</TableHead>
-                  <TableHead className="text-xs">Status Invoice</TableHead>
-                  <TableHead className="text-xs">Sumber</TableHead>
-                  <TableHead className="text-xs">Receipt ID</TableHead>
-                  <TableHead className="text-xs">Metode</TableHead>
-                  <TableHead className="text-xs">Kasir</TableHead>
-                  <TableHead className="text-xs">Tanggal Bayar</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {rows.map((row, idx) => {
-                  const remaining = Number(row.remainingBalanceAfter ?? 0);
-                  const invoiceStatus = remaining <= 0 ? "paid" : "partial";
-                  const src = row.sourceType ?? "manual";
-                  return (
-                    <TableRow
-                      key={row.id}
-                      className={invoiceStatus === "paid" ? "bg-green-50/50" : ""}
-                    >
-                      <TableCell className="text-xs text-muted-foreground">{offset + idx + 1}</TableCell>
-                      <TableCell className="font-mono text-xs text-primary">#{row.id}</TableCell>
-                      <TableCell className="text-right text-sm font-semibold tabular-nums">
-                        {formatRupiah(row.amount)}
-                      </TableCell>
-                      <TableCell className="text-right text-sm tabular-nums">
-                        {remaining <= 0 ? (
-                          <span className="text-green-600 font-medium flex items-center justify-end gap-1">
-                            <CheckCircle2 className="h-3.5 w-3.5" />
-                            Lunas
-                          </span>
-                        ) : (
-                          <span className="text-orange-600">{formatRupiah(row.remainingBalanceAfter)}</span>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium ${STATUS_CLASS[invoiceStatus]}`}>
-                          {invoiceStatus === "paid"
-                            ? <><CheckCircle2 className="h-3 w-3" />Lunas</>
-                            : <><Clock className="h-3 w-3" />Sebagian</>}
-                        </span>
-                      </TableCell>
-                      <TableCell>
-                        <span className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-medium ${SOURCE_CLASS[src] ?? SOURCE_CLASS.manual}`}>
-                          {SOURCE_LABEL[src] ?? src}
-                        </span>
-                      </TableCell>
-                      <TableCell>
-                        {row.receiptNumber ? (
-                          <a
-                            href={`${BASE}/api/payments/${row.id}/receipt`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="inline-flex items-center gap-1 font-mono text-xs text-primary hover:underline"
-                          >
-                            {row.receiptNumber}
-                            <ExternalLink className="h-3 w-3" />
-                          </a>
-                        ) : (
-                          <span className="text-xs text-muted-foreground">-</span>
-                        )}
-                      </TableCell>
-                      <TableCell className="text-xs capitalize">{row.paymentMethod}</TableCell>
-                      <TableCell className="text-xs">{row.kasirName ?? "-"}</TableCell>
-                      <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
-                        {formatDateTime(row.paidAt ?? row.createdAt)}
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
-          )}
-        </div>
+            </DialogTitle>
+          </DialogHeader>
 
-        {/* Pagination footer */}
-        {total > 0 && (
-          <div className="shrink-0 flex items-center justify-between border-t pt-3 text-sm text-muted-foreground">
-            <span className="text-xs">
-              Menampilkan {offset + 1}–{Math.min(offset + rows.length, total)} dari {total} pembayaran
-            </span>
-            <div className="flex items-center gap-2">
-              <Button
-                variant="outline"
-                size="icon"
-                className="h-7 w-7"
-                disabled={offset === 0}
-                onClick={() => setOffset(Math.max(0, offset - LIMIT))}
-              >
-                <ChevronLeft className="h-4 w-4" />
-              </Button>
-              <span className="text-xs">Hal {page} / {totalPages}</span>
-              <Button
-                variant="outline"
-                size="icon"
-                className="h-7 w-7"
-                disabled={!pagination?.hasMore}
-                onClick={() => setOffset(offset + LIMIT)}
-              >
-                <ChevronRight className="h-4 w-4" />
-              </Button>
+          {invoice && (
+            <div className="shrink-0 flex gap-3 flex-wrap text-sm bg-muted/40 rounded-md px-4 py-2.5 border">
+              <div>
+                <span className="text-muted-foreground">Total: </span>
+                <span className="font-semibold">{formatRupiah(invoice.totalAmount)}</span>
+              </div>
+              <div className="text-muted-foreground">·</div>
+              <div>
+                <span className="text-muted-foreground">Terbayar: </span>
+                <span className="font-semibold text-green-700">{formatRupiah(invoice.paidAmount)}</span>
+              </div>
+              <div className="text-muted-foreground">·</div>
+              <div>
+                <span className="text-muted-foreground">Status: </span>
+                <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium ${STATUS_CLASS[invoice.status] ?? "bg-slate-100 text-slate-600"}`}>
+                  {STATUS_LABEL[invoice.status] ?? invoice.status}
+                </span>
+              </div>
             </div>
+          )}
+
+          {/* Filter bar */}
+          <div className="shrink-0 flex flex-wrap gap-3 items-end pt-1">
+            <div className="flex flex-col gap-1">
+              <Label className="text-xs">Dari Tanggal</Label>
+              <Input
+                type="date"
+                className="h-8 text-sm w-36"
+                value={dateFrom}
+                onChange={(e) => { setDateFrom(e.target.value); setOffset(0); }}
+              />
+            </div>
+            <div className="flex flex-col gap-1">
+              <Label className="text-xs">Sampai Tanggal</Label>
+              <Input
+                type="date"
+                className="h-8 text-sm w-36"
+                value={dateTo}
+                onChange={(e) => { setDateTo(e.target.value); setOffset(0); }}
+              />
+            </div>
+            <div className="flex flex-col gap-1">
+              <Label className="text-xs">Sumber Pembayaran</Label>
+              <Select value={sourceType} onValueChange={(v) => { setSourceType(v); setOffset(0); }}>
+                <SelectTrigger className="h-8 text-sm w-36">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Semua</SelectItem>
+                  <SelectItem value="pos">POS</SelectItem>
+                  <SelectItem value="ocr">OCR</SelectItem>
+                  <SelectItem value="bank">Bank</SelectItem>
+                  <SelectItem value="manual">Manual</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            {(dateFrom || dateTo || sourceType !== "all") && (
+              <Button variant="ghost" size="sm" className="h-8 text-xs gap-1 text-muted-foreground" onClick={resetFilters}>
+                <Filter className="h-3 w-3" />
+                Reset filter
+              </Button>
+            )}
           </div>
-        )}
-      </DialogContent>
-    </Dialog>
+
+          {/* Table */}
+          <div className="flex-1 overflow-auto min-h-0">
+            {isLoading ? (
+              <div className="space-y-2 py-4">
+                {Array.from({ length: 5 }).map((_, i) => (
+                  <Skeleton key={i} className="h-10 w-full" />
+                ))}
+              </div>
+            ) : isError ? (
+              <div className="flex flex-col items-center gap-2 py-12 text-muted-foreground">
+                <AlertCircle className="h-8 w-8 text-red-400" />
+                <p className="text-sm">Gagal memuat data. Coba lagi.</p>
+              </div>
+            ) : rows.length === 0 ? (
+              <div className="flex flex-col items-center gap-2 py-12 text-muted-foreground">
+                <ReceiptText className="h-10 w-10 opacity-30" />
+                <p className="text-sm font-medium">Belum ada pembayaran</p>
+                {(dateFrom || dateTo || sourceType !== "all") && (
+                  <p className="text-xs">Tidak ada data sesuai filter yang dipilih.</p>
+                )}
+              </div>
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="text-xs w-14">No</TableHead>
+                    <TableHead className="text-xs">No Ledger</TableHead>
+                    <TableHead className="text-xs text-right">Nominal Bayar</TableHead>
+                    <TableHead className="text-xs text-right">Sisa Bayar</TableHead>
+                    <TableHead className="text-xs">Status Invoice</TableHead>
+                    <TableHead className="text-xs">Sumber</TableHead>
+                    <TableHead className="text-xs">Receipt ID</TableHead>
+                    <TableHead className="text-xs">Metode</TableHead>
+                    <TableHead className="text-xs">Keterangan</TableHead>
+                    <TableHead className="text-xs">Kasir</TableHead>
+                    <TableHead className="text-xs">Tanggal Bayar</TableHead>
+                    <TableHead className="text-xs w-12"></TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {rows.map((row, idx) => {
+                    const remaining = Number(row.remainingBalanceAfter ?? 0);
+                    const invoiceStatus = remaining <= 0 ? "paid" : "partial";
+                    const src = row.sourceType ?? "manual";
+                    const isVoided = row.isVoided === true;
+                    return (
+                      <TableRow
+                        key={row.id}
+                        className={isVoided ? "opacity-40 line-through" : invoiceStatus === "paid" ? "bg-green-50/50" : ""}
+                      >
+                        <TableCell className="text-xs text-muted-foreground">{offset + idx + 1}</TableCell>
+                        <TableCell className="font-mono text-xs text-primary">#{row.id}</TableCell>
+                        <TableCell className="text-right text-sm font-semibold tabular-nums">
+                          {formatRupiah(row.amount)}
+                        </TableCell>
+                        <TableCell className="text-right text-sm tabular-nums">
+                          {remaining <= 0 ? (
+                            <span className="text-green-600 font-medium flex items-center justify-end gap-1">
+                              <CheckCircle2 className="h-3.5 w-3.5" />
+                              Lunas
+                            </span>
+                          ) : (
+                            <span className="text-orange-600">{formatRupiah(row.remainingBalanceAfter)}</span>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          {isVoided ? (
+                            <span className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium bg-gray-100 text-gray-400 border-gray-200">
+                              Void
+                            </span>
+                          ) : (
+                            <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium ${STATUS_CLASS[invoiceStatus]}`}>
+                              {invoiceStatus === "paid"
+                                ? <><CheckCircle2 className="h-3 w-3" />Lunas</>
+                                : <><Clock className="h-3 w-3" />Sebagian</>}
+                            </span>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          <span className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-medium ${SOURCE_CLASS[src] ?? SOURCE_CLASS.manual}`}>
+                            {SOURCE_LABEL[src] ?? src}
+                          </span>
+                        </TableCell>
+                        <TableCell>
+                          {row.receiptNumber ? (
+                            <a
+                              href={`${BASE}/api/payments/${row.id}/receipt`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1 font-mono text-xs text-primary hover:underline"
+                            >
+                              {row.receiptNumber}
+                              <ExternalLink className="h-3 w-3" />
+                            </a>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">-</span>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-xs capitalize">{row.paymentMethod}</TableCell>
+                        <TableCell className="text-xs max-w-[180px] truncate text-muted-foreground" title={row.notes ?? ""}>
+                          {row.notes ?? "-"}
+                        </TableCell>
+                        <TableCell className="text-xs">{row.kasirName ?? "-"}</TableCell>
+                        <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
+                          {formatDateTime(row.paidAt ?? row.createdAt)}
+                        </TableCell>
+                        <TableCell>
+                          {!isVoided && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-7 w-7 text-muted-foreground hover:text-primary"
+                              title="Edit pembayaran"
+                              onClick={() => setEditTarget(row)}
+                            >
+                              <Pencil className="h-3.5 w-3.5" />
+                            </Button>
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            )}
+          </div>
+
+          {/* Pagination footer */}
+          {total > 0 && (
+            <div className="shrink-0 flex items-center justify-between border-t pt-3 text-sm text-muted-foreground">
+              <span className="text-xs">
+                Menampilkan {offset + 1}–{Math.min(offset + rows.length, total)} dari {total} pembayaran
+              </span>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="icon"
+                  className="h-7 w-7"
+                  disabled={offset === 0}
+                  onClick={() => setOffset(Math.max(0, offset - LIMIT))}
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                </Button>
+                <span className="text-xs">Hal {page} / {totalPages}</span>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  className="h-7 w-7"
+                  disabled={!pagination?.hasMore}
+                  onClick={() => setOffset(offset + LIMIT)}
+                >
+                  <ChevronRight className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      <EditPaymentDialog
+        open={!!editTarget}
+        onClose={() => setEditTarget(null)}
+        payment={editTarget}
+        invoiceId={invoice?.id}
+        onSuccess={handleEditSuccess}
+      />
+    </>
   );
 }

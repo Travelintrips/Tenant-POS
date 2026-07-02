@@ -16,7 +16,8 @@ const router: IRouter = Router();
 router.use(requireTenantUser);
 
 router.get("/me", async (req, res) => {
-  const user = req.user!;
+  const user = req.user;
+  if (!user) { res.status(401).json({ error: "Tidak terautentikasi" }); return; }
   const access = await db
     .select({
       tenantId: tenantUserAccessTable.tenantId,

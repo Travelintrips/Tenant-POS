@@ -27,25 +27,44 @@ router.get("/tenants", async (req, res) => {
     if (rows.length === 0) { res.json([]); return; }
 
     const tenantIds = rows.map((t) => t.id);
-    const bookingDates = await db
-      .select({
-        tenantId: tenantBookingsTable.tenantId,
-        contractEndDate: sql<string>`MAX(${tenantBookingsTable.endDate})`.as("contract_end_date"),
-      })
-      .from(tenantBookingsTable)
-      .where(
-        and(
-          inArray(tenantBookingsTable.tenantId, tenantIds),
-          inArray(tenantBookingsTable.contractStatus, ["active", "expiring_soon"]),
-        ),
-      )
-      .groupBy(tenantBookingsTable.tenantId);
+
+    // Fetch booking end dates dan outstanding invoices secara paralel
+    const [bookingDates, outstandingRows] = await Promise.all([
+      db
+        .select({
+          tenantId: tenantBookingsTable.tenantId,
+          contractEndDate: sql<string>`MAX(${tenantBookingsTable.endDate})`.as("contract_end_date"),
+        })
+        .from(tenantBookingsTable)
+        .where(
+          and(
+            inArray(tenantBookingsTable.tenantId, tenantIds),
+            inArray(tenantBookingsTable.contractStatus, ["active", "expiring_soon"]),
+          ),
+        )
+        .groupBy(tenantBookingsTable.tenantId),
+      db
+        .select({
+          tenantId: tenantInvoicesTable.tenantId,
+          totalOutstanding: sql<string>`SUM(${tenantInvoicesTable.outstandingAmount})`.as("total_outstanding"),
+        })
+        .from(tenantInvoicesTable)
+        .where(
+          and(
+            inArray(tenantInvoicesTable.tenantId, tenantIds),
+            inArray(tenantInvoicesTable.status, ["unpaid", "overdue", "partial"]),
+          ),
+        )
+        .groupBy(tenantInvoicesTable.tenantId),
+    ]);
 
     const bookingEndDateMap = new Map(bookingDates.map((b) => [b.tenantId, b.contractEndDate]));
+    const outstandingMap = new Map(outstandingRows.map((o) => [o.tenantId, Number(o.totalOutstanding ?? 0)]));
 
     res.json(rows.map((t) => ({
       ...t,
       contractEndDate: t.contractEndDate ?? bookingEndDateMap.get(t.id) ?? null,
+      totalOutstanding: outstandingMap.get(t.id) ?? 0,
     })));
   } catch (err) {
     req.log.error(err, "Failed to list tenants");
@@ -103,10 +122,13 @@ router.get("/tenants/:id", async (req, res) => {
     return;
   }
   try {
+    const siteCondition = req.siteId > 0
+      ? and(eq(tenantsTable.id, id), eq(tenantsTable.siteId, req.siteId))
+      : eq(tenantsTable.id, id);
     const [tenant] = await db
       .select()
       .from(tenantsTable)
-      .where(eq(tenantsTable.id, id));
+      .where(siteCondition);
     if (!tenant) {
       res.status(404).json({ error: "Tenant tidak ditemukan" });
       return;

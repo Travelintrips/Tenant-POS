@@ -6,8 +6,21 @@ import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
 import { logger } from "./logger";
 
-function calcAmounts(rentAmount: number) {
-  const total = rentAmount;
+function calcAmounts(opts: {
+  rentAmount: number;
+  serviceChargeAmount: number;
+  electricityChargeAmount: number;
+  waterChargeAmount: number;
+  otherChargeAmount: number;
+  trashChargeAmount: number;
+}) {
+  const total =
+    opts.rentAmount +
+    opts.serviceChargeAmount +
+    opts.electricityChargeAmount +
+    opts.waterChargeAmount +
+    opts.otherChargeAmount +
+    opts.trashChargeAmount;
   return {
     subtotal: String(total),
     taxAmount: "0",
@@ -96,13 +109,26 @@ async function insertOneInvoice(opts: {
   bookingId: number;
   unitCode: string | null;
   rentAmount: number;
+  serviceChargeAmount: number;
+  electricityChargeAmount: number;
+  waterChargeAmount: number;
+  otherChargeAmount: number;
+  trashChargeAmount: number;
   periodStartStr: string;
   periodEndStr: string;
   dueDateStr: string;
   now: Date;
 }): Promise<number | null> {
-  const { siteId, tenantId, bookingId, unitCode, rentAmount, periodStartStr, periodEndStr, dueDateStr, now } = opts;
-  const { subtotal, taxAmount, totalAmount, outstandingAmount } = calcAmounts(rentAmount);
+  const {
+    siteId, tenantId, bookingId, unitCode,
+    rentAmount, serviceChargeAmount, electricityChargeAmount,
+    waterChargeAmount, otherChargeAmount, trashChargeAmount,
+    periodStartStr, periodEndStr, dueDateStr, now,
+  } = opts;
+  const { subtotal, taxAmount, totalAmount, outstandingAmount } = calcAmounts({
+    rentAmount, serviceChargeAmount, electricityChargeAmount,
+    waterChargeAmount, otherChargeAmount, trashChargeAmount,
+  });
   const status = new Date(dueDateStr) < now ? "overdue" : "unpaid";
 
   for (let attempt = 0; attempt < 3; attempt++) {
@@ -113,21 +139,23 @@ async function insertOneInvoice(opts: {
           site_id, tenant_id, booking_id, unit_code,
           invoice_number, period_start, period_end, due_date,
           rent_amount, service_charge_amount, electricity_charge_amount, water_charge_amount,
-          other_charge_amount, discount_amount, penalty_amount,
+          other_charge_amount, trash_charge_amount, discount_amount, penalty_amount,
           tax_amount, subtotal, total_amount,
           paid_amount, outstanding_amount, status
         ) VALUES (
           ${siteId}, ${tenantId}, ${bookingId}, ${unitCode},
           ${invoiceNumber}, ${periodStartStr}, ${periodEndStr}, ${dueDateStr},
-          ${String(rentAmount)}, '0', '0', '0',
-          '0', '0', '0',
+          ${String(rentAmount)}, ${String(serviceChargeAmount)}, ${String(electricityChargeAmount)}, ${String(waterChargeAmount)},
+          ${String(otherChargeAmount)}, ${String(trashChargeAmount)}, '0', '0',
           ${taxAmount}, ${subtotal}, ${totalAmount},
           '0', ${outstandingAmount}, ${status}
         )
         RETURNING id
       `);
       const id = (insertResult as unknown as { rows: { id: number }[] }).rows[0]?.id ?? null;
-      logger.info(`[auto-invoice] Invoice ${invoiceNumber} (${periodStartStr}) dibuat (bookingId=${bookingId})`);
+      logger.info(
+        `[auto-invoice] Invoice ${invoiceNumber} (${periodStartStr}) dibuat (bookingId=${bookingId}, total=${totalAmount})`,
+      );
       return id;
     } catch (err: unknown) {
       const code = (err as { cause?: { code?: string } })?.cause?.code;
@@ -142,6 +170,11 @@ async function insertOneInvoice(opts: {
  * Buat invoice untuk SELURUH periode sewa (1 invoice per bulan).
  * Idempoten: bulan yang sudah ada invoice-nya dilewati.
  *
+ * Biaya tambahan (service charge, listrik, air, dll) diambil dari:
+ * 1. Nilai eksplisit yang di-pass (jika ada)
+ * 2. Default biaya dari record tenant di DB
+ * 3. 0 jika tidak ada data
+ *
  * @returns array of created invoice IDs
  */
 export async function createAllInvoicesForBooking(opts: {
@@ -152,10 +185,51 @@ export async function createAllInvoicesForBooking(opts: {
   rentAmount: number;
   startDate: string;      // "YYYY-MM-DD" — awal periode sewa
   durationMonths: number; // jumlah bulan
+  serviceChargeAmount?: number;
+  electricityChargeAmount?: number;
+  waterChargeAmount?: number;
+  otherChargeAmount?: number;
+  trashChargeAmount?: number;
 }): Promise<number[]> {
   const { bookingId, siteId, tenantId, unitCode, rentAmount, startDate, durationMonths } = opts;
 
   if (durationMonths <= 0 || rentAmount <= 0) return [];
+
+  // Ambil default biaya dari tenant jika tidak di-pass secara eksplisit
+  let serviceChargeAmount = opts.serviceChargeAmount ?? 0;
+  let electricityChargeAmount = opts.electricityChargeAmount ?? 0;
+  let waterChargeAmount = opts.waterChargeAmount ?? 0;
+  let otherChargeAmount = opts.otherChargeAmount ?? 0;
+  let trashChargeAmount = opts.trashChargeAmount ?? 0;
+
+  const hasMissingCharges =
+    opts.serviceChargeAmount === undefined ||
+    opts.electricityChargeAmount === undefined ||
+    opts.waterChargeAmount === undefined;
+
+  if (hasMissingCharges) {
+    try {
+      const tenantResult = await db.execute(sql`
+        SELECT
+          default_service_charge_amount,
+          default_electricity_charge_amount,
+          default_water_charge_amount,
+          default_other_charge_amount,
+          default_trash_charge_amount
+        FROM tenants WHERE id = ${tenantId} LIMIT 1
+      `);
+      const t = (tenantResult as unknown as { rows: Record<string, string | null>[] }).rows[0];
+      if (t) {
+        if (opts.serviceChargeAmount === undefined) serviceChargeAmount = Number(t["default_service_charge_amount"] ?? 0);
+        if (opts.electricityChargeAmount === undefined) electricityChargeAmount = Number(t["default_electricity_charge_amount"] ?? 0);
+        if (opts.waterChargeAmount === undefined) waterChargeAmount = Number(t["default_water_charge_amount"] ?? 0);
+        if (opts.otherChargeAmount === undefined) otherChargeAmount = Number(t["default_other_charge_amount"] ?? 0);
+        if (opts.trashChargeAmount === undefined) trashChargeAmount = Number(t["default_trash_charge_amount"] ?? 0);
+      }
+    } catch (err) {
+      logger.warn({ err, tenantId }, "[auto-invoice] Gagal ambil default biaya tenant, pakai 0");
+    }
+  }
 
   const baseDate = new Date(startDate + "T00:00:00Z");
   const now = new Date();
@@ -189,7 +263,13 @@ export async function createAllInvoicesForBooking(opts: {
 
     const id = await insertOneInvoice({
       siteId, tenantId, bookingId, unitCode,
-      rentAmount, periodStartStr, periodEndStr, dueDateStr, now,
+      rentAmount,
+      serviceChargeAmount,
+      electricityChargeAmount,
+      waterChargeAmount,
+      otherChargeAmount,
+      trashChargeAmount,
+      periodStartStr, periodEndStr, dueDateStr, now,
     });
     if (id) {
       createdIds.push(id);

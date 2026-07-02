@@ -10,6 +10,7 @@ import { logAudit } from "../lib/audit";
 import { blastSessionLogsTable } from "@workspace/db/schema";
 import { createAllInvoicesForBooking } from "../lib/auto-invoice";
 import { getBaseUrl } from "../lib/app-url";
+import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
 
@@ -102,7 +103,7 @@ router.post("/calon-tenant/daftar", registrationRateLimiter, async (req: Request
       message: "Terima kasih! Data Anda sudah kami terima. Tim kami akan mengirimkan dokumen penawaran melalui WhatsApp dalam waktu dekat.",
     });
   } catch (err) {
-    console.error("[calon-tenant] POST /daftar error:", err);
+    logger.error({ err: err }, "[calon-tenant] POST /daftar error:");
     res.status(500).json({ error: "Terjadi kesalahan server. Silakan coba lagi." });
   }
 });
@@ -126,7 +127,7 @@ router.get("/calon-tenant/pending-count", requireAuth, async (req: Request, res:
       latestCreatedAt: (row?.latest_created_at as string | null) ?? null,
     });
   } catch (err) {
-    console.error("[calon-tenant] GET /pending-count error:", err);
+    logger.error({ err: err }, "[calon-tenant] GET /pending-count error:");
     res.status(500).json({ success: false, error: "Terjadi kesalahan server." });
   }
 });
@@ -321,7 +322,7 @@ router.patch(
             rentAmount: Number(rentAmount),
             startDate,
             durationMonths,
-          }).catch((err) => console.error("[calon-tenant] Auto-invoice error:", err));
+          }).catch((err) => logger.error({ err }, "[calon-tenant] Auto-invoice error:"));
 
           // Kirim WA konfirmasi booking (fire-and-forget)
           void (async () => {
@@ -345,7 +346,7 @@ router.patch(
           })();
 
         } catch (bookingErr) {
-          console.error("[calon-tenant] Auto-booking error (non-fatal):", bookingErr);
+          logger.error({ err: bookingErr }, "[calon-tenant] Auto-booking error (non-fatal):");
           // Gagal buat booking tidak menggagalkan approval
         }
       }
@@ -360,7 +361,7 @@ router.patch(
 
       res.json({ success: true, id, status, waSent, tenantId, bookingId });
     } catch (err) {
-      console.error("[calon-tenant] PATCH /:id/status error:", err);
+      logger.error({ err: err }, "[calon-tenant] PATCH /:id/status error:");
       res.status(500).json({ error: "Terjadi kesalahan server saat memperbarui status" });
     }
   }
@@ -441,7 +442,7 @@ router.post(
 
       res.json({ success: true, total: rows.length, sent, failed, results });
     } catch (err) {
-      console.error("[calon-tenant] POST /bulk-reminder error:", err);
+      logger.error({ err: err }, "[calon-tenant] POST /bulk-reminder error:");
       res.status(500).json({ error: "Terjadi kesalahan server saat mengirim bulk reminder" });
     }
   }
@@ -517,13 +518,13 @@ router.post(
       }
     } catch (err) {
       errorMessage = err instanceof Error ? err.message : "Network error";
-      console.error("[calon-tenant] POST /kirim-link-wa error:", err);
+      logger.error({ err: err }, "[calon-tenant] POST /kirim-link-wa error:");
     }
 
     await db.execute(sql`
       INSERT INTO registration_link_wa_log (phone_number, status, sent_by, error_message, site_id)
       VALUES (${rawPhone}, ${status}, ${sentBy}, ${errorMessage}, ${siteId})
-    `).catch((logErr) => console.error("[kirim-link-wa] gagal simpan log:", logErr));
+    `).catch((logErr) => logger.error({ logErr }, "[kirim-link-wa] gagal simpan log:"));
 
     if (status === "success") {
       res.json({ success: true, message: `Link registrasi berhasil dikirim ke ${rawPhone}` });
@@ -681,7 +682,7 @@ router.post(
         results,
       });
     } catch (err) {
-      console.error("[calon-tenant] POST /blast-unit-tersedia error:", err);
+      logger.error({ err: err }, "[calon-tenant] POST /blast-unit-tersedia error:");
       res.status(500).json({ error: "Gagal menjalankan blast notifikasi" });
     }
   }
@@ -721,7 +722,7 @@ router.get(
       });
       res.json({ success: true, logs: rows });
     } catch (err) {
-      console.error("[calon-tenant] GET /blast-history error:", err);
+      logger.error({ err: err }, "[calon-tenant] GET /blast-history error:");
       res.status(500).json({ error: "Gagal memuat riwayat blast" });
     }
   }
@@ -754,7 +755,7 @@ router.get(
       });
       res.json({ success: true, logs: rows });
     } catch (err) {
-      console.error("[calon-tenant] GET /link-wa-log error:", err);
+      logger.error({ err: err }, "[calon-tenant] GET /link-wa-log error:");
       res.status(500).json({ error: "Gagal memuat riwayat" });
     }
   }

@@ -285,7 +285,10 @@ function FilterBar({
         <div className="flex flex-wrap gap-2">
           {/* Tahun */}
           <Select value={tahun} onChange={setTahun}>
-            {[2026, 2025, 2024].map((y) => <option key={y} value={String(y)}>Tahun {y}</option>)}
+            {Array.from(
+              { length: new Date().getFullYear() - 2024 + 1 },
+              (_, i) => new Date().getFullYear() - i,
+            ).map((y) => <option key={y} value={String(y)}>Tahun {y}</option>)}
           </Select>
           {/* Bulan */}
           <Select value={filter.bulan} onChange={(v) => setFilter((f) => ({ ...f, bulan: v }))}>

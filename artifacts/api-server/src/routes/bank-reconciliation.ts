@@ -37,6 +37,7 @@ import { postAccountingJournal } from "../lib/accounting-journal";
 import { recordPayment, LedgerError } from "../lib/payment-ledger";
 import { postTenantPaymentAccountingEntry } from "../lib/accounting-entry";
 import { appContextMiddleware, type AppContext } from "../middlewares/app-context";
+import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
@@ -317,8 +318,9 @@ router.post("/bank-reconciliation/preview-from-sheet", async (req, res) => {
     });
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);
-    console.error("[preview-from-sheet]", msg);
-    res.status(500).json({ error: "Gagal membaca spreadsheet. Pastikan sheet sudah di-share ke service account dan ID/URL benar.", detail: msg });
+    logger.error({ err: msg }, "[preview-from-sheet]");
+    const isProduction = process.env.NODE_ENV === "production";
+    res.status(500).json({ error: "Gagal membaca spreadsheet. Pastikan sheet sudah di-share ke service account dan ID/URL benar.", ...(isProduction ? {} : { detail: msg }) });
   }
 });
 
@@ -350,8 +352,9 @@ router.post("/bank-reconciliation/import-from-sheet", async (req, res) => {
     rows = await readFromSheet({ spreadsheetId, range });
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);
-    console.error("[import-from-sheet] readFromSheet error:", msg);
-    res.status(500).json({ error: "Gagal membaca spreadsheet. Pastikan sheet sudah di-share ke service account dan ID/URL benar.", detail: msg });
+    logger.error({ err: msg }, "[import-from-sheet] readFromSheet error:");
+    const isProduction = process.env.NODE_ENV === "production";
+    res.status(500).json({ error: "Gagal membaca spreadsheet. Pastikan sheet sudah di-share ke service account dan ID/URL benar.", ...(isProduction ? {} : { detail: msg }) });
     return;
   }
 
@@ -1167,7 +1170,7 @@ router.post("/bank-reconciliation/:mutationId/approve", async (req, res) => {
     if (e.status) {
       res.status(e.status).json({ error: e.message });
     } else {
-      console.error("[bank-recon approve]", err);
+      logger.error({ err: err }, "[bank-recon approve]");
       res.status(500).json({ error: "Gagal memproses rekonsiliasi" });
     }
   }
@@ -1219,48 +1222,53 @@ router.post("/bank-reconciliation/:mutationId/reject", async (req, res) => {
 // ── POST /bank-reconciliation/run-matching ────────────────────────────────────
 
 router.post("/bank-reconciliation/run-matching", async (req, res) => {
-  const ctx = appCtx(req);
-  const siteId: number | undefined = (req as any).siteId > 0 ? (req as any).siteId : undefined;
+  try {
+    const ctx = appCtx(req);
+    const siteId: number | undefined = (req as any).siteId > 0 ? (req as any).siteId : undefined;
 
-  const conditions: any[] = [
-    sql`${bankMutationsTable.status} IN ('unmatched', 'matched')`,
-  ];
-  if (siteId) conditions.push(eq(bankMutationsTable.siteId, siteId));
-  conditions.push(...mutationTenantConds(ctx));
+    const conditions: any[] = [
+      sql`${bankMutationsTable.status} IN ('unmatched', 'matched')`,
+    ];
+    if (siteId) conditions.push(eq(bankMutationsTable.siteId, siteId));
+    conditions.push(...mutationTenantConds(ctx));
 
-  const pending = await db
-    .select({ id: bankMutationsTable.id })
-    .from(bankMutationsTable)
-    .where(and(...conditions))
-    .limit(200);
+    const pending = await db
+      .select({ id: bankMutationsTable.id })
+      .from(bankMutationsTable)
+      .where(and(...conditions))
+      .limit(200);
 
-  const mc = matchCtx(ctx);
-  const results = await Promise.allSettled(
-    pending.map((m) => runMatchingForMutation(m.id, mc))
-  );
+    const mc = matchCtx(ctx);
+    const results = await Promise.allSettled(
+      pending.map((m) => runMatchingForMutation(m.id, mc))
+    );
 
-  const summary = { total: pending.length, autoMatched: 0, withCandidates: 0, unmatched: 0, duplicates: 0 };
-  for (const r of results) {
-    if (r.status === "fulfilled") {
-      const v = r.value as any;
-      if (v.autoMatched) summary.autoMatched++;
-      else if (v.status === "duplicate_need_review") summary.duplicates++;
-      else if (v.candidatesCount > 0) summary.withCandidates++;
-      else summary.unmatched++;
+    const summary = { total: pending.length, autoMatched: 0, withCandidates: 0, unmatched: 0, duplicates: 0 };
+    for (const r of results) {
+      if (r.status === "fulfilled") {
+        const v = r.value as any;
+        if (v.autoMatched) summary.autoMatched++;
+        else if (v.status === "duplicate_need_review") summary.duplicates++;
+        else if (v.candidatesCount > 0) summary.withCandidates++;
+        else summary.unmatched++;
+      }
     }
+
+    logAudit(req, {
+      action: "bank_reconciliation_run_matching",
+      entityType: "bank_mutations",
+      afterData: { ...summary, ownerTenantId: ctx.ownerTenantId, sourceApp: ctx.sourceApp },
+    });
+    logBankReconAudit(req, ctx, "run_matching", {
+      metadata: summary,
+      sourceModule: "bank_reconciliation",
+    });
+
+    res.json({ success: true, ...summary });
+  } catch (err) {
+    logger.error({ err }, "run-matching gagal");
+    res.status(500).json({ error: "Gagal menjalankan auto-matching" });
   }
-
-  logAudit(req, {
-    action: "bank_reconciliation_run_matching",
-    entityType: "bank_mutations",
-    afterData: { ...summary, ownerTenantId: ctx.ownerTenantId, sourceApp: ctx.sourceApp },
-  });
-  logBankReconAudit(req, ctx, "run_matching", {
-    metadata: summary,
-    sourceModule: "bank_reconciliation",
-  });
-
-  res.json({ success: true, ...summary });
 });
 
 // ── POST /bank-reconciliation/:mutationId/manual-match ───────────────────────
@@ -1662,7 +1670,8 @@ router.post("/bank-reconciliation/export-google-sheet", async (req, res) => {
     await writeToSheet({ spreadsheetId, sheetTitle, headers, rows });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
-    res.status(500).json({ error: "Gagal menulis ke Google Sheets", detail: msg });
+    const isProduction = process.env.NODE_ENV === "production";
+    res.status(500).json({ error: "Gagal menulis ke Google Sheets", ...(isProduction ? {} : { detail: msg }) });
     return;
   }
 
@@ -2077,7 +2086,7 @@ router.get("/bank-reconciliation/account-balances", async (req, res) => {
 
     res.json(rows);
   } catch (err) {
-    console.error("account-balances error:", err);
+    logger.error({ err: err }, "account-balances error:");
     res.status(500).json({ error: "Gagal memuat saldo rekening" });
   }
 });
@@ -2198,7 +2207,7 @@ router.get("/bank-reconciliation/journal-entries", async (req, res) => {
 
     res.json({ data: rows, total, page, limit });
   } catch (err) {
-    console.error("journal-entries error:", err);
+    logger.error({ err: err }, "journal-entries error:");
     res.status(500).json({ error: "Gagal memuat jurnal" });
   }
 });

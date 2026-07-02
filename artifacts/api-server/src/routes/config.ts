@@ -1,4 +1,5 @@
 import { Router, type IRouter } from "express";
+import { publicReadRateLimiter } from "../middlewares/rate-limit";
 
 const router: IRouter = Router();
 
@@ -15,7 +16,7 @@ const resolvedAnonKey = isProduction
 // Endpoint ini sengaja publik (tanpa autentikasi) karena hanya mengembalikan
 // konfigurasi klien Supabase yang bersifat publik (anon key = public key,
 // bukan service role key). Jangan pernah mengembalikan service role key di sini.
-router.get("/config", (_req, res) => {
+router.get("/config", publicReadRateLimiter, (_req, res) => {
   res.json({
     supabaseUrl: resolvedUrl,
     supabaseAnonKey: resolvedAnonKey,

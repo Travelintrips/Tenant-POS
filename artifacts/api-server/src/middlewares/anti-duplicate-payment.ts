@@ -2,6 +2,7 @@ import type { Request, Response, NextFunction } from "express";
 import { db } from "@workspace/db";
 import { tenantPaymentsTable } from "@workspace/db/schema";
 import { eq } from "drizzle-orm";
+import { logger } from "../lib/logger";
 
 /**
  * Middleware anti-duplikasi pembayaran berdasarkan `referenceId`.
@@ -42,7 +43,7 @@ export async function antiDuplicatePayment(
 
     next();
   } catch (err) {
-    console.error("[antiDuplicatePayment]", err);
+    logger.error({ err }, "[antiDuplicatePayment]");
     next();
   }
 }

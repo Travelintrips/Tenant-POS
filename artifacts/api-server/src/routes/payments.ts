@@ -9,6 +9,7 @@ import { cashierShiftsTable } from "@workspace/db/schema";
 import { postPosPaymentJournal } from "../lib/pos-journal";
 import { writePaymentEvent, normalizePaymentMethod } from "../lib/payment-events";
 import { postTenantPaymentAccountingEntry } from "../lib/accounting-entry";
+import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
 
@@ -191,7 +192,7 @@ router.post("/payments", async (req, res) => {
           paymentStatus: "confirmed",
         });
       } catch (err) {
-        console.error("[POST /payments] post-commit side-effects gagal:", err);
+        logger.error({ err, invoiceId, paymentMethod }, "[POST /payments] post-commit side-effects gagal — jurnal/receipt/event mungkin tidak tercatat");
       }
     })();
 
@@ -215,7 +216,7 @@ router.post("/payments", async (req, res) => {
       res.status(e.status).json({ error: e.message });
       return;
     }
-    console.error("[POST /payments]", err);
+    logger.error({ err }, "[POST /payments] gagal catat pembayaran");
     res.status(500).json({ error: "Gagal mencatat pembayaran" });
   }
 });
@@ -294,7 +295,7 @@ router.get("/payments", async (req, res) => {
       },
     });
   } catch (err) {
-    console.error("[GET /payments]", err);
+    logger.error({ err }, "[GET /payments]");
     res.status(500).json({ error: "Gagal mengambil riwayat pembayaran" });
   }
 });
@@ -336,7 +337,7 @@ router.get("/payments/:id", async (req, res) => {
 
     res.json(payment);
   } catch (err) {
-    console.error("[GET /payments/:id]", err);
+    logger.error({ err }, "[GET /payments/:id]");
     res.status(500).json({ error: "Gagal mengambil data pembayaran" });
   }
 });

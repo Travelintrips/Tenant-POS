@@ -1,4 +1,5 @@
 // Dev: coba URL/KEY versi _DEV dulu, fallback ke versi PROD
+import { logger } from "./logger";
 // Prod: pakai URL/KEY tanpa suffix (wajib diset di Replit Secrets)
 const isProduction = process.env["NODE_ENV"] === "production";
 
@@ -17,11 +18,12 @@ const supabaseKey = isProduction
 const useSupabase = Boolean(supabaseUrl && supabaseKey);
 
 if (!useSupabase) {
-  console.warn(
+  logger.warn(
     "[supabase-storage] ⚠️  SUPABASE_URL dan SUPABASE_SERVICE_ROLE_KEY tidak dikonfigurasi. " +
-    "Upload file AKAN GAGAL. Set secret berikut di Replit:\n" +
+    "Upload file AKAN GAGAL — tidak ada fallback penyimpanan lokal. Set secret berikut di Replit:\n" +
     "  - SUPABASE_URL (atau SUPABASE_URL_DEV untuk dev)\n" +
-    "  - SUPABASE_SERVICE_ROLE_KEY (atau SUPABASE_SERVICE_ROLE_KEY_DEV untuk dev)"
+    "  - SUPABASE_SERVICE_ROLE_KEY (atau SUPABASE_SERVICE_ROLE_KEY_DEV untuk dev)\n" +
+    "Semua data file WAJIB disimpan ke Supabase Storage."
   );
 }
 

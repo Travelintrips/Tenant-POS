@@ -1,6 +1,7 @@
 import { db } from "@workspace/db";
 import { financePaymentEventsTable } from "@workspace/db/schema";
 import { and, eq, sql } from "drizzle-orm";
+import { logger } from "./logger";
 
 export interface WritePaymentEventInput {
   sourceApp: string;
@@ -81,7 +82,7 @@ export async function writePaymentEvent(input: WritePaymentEventInput): Promise<
       metadata: input.metadata ?? null,
     });
   } catch (err) {
-    console.error("[writePaymentEvent] Gagal menulis payment event:", err);
+    logger.error({ err: err }, "[writePaymentEvent] Gagal menulis payment event:");
   }
 }
 

@@ -10,6 +10,7 @@ import {
   sendBookingConfirmation,
   getSiteCompanyName,
 } from "../lib/whatsapp";
+import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
 
@@ -33,12 +34,13 @@ const LIST_COLS = sql`
   tenant_id, booking_id
 `;
 
-const ALLOWED_SORT: Record<string, string> = {
-  created_at: "created_at",
-  tenant_name: "tenant_name",
-  brand_name: "brand_name",
-  status: "status",
-  rent_amount: "rent_amount",
+// Explicit SQL expressions per kolom — menghindari sql.raw dengan dynamic string
+const SORT_EXPRS: Record<string, SQL> = {
+  created_at:  sql`created_at`,
+  tenant_name: sql`tenant_name`,
+  brand_name:  sql`brand_name`,
+  status:      sql`status`,
+  rent_amount: sql`rent_amount`,
 };
 
 // ── Schema validasi ────────────────────────────────────────────────────────────
@@ -104,7 +106,7 @@ router.get("/draft-agreements/summary", async (req: Request, res: Response) => {
       selfRegister: Number(row["self_register"]?? 0),
     });
   } catch (err) {
-    console.error("[draft-agreements] GET summary error:", err);
+    logger.error({ err: err }, "[draft-agreements] GET summary error:");
     res.status(500).json({ error: "Gagal mengambil ringkasan draf perjanjian" });
   }
 });
@@ -128,7 +130,6 @@ router.get("/draft-agreements", async (req: Request, res: Response) => {
     const dateTo    = req.query["dateTo"]   as string | undefined;
     const sortByRaw = String(req.query["sortBy"]  ?? "created_at");
     const sortDir   = String(req.query["sortDir"] ?? "desc").toLowerCase() === "asc" ? "ASC" : "DESC";
-    const sortCol   = ALLOWED_SORT[sortByRaw] ?? "created_at";
 
     // — build WHERE conditions —
     const conditions: SQL[] = [];
@@ -173,10 +174,11 @@ router.get("/draft-agreements", async (req: Request, res: Response) => {
       ? sql`WHERE ${sql.join(conditions, sql` AND `)}`
       : sql`WHERE TRUE`;
 
-    // Sort direction in raw SQL (whitelisted)
+    // Sort — gunakan SORT_EXPRS untuk menghindari sql.raw dinamis
+    const colExpr = SORT_EXPRS[sortByRaw] ?? SORT_EXPRS["created_at"]!;
     const orderClause = sortDir === "ASC"
-      ? sql`ORDER BY ${sql.raw(sortCol)} ASC NULLS LAST`
-      : sql`ORDER BY ${sql.raw(sortCol)} DESC NULLS LAST`;
+      ? sql`ORDER BY ${colExpr} ASC NULLS LAST`
+      : sql`ORDER BY ${colExpr} DESC NULLS LAST`;
 
     // — COUNT query —
     const countResult = await db.execute(sql`
@@ -220,7 +222,7 @@ router.get("/draft-agreements", async (req: Request, res: Response) => {
       },
     });
   } catch (err) {
-    console.error("[draft-agreements] GET list error:", err);
+    logger.error({ err: err }, "[draft-agreements] GET list error:");
     res.status(500).json({ error: "Gagal mengambil daftar draf perjanjian" });
   }
 });
@@ -246,7 +248,7 @@ router.get("/draft-agreements/:id", async (req: Request, res: Response) => {
         : `/dokumen/${row["token"]}`,
     });
   } catch (err) {
-    console.error("[draft-agreements] GET :id error:", err);
+    logger.error({ err: err }, "[draft-agreements] GET :id error:");
     res.status(500).json({ error: "Gagal mengambil detail draf" });
   }
 });
@@ -302,7 +304,7 @@ router.post("/draft-agreements", requireAnyRole("admin", "owner"), async (req: R
         : `/dokumen/${token}`,
     });
   } catch (err) {
-    console.error("[draft-agreements] POST error:", err);
+    logger.error({ err: err }, "[draft-agreements] POST error:");
     res.status(500).json({ error: "Gagal membuat draf perjanjian" });
   }
 });
@@ -323,7 +325,7 @@ router.delete("/draft-agreements/:id", requireAnyRole("admin", "owner"), async (
     }
     res.json({ success: true, message: "Draf berhasil dihapus" });
   } catch (err) {
-    console.error("[draft-agreements] DELETE error:", err);
+    logger.error({ err: err }, "[draft-agreements] DELETE error:");
     res.status(500).json({ error: "Gagal menghapus draf" });
   }
 });
@@ -372,7 +374,7 @@ async function sendWaAndLog({
       (draft_agreement_id, phone_number, status, sent_by, type, error_message)
     VALUES
       (${draftId}, ${phone}, ${status}, ${sentBy}, ${type}, ${errorMessage})
-  `).catch((logErr) => console.error("[wa-log] gagal simpan log:", logErr));
+  `).catch((logErr) => logger.error({ logErr }, "[wa-log] gagal simpan log:"));
 
   return status === "success" ? { ok: true } : { ok: false, error: errorMessage ?? "Gagal mengirim WA" };
 }
@@ -411,7 +413,7 @@ router.post("/draft-agreements/:id/kirim-wa-approved", requireAnyRole("admin", "
 
     res.json({ success: true, waSent: !waResult.skipped, skipped: waResult.skipped ?? false });
   } catch (err) {
-    console.error("[draft-agreements] POST kirim-wa-approved error:", err);
+    logger.error({ err: err }, "[draft-agreements] POST kirim-wa-approved error:");
     res.status(500).json({ error: "Gagal mengirim notifikasi WhatsApp" });
   }
 });
@@ -457,7 +459,7 @@ router.post("/draft-agreements/:id/remind", requireAnyRole("admin", "owner"), as
 
     res.json({ success: true, message: "Pengingat berhasil dikirim via WhatsApp" });
   } catch (err) {
-    console.error("[draft-agreements] POST remind error:", err);
+    logger.error({ err: err }, "[draft-agreements] POST remind error:");
     res.status(500).json({ error: "Gagal mengirim pengingat" });
   }
 });
@@ -509,7 +511,7 @@ router.post("/draft-agreements/:id/kirim-wa-manual", requireAnyRole("admin", "ow
 
     res.json({ success: true, message: `WA berhasil dikirim ke ${targetPhone}` });
   } catch (err) {
-    console.error("[draft-agreements] POST kirim-wa-manual error:", err);
+    logger.error({ err: err }, "[draft-agreements] POST kirim-wa-manual error:");
     res.status(500).json({ error: "Gagal mengirim WA" });
   }
 });
@@ -530,7 +532,7 @@ router.get("/draft-agreements/:id/wa-log", requireAnyRole("admin", "owner"), asy
     const rows = (result as { rows: Record<string, unknown>[] }).rows.map(toCamel);
     res.json({ success: true, logs: rows });
   } catch (err) {
-    console.error("[draft-agreements] GET wa-log error:", err);
+    logger.error({ err: err }, "[draft-agreements] GET wa-log error:");
     res.status(500).json({ error: "Gagal memuat riwayat WA" });
   }
 });
@@ -596,7 +598,7 @@ router.patch("/draft-agreements/:id", requireAnyRole("admin", "owner"), async (r
       publicUrl: baseUrl ? `${baseUrl}/dokumen/${row["token"]}` : `/dokumen/${row["token"]}`,
     });
   } catch (err) {
-    console.error("[draft-agreements] PATCH error:", err);
+    logger.error({ err: err }, "[draft-agreements] PATCH error:");
     res.status(500).json({ error: "Gagal mengupdate draf perjanjian" });
   }
 });
@@ -753,7 +755,7 @@ router.post("/draft-agreements/:id/jadikan-booking", requireAnyRole("admin", "ow
       message: `Berhasil! Tenant dan booking telah dibuat.`,
     });
   } catch (err) {
-    console.error("[draft-agreements] POST jadikan-booking error:", err);
+    logger.error({ err: err }, "[draft-agreements] POST jadikan-booking error:");
     res.status(500).json({ error: "Gagal membuat tenant dan booking" });
   }
 });

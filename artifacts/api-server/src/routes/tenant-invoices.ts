@@ -212,6 +212,7 @@ const invoiceSelect = {
   status: tenantInvoicesTable.status,
   notes: tenantInvoicesTable.notes,
   paymentToken: tenantInvoicesTable.paymentToken,
+  invoiceNotifiedAt: tenantInvoicesTable.invoiceNotifiedAt,
   createdAt: tenantInvoicesTable.createdAt,
   updatedAt: tenantInvoicesTable.updatedAt,
   tenantName: tenantsTable.businessName,
@@ -1391,7 +1392,7 @@ router.get("/tenant-invoices/export", async (req, res) => {
       "No. Invoice", "Tenant", "Pemilik", "Booth", "Kode Unit",
       "Periode Mulai", "Periode Selesai", "Jatuh Tempo",
       "Sewa (Rp)", "Service Charge (Rp)", "Listrik (Rp)", "Air (Rp)", "Lainnya (Rp)", "Sampah (Rp)",
-      "Diskon (Rp)", "Denda (Rp)", "Gunakan PPN", "PPN 11% (Rp)",
+      "Diskon (Rp)", "Gunakan PPN", "PPN 11% (Rp)",
       "Subtotal (Rp)", "Total (Rp)", "Terbayar (Rp)", "Sisa (Rp)",
       "Status", "Catatan", "Dibuat",
     ];
@@ -1414,7 +1415,6 @@ router.get("/tenant-invoices/export", async (req, res) => {
         Number(r.otherChargeAmount ?? 0),
         Number(r.trashChargeAmount ?? 0),
         Number(r.discountAmount ?? 0),
-        Number(r.penaltyAmount ?? 0),
         r.usePpn ? "Ya" : "Tidak",
         Number(r.taxAmount ?? 0),
         Number(r.subtotal ?? 0),
@@ -1504,6 +1504,126 @@ router.post("/tenant-invoices/:id/send-pdf", uploadPdfMemory.single("pdf"), asyn
   } catch (err) {
     req.log.error(err, "[send-pdf] Gagal kirim invoice PDF");
     res.status(500).json({ error: "Terjadi kesalahan server" });
+// ─── PUT /api/tenant-invoices/payments/:paymentId ─────────────────────────────
+const editPaymentSchema = z.object({
+  amount: z.number().positive({ message: "Jumlah bayar harus lebih dari 0" }),
+  paymentMethod: z.enum(["tunai", "transfer", "qris", "edc", "other"]).default("tunai"),
+  paymentDate: z.string().optional().nullable(),
+  notes: z.string().optional().nullable(),
+});
+
+router.put("/tenant-invoices/payments/:paymentId", async (req, res) => {
+  const paymentId = Number(req.params.paymentId);
+  if (isNaN(paymentId)) { res.status(400).json({ error: "ID pembayaran tidak valid" }); return; }
+
+  const parsed = editPaymentSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.issues.map((i) => i.message).join("; ") });
+    return;
+  }
+
+  const { amount, paymentMethod, paymentDate, notes } = parsed.data;
+
+  try {
+    const result = await db.transaction(async (tx) => {
+      // Ambil payment + invoice lama
+      const [payment] = await tx
+        .select()
+        .from(tenantPaymentsTable)
+        .where(eq(tenantPaymentsTable.id, paymentId))
+        .for("update");
+
+      if (!payment) throw Object.assign(new Error("Pembayaran tidak ditemukan"), { status: 404 });
+      if (payment.isVoided) throw Object.assign(new Error("Pembayaran sudah divoid, tidak bisa diedit"), { status: 409 });
+
+      const invoiceId = payment.invoiceId;
+      if (!invoiceId) throw Object.assign(new Error("Pembayaran tidak terkait invoice"), { status: 400 });
+
+      const [invoice] = await tx
+        .select()
+        .from(tenantInvoicesTable)
+        .where(eq(tenantInvoicesTable.id, invoiceId))
+        .for("update");
+
+      if (!invoice) throw Object.assign(new Error("Invoice tidak ditemukan"), { status: 404 });
+      if (invoice.status === "cancelled") throw Object.assign(new Error("Invoice telah dibatalkan"), { status: 409 });
+
+      const paidAt = paymentDate ? new Date(paymentDate) : (payment.paidAt ?? new Date());
+
+      // Update payment
+      const [updatedPayment] = await tx
+        .update(tenantPaymentsTable)
+        .set({
+          amount: String(amount),
+          paymentMethod,
+          paidAt,
+          notes: notes ?? null,
+          updatedAt: new Date(),
+        })
+        .where(eq(tenantPaymentsTable.id, paymentId))
+        .returning();
+
+      // Hitung ulang paidAmount dari semua payment non-void untuk invoice ini
+      const allPayments = await tx
+        .select({ amount: tenantPaymentsTable.amount, isVoided: tenantPaymentsTable.isVoided, id: tenantPaymentsTable.id })
+        .from(tenantPaymentsTable)
+        .where(
+          and(
+            eq(tenantPaymentsTable.invoiceId, invoiceId),
+            sql`(is_voided IS NULL OR is_voided = false)`,
+          ),
+        );
+
+      const newPaidAmount = allPayments.reduce((acc, p) => acc + Number(p.amount), 0);
+      const total = Number(invoice.totalAmount);
+      const outstanding = Math.max(total - newPaidAmount, 0);
+
+      let newStatus: string;
+      if (newPaidAmount >= total) newStatus = "paid";
+      else if (newPaidAmount > 0) newStatus = "partial";
+      else newStatus = invoice.dueDate && new Date(invoice.dueDate) < new Date() ? "overdue" : "unpaid";
+
+      const [updatedInvoice] = await tx
+        .update(tenantInvoicesTable)
+        .set({
+          paidAmount: String(newPaidAmount),
+          outstandingAmount: String(outstanding),
+          status: newStatus,
+          updatedAt: new Date(),
+        })
+        .where(eq(tenantInvoicesTable.id, invoiceId))
+        .returning();
+
+      return { payment: updatedPayment, invoice: updatedInvoice, newPaidAmount, outstanding, newStatus };
+    });
+
+    logAudit(req, {
+      action: "edit_payment",
+      entityType: "payment",
+      entityId: paymentId,
+      afterData: {
+        paymentId,
+        invoiceId: result.invoice.id,
+        amount,
+        paymentMethod,
+        paymentDate,
+        notes,
+        invoiceStatus: result.newStatus,
+      },
+    });
+
+    res.json({
+      success: true,
+      payment: result.payment,
+      invoiceStatus: result.newStatus,
+      paidAmount: result.newPaidAmount,
+      outstandingAmount: result.outstanding,
+    });
+  } catch (err: unknown) {
+    const e = err as { status?: number; message?: string };
+    if (e.status) { res.status(e.status).json({ error: e.message }); return; }
+    req.log?.error(err, "Edit payment gagal");
+    res.status(500).json({ error: "Gagal mengubah pembayaran" });
   }
 });
 

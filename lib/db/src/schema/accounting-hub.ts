@@ -32,6 +32,9 @@ export const accountingEntrySource = pgEnum("accounting_entry_source", [
   "payroll",
   "tenant_rent_payment",
   "tenant_sc_payment",
+  "tenant_rent_reversal",
+  "other_income",
+  "operational_expense",
 ]);
 
 export type AccountingEntrySourceType = typeof accountingEntrySource.enumValues[number];

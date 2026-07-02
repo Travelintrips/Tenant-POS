@@ -827,8 +827,8 @@ function CreateModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: (
                   <div className="flex items-start justify-between">
                     <div>
                       <p className="text-xs uppercase tracking-widest opacity-80 mb-0.5">Invoice Konsolidasi</p>
-                      <p className="font-mono text-lg font-bold tracking-wide">KONS/202X/XXX</p>
-                      <p className="text-xs opacity-75 mt-0.5">Auto-generate saat disimpan</p>
+                      <p className="font-mono text-lg font-bold tracking-wide">KONS/{new Date().getFullYear()}/---</p>
+                      <p className="text-xs opacity-75 mt-0.5">Nomor akan digenerate otomatis saat disimpan</p>
                     </div>
                     <div className="text-right">
                       <p className="text-xs opacity-75">Tanggal</p>

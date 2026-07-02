@@ -1,9 +1,11 @@
 import { Router, type IRouter, type Request, type Response } from "express";
+import { publicReadRateLimiter, publicActionRateLimiter } from "../middlewares/rate-limit";
 import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
 import { z } from "zod";
 import { getBaseUrl } from "../lib/app-url";
 import { createAllInvoicesForBooking } from "../lib/auto-invoice";
+import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
 
@@ -105,7 +107,7 @@ async function notifyTenant(opts: {
 
 // ── GET /api/dokumen/:token ───────────────────────────────────────────────────
 // Public — ambil data dokumen berdasarkan token
-router.get("/dokumen/:token", async (req: Request, res: Response) => {
+router.get("/dokumen/:token", publicReadRateLimiter, async (req: Request, res: Response) => {
   const token = req.params["token"] as string;
   if (!token || token.length < 8) {
     res.status(400).json({ error: "Token tidak valid" });
@@ -130,7 +132,7 @@ router.get("/dokumen/:token", async (req: Request, res: Response) => {
     void ip_address; void created_by;
     res.json(safe);
   } catch (err) {
-    console.error("[draft-public] GET /dokumen/:token error:", err);
+    logger.error({ err: err }, "[draft-public] GET /dokumen/:token error:");
     res.status(500).json({ error: "Terjadi kesalahan server" });
   }
 });
@@ -143,7 +145,7 @@ const setujuSchema = z.object({
   respondedPhone: z.string().max(30).optional(),
 });
 
-router.post("/dokumen/:token/setuju", async (req: Request, res: Response) => {
+router.post("/dokumen/:token/setuju", publicActionRateLimiter, async (req: Request, res: Response) => {
   const token = req.params["token"] as string;
   if (!token || token.length < 8) {
     res.status(400).json({ error: "Token tidak valid" });
@@ -300,11 +302,11 @@ router.post("/dokumen/:token/setuju", async (req: Request, res: Response) => {
           rentAmount: Number(rentAmount),
           startDate,
           durationMonths,
-        }).catch((err) => console.error("[draft-public] Auto-invoice error:", err));
+        }).catch((err) => logger.error({ err }, "[draft-public] Auto-invoice error:"));
 
         req.log.info({ bookingId, tenantId, token }, "[draft-public] Auto-booking created");
       } catch (err) {
-        console.error("[draft-public] Auto-booking error (non-fatal):", err);
+        logger.error({ err: err }, "[draft-public] Auto-booking error (non-fatal):");
       }
     })();
 
@@ -335,7 +337,7 @@ router.post("/dokumen/:token/setuju", async (req: Request, res: Response) => {
       status: "approved",
     });
   } catch (err) {
-    console.error("[draft-public] POST setuju error:", err);
+    logger.error({ err: err }, "[draft-public] POST setuju error:");
     res.status(500).json({ error: "Terjadi kesalahan server" });
   }
 });
@@ -349,7 +351,7 @@ const tolakSchema = z.object({
   rejectionReason: z.string().min(5, "Alasan minimal 5 karakter").max(1000),
 });
 
-router.post("/dokumen/:token/tolak", async (req: Request, res: Response) => {
+router.post("/dokumen/:token/tolak", publicActionRateLimiter, async (req: Request, res: Response) => {
   const token = req.params["token"] as string;
   if (!token || token.length < 8) {
     res.status(400).json({ error: "Token tidak valid" });
@@ -427,14 +429,14 @@ router.post("/dokumen/:token/tolak", async (req: Request, res: Response) => {
       status: "rejected",
     });
   } catch (err) {
-    console.error("[draft-public] POST tolak error:", err);
+    logger.error({ err: err }, "[draft-public] POST tolak error:");
     res.status(500).json({ error: "Terjadi kesalahan server" });
   }
 });
 
 // ── GET /api/public/available-units ──────────────────────────────────────────
 // Public — daftar unit yang masih tersedia (belum ada penyewa aktif)
-router.get("/public/available-units", async (req: Request, res: Response) => {
+router.get("/public/available-units", publicReadRateLimiter, async (req: Request, res: Response) => {
   try {
     const siteIdParam = req.query["site_id"];
     const siteId = siteIdParam ? Number(siteIdParam) : null;
@@ -477,7 +479,7 @@ router.get("/public/available-units", async (req: Request, res: Response) => {
 
     res.json(rows.map(toCamel));
   } catch (err) {
-    console.error("[public] GET /available-units error:", err);
+    logger.error({ err: err }, "[public] GET /available-units error:");
     res.status(500).json({ error: "Gagal mengambil data unit tersedia" });
   }
 });

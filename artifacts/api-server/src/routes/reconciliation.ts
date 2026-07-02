@@ -5,10 +5,12 @@ import { eq, and, gte, lte, sql, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { writeToSheet, readFromSheet, extractSheetId, getServiceAccountEmail } from "../services/google-sheets";
 import { sendReconciliationReminder } from "../lib/whatsapp";
+import { logger } from "../lib/logger";
+import { requireAnyRole } from "../middlewares/auth";
 
 const router: IRouter = Router();
 
-router.get("/reconciliation/info", (_req, res) => {
+router.get("/reconciliation/info", requireAnyRole("owner", "admin", "finance"), (_req, res) => {
   res.json({ serviceAccountEmail: getServiceAccountEmail() });
 });
 
@@ -19,8 +21,8 @@ const exportSchema = z.object({
   sheetTitle: z.string().trim().min(1).optional(),
 });
 
-router.post("/reconciliation/export", async (req, res) => {
-  console.warn("[LEGACY] POST /api/reconciliation/export diakses. Gunakan POST /api/bank-reconciliation/export-google-sheet untuk export dari engine baru.");
+router.post("/reconciliation/export", requireAnyRole("owner", "admin", "finance"), async (req, res) => {
+  logger.warn("[LEGACY] POST /api/reconciliation/export diakses. Gunakan POST /api/bank-reconciliation/export-google-sheet untuk export dari engine baru.");
   const parsed = exportSchema.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: "Parameter tidak valid", detail: parsed.error.issues });
@@ -83,7 +85,7 @@ router.post("/reconciliation/export", async (req, res) => {
     "Kunci Pencocokan", "Hasil Pencocokan Bank",
     "Periode Mulai", "Periode Selesai", "Jatuh Tempo",
     "Sewa (Rp)", "Service Charge (Rp)", "Listrik (Rp)", "Air (Rp)", "Lainnya (Rp)",
-    "Diskon (Rp)", "Denda (Rp)", "Total Tagihan (Rp)",
+    "Diskon (Rp)", "Total Tagihan (Rp)",
     "Sudah Dibayar (Rp)", "Sisa (Rp)", "Status",
     "Verifikasi Bank ✓", "Catatan Rekonsiliasi", "Catatan Invoice",
   ];
@@ -109,7 +111,6 @@ router.post("/reconciliation/export", async (req, res) => {
       Number(inv.waterChargeAmount ?? 0),
       Number(inv.otherChargeAmount ?? 0),
       Number(inv.discountAmount ?? 0),
-      Number(inv.penaltyAmount ?? 0),
       Number(inv.totalAmount ?? 0),
       Number(inv.paidAmount ?? 0),
       Number(inv.outstandingAmount ?? 0),
@@ -141,8 +142,8 @@ const importSchema = z.object({
   sheetTitle: z.string().min(1),
 });
 
-router.post("/reconciliation/read", async (req, res) => {
-  console.warn("[LEGACY] POST /api/reconciliation/read diakses. Endpoint ini hanya membaca Google Sheets dan tidak terhubung ke engine bank baru.");
+router.post("/reconciliation/read", requireAnyRole("owner", "admin", "finance"), async (req, res) => {
+  logger.warn("[LEGACY] POST /api/reconciliation/read diakses. Endpoint ini hanya membaca Google Sheets dan tidak terhubung ke engine bank baru.");
   const parsed = importSchema.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: "Parameter tidak valid" });
@@ -166,8 +167,8 @@ const notifySchema = z.object({
   monthLabel: z.string().min(1),
 });
 
-router.post("/reconciliation/notify", async (req, res) => {
-  console.warn("[LEGACY] POST /api/reconciliation/notify diakses. Gunakan POST /api/bank-reconciliation/send-reminder-wa untuk reminder dari engine baru.");
+router.post("/reconciliation/notify", requireAnyRole("owner", "admin", "finance"), async (req, res) => {
+  logger.warn("[LEGACY] POST /api/reconciliation/notify diakses. Gunakan POST /api/bank-reconciliation/send-reminder-wa untuk reminder dari engine baru.");
   const parsed = notifySchema.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: "Parameter tidak valid", detail: parsed.error.issues });

@@ -1,52 +1,170 @@
 import { db } from "@workspace/db";
 import { tenantInvoicesTable, tenantsTable, bankMutationsTable } from "@workspace/db/schema";
 import { and, inArray, isNull, eq, sql } from "drizzle-orm";
+import { createAllInvoicesForBooking } from "./auto-invoice";
 import { sendInvoiceNotification, sendOverdueReminder, sendDueReminder, sendBankUnmatchedAlert, getAdminNotifyPhones, getSiteCompanyName } from "./whatsapp";
 import { logger } from "./logger";
 import { getBaseUrl } from "./app-url";
 
 let _started = false;
 
+// Jam eksekusi scheduler (dalam WIB = UTC+7, diperhitungkan sbg UTC)
+// Cek dilakukan 3x sehari:
+//   01 UTC = 08:00 WIB  → blast tagihan awal bulan (permintaan user)
+//   23 UTC = 06:00 WIB  → pengecekan pagi
+//   11 UTC = 18:00 WIB  → pengecekan sore
+const SCHEDULE_HOURS_UTC = [1, 23, 11]; // 01 UTC = 08:00 WIB, 23 UTC = 06:00 WIB, 11 UTC = 18:00 WIB
+
+let _lastRunDateKey = ""; // format: "YYYY-MM-DD-HH"
+
+// ─── Status tracker (diakses oleh route /blast-tagihan/status) ────────────────
+
+export interface BlastRun {
+  runAt: string;
+  label: string;
+  invoicesCreated: number;
+  invoicesSent: number;
+  reminderH7: number;
+  reminderH3: number;
+  reminderH1: number;
+  overdueSent: number;
+}
+
+export interface BlastStatus {
+  lastRunAt: string | null;
+  lastRunLabel: string | null;
+  lastResult: {
+    invoicesCreated: number;
+    invoiceSent: number;
+    reminderH7: number;
+    reminderH3: number;
+    reminderH1: number;
+    overdueSent: number;
+  } | null;
+  nextScheduledHoursUtc: number[];
+  isRunning: boolean;
+}
+
+let _blastStatus: BlastStatus = {
+  lastRunAt: null,
+  lastRunLabel: null,
+  lastResult: null,
+  nextScheduledHoursUtc: SCHEDULE_HOURS_UTC,
+  isRunning: false,
+};
+
+let _blastHistory: BlastRun[] = [];
+
+export function getBlastStatus(): BlastStatus {
+  return { ..._blastStatus };
+}
+
+export function getBlastHistory(): BlastRun[] {
+  return [..._blastHistory];
+}
+
+async function runAllChecks(label: string): Promise<void> {
+  if (_blastStatus.isRunning) {
+    logger.info("[scheduler] Pengecekan sedang berjalan, dilewati");
+    return;
+  }
+  _blastStatus.isRunning = true;
+  const runAt = new Date().toISOString();
+  logger.info(`[scheduler] Menjalankan semua pengecekan (${label})...`);
+  try {
+    // 1. Buat invoice bulanan terlebih dahulu (idempotent)
+    const invoicesCreated = await runMonthlyInvoiceGeneration().catch((err) => {
+      logger.warn({ err }, "[scheduler] Pembuatan invoice bulanan gagal");
+      return 0;
+    });
+
+    // 2. Kirim notifikasi WA secara paralel
+    const [invoicesSent, dueResult, overdueSent] = await Promise.all([
+      runInvoiceNotificationCheck().catch((err) => {
+        logger.warn({ err }, "[scheduler] Cek kirim tagihan gagal");
+        return 0;
+      }),
+      runDueReminderCheck().catch((err) => {
+        logger.warn({ err }, "[scheduler] Cek reminder H-7/H-3/H-1 gagal");
+        return { h7: 0, h3: 0, h1: 0 };
+      }),
+      runOverdueCheck().catch((err) => {
+        logger.warn({ err }, "[scheduler] Cek overdue gagal");
+        return 0;
+      }),
+    ]);
+
+    // 3. Cek mutasi unmatched (fire-and-forget, tidak memblokir history)
+    runUnmatchedMutationCheck().catch((err) =>
+      logger.warn({ err }, "[scheduler] Cek mutasi unmatched gagal"),
+    );
+
+    const result = {
+      invoicesCreated,
+      invoiceSent: invoicesSent,
+      reminderH7: dueResult.h7,
+      reminderH3: dueResult.h3,
+      reminderH1: dueResult.h1,
+      overdueSent,
+    };
+
+    _blastStatus.lastRunAt = runAt;
+    _blastStatus.lastRunLabel = label;
+    _blastStatus.lastResult = result;
+
+    // Simpan ke history (maks 20 entri)
+    _blastHistory.unshift({
+      runAt,
+      label,
+      invoicesCreated,
+      invoicesSent,
+      reminderH7: dueResult.h7,
+      reminderH3: dueResult.h3,
+      reminderH1: dueResult.h1,
+      overdueSent,
+    });
+    if (_blastHistory.length > 20) _blastHistory.pop();
+  } finally {
+    _blastStatus.isRunning = false;
+  }
+}
+
+/**
+ * Trigger blast tagihan manual (dari API endpoint).
+ * Menjalankan runInvoiceNotificationCheck + runDueReminderCheck + runOverdueCheck.
+ */
+export async function runManualBlast(label: string): Promise<void> {
+  await runAllChecks(label);
+}
+
 export function startOverdueScheduler(): void {
   if (_started) return;
   _started = true;
 
-  // Jalankan semua pengecekan 30 detik setelah startup
-  setTimeout(() => {
-    runInvoiceNotificationCheck().catch((err) =>
-      logger.warn({ err }, "[scheduler] Cek kirim tagihan awal periode gagal"),
-    );
-    runDueReminderCheck().catch((err) =>
-      logger.warn({ err }, "[scheduler] Cek reminder H-3/H-1 awal gagal"),
-    );
-    runOverdueCheck().catch((err) =>
-      logger.warn({ err }, "[scheduler] Cek overdue awal gagal"),
-    );
-    runUnmatchedMutationCheck().catch((err) =>
-      logger.warn({ err }, "[scheduler] Cek mutasi unmatched awal gagal"),
-    );
-  }, 30_000);
-
-  // Ulangi setiap 12 jam
-  setInterval(
-    () => {
-      runInvoiceNotificationCheck().catch((err) =>
-        logger.warn({ err }, "[scheduler] Cek kirim tagihan awal periode berkala gagal"),
-      );
-      runDueReminderCheck().catch((err) =>
-        logger.warn({ err }, "[scheduler] Cek reminder H-3/H-1 berkala gagal"),
-      );
-      runOverdueCheck().catch((err) =>
-        logger.warn({ err }, "[scheduler] Cek overdue berkala gagal"),
-      );
-      runUnmatchedMutationCheck().catch((err) =>
-        logger.warn({ err }, "[scheduler] Cek mutasi unmatched berkala gagal"),
-      );
-    },
-    12 * 60 * 60 * 1000,
+  // Jalankan sekali 30 detik setelah startup (catch-up jika server baru restart)
+  setTimeout(
+    () => runAllChecks("startup").catch(() => {}),
+    30_000,
   );
 
-  logger.info("[scheduler] Scheduler aktif (tagihan, H-3, H-1, overdue, unmatched) — cek setiap 12 jam");
+  // Cron sederhana: cek setiap 5 menit, eksekusi jika jam-nya tepat
+  // Ini memastikan scheduler berjalan pada jam yang terprediksi (06:00 dan 18:00 WIB)
+  // meski server restart kapan saja
+  setInterval(() => {
+    const now = new Date();
+    const hourUtc = now.getUTCHours();
+    const dateKey = `${now.toISOString().slice(0, 10)}-${hourUtc}`;
+
+    // Hanya eksekusi jika jam-nya sesuai jadwal DAN belum dijalankan di jam ini
+    if (SCHEDULE_HOURS_UTC.includes(hourUtc) && dateKey !== _lastRunDateKey) {
+      _lastRunDateKey = dateKey;
+      runAllChecks(`cron ${hourUtc}:00 UTC`).catch(() => {});
+    }
+  }, 5 * 60 * 1000); // setiap 5 menit
+
+  logger.info(
+    "[scheduler] Scheduler aktif — cron 08:00, 06:00, 18:00 WIB (buat invoice bulanan + kirim tagihan, H-7, H-3, H-1, overdue, unmatched)",
+  );
 }
 
 // getAdminPhones → pakai getAdminNotifyPhones() dari whatsapp.ts (sudah handle ADMIN_WA_GROUP)
@@ -114,6 +232,95 @@ function formatPeriodLabel(
   return fmt((periodStart ?? periodEnd)!);
 }
 
+// ─── Pembuatan invoice bulanan otomatis ──────────────────────────────────────
+
+/**
+ * Buat invoice bulanan untuk semua booking aktif yang belum punya invoice bulan ini.
+ * Fungsi ini idempotent — aman dipanggil setiap hari karena createAllInvoicesForBooking
+ * menggunakan ON CONFLICT DO NOTHING (tidak duplikat invoice yang sudah ada).
+ * @returns Jumlah invoice baru yang berhasil dibuat.
+ */
+async function runMonthlyInvoiceGeneration(): Promise<number> {
+  logger.info("[scheduler] Menjalankan pembuatan invoice bulanan otomatis...");
+
+  const result = await db.execute(sql`
+    SELECT
+      b.id,
+      b.site_id,
+      b.tenant_id,
+      b.unit_code,
+      b.start_date,
+      b.end_date,
+      b.duration_months,
+      b.rent_amount
+    FROM tenant_bookings b
+    WHERE
+      b.booking_status IN ('aktif', 'active')
+      AND b.contract_status NOT IN ('expired', 'terminated')
+      AND COALESCE(b.rent_amount::numeric, 0) > 0
+      AND (b.start_date IS NULL OR b.start_date::date <= CURRENT_DATE)
+      AND (
+        b.end_date IS NULL
+        OR b.end_date::date >= DATE_TRUNC('month', CURRENT_DATE)::date
+      )
+  `);
+
+  const rows = (result as unknown as {
+    rows: Array<{
+      id: number;
+      site_id: number;
+      tenant_id: number;
+      unit_code: string | null;
+      start_date: string | null;
+      end_date: string | null;
+      duration_months: number | null;
+      rent_amount: string | null;
+    }>;
+  }).rows;
+
+  logger.info({ count: rows.length }, "[scheduler] Booking aktif ditemukan untuk pembuatan invoice");
+
+  let totalCreated = 0;
+
+  for (const b of rows) {
+    if (!b.start_date) continue;
+
+    let durationMonths = Number(b.duration_months ?? 0);
+    if (!durationMonths && b.end_date) {
+      const s = new Date(b.start_date + "T00:00:00Z");
+      const e = new Date(b.end_date + "T00:00:00Z");
+      durationMonths =
+        (e.getFullYear() - s.getFullYear()) * 12 + (e.getMonth() - s.getMonth()) + 1;
+    }
+    if (durationMonths <= 0) continue;
+
+    const rentAmount = Number(b.rent_amount ?? 0);
+    if (rentAmount <= 0) continue;
+
+    try {
+      const ids = await createAllInvoicesForBooking({
+        bookingId: b.id,
+        siteId: b.site_id,
+        tenantId: b.tenant_id,
+        unitCode: b.unit_code ?? null,
+        rentAmount,
+        startDate: b.start_date,
+        durationMonths,
+      });
+      totalCreated += ids.length;
+    } catch (err) {
+      logger.warn({ err, bookingId: b.id }, "[scheduler] Gagal buat invoice untuk booking");
+    }
+  }
+
+  logger.info(
+    { bookings: rows.length, newInvoices: totalCreated },
+    "[scheduler] Pembuatan invoice bulanan selesai",
+  );
+
+  return totalCreated;
+}
+
 // ─── Kirim tagihan di awal periode sewa ──────────────────────────────────────
 
 /**
@@ -122,7 +329,7 @@ function formatPeriodLabel(
  * dan belum pernah dikirimkan notifikasinya (invoice_notified_at IS NULL)
  * akan dikirim sekarang.
  */
-async function runInvoiceNotificationCheck(): Promise<void> {
+export async function runInvoiceNotificationCheck(): Promise<number> {
   logger.info("[scheduler] Menjalankan cek kirim tagihan awal periode...");
 
   const invoices = await db
@@ -145,8 +352,10 @@ async function runInvoiceNotificationCheck(): Promise<void> {
       and(
         inArray(tenantInvoicesTable.status, ["unpaid", "partial"]),
         isNull(tenantInvoicesTable.invoiceNotifiedAt),
-        // Periode mulai hari ini atau maks 3 hari yang lalu (catch-up)
-        sql`"period_start" BETWEEN CURRENT_DATE - INTERVAL '3 days' AND CURRENT_DATE`,
+        // Kirim semua invoice yang periodenya sudah mulai (sudah atau hari ini)
+        // Batas BAWAH dihapus agar invoice lama yang terlewat tetap terkirim.
+        // Idempotency dijaga oleh invoice_notified_at IS NULL (tidak dobel kirim).
+        sql`"period_start" <= CURRENT_DATE`,
       ),
     );
 
@@ -157,11 +366,19 @@ async function runInvoiceNotificationCheck(): Promise<void> {
   for (const invoice of invoices) {
     const now = new Date();
 
-    // Tandai sudah dikirim dulu agar tidak dobel walau WA gagal
-    await db
+    // Atomic claim: UPDATE hanya jika invoiceNotifiedAt masih NULL.
+    // Jika proses lain sudah claim (multi-instance atau restart bersamaan),
+    // RETURNING akan kosong dan kita skip — mencegah WA dobel.
+    const claimed = await db
       .update(tenantInvoicesTable)
       .set({ invoiceNotifiedAt: now, updatedAt: now })
-      .where(eq(tenantInvoicesTable.id, invoice.id));
+      .where(and(eq(tenantInvoicesTable.id, invoice.id), isNull(tenantInvoicesTable.invoiceNotifiedAt)))
+      .returning({ id: tenantInvoicesTable.id });
+
+    if (claimed.length === 0) {
+      logger.info({ invoiceId: invoice.id }, "[scheduler] Invoice sudah di-claim proses lain, dilewati");
+      continue;
+    }
 
     if (invoice.phone) {
       const dueStr = invoice.dueDate
@@ -192,6 +409,7 @@ async function runInvoiceNotificationCheck(): Promise<void> {
   }
 
   logger.info({ sent, total: invoices.length }, "[scheduler] Pengiriman tagihan awal periode selesai");
+  return sent;
 }
 
 // ─── H-3 dan H-1: Reminder sebelum jatuh tempo ───────────────────────────────
@@ -201,7 +419,7 @@ async function runInvoiceNotificationCheck(): Promise<void> {
  * Menggunakan template sendInvoiceNotification — menyertakan link bayar.
  * Kolom dueReminder7dAt / dueReminder3dAt / dueReminder1dAt diset agar tidak kirim ulang.
  */
-async function runDueReminderCheck(): Promise<void> {
+async function runDueReminderCheck(): Promise<{ h7: number; h3: number; h1: number }> {
   logger.info("[scheduler] Menjalankan cek reminder H-7 / H-3 / H-1...");
 
   const now = new Date();
@@ -370,11 +588,12 @@ async function runDueReminderCheck(): Promise<void> {
     { sentH7, sentH3, sentH1 },
     "[scheduler] Pengingat WA H-7/H-3/H-1 selesai",
   );
+  return { h7: sentH7, h3: sentH3, h1: sentH1 };
 }
 
 // ─── Overdue Reminder (sudah melewati jatuh tempo) ───────────────────────────
 
-async function runOverdueCheck(): Promise<void> {
+async function runOverdueCheck(): Promise<number> {
   logger.info("[scheduler] Menjalankan cek invoice jatuh tempo...");
 
   const overdueInvoices = await db
@@ -401,7 +620,7 @@ async function runOverdueCheck(): Promise<void> {
 
   if (overdueInvoices.length === 0) {
     logger.info("[scheduler] Tidak ada invoice baru yang jatuh tempo");
-    return;
+    return 0;
   }
 
   logger.info(
@@ -446,6 +665,7 @@ async function runOverdueCheck(): Promise<void> {
     { sent, total: overdueInvoices.length },
     "[scheduler] Pengingat WA overdue selesai",
   );
+  return sent;
 }
 
 // ─── Unmatched Mutation Check (periodik setiap 12 jam) ────────────────────────

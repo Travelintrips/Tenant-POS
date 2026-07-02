@@ -62,6 +62,7 @@ type Invoice = {
   outstandingAmount: string;
   status: InvoiceStatus;
   notes: string | null;
+  invoiceNotifiedAt: string | null;
   createdAt: string;
   updatedAt: string;
   tenantName: string | null;
@@ -474,25 +475,35 @@ async function fetchInvoiceConfig(siteId?: number | null): Promise<MallInvoiceCo
   }
 }
 
+function escapeHtml(str: string | null | undefined): string {
+  if (!str) return "";
+  return str
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
 function buildInvoiceHtml(inv: Invoice, cfg: MallInvoiceConfig): string {
   const accent = cfg.invoiceColor || "#1e3a5f";
   const accentLight = accent + "14";
   // Gunakan companyName (per-site) jika tersedia, fallback ke mallName (global)
-  const displayName = (cfg.companyName && cfg.companyName.trim()) ? cfg.companyName.trim() : cfg.mallName;
+  const displayName = escapeHtml((cfg.companyName && cfg.companyName.trim()) ? cfg.companyName.trim() : cfg.mallName);
 
   const brandBlock = cfg.logoUrl
     ? `<div style="display:flex;align-items:center;gap:14px">
-         <img src="${cfg.logoUrl}" alt="Logo" style="height:56px;width:56px;object-fit:contain;flex-shrink:0" crossorigin="anonymous" />
+         <img src="${escapeHtml(cfg.logoUrl)}" alt="Logo" style="height:56px;width:56px;object-fit:contain;flex-shrink:0" crossorigin="anonymous" />
          <div>
            <div style="font-size:20px;font-weight:700;color:${accent};line-height:1.2">${displayName}</div>
-           <div style="font-size:11px;color:#777;margin-top:3px;letter-spacing:0.02em">${cfg.tagline}</div>
+           <div style="font-size:11px;color:#777;margin-top:3px;letter-spacing:0.02em">${escapeHtml(cfg.tagline)}</div>
          </div>
        </div>`
     : `<div style="font-size:22px;font-weight:700;color:${accent}">${displayName}</div>
-       <div style="font-size:12px;color:#666;margin-top:2px">${cfg.tagline}</div>`;
+       <div style="font-size:12px;color:#666;margin-top:2px">${escapeHtml(cfg.tagline)}</div>`;
 
-  const addressLine = cfg.address ? `<div style="margin-bottom:2px">${cfg.address}</div>` : "";
-  const contactLine = [cfg.phone, cfg.email].filter(Boolean).join("  ·  ");
+  const addressLine = cfg.address ? `<div style="margin-bottom:2px">${escapeHtml(cfg.address)}</div>` : "";
+  const contactLine = [cfg.phone, cfg.email].filter(Boolean).map(escapeHtml).join("  ·  ");
   const contactHtml = (cfg.address || contactLine)
     ? `<div style="font-size:10px;color:#888;margin-top:8px;line-height:1.7">${addressLine}${contactLine ? `<div>${contactLine}</div>` : ""}</div>`
     : "";
@@ -518,7 +529,7 @@ function buildInvoiceHtml(inv: Invoice, cfg: MallInvoiceConfig): string {
      </div>`;
 
   const footerNote = cfg.invoiceFooterNote
-    ? `<div style="margin-bottom:6px;font-weight:500;color:#555">${cfg.invoiceFooterNote}</div>`
+    ? `<div style="margin-bottom:6px;font-weight:500;color:#555">${escapeHtml(cfg.invoiceFooterNote)}</div>`
     : "";
 
   return `<!DOCTYPE html>
@@ -563,24 +574,24 @@ function buildInvoiceHtml(inv: Invoice, cfg: MallInvoiceConfig): string {
   <div class="header">
     <div>${brandBlock}${contactHtml}</div>
     <div class="inv-meta">
-      <div class="inv-number">${inv.invoiceNumber}</div>
+      <div class="inv-number">${escapeHtml(inv.invoiceNumber)}</div>
       <div style="font-size:12px;color:#666;margin-top:4px">Tanggal: ${formatDate(inv.createdAt)}</div>
-      <div class="status-badge">${STATUS_LABEL[inv.status]}</div>
+      <div class="status-badge">${STATUS_LABEL[inv.status] ?? escapeHtml(inv.status)}</div>
     </div>
   </div>
   <hr class="accent-divider" />
   <div class="grid-2">
     <div>
       <div class="label">Tagihan Kepada</div>
-      <div class="value">${inv.tenantName ?? "-"}</div>
-      <div style="font-size:12px;color:#666;margin-top:2px">${inv.ownerName ?? ""}</div>
-      ${inv.email ? `<div style="font-size:12px;color:#666">${inv.email}</div>` : ""}
-      ${inv.phone ? `<div style="font-size:12px;color:#666">${inv.phone}</div>` : ""}
+      <div class="value">${escapeHtml(inv.tenantName) || "-"}</div>
+      <div style="font-size:12px;color:#666;margin-top:2px">${escapeHtml(inv.ownerName)}</div>
+      ${inv.email ? `<div style="font-size:12px;color:#666">${escapeHtml(inv.email)}</div>` : ""}
+      ${inv.phone ? `<div style="font-size:12px;color:#666">${escapeHtml(inv.phone)}</div>` : ""}
     </div>
     <div>
       <div class="label">Detail Invoice</div>
       <table style="width:auto;margin:0">
-        <tr><td style="padding:2px 4px;color:#666;font-size:12px">Unit/Booth</td><td style="padding:2px 8px;font-size:12px;font-weight:500">${inv.unitCode ?? (inv.boothNumber ?? "-")}</td></tr>
+        <tr><td style="padding:2px 4px;color:#666;font-size:12px">Unit/Booth</td><td style="padding:2px 8px;font-size:12px;font-weight:500">${escapeHtml(inv.unitCode ?? inv.boothNumber) || "-"}</td></tr>
         <tr><td style="padding:2px 4px;color:#666;font-size:12px">Periode</td><td style="padding:2px 8px;font-size:12px;font-weight:500">${formatPeriod(inv.periodStart, inv.periodEnd)}</td></tr>
         <tr><td style="padding:2px 4px;color:#666;font-size:12px">Jatuh Tempo</td><td style="padding:2px 8px;font-size:12px;font-weight:500">${formatDate(inv.dueDate)}</td></tr>
       </table>
@@ -591,7 +602,6 @@ function buildInvoiceHtml(inv: Invoice, cfg: MallInvoiceConfig): string {
     <tbody>
       ${rows}
       ${Number(inv.discountAmount) > 0 ? `<tr><td style="padding:5px 10px;color:#059669">Diskon</td><td style="padding:5px 10px;text-align:right;color:#059669">- ${formatRupiah(inv.discountAmount)}</td></tr>` : ""}
-      ${Number(inv.penaltyAmount) > 0 ? `<tr><td style="padding:5px 10px;color:#dc2626">Denda</td><td style="padding:5px 10px;text-align:right;color:#dc2626">+ ${formatRupiah(inv.penaltyAmount)}</td></tr>` : ""}
     </tbody>
   </table>
   <div class="totals">
@@ -601,7 +611,7 @@ function buildInvoiceHtml(inv: Invoice, cfg: MallInvoiceConfig): string {
     <div class="total-row" style="color:#059669;padding-top:6px"><span>Terbayar</span><span>${formatRupiah(inv.paidAmount)}</span></div>
     ${Number(inv.outstandingAmount) > 0 ? `<div class="outstanding"><span>Sisa Tagihan</span><span>${formatRupiah(inv.outstandingAmount)}</span></div>` : ""}
   </div>
-  ${inv.notes ? `<div style="margin-top:24px;padding:12px;background:#f8fafc;border-radius:8px;font-size:12px;color:#555"><strong>Catatan:</strong> ${inv.notes}</div>` : ""}
+  ${inv.notes ? `<div style="margin-top:24px;padding:12px;background:#f8fafc;border-radius:8px;font-size:12px;color:#555"><strong>Catatan:</strong> ${escapeHtml(inv.notes)}</div>` : ""}
   ${signerHtml}
   <div class="footer">
     ${footerNote}
@@ -1210,6 +1220,58 @@ export default function TenantInvoices() {
     onError: (e: Error) => toast({ title: "Gagal Hitung Ulang", description: e.message, variant: "destructive" }),
   });
 
+  // ─── Blast Tagihan Scheduler ─────────────────────────────────────────────────
+
+  type BlastStatusResp = {
+    isRunning: boolean;
+    lastRunAt: string | null;
+    lastRunLabel: string | null;
+    lastRunAtFormatted: string | null;
+    scheduledTimesWib: string[];
+    lastResult: {
+      invoicesCreated: number;
+      invoiceSent: number;
+      reminderH7: number;
+      reminderH3: number;
+      reminderH1: number;
+      overdueSent: number;
+    } | null;
+  };
+
+  type BlastRun = {
+    runAt: string;
+    runAtFormatted: string;
+    label: string;
+    invoicesCreated: number;
+    invoicesSent: number;
+    reminderH7: number;
+    reminderH3: number;
+    reminderH1: number;
+    overdueSent: number;
+  };
+
+  const { data: blastStatus, refetch: refetchBlastStatus } = useQuery<BlastStatusResp>({
+    queryKey: ["/api/blast-tagihan/status"],
+    queryFn: () => apiFetch<BlastStatusResp>(`${BASE}/api/blast-tagihan/status`),
+    refetchInterval: 5000,
+  });
+
+  const blastTriggerMutation = useMutation({
+    mutationFn: () =>
+      apiPost<{ ok: boolean; message: string; startedAt: string }>(`${BASE}/api/blast-tagihan/trigger`, {}),
+    onSuccess: (res) => {
+      toast({ title: "Blast Tagihan Dimulai", description: res.message });
+      setTimeout(() => { void refetchBlastStatus(); void refetchBlastHistory(); }, 3000);
+    },
+    onError: (e: Error) => toast({ title: "Gagal Trigger Blast", description: e.message, variant: "destructive" }),
+  });
+
+  const { data: blastHistoryData, refetch: refetchBlastHistory } = useQuery<{ ok: boolean; history: BlastRun[] }>({
+    queryKey: ["/api/blast-tagihan/history"],
+    queryFn: () => apiFetch<{ ok: boolean; history: BlastRun[] }>(`${BASE}/api/blast-tagihan/history`),
+    refetchInterval: blastStatus?.isRunning ? 5000 : false,
+  });
+
   // ─── Derived ────────────────────────────────────────────────────────────────
 
   const summary = useMemo(() => {
@@ -1665,6 +1727,149 @@ export default function TenantInvoices() {
         </div>
       </div>
 
+      {/* ── Panel Blast Tagihan Otomatis ─────────────────────────────────────── */}
+      <div className="rounded-xl border border-blue-200 bg-blue-50/60 p-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          {/* Info jadwal */}
+          <div className="flex items-start gap-3">
+            <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-blue-100">
+              <Send className="h-4 w-4 text-blue-600" />
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-blue-900">Blast Tagihan Otomatis via WhatsApp</p>
+              <p className="mt-0.5 text-xs text-blue-700">
+                Setiap awal bulan, sistem otomatis mengirim tagihan + link bayar ke semua tenant pada{" "}
+                <span className="font-semibold">08:00 WIB</span>.
+                Reminder H-7, H-3, H-1 jatuh tempo dan pengingat overdue juga dikirim otomatis.
+              </p>
+              <div className="mt-1.5 flex flex-wrap gap-1.5">
+                {blastStatus?.scheduledTimesWib?.map((t) => (
+                  <span key={t} className="inline-flex items-center gap-1 rounded-md bg-blue-100 px-2 py-0.5 text-[11px] font-medium text-blue-700">
+                    <Clock className="h-3 w-3" />
+                    {t}
+                  </span>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* Status + Tombol */}
+          <div className="flex shrink-0 flex-col gap-2 sm:items-end">
+            {/* Status terakhir */}
+            <div className="flex items-center gap-2">
+              {blastStatus?.isRunning ? (
+                <span className="inline-flex items-center gap-1 rounded-full bg-yellow-100 px-2.5 py-1 text-xs font-medium text-yellow-800">
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                  Sedang berjalan...
+                </span>
+              ) : blastStatus?.lastRunAtFormatted ? (
+                <span className="inline-flex items-center gap-1 rounded-full bg-green-100 px-2.5 py-1 text-xs font-medium text-green-800">
+                  <CheckCircle2 className="h-3 w-3" />
+                  Terakhir: {blastStatus.lastRunAtFormatted}
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2.5 py-1 text-xs font-medium text-gray-600">
+                  <Clock className="h-3 w-3" />
+                  Belum pernah dijalankan
+                </span>
+              )}
+            </div>
+
+            {/* Tombol trigger manual */}
+            <Button
+              size="sm"
+              className="gap-2 bg-blue-600 hover:bg-blue-700 text-white"
+              disabled={blastTriggerMutation.isPending || blastStatus?.isRunning}
+              onClick={() => blastTriggerMutation.mutate()}
+              title="Kirim tagihan + pengingat sekarang ke semua tenant yang belum bayar"
+            >
+              {blastTriggerMutation.isPending || blastStatus?.isRunning ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Send className="h-4 w-4" />
+              )}
+              {blastTriggerMutation.isPending || blastStatus?.isRunning
+                ? "Mengirim..."
+                : "Kirim Sekarang"}
+            </Button>
+          </div>
+        </div>
+
+        {/* Keterangan alur notifikasi */}
+        <div className="mt-3 grid grid-cols-2 gap-1.5 border-t border-blue-200 pt-3 sm:grid-cols-4">
+          {[
+            { icon: <MessageCircle className="h-3.5 w-3.5" />, label: "Tagihan Baru", desc: "Awal periode (hari ini)" },
+            { icon: <Clock className="h-3.5 w-3.5" />, label: "Pengingat H-7", desc: "7 hari sebelum jatuh tempo" },
+            { icon: <Clock className="h-3.5 w-3.5" />, label: "Pengingat H-3 & H-1", desc: "3 & 1 hari sebelum jatuh tempo" },
+            { icon: <AlertCircle className="h-3.5 w-3.5" />, label: "Peringatan Overdue", desc: "Setelah melewati jatuh tempo" },
+          ].map(({ icon, label, desc }) => (
+            <div key={label} className="flex items-start gap-1.5 rounded-lg bg-white/70 p-2">
+              <span className="mt-0.5 text-blue-500">{icon}</span>
+              <div>
+                <p className="text-[11px] font-semibold text-blue-900">{label}</p>
+                <p className="text-[10px] text-blue-600">{desc}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* ── Histori Blast ─────────────────────────────────────────────────── */}
+        {(blastHistoryData?.history?.length ?? 0) > 0 && (
+          <div className="mt-3 border-t border-blue-200 pt-3">
+            <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-blue-700">
+              Histori Pengiriman (sesi terakhir)
+            </p>
+            <div className="overflow-x-auto rounded-lg border border-blue-100">
+              <table className="w-full text-[11px]">
+                <thead>
+                  <tr className="bg-blue-100/60 text-left text-blue-800">
+                    <th className="px-2.5 py-1.5 font-semibold">Waktu (WIB)</th>
+                    <th className="px-2.5 py-1.5 font-semibold text-center">Invoice Dibuat</th>
+                    <th className="px-2.5 py-1.5 font-semibold text-center">WA Terkirim</th>
+                    <th className="px-2.5 py-1.5 font-semibold text-center">H-7</th>
+                    <th className="px-2.5 py-1.5 font-semibold text-center">H-3</th>
+                    <th className="px-2.5 py-1.5 font-semibold text-center">H-1</th>
+                    <th className="px-2.5 py-1.5 font-semibold text-center">Overdue</th>
+                    <th className="px-2.5 py-1.5 font-semibold text-blue-600">Pemicu</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {blastHistoryData?.history.map((run, idx) => (
+                    <tr key={run.runAt} className={idx % 2 === 0 ? "bg-white" : "bg-blue-50/40"}>
+                      <td className="px-2.5 py-1.5 font-medium text-blue-900 whitespace-nowrap">{run.runAtFormatted}</td>
+                      <td className="px-2.5 py-1.5 text-center">
+                        <span className={`font-semibold ${run.invoicesCreated > 0 ? "text-green-700" : "text-gray-400"}`}>
+                          {run.invoicesCreated}
+                        </span>
+                      </td>
+                      <td className="px-2.5 py-1.5 text-center">
+                        <span className={`font-semibold ${run.invoicesSent > 0 ? "text-blue-700" : "text-gray-400"}`}>
+                          {run.invoicesSent}
+                        </span>
+                      </td>
+                      <td className="px-2.5 py-1.5 text-center text-gray-600">{run.reminderH7 || "-"}</td>
+                      <td className="px-2.5 py-1.5 text-center text-gray-600">{run.reminderH3 || "-"}</td>
+                      <td className="px-2.5 py-1.5 text-center text-gray-600">{run.reminderH1 || "-"}</td>
+                      <td className="px-2.5 py-1.5 text-center">
+                        <span className={run.overdueSent > 0 ? "font-semibold text-orange-600" : "text-gray-400"}>
+                          {run.overdueSent || "-"}
+                        </span>
+                      </td>
+                      <td className="px-2.5 py-1.5 text-blue-500 truncate max-w-[120px]" title={run.label}>
+                        {run.label.startsWith("manual") ? "👆 Manual" : "🕐 Otomatis"}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <p className="mt-1.5 text-[10px] text-blue-500">
+              * Histori disimpan di memori server — akan kosong kembali setelah server restart.
+            </p>
+          </div>
+        )}
+      </div>
+
       {/* Summary Cards */}
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
         {[
@@ -1822,6 +2027,7 @@ export default function TenantInvoices() {
                   <TableHead className="min-w-[110px]">Terbayar</TableHead>
                   <TableHead className="min-w-[110px]">Sisa</TableHead>
                   <TableHead>Status</TableHead>
+                  <TableHead className="min-w-[120px]">WA Dikirim</TableHead>
                   <TableHead className="w-[220px] text-right">Aksi</TableHead>
                 </TableRow>
               </TableHeader>
@@ -1896,6 +2102,19 @@ export default function TenantInvoices() {
                           {STATUS_ICON[inv.status]}
                           {STATUS_LABEL[inv.status]}
                         </span>
+                      </TableCell>
+                      <TableCell className="text-xs">
+                        {inv.invoiceNotifiedAt ? (
+                          <span className="inline-flex items-center gap-1 text-green-700" title={`WA terkirim: ${new Date(inv.invoiceNotifiedAt).toLocaleString("id-ID")}`}>
+                            <CheckCheck className="h-3.5 w-3.5 flex-shrink-0" />
+                            {new Date(inv.invoiceNotifiedAt).toLocaleDateString("id-ID", { day: "numeric", month: "short", year: "numeric" })}
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 text-muted-foreground">
+                            <MessageCircle className="h-3.5 w-3.5 flex-shrink-0" />
+                            Belum
+                          </span>
+                        )}
                       </TableCell>
                       <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
                         <div className="flex items-center justify-end gap-1 flex-wrap">
@@ -2152,9 +2371,6 @@ export default function TenantInvoices() {
                 <Field label="Diskon">
                   <Input type="number" min="0" value={createForm.discountAmount} onChange={e => setCreateForm(f => ({ ...f, discountAmount: e.target.value }))} placeholder="0" />
                 </Field>
-                <Field label="Denda">
-                  <Input type="number" min="0" value={createForm.penaltyAmount} onChange={e => setCreateForm(f => ({ ...f, penaltyAmount: e.target.value }))} placeholder="0" />
-                </Field>
               </div>
 
               {/* Toggle PPN */}
@@ -2178,7 +2394,7 @@ export default function TenantInvoices() {
 
               {/* PPN Preview */}
               {(() => {
-                const sub = (Number(createForm.rentAmount||0)+Number(createForm.serviceChargeAmount||0)+Number(createForm.electricityChargeAmount||0)+Number(createForm.waterChargeAmount||0)+Number(createForm.otherChargeAmount||0)+Number(createForm.trashChargeAmount||0))-Number(createForm.discountAmount||0)+Number(createForm.penaltyAmount||0);
+                const sub = (Number(createForm.rentAmount||0)+Number(createForm.serviceChargeAmount||0)+Number(createForm.electricityChargeAmount||0)+Number(createForm.waterChargeAmount||0)+Number(createForm.otherChargeAmount||0)+Number(createForm.trashChargeAmount||0))-Number(createForm.discountAmount||0);
                 // Tax-inclusive: PPN diekstrak dari dalam Harga Sewa (rent × 11/111)
                 // Total = subtotal (PPN sudah di dalam, TIDAK ditambahkan lagi)
                 const ppn = createForm.usePpn ? Math.round(Number(createForm.rentAmount||0) * 0.11 / 1.11) : 0;
@@ -2381,11 +2597,6 @@ export default function TenantInvoices() {
                   {Number(detailData.discountAmount) > 0 && (
                     <div className="flex justify-between text-green-600">
                       <span>Diskon</span><span>- {formatRupiah(detailData.discountAmount)}</span>
-                    </div>
-                  )}
-                  {Number(detailData.penaltyAmount) > 0 && (
-                    <div className="flex justify-between text-red-600">
-                      <span>Denda</span><span>+ {formatRupiah(detailData.penaltyAmount)}</span>
                     </div>
                   )}
                   <Separator />
@@ -2612,9 +2823,6 @@ export default function TenantInvoices() {
                   <Field label="Diskon (Rp)">
                     <Input type="number" min="0" value={editForm.discountAmount} onChange={e => setEditForm(f => f ? { ...f, discountAmount: e.target.value } : f)} placeholder="0" />
                   </Field>
-                  <Field label="Denda (Rp)">
-                    <Input type="number" min="0" value={editForm.penaltyAmount} onChange={e => setEditForm(f => f ? { ...f, penaltyAmount: e.target.value } : f)} placeholder="0" />
-                  </Field>
                 </div>
 
                 {/* Toggle PPN */}
@@ -2638,7 +2846,7 @@ export default function TenantInvoices() {
 
                 {/* Preview Ringkasan */}
                 {(() => {
-                  const sub = (Number(editForm.rentAmount||0)+Number(editForm.serviceChargeAmount||0)+Number(editForm.electricityChargeAmount||0)+Number(editForm.waterChargeAmount||0)+Number(editForm.otherChargeAmount||0)+Number(editForm.trashChargeAmount||0))-Number(editForm.discountAmount||0)+Number(editForm.penaltyAmount||0);
+                  const sub = (Number(editForm.rentAmount||0)+Number(editForm.serviceChargeAmount||0)+Number(editForm.electricityChargeAmount||0)+Number(editForm.waterChargeAmount||0)+Number(editForm.otherChargeAmount||0)+Number(editForm.trashChargeAmount||0))-Number(editForm.discountAmount||0);
                   if (sub <= 0) return null;
                   // Tax-inclusive: PPN diekstrak dari dalam Harga Sewa (rent × 11/111)
                   // Total = subtotal (PPN sudah di dalam, TIDAK ditambahkan lagi)

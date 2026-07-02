@@ -24,6 +24,8 @@ import {
 } from "recharts";
 import { useAuth } from "@/hooks/use-auth";
 import { useSite } from "@/contexts/site-context";
+import { useToast } from "@/hooks/use-toast";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 
 const BASE = "";
 
@@ -131,6 +133,7 @@ const MONTH_OPTIONS = buildMonthOptions();
 export default function Dashboard() {
   const { data: user } = useAuth();
   const { activeSite } = useSite();
+  const { toast } = useToast();
   const siteHeader: Record<string, string> = activeSite && activeSite.code !== "ALL"
     ? { "x-site-id": String(activeSite.id) }
     : {};
@@ -159,13 +162,17 @@ export default function Dashboard() {
       a.click();
       URL.revokeObjectURL(url);
     } catch {
-      alert("Gagal mengunduh laporan PDF. Coba lagi.");
+      toast({
+        title: "Gagal mengunduh laporan",
+        description: "Terjadi kesalahan saat mengunduh laporan PDF. Coba lagi.",
+        variant: "destructive",
+      });
     } finally {
       setIsDownloading(false);
     }
   };
 
-  const { data: summary, isLoading: loadSummary } = useQuery<DashSummary>({
+  const { data: summary, isLoading: loadSummary, isError: errorSummary } = useQuery<DashSummary>({
     queryKey: ["dashboard-summary", activeSite?.id, paidMonthFilter],
     queryFn: async () => {
       const url = `${BASE}/api/dashboard/summary?paidMonth=${paidMonthFilter}`;
@@ -241,6 +248,13 @@ export default function Dashboard() {
           Ringkasan operasional · {activeSite?.name ?? "Semua Lokasi"} · <span className="hidden sm:inline">{now.toLocaleDateString("id-ID", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}</span><span className="sm:hidden">{now.toLocaleDateString("id-ID", { day: "numeric", month: "short", year: "numeric" })}</span>
         </p>
       </div>
+
+      {errorSummary && (
+        <Alert variant="destructive">
+          <AlertTriangle className="h-4 w-4" />
+          <AlertDescription>Gagal memuat data dashboard. Periksa koneksi dan coba refresh halaman.</AlertDescription>
+        </Alert>
+      )}
 
       {/* Stat Cards */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
