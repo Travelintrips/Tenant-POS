@@ -839,6 +839,8 @@ export default function TenantInvoices() {
   const [copyingLinkId, setCopyingLinkId] = useState<number | null>(null);
   const [downloadingId, setDownloadingId] = useState<number | null>(null);
   const [sendingPdfId, setSendingPdfId] = useState<number | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [bulkSendProgress, setBulkSendProgress] = useState<{ current: number; total: number; errors: number } | null>(null);
   const [paymentLinkDialog, setPaymentLinkDialog] = useState<{ link: string; error?: string; mode: "manual" | "wa-failed" } | null>(null);
   const [linkCopied, setLinkCopied] = useState(false);
 
@@ -1086,6 +1088,40 @@ export default function TenantInvoices() {
     },
     onError: (e: Error) => toast({ title: "Gagal Kirim PDF", description: e.message, variant: "destructive" }),
   });
+
+  async function handleBulkSendPdf() {
+    const toSend = filteredInvoices.filter(inv => selectedIds.has(inv.id) && inv.phone);
+    if (toSend.length === 0) {
+      toast({ title: "Tidak ada penerima", description: "Invoice yang dipilih tidak memiliki nomor HP tenant.", variant: "destructive" });
+      return;
+    }
+    setBulkSendProgress({ current: 0, total: toSend.length, errors: 0 });
+    let errors = 0;
+    for (let i = 0; i < toSend.length; i++) {
+      const inv = toSend[i]!;
+      setBulkSendProgress({ current: i + 1, total: toSend.length, errors });
+      try {
+        const blob = await generateInvoicePdfBlob(inv);
+        const formData = new FormData();
+        formData.append("pdf", blob, `${inv.invoiceNumber}.pdf`);
+        const res = await fetch(`${BASE}/api/tenant-invoices/${inv.id}/send-pdf`, {
+          method: "POST",
+          credentials: "include",
+          body: formData,
+        });
+        if (!res.ok) errors++;
+      } catch {
+        errors++;
+      }
+    }
+    setBulkSendProgress(null);
+    setSelectedIds(new Set());
+    toast({
+      title: errors === 0 ? "Blast PDF selesai! 🎉" : `Blast PDF: ${errors} gagal`,
+      description: `${toSend.length - errors} dari ${toSend.length} invoice berhasil dikirim via WhatsApp.`,
+      variant: errors > 0 ? "destructive" : "default",
+    });
+  }
 
   const sendLinkMutation = useMutation({
     mutationFn: (id: number) =>
@@ -1722,10 +1758,60 @@ export default function TenantInvoices() {
           {isError && (
             <p className="text-sm text-destructive py-4 text-center">Gagal memuat data invoice. Periksa koneksi server.</p>
           )}
+          {selectedIds.size > 0 && (
+            <div className="flex items-center gap-3 px-4 py-2.5 bg-violet-50 border border-violet-200 rounded-lg mb-3 flex-wrap">
+              <span className="text-sm font-medium text-violet-800">
+                {selectedIds.size} invoice dipilih
+                {Array.from(selectedIds).filter(id => !filteredInvoices.find(inv => inv.id === id && inv.phone)).length > 0 && (
+                  <span className="text-violet-500 font-normal ml-1">
+                    ({Array.from(selectedIds).filter(id => filteredInvoices.find(inv => inv.id === id && inv.phone)).length} dengan nomor HP)
+                  </span>
+                )}
+              </span>
+              <Button
+                size="sm"
+                className="gap-1.5 bg-violet-600 hover:bg-violet-700 text-white h-8"
+                disabled={bulkSendProgress !== null}
+                onClick={() => void handleBulkSendPdf()}
+              >
+                {bulkSendProgress !== null
+                  ? <><Loader2 className="h-3.5 w-3.5 animate-spin" />Mengirim {bulkSendProgress.current}/{bulkSendProgress.total}...</>
+                  : <><Send className="h-3.5 w-3.5" />Blast PDF ke WA ({filteredInvoices.filter(inv => selectedIds.has(inv.id) && inv.phone).length})</>
+                }
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="text-violet-600 hover:text-violet-800 h-8"
+                disabled={bulkSendProgress !== null}
+                onClick={() => setSelectedIds(new Set())}
+              >
+                Batalkan pilihan
+              </Button>
+            </div>
+          )}
           <div className="rounded-md border overflow-x-auto">
             <Table>
               <TableHeader>
                 <TableRow>
+                  <TableHead className="w-10">
+                    {filteredInvoices.some(inv => inv.phone) && (
+                      <Checkbox
+                        checked={
+                          filteredInvoices.filter(inv => inv.phone).length > 0 &&
+                          filteredInvoices.filter(inv => inv.phone).every(inv => selectedIds.has(inv.id))
+                        }
+                        onCheckedChange={(checked) => {
+                          if (checked) {
+                            setSelectedIds(new Set(filteredInvoices.filter(inv => inv.phone).map(inv => inv.id)));
+                          } else {
+                            setSelectedIds(new Set());
+                          }
+                        }}
+                        aria-label="Pilih semua invoice"
+                      />
+                    )}
+                  </TableHead>
                   <TableHead className="min-w-[180px]">No. Invoice</TableHead>
                   <TableHead className="min-w-[140px]">Tenant</TableHead>
                   <TableHead className="min-w-[160px]">Perusahaan</TableHead>
@@ -1743,7 +1829,7 @@ export default function TenantInvoices() {
                 {isLoading
                   ? Array.from({ length: 4 }).map((_, i) => (
                     <TableRow key={i}>
-                      {Array.from({ length: 11 }).map((_, j) => (
+                      {Array.from({ length: 12 }).map((_, j) => (
                         <TableCell key={j}><Skeleton className="h-4 w-full" /></TableCell>
                       ))}
                     </TableRow>
@@ -1751,7 +1837,7 @@ export default function TenantInvoices() {
                   : filteredInvoices.length === 0
                   ? (
                     <TableRow>
-                      <TableCell colSpan={11} className="text-center py-10 text-muted-foreground">
+                      <TableCell colSpan={12} className="text-center py-10 text-muted-foreground">
                         <FileText className="h-10 w-10 mx-auto mb-2 opacity-20" />
                         {filterDueDate !== "all"
                           ? <p>Tidak ada invoice untuk filter tanggal ini.</p>
@@ -1761,7 +1847,26 @@ export default function TenantInvoices() {
                     </TableRow>
                   )
                   : filteredInvoices.map((inv) => (
-                    <TableRow key={inv.id} className="cursor-pointer hover:bg-muted/30" onClick={() => openDetail(inv)}>
+                    <TableRow
+                      key={inv.id}
+                      className={`cursor-pointer hover:bg-muted/30 ${selectedIds.has(inv.id) ? "bg-violet-50/60" : ""}`}
+                      onClick={() => openDetail(inv)}
+                    >
+                      <TableCell className="w-10" onClick={(e) => e.stopPropagation()}>
+                        {inv.phone ? (
+                          <Checkbox
+                            checked={selectedIds.has(inv.id)}
+                            onCheckedChange={(checked) => {
+                              setSelectedIds(prev => {
+                                const next = new Set(prev);
+                                if (checked) next.add(inv.id); else next.delete(inv.id);
+                                return next;
+                              });
+                            }}
+                            aria-label={`Pilih invoice ${inv.invoiceNumber}`}
+                          />
+                        ) : null}
+                      </TableCell>
                       <TableCell className="font-mono text-xs font-medium">{inv.invoiceNumber}</TableCell>
                       <TableCell>
                         <p className="font-medium">{inv.tenantName ?? "-"}</p>
