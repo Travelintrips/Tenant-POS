@@ -352,8 +352,10 @@ export async function runInvoiceNotificationCheck(): Promise<number> {
       and(
         inArray(tenantInvoicesTable.status, ["unpaid", "partial"]),
         isNull(tenantInvoicesTable.invoiceNotifiedAt),
-        // Periode mulai hari ini atau maks 3 hari yang lalu (catch-up)
-        sql`"period_start" BETWEEN CURRENT_DATE - INTERVAL '3 days' AND CURRENT_DATE`,
+        // Kirim semua invoice yang periodenya sudah mulai (sudah atau hari ini)
+        // Batas BAWAH dihapus agar invoice lama yang terlewat tetap terkirim.
+        // Idempotency dijaga oleh invoice_notified_at IS NULL (tidak dobel kirim).
+        sql`"period_start" <= CURRENT_DATE`,
       ),
     );
 
