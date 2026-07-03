@@ -29,7 +29,6 @@ import Dashboard from "@/pages/dashboard";
 import TenantProfile from "@/pages/tenant-profile";
 import WhatsAppSend from "@/pages/whatsapp-send";
 import WhatsAppTemplates from "@/pages/whatsapp-templates";
-import BankRekonsiliasi from "@/pages/bank-rekonsiliasi";
 import DbMonitoring from "@/pages/db-monitoring";
 import DrafPerjanjian from "@/pages/draf-perjanjian";
 import DokumenSewa from "@/pages/dokumen-sewa";
@@ -196,13 +195,6 @@ function Router() {
         <AuthGuard roles={["owner", "admin", "finance"]}>
           <SidebarLayout>
             <RekapTenant />
-          </SidebarLayout>
-        </AuthGuard>
-      </Route>
-      <Route path="/bank-rekonsiliasi">
-        <AuthGuard roles={["owner", "admin", "finance"]}>
-          <SidebarLayout>
-            <BankRekonsiliasi />
           </SidebarLayout>
         </AuthGuard>
       </Route>

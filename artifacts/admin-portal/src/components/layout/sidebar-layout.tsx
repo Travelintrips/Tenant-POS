@@ -457,18 +457,6 @@ function SidebarNav({ children }: { children: React.ReactNode }) {
                     </Link>
                   </SidebarMenuButton>
                 </SidebarMenuItem>
-<SidebarMenuItem>
-                  <SidebarMenuButton
-                    asChild
-                    isActive={location === "/bank-rekonsiliasi"}
-                    data-testid="nav-bank-rekonsiliasi"
-                  >
-                    <Link href="/bank-rekonsiliasi">
-                      <Landmark className="mr-2 h-4 w-4" />
-                      <span>Rekonsiliasi Bank</span>
-                    </Link>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
                 <SidebarMenuItem>
                   <SidebarMenuButton
                     asChild
