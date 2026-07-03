@@ -965,7 +965,7 @@ export async function sendOverdueReminder(params: OverdueReminderParams): Promis
 // ─── Admin Group Notification ─────────────────────────────────────────────────
 
 export interface AdminGroupPaymentParams {
-  eventType: "bukti_pembayaran" | "pos_kasir" | "payment_approved" | "payment_rejected";
+  eventType: "bukti_pembayaran" | "pos_kasir" | "payment_approved" | "payment_rejected" | "invoice_sent" | "reminder" | "overdue";
   businessName: string;
   ownerName: string;
   invoiceNumber?: string | null;
@@ -977,6 +977,11 @@ export interface AdminGroupPaymentParams {
   referenceNumber?: string | null;
   reviewLink?: string | null;
   rejectionReason?: string | null;
+  periodLabel?: string | null;
+  dueDate?: string | null;
+  daysUntilDue?: number | null;
+  daysOverdue?: number | null;
+  paymentLink?: string | null;
 }
 
 /**
@@ -1020,6 +1025,16 @@ export async function notifyAdminGroup(params: AdminGroupPaymentParams): Promise
   } else if (params.eventType === "payment_rejected") {
     emoji = "❌";
     title = "Pembayaran Ditolak";
+  } else if (params.eventType === "invoice_sent") {
+    emoji = "🧾";
+    title = "Invoice Tagihan Dikirim";
+  } else if (params.eventType === "reminder") {
+    const d = params.daysUntilDue;
+    emoji = "⏰";
+    title = d != null ? `Pengingat Tagihan H-${d}` : "Pengingat Tagihan";
+  } else if (params.eventType === "overdue") {
+    emoji = "🔴";
+    title = "Tagihan Jatuh Tempo";
   }
 
   const invoiceLine = params.invoiceNumber ? `• Invoice    : *${params.invoiceNumber}*\n` : "";
@@ -1032,6 +1047,10 @@ export async function notifyAdminGroup(params: AdminGroupPaymentParams): Promise
   const refLine = params.referenceNumber ? `• Ref No    : ${params.referenceNumber}\n` : "";
   const reviewLine = params.reviewLink ? `\n🔗 ${params.reviewLink}` : "";
   const rejectLine = params.rejectionReason ? `• Alasan    : ${params.rejectionReason}\n` : "";
+  const periodLine = params.periodLabel ? `• Periode   : ${params.periodLabel}\n` : "";
+  const dueDateLine = params.dueDate ? `• Jatuh Tempo: *${params.dueDate}*\n` : "";
+  const overdueLabel = params.daysOverdue != null ? `• Telat     : *${params.daysOverdue} hari*\n` : "";
+  const payLinkLine = params.paymentLink ? `\n🔗 *Link Bayar:* ${params.paymentLink}` : "";
 
   const message =
     `${emoji} *${title}*\n` +
@@ -1039,14 +1058,18 @@ export async function notifyAdminGroup(params: AdminGroupPaymentParams): Promise
     `• Tenant    : *${params.businessName}* (${params.ownerName})\n` +
     invoiceLine +
     receiptLine +
+    periodLine +
     `• Jumlah    : *${formatRupiah(params.amount)}*\n` +
+    dueDateLine +
+    overdueLabel +
     methodLine +
     kasirLine +
     refLine +
     siteLine +
     rejectLine +
     `• Waktu     : ${now}\n` +
-    reviewLine;
+    reviewLine +
+    payLinkLine;
 
   return sendMessage(groupJid, message);
 }

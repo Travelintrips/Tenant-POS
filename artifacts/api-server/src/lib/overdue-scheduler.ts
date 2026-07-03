@@ -2,7 +2,7 @@ import { db } from "@workspace/db";
 import { tenantInvoicesTable, tenantsTable, bankMutationsTable } from "@workspace/db/schema";
 import { and, inArray, isNull, eq, sql } from "drizzle-orm";
 import { createAllInvoicesForBooking } from "./auto-invoice";
-import { sendInvoiceNotification, sendOverdueReminder, sendDueReminder, sendBankUnmatchedAlert, getAdminNotifyPhones, getSiteCompanyName } from "./whatsapp";
+import { sendInvoiceNotification, sendOverdueReminder, sendDueReminder, sendBankUnmatchedAlert, getAdminNotifyPhones, getSiteCompanyName, notifyAdminGroup } from "./whatsapp";
 import { logger } from "./logger";
 import { getBaseUrl } from "./app-url";
 
@@ -404,7 +404,20 @@ export async function runInvoiceNotificationCheck(): Promise<number> {
         companyName,
       });
 
-      if (result.ok && !result.skipped) sent++;
+      if (result.ok && !result.skipped) {
+        sent++;
+        void notifyAdminGroup({
+          eventType: "invoice_sent",
+          businessName: invoice.businessName,
+          ownerName: invoice.ownerName,
+          invoiceNumber: invoice.invoiceNumber,
+          amount: invoice.totalAmount,
+          periodLabel: formatPeriodLabel(invoice.periodStart, invoice.periodEnd),
+          dueDate: dueStr,
+          siteName: companyName,
+          paymentLink,
+        }).catch(() => {});
+      }
     }
   }
 
@@ -516,7 +529,19 @@ async function runDueReminderCheck(): Promise<{ h7: number; h3: number; h1: numb
         paymentLink: await buildPaymentLink(invoice.paymentToken),
       });
 
-      if (result.ok && !result.skipped) sentH7++;
+      if (result.ok && !result.skipped) {
+        sentH7++;
+        void notifyAdminGroup({
+          eventType: "reminder",
+          businessName: invoice.businessName,
+          ownerName: invoice.ownerName,
+          invoiceNumber: invoice.invoiceNumber,
+          amount: invoice.outstandingAmount ?? invoice.totalAmount,
+          daysUntilDue: 7,
+          dueDate: dueStr,
+          paymentLink: await buildPaymentLink(invoice.paymentToken),
+        }).catch(() => {});
+      }
     }
   }
 
@@ -548,7 +573,19 @@ async function runDueReminderCheck(): Promise<{ h7: number; h3: number; h1: numb
         paymentLink: await buildPaymentLink(invoice.paymentToken),
       });
 
-      if (result.ok && !result.skipped) sentH3++;
+      if (result.ok && !result.skipped) {
+        sentH3++;
+        void notifyAdminGroup({
+          eventType: "reminder",
+          businessName: invoice.businessName,
+          ownerName: invoice.ownerName,
+          invoiceNumber: invoice.invoiceNumber,
+          amount: invoice.outstandingAmount ?? invoice.totalAmount,
+          daysUntilDue: 3,
+          dueDate: dueStr,
+          paymentLink: await buildPaymentLink(invoice.paymentToken),
+        }).catch(() => {});
+      }
     }
   }
 
@@ -580,7 +617,19 @@ async function runDueReminderCheck(): Promise<{ h7: number; h3: number; h1: numb
         paymentLink: await buildPaymentLink(invoice.paymentToken),
       });
 
-      if (result.ok && !result.skipped) sentH1++;
+      if (result.ok && !result.skipped) {
+        sentH1++;
+        void notifyAdminGroup({
+          eventType: "reminder",
+          businessName: invoice.businessName,
+          ownerName: invoice.ownerName,
+          invoiceNumber: invoice.invoiceNumber,
+          amount: invoice.outstandingAmount ?? invoice.totalAmount,
+          daysUntilDue: 1,
+          dueDate: dueStr,
+          paymentLink: await buildPaymentLink(invoice.paymentToken),
+        }).catch(() => {});
+      }
     }
   }
 
@@ -657,7 +706,18 @@ async function runOverdueCheck(): Promise<number> {
         paymentLink: await buildPaymentLink(invoice.paymentToken),
       });
 
-      if (result.ok && !result.skipped) sent++;
+      if (result.ok && !result.skipped) {
+        sent++;
+        void notifyAdminGroup({
+          eventType: "overdue",
+          businessName: invoice.businessName,
+          ownerName: invoice.ownerName,
+          invoiceNumber: invoice.invoiceNumber,
+          amount: invoice.outstandingAmount ?? invoice.totalAmount,
+          daysOverdue,
+          paymentLink: await buildPaymentLink(invoice.paymentToken),
+        }).catch(() => {});
+      }
     }
   }
 

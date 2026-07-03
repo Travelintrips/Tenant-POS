@@ -997,6 +997,17 @@ router.post("/tenant-invoices/generate-from-booking/:bookingId", async (req, res
           paymentLink: paymentLink && paymentLink.endsWith("/") ? undefined : paymentLink,
           companyName,
         });
+        void notifyAdminGroup({
+          eventType: "invoice_sent",
+          businessName: (withTenant?.tenantName as string | null | undefined) ?? "",
+          ownerName: (withTenant?.ownerName as string | null | undefined) ?? "Tenant",
+          invoiceNumber: (withTenant?.invoiceNumber as string | undefined) ?? invoice.invoiceNumber,
+          amount: withTenant?.totalAmount ?? "0",
+          periodLabel,
+          dueDate: dueDateLabel,
+          siteName: companyName,
+          paymentLink: paymentLink && paymentLink.endsWith("/") ? undefined : paymentLink,
+        }).catch(() => {});
       } catch { /* tidak perlu throw */ }
     })();
   } catch (err) {

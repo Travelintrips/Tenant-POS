@@ -6,7 +6,6 @@
  * /reconciliation, dan /laporan-rekonsiliasi sekarang redirect ke
  * /bank-rekonsiliasi (engine baru dengan jurnal, matching, approval).
  *
- * JANGAN dihapus dulu — disimpan untuk rollback sementara.
  * Modul aktif: artifacts/admin-portal/src/pages/bank-rekonsiliasi.tsx
  */
 import { useState } from "react";
