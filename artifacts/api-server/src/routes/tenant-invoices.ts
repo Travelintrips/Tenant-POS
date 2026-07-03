@@ -105,7 +105,7 @@ async function generateInvoiceNumber(siteId?: number): Promise<string> {
  * Menghindari 500 akibat race condition pada generateInvoiceNumber.
  */
 async function insertInvoiceSafe(
-  values: Parameters<typeof db.insert>[0] extends infer T ? (T extends any ? any : never) : never,
+  values: any,
   siteId?: number,
   maxRetries = 3,
 ): Promise<typeof tenantInvoicesTable.$inferSelect> {
@@ -1504,6 +1504,9 @@ router.post("/tenant-invoices/:id/send-pdf", uploadPdfMemory.single("pdf"), asyn
   } catch (err) {
     req.log.error(err, "[send-pdf] Gagal kirim invoice PDF");
     res.status(500).json({ error: "Terjadi kesalahan server" });
+  }
+});
+
 // ─── PUT /api/tenant-invoices/payments/:paymentId ─────────────────────────────
 const editPaymentSchema = z.object({
   amount: z.number().positive({ message: "Jumlah bayar harus lebih dari 0" }),
