@@ -2,7 +2,7 @@ import { db } from "@workspace/db";
 import { tenantInvoicesTable, tenantsTable, bankMutationsTable } from "@workspace/db/schema";
 import { and, inArray, isNull, eq, sql } from "drizzle-orm";
 import { createAllInvoicesForBooking } from "./auto-invoice";
-import { sendInvoiceNotification, sendOverdueReminder, sendDueReminder, sendBankUnmatchedAlert, getAdminNotifyPhones, getSiteCompanyName, notifyAdminGroup } from "./whatsapp";
+import { sendInvoiceNotification, sendOverdueReminder, sendDueReminder, getAdminNotifyPhones, getSiteCompanyName, notifyAdminGroup } from "./whatsapp";
 import { logger } from "./logger";
 import { getBaseUrl } from "./app-url";
 
@@ -94,10 +94,6 @@ async function runAllChecks(label: string): Promise<void> {
       }),
     ]);
 
-    // 3. Cek mutasi unmatched (fire-and-forget, tidak memblokir history)
-    runUnmatchedMutationCheck().catch((err) =>
-      logger.warn({ err }, "[scheduler] Cek mutasi unmatched gagal"),
-    );
 
     const result = {
       invoicesCreated,
@@ -170,46 +166,6 @@ export function startOverdueScheduler(): void {
 // getAdminPhones → pakai getAdminNotifyPhones() dari whatsapp.ts (sudah handle ADMIN_WA_GROUP)
 
 /**
- * Kirim notifikasi ringkasan hasil import mutasi ke semua admin/owner/finance.
- * Dipanggil langsung dari endpoint import bank reconciliation.
- */
-export async function notifyAdminsUnmatchedImport(params: {
-  totalImported: number;
-  unmatchedCount: number;
-  autoMatchedCount: number;
-  duplicateCount: number;
-  bankAccountId?: string;
-  source: "import_csv" | "import_sheet";
-}): Promise<void> {
-  if (params.unmatchedCount === 0 && params.duplicateCount === 0) return;
-
-  try {
-    const admins = await getAdminNotifyPhones();
-    if (admins.length === 0) return;
-
-    logger.info(
-      { admins: admins.length, unmatched: params.unmatchedCount },
-      "[wa] Mengirim notifikasi import mutasi unmatched",
-    );
-
-    await Promise.allSettled(
-      admins.map((admin) =>
-        sendBankUnmatchedAlert({
-          adminName: admin.name,
-          adminPhone: admin.phone,
-          totalImported: params.totalImported,
-          unmatchedCount: params.unmatchedCount,
-          autoMatchedCount: params.autoMatchedCount,
-          duplicateCount: params.duplicateCount,
-          bankAccountId: params.bankAccountId,
-          source: params.source,
-        }),
-      ),
-    );
-  } catch (err) {
-    logger.warn({ err }, "[wa] Gagal kirim notifikasi mutasi unmatched");
-  }
-}
 
 // ─── Helper: bangun payment link ─────────────────────────────────────────────
 
@@ -726,75 +682,4 @@ async function runOverdueCheck(): Promise<number> {
     "[scheduler] Pengingat WA overdue selesai",
   );
   return sent;
-}
-
-// ─── Unmatched Mutation Check (periodik setiap 12 jam) ────────────────────────
-
-// Rate-limit: simpan waktu terakhir notifikasi agar tidak spam
-let _lastUnmatchedNotifAt: Date | null = null;
-
-async function runUnmatchedMutationCheck(): Promise<void> {
-  logger.info("[scheduler] Menjalankan cek mutasi bank unmatched...");
-
-  const [{ count }] = await db
-    .select({ count: sql<number>`count(*)::int` })
-    .from(bankMutationsTable)
-    .where(
-      and(
-        inArray(bankMutationsTable.status, ["unmatched", "duplicate_need_review"]),
-        // Hanya mutasi yang sudah lebih dari 1 jam (beri waktu proses auto-match)
-        sql`created_at < NOW() - INTERVAL '1 hour'`,
-      ),
-    );
-
-  if (count === 0) {
-    logger.info("[scheduler] Tidak ada mutasi unmatched yang perlu direview");
-    return;
-  }
-
-  // Rate-limit: jangan kirim jika sudah kirim dalam 12 jam terakhir
-  const now = new Date();
-  if (_lastUnmatchedNotifAt) {
-    const hoursSinceLast = (now.getTime() - _lastUnmatchedNotifAt.getTime()) / (60 * 60 * 1000);
-    if (hoursSinceLast < 12) {
-      logger.info(
-        { count, hoursSinceLast: hoursSinceLast.toFixed(1) },
-        "[scheduler] Notifikasi mutasi unmatched dilewati (rate-limit)",
-      );
-      return;
-    }
-  }
-
-  logger.info({ count }, "[scheduler] Ditemukan mutasi bank yang belum cocok, kirim notifikasi WA");
-
-  const admins = await getAdminNotifyPhones();
-  if (admins.length === 0) {
-    logger.info("[scheduler] Tidak ada admin dengan nomor HP untuk dikirim notifikasi");
-    return;
-  }
-
-  _lastUnmatchedNotifAt = now;
-
-  const results = await Promise.allSettled(
-    admins.map((admin) =>
-      sendBankUnmatchedAlert({
-        adminName: admin.name,
-        adminPhone: admin.phone,
-        totalImported: count,
-        unmatchedCount: count,
-        autoMatchedCount: 0,
-        duplicateCount: 0,
-        source: "scheduler",
-      }),
-    ),
-  );
-
-  const sent = results.filter(
-    (r) => r.status === "fulfilled" && (r.value as any).ok && !(r.value as any).skipped,
-  ).length;
-
-  logger.info(
-    { count, sent, total: admins.length },
-    "[scheduler] Notifikasi WA mutasi unmatched selesai",
-  );
 }
