@@ -165,8 +165,6 @@ export function startOverdueScheduler(): void {
 
 // getAdminPhones → pakai getAdminNotifyPhones() dari whatsapp.ts (sudah handle ADMIN_WA_GROUP)
 
-/**
-
 // ─── Helper: bangun payment link ─────────────────────────────────────────────
 
 async function buildPaymentLink(token: string | null | undefined): Promise<string | undefined> {
