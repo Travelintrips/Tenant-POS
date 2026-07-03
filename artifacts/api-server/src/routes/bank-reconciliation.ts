@@ -2433,66 +2433,6 @@ const coaRuleSchema = z.object({
   isActive: z.boolean().optional().default(true),
 });
 
-router.get("/bank-reconciliation/coa-rules", async (_req, res) => {
-  try {
-    const rows = await db.select().from(bankCoaRulesTable)
-      .orderBy(asc(bankCoaRulesTable.coaCode));
-    res.json(rows);
-  } catch {
-    res.status(500).json({ error: "Gagal memuat COA" });
-  }
-});
-
-router.post("/bank-reconciliation/coa-rules", async (req, res) => {
-  const parsed = coaRuleSchema.safeParse(req.body);
-  if (!parsed.success) { res.status(400).json({ error: "Data tidak valid", issues: parsed.error.issues }); return; }
-  try {
-    const [created] = await db.insert(bankCoaRulesTable).values({
-      ...parsed.data,
-      updatedAt: new Date(),
-    }).returning();
-    res.status(201).json(created);
-  } catch (err: any) {
-    const code = err?.cause?.code ?? err?.code;
-    if (code === "23505") {
-      res.status(409).json({ error: "Kode COA sudah digunakan" });
-      return;
-    }
-    res.status(500).json({ error: "Gagal menyimpan COA" });
-  }
-});
-
-router.put("/bank-reconciliation/coa-rules/:id", async (req, res) => {
-  const id = parseInt(req.params.id, 10);
-  if (isNaN(id)) { res.status(400).json({ error: "ID tidak valid" }); return; }
-  const parsed = coaRuleSchema.partial().safeParse(req.body);
-  if (!parsed.success) { res.status(400).json({ error: "Data tidak valid", issues: parsed.error.issues }); return; }
-  try {
-    const [updated] = await db.update(bankCoaRulesTable)
-      .set({ ...parsed.data, updatedAt: new Date() })
-      .where(eq(bankCoaRulesTable.id, id))
-      .returning();
-    if (!updated) { res.status(404).json({ error: "COA tidak ditemukan" }); return; }
-    res.json(updated);
-  } catch {
-    res.status(500).json({ error: "Gagal memperbarui COA" });
-  }
-});
-
-router.delete("/bank-reconciliation/coa-rules/:id", async (req, res) => {
-  const id = parseInt(req.params.id, 10);
-  if (isNaN(id)) { res.status(400).json({ error: "ID tidak valid" }); return; }
-  try {
-    const [deleted] = await db.delete(bankCoaRulesTable)
-      .where(eq(bankCoaRulesTable.id, id))
-      .returning();
-    if (!deleted) { res.status(404).json({ error: "COA tidak ditemukan" }); return; }
-    res.json({ ok: true });
-  } catch {
-    res.status(500).json({ error: "Gagal menghapus COA" });
-  }
-});
-
 export { SYNC_CONFIG_KEY };
 export default router;
 

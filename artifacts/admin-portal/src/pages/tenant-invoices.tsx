@@ -1377,6 +1377,7 @@ export default function TenantInvoices() {
       outstandingAmount: String(total),
       status: createForm.status,
       notes: createForm.notes || null,
+      invoiceNotifiedAt: null,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       tenantName: tenant?.businessName ?? null,

@@ -12,9 +12,8 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
-  Building2, FileText, CreditCard, Receipt, LogOut, MapPin, User, Landmark,
+  Building2, FileText, CreditCard, Receipt, LogOut, MapPin, User,
 } from "lucide-react";
-import BankRekonPanel from "@/components/bank-rekon-panel";
 
 function formatCurrency(val: string | number | null | undefined) {
   if (val === null || val === undefined) return "—";
@@ -177,9 +176,6 @@ export default function TenantPortal() {
                 <TabsTrigger value="payments" className="gap-1.5">
                   <CreditCard className="h-4 w-4" /> Pembayaran
                 </TabsTrigger>
-                <TabsTrigger value="rekonsiliasi" className="gap-1.5">
-                  <Landmark className="h-4 w-4" /> Rekonsiliasi Bank
-                </TabsTrigger>
               </TabsList>
 
               {/* Kontrak */}
@@ -309,18 +305,6 @@ export default function TenantPortal() {
                 </Card>
               </TabsContent>
 
-              {/* Rekonsiliasi Bank */}
-              <TabsContent value="rekonsiliasi" className="mt-0">
-                <div className="space-y-3 pt-4">
-                  <div>
-                    <h2 className="text-base font-semibold">Rekonsiliasi Mutasi Bank</h2>
-                    <p className="text-xs text-muted-foreground mt-0.5">
-                      Data rekonsiliasi tenant Anda. Import mutasi, cocokkan dengan pembayaran/invoice, dan pantau status secara real-time.
-                    </p>
-                  </div>
-                  <BankRekonPanel />
-                </div>
-              </TabsContent>
             </Tabs>
           </>
         )}
