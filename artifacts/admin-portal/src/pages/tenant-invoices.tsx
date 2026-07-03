@@ -1598,69 +1598,82 @@ export default function TenantInvoices() {
   return (
     <div className="flex flex-col gap-6">
       {/* Header */}
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">Invoice Tenant</h1>
-          <div className="flex items-center gap-2 mt-1">
-            <p className="text-muted-foreground text-sm">Kelola tagihan dan pembayaran invoice tenant.</p>
-            {/* Indikator status WhatsApp */}
-            {!waStatusLoading && waStatus && (
-              <span
-                title={waStatus.message}
-                className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium cursor-default select-none ${
-                  !waStatus.configured
-                    ? "border-gray-200 bg-gray-50 text-gray-500"
+      <div className="flex flex-col gap-3">
+        {/* Baris atas: judul + badge WA */}
+        <div className="flex items-start justify-between gap-2 min-w-0">
+          <div className="min-w-0">
+            <h1 className="text-xl font-bold tracking-tight sm:text-2xl">Invoice Tenant</h1>
+            <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+              <p className="text-muted-foreground text-sm">Kelola tagihan dan pembayaran invoice tenant.</p>
+              {/* Indikator status WhatsApp */}
+              {!waStatusLoading && waStatus && (
+                <span
+                  title={waStatus.message}
+                  className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium cursor-default select-none ${
+                    !waStatus.configured
+                      ? "border-gray-200 bg-gray-50 text-gray-500"
+                      : waStatus.connected === true
+                      ? "border-green-200 bg-green-50 text-green-700"
+                      : waStatus.connected === false
+                      ? "border-red-200 bg-red-50 text-red-700"
+                      : "border-yellow-200 bg-yellow-50 text-yellow-700"
+                  }`}
+                >
+                  <span className={`h-1.5 w-1.5 rounded-full ${
+                    !waStatus.configured
+                      ? "bg-gray-400"
+                      : waStatus.connected === true
+                      ? "bg-green-500"
+                      : waStatus.connected === false
+                      ? "bg-red-500 animate-pulse"
+                      : "bg-yellow-500"
+                  }`} />
+                  WA {!waStatus.configured
+                    ? "Tidak Dikonfigurasi"
                     : waStatus.connected === true
-                    ? "border-green-200 bg-green-50 text-green-700"
+                    ? "Terhubung"
                     : waStatus.connected === false
-                    ? "border-red-200 bg-red-50 text-red-700"
-                    : "border-yellow-200 bg-yellow-50 text-yellow-700"
-                }`}
-              >
-                <span className={`h-1.5 w-1.5 rounded-full ${
-                  !waStatus.configured
-                    ? "bg-gray-400"
-                    : waStatus.connected === true
-                    ? "bg-green-500"
-                    : waStatus.connected === false
-                    ? "bg-red-500 animate-pulse"
-                    : "bg-yellow-500"
-                }`} />
-                WA {!waStatus.configured
-                  ? "Tidak Dikonfigurasi"
-                  : waStatus.connected === true
-                  ? "Terhubung"
-                  : waStatus.connected === false
-                  ? "Terputus"
-                  : "Tidak Diketahui"}
-              </span>
-            )}
+                    ? "Terputus"
+                    : "Tidak Diketahui"}
+                </span>
+              )}
+            </div>
           </div>
         </div>
-        <div className="flex gap-2 flex-wrap">
+
+        {/* Baris tombol aksi — selalu di bawah judul agar tidak sempit */}
+        <div className="flex gap-2 flex-wrap items-center">
+          {/* Kirim Link */}
           <Button
+            size="sm"
             variant="outline"
-            className="gap-2 border-blue-300 text-blue-700 hover:bg-blue-50"
+            className="gap-1.5 border-blue-300 text-blue-700 hover:bg-blue-50"
             disabled={blastLinkMutation.isPending || summary.unpaidAll === 0}
             onClick={() => blastLinkMutation.mutate()}
             title={summary.unpaidAll === 0 ? "Tidak ada invoice belum lunas" : `Kirim link bayar ke ${summary.unpaidAll} invoice belum lunas`}
           >
-            {blastLinkMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Link2 className="h-4 w-4" />}
+            {blastLinkMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Link2 className="h-3.5 w-3.5" />}
             {blastLinkMutation.isPending ? "Mengirim..." : `Kirim Link (${summary.unpaidAll})`}
           </Button>
+
+          {/* Blast WA Overdue */}
           <Button
+            size="sm"
             variant="outline"
-            className="gap-2 border-green-300 text-green-700 hover:bg-green-50"
+            className="gap-1.5 border-green-300 text-green-700 hover:bg-green-50"
             disabled={waBlastMutation.isPending || summary.overdue === 0}
             onClick={() => waBlastMutation.mutate()}
             title={summary.overdue === 0 ? "Tidak ada invoice overdue" : `Kirim pengingat ke ${summary.overdue} invoice overdue`}
           >
-            <Send className="h-4 w-4" />
+            <Send className="h-3.5 w-3.5" />
             {waBlastMutation.isPending ? "Mengirim..." : `Blast WA Overdue (${summary.overdue})`}
           </Button>
+
+          {/* Ekspor CSV */}
           <Button
+            size="sm"
             variant="outline"
-            className="gap-2"
+            className="gap-1.5"
             onClick={() => {
               const params = new URLSearchParams();
               if (filterStatus !== "all") params.set("status", filterStatus);
@@ -1673,14 +1686,17 @@ export default function TenantInvoices() {
               a.click();
               document.body.removeChild(a);
             }}
-            title="Ekspor semua invoice sesuai filter aktif ke CSV (lengkap dengan kolom PPN)"
+            title="Ekspor semua invoice sesuai filter aktif ke CSV"
           >
-            <Download className="h-4 w-4" />
+            <Download className="h-3.5 w-3.5" />
             Ekspor CSV
           </Button>
+
+          {/* Ekspor PDF */}
           <Button
+            size="sm"
             variant="outline"
-            className="gap-2 border-red-300 text-red-700 hover:bg-red-50"
+            className="gap-1.5 border-red-300 text-red-700 hover:bg-red-50"
             disabled={filteredInvoices.length === 0}
             onClick={() => {
               const now = new Date();
@@ -1697,32 +1713,46 @@ export default function TenantInvoices() {
             }}
             title={filteredInvoices.length === 0 ? "Tidak ada data untuk diekspor" : `Ekspor ${filteredInvoices.length} invoice ke PDF`}
           >
-            <FileText className="h-4 w-4" />
+            <FileText className="h-3.5 w-3.5" />
             Ekspor PDF ({filteredInvoices.length})
           </Button>
-          <Button variant="outline" onClick={() => { setGenerateForm({ bookingId: "", notes: "" }); setGenerateOpen(true); }} className="gap-2">
-            <Zap className="h-4 w-4" />
-            Generate dari Booking
-          </Button>
-          <Button
-            variant="outline"
-            className="gap-2 border-emerald-300 text-emerald-700 hover:bg-emerald-50"
-            onClick={() => setPpnOpen(true)}
-          >
-            <BarChart2 className="h-4 w-4" />
-            Laporan PPN
-          </Button>
-          <Button
-            variant="outline"
-            className="gap-2 border-violet-300 text-violet-700 hover:bg-violet-50"
-            onClick={openBulkDialog}
-            disabled={!tenants || tenants.length === 0}
-          >
-            <Layers className="h-4 w-4" />
-            Invoice Massal
-          </Button>
-          <Button onClick={() => { setCreateForm(EMPTY_FORM); setCreateOpen(true); }} className="gap-2">
-            <Plus className="h-4 w-4" />
+
+          {/* Dropdown: Laporan PPN, Invoice Massal, Generate */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button size="sm" variant="outline" className="gap-1.5">
+                <BarChart2 className="h-3.5 w-3.5" />
+                Lainnya
+                <ChevronDown className="h-3 w-3 opacity-60" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="min-w-48">
+              <DropdownMenuItem onClick={() => setPpnOpen(true)} className="gap-2">
+                <BarChart2 className="h-4 w-4 text-emerald-600" />
+                Laporan PPN
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={openBulkDialog}
+                disabled={!tenants || tenants.length === 0}
+                className="gap-2"
+              >
+                <Layers className="h-4 w-4 text-violet-600" />
+                Invoice Massal
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                onClick={() => { setGenerateForm({ bookingId: "", notes: "" }); setGenerateOpen(true); }}
+                className="gap-2"
+              >
+                <Zap className="h-4 w-4 text-amber-600" />
+                Generate dari Booking
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+
+          {/* Buat Invoice — tombol utama */}
+          <Button size="sm" onClick={() => { setCreateForm(EMPTY_FORM); setCreateOpen(true); }} className="gap-1.5">
+            <Plus className="h-3.5 w-3.5" />
             Buat Invoice
           </Button>
         </div>
