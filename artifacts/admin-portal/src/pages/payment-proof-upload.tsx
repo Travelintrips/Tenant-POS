@@ -1,7 +1,7 @@
 import { useState, useRef } from "react";
 import { useParams } from "wouter";
 import { useQuery } from "@tanstack/react-query";
-import { Building2, Upload, CheckCircle, XCircle, FileImage, Loader2, Sparkles, Info, Phone, Mail, MessageCircle } from "lucide-react";
+import { Building2, Upload, CheckCircle, XCircle, FileImage, Loader2, Sparkles, Info, Phone, Mail, MessageCircle, Clock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -42,6 +42,7 @@ interface InvoiceInfo {
   ownerName: string;
   unitCode: string;
   alreadyPaid: boolean;
+  pendingReview: boolean;
 }
 
 interface ScanResult {
@@ -274,6 +275,30 @@ export default function PaymentProofUpload() {
             <p className="text-muted-foreground text-sm">
               Invoice <strong>{invoice.invoiceNumber}</strong> sudah berstatus lunas. Terima kasih!
             </p>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  if (invoice.pendingReview) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-50 p-4">
+        <Card className="w-full max-w-md">
+          <CardContent className="pt-8 pb-8 text-center">
+            <Clock className="h-12 w-12 text-amber-500 mx-auto mb-4" />
+            <h2 className="text-lg font-semibold mb-2">Bukti Sedang Diverifikasi</h2>
+            <p className="text-muted-foreground text-sm mb-4">
+              Bukti pembayaran untuk invoice <strong>{invoice.invoiceNumber}</strong> sudah kami terima dan sedang dalam proses verifikasi oleh admin.
+            </p>
+            <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-left">
+              <p className="text-xs text-amber-800 font-medium mb-1">Yang perlu Anda ketahui:</p>
+              <ul className="text-xs text-amber-700 space-y-1 list-disc list-inside">
+                <li>Proses verifikasi biasanya memakan waktu 1×24 jam</li>
+                <li>Anda akan mendapat konfirmasi via WhatsApp setelah diverifikasi</li>
+                <li>Jika ada pertanyaan, hubungi pengelola mall</li>
+              </ul>
+            </div>
           </CardContent>
         </Card>
       </div>

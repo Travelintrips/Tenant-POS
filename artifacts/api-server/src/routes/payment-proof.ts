@@ -166,11 +166,21 @@ router.get("/pay/:token", publicReadRateLimiter, async (req, res) => {
     }
 
     if (invoice.status === "paid") {
-      res.status(200).json({ ...invoice, alreadyPaid: true });
+      res.status(200).json({ ...invoice, alreadyPaid: true, pendingReview: false });
       return;
     }
 
-    res.json({ ...invoice, alreadyPaid: false });
+    // Cek apakah sudah ada bukti pembayaran yang sedang direview
+    const [pendingPayment] = await db
+      .select({ id: tenantPaymentsTable.id })
+      .from(tenantPaymentsTable)
+      .where(and(
+        eq(tenantPaymentsTable.invoiceId, invoice.id),
+        eq(tenantPaymentsTable.approvalStatus, "pending_review"),
+      ))
+      .limit(1);
+
+    res.json({ ...invoice, alreadyPaid: false, pendingReview: !!pendingPayment });
   } catch (err) {
     res.status(500).json({ error: "Terjadi kesalahan server" });
   }
@@ -246,6 +256,21 @@ router.post("/pay/:token/proof", uploadRateLimiter, async (req, res) => {
 
     if (invoice.status === "paid") {
       res.status(409).json({ error: "Invoice ini sudah lunas" });
+      return;
+    }
+
+    // Blokir submit ulang jika sudah ada bukti yang sedang direview
+    const [pendingPayment] = await db
+      .select({ id: tenantPaymentsTable.id })
+      .from(tenantPaymentsTable)
+      .where(and(
+        eq(tenantPaymentsTable.invoiceId, invoice.id),
+        eq(tenantPaymentsTable.approvalStatus, "pending_review"),
+      ))
+      .limit(1);
+
+    if (pendingPayment) {
+      res.status(409).json({ error: "Bukti pembayaran Anda sudah dalam proses verifikasi admin. Mohon tunggu hasilnya." });
       return;
     }
 
