@@ -40,8 +40,6 @@ import PengeluaranOperasional from "@/pages/pengeluaran-operasional";
 import RiwayatPembayaran from "@/pages/riwayat-pembayaran";
 import PemasukanLain from "@/pages/pemasukan-lain";
 import ConsolidatedInvoices from "@/pages/consolidated-invoices";
-// Legacy module kept for rollback — DO NOT import Rekonsiliasi as a rendered route
-// import Rekonsiliasi from "@/pages/rekonsiliasi";
 
 const queryClient = new QueryClient();
 
@@ -200,18 +198,6 @@ function Router() {
             <RekapTenant />
           </SidebarLayout>
         </AuthGuard>
-      </Route>
-      {/* Legacy redirect — /rekonsiliasi → /bank-rekonsiliasi */}
-      <Route path="/rekonsiliasi">
-        <Redirect to="/bank-rekonsiliasi" />
-      </Route>
-      {/* Legacy redirect — /reconciliation → /bank-rekonsiliasi */}
-      <Route path="/reconciliation">
-        <Redirect to="/bank-rekonsiliasi" />
-      </Route>
-      {/* Legacy redirect — /laporan-rekonsiliasi → /bank-rekonsiliasi */}
-      <Route path="/laporan-rekonsiliasi">
-        <Redirect to="/bank-rekonsiliasi" />
       </Route>
       <Route path="/bank-rekonsiliasi">
         <AuthGuard roles={["owner", "admin", "finance"]}>

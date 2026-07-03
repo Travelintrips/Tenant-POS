@@ -22,7 +22,6 @@ import { logAudit } from "../lib/audit";
 import { logBankReconAudit } from "../lib/bank-recon-audit";
 import { writeToSheet, readFromSheet, extractSheetId, getServiceAccountEmail } from "../services/google-sheets";
 import { sendReconciliationReminder } from "../lib/whatsapp";
-import { notifyAdminsUnmatchedImport } from "../lib/overdue-scheduler";
 import {
   normalizeDescription,
   extractOrderId,
@@ -423,17 +422,6 @@ router.post("/bank-reconciliation/import-from-sheet", async (req, res) => {
     }
   });
 
-  // Kirim notifikasi WA ke admin jika ada yang unmatched/duplikat (fire-and-forget)
-  const unmatchedFromSheet = ids.length - autoMatched - duplicates;
-  notifyAdminsUnmatchedImport({
-    totalImported: ids.length,
-    unmatchedCount: unmatchedFromSheet,
-    autoMatchedCount: autoMatched,
-    duplicateCount: duplicates,
-    bankAccountId: bankAccountId ?? undefined,
-    source: "import_sheet",
-  }).catch(() => {});
-
   res.json({ success: true, imported: ids.length, autoMatched, duplicates });
 });
 
@@ -539,17 +527,6 @@ router.post("/bank-reconciliation/import", upload.single("file"), async (req, re
       afterData: { autoMatched },
     });
   }
-
-  // Kirim notifikasi WA ke admin jika ada yang unmatched/duplikat (fire-and-forget)
-  const unmatchedFromCsv = ids.length - autoMatched - duplicates;
-  notifyAdminsUnmatchedImport({
-    totalImported: ids.length,
-    unmatchedCount: unmatchedFromCsv,
-    autoMatchedCount: autoMatched,
-    duplicateCount: duplicates,
-    bankAccountId: bankAccountId ?? undefined,
-    source: "import_csv",
-  }).catch(() => {});
 
   res.json({ success: true, imported: ids.length, autoMatched, duplicates });
 });
