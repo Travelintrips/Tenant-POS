@@ -18,7 +18,7 @@ interface AccountingEntryParams {
  * Posting pembayaran sewa tenant ke accounting_entries + accounting_entry_lines + accounting_payments.
  * Idempotent via correlation_id = "tenant_payment_{paymentId}" ATAU via unique index (source, source_id).
  * Pilih journal: tunai/qris → CSH, transfer/edc → BNK.
- * Company di-lookup dari mall_sites.company_name → companies.name.
+ * Company di-lookup dari mall_sites.company_id → companies.id (bukan text match nama).
  */
 export async function postTenantPaymentAccountingEntry(
   params: AccountingEntryParams
@@ -62,9 +62,7 @@ export async function postTenantPaymentAccountingEntry(
       const siteRow = await db.execute(sql`
         SELECT c.id AS company_id, c.code AS company_code
         FROM mall_sites ms
-        JOIN companies c
-          ON UPPER(TRIM(c.name)) = UPPER(TRIM(ms.company_name))
-         OR UPPER(TRIM(c.company_name)) = UPPER(TRIM(ms.company_name))
+        JOIN companies c ON c.id = ms.company_id
         WHERE ms.id = ${siteId}
         LIMIT 1
       `);
@@ -72,6 +70,10 @@ export async function postTenantPaymentAccountingEntry(
       if (row?.company_id) {
         companyId = Number(row.company_id);
         companyCode = String(row.company_code ?? "CST");
+      } else {
+        logger.warn(
+          `[accounting_entry] mall_sites.id=${siteId} tidak punya company_id yang valid — fallback ke company default CST`
+        );
       }
     }
 
