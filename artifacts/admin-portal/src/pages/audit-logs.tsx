@@ -358,7 +358,7 @@ export default function AuditLogs() {
                         <TableCell className="text-xs py-2">
                           <Badge className={`text-[10px] border-0 ${actionColor}`}>{actionLabel}</Badge>
                         </TableCell>
-                        <TableCell className="text-xs py-2 capitalize">{log.entityType.replace(/_/g, " ")}</TableCell>
+                        <TableCell className="text-xs py-2 capitalize">{(log.entityType ?? "").replace(/_/g, " ") || "—"}</TableCell>
                         <TableCell className="text-xs py-2 font-mono text-muted-foreground">{log.entityId ?? "—"}</TableCell>
                         <TableCell className="text-xs py-2 font-mono text-muted-foreground">{log.ipAddress ?? "—"}</TableCell>
                         <TableCell className="py-2" onClick={(e) => { e.stopPropagation(); openDetail(log); }}>
