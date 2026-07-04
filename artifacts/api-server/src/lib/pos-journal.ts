@@ -35,9 +35,7 @@ async function resolveCompanyFromSite(siteId: number | null | undefined): Promis
     const row = await db.execute<{ company_id: number }>(sql`
       SELECT c.id AS company_id
       FROM mall_sites ms
-      JOIN companies c
-        ON UPPER(TRIM(c.name))         = UPPER(TRIM(ms.company_name))
-        OR UPPER(TRIM(c.company_name)) = UPPER(TRIM(ms.company_name))
+      JOIN companies c ON c.id = ms.company_id
       WHERE ms.id = ${siteId}
       LIMIT 1
     `);

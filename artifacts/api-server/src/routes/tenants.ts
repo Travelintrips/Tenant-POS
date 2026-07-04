@@ -85,14 +85,9 @@ router.post("/tenants", async (req, res) => {
     if (!companyId && parsed.data.siteId) {
       const rows = await db.execute<{ company_id: number }>(sql`
         SELECT c.id AS company_id
-        FROM mall_sites ms, companies c
+        FROM mall_sites ms
+        JOIN companies c ON c.id = ms.company_id
         WHERE ms.id = ${parsed.data.siteId}
-          AND (
-            (ms.company_name ILIKE '%Elmira%'        AND c.code = 'ERA') OR
-            (ms.company_name ILIKE '%Cahaya Sejati%' AND c.code = 'CST') OR
-            (ms.company_name ILIKE '%Wangsamas%'     AND c.code = 'WGS') OR
-            (ms.company_name ILIKE '%Diva%'          AND c.code = 'DVS')
-          )
         LIMIT 1
       `);
       if (rows.rows?.[0]?.company_id) companyId = rows.rows[0].company_id;
