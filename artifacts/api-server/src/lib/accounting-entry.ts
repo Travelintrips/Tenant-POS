@@ -75,22 +75,19 @@ export async function postTenantPaymentAccountingEntry(
       }
     }
 
-    // --- Pilih journal berdasarkan payment method ---
-    const CASH_METHODS = ["tunai", "cash", "qris"];
-    const journalType = CASH_METHODS.includes((paymentMethod ?? "").toLowerCase())
-      ? "cash"
-      : "bank";
-
+    // --- Pembayaran sewa tenant SELALU ke jurnal Bank ---
+    // Tenant tidak membayar tunai — semua pembayaran sewa via transfer/bank.
+    // Tidak ada routing ke cash journal untuk modul ini.
     const journalRow = await db.execute(sql`
       SELECT id, code, default_debit_account_id
       FROM accounting_journals
-      WHERE company_id = ${companyId} AND type = ${journalType}
-      LIMIT 1
+      WHERE company_id = ${companyId} AND type = 'bank'
+      ORDER BY id LIMIT 1
     `);
     const journal = (journalRow as any).rows?.[0];
     if (!journal) {
       logger.warn(
-        `[accounting_entry] Tidak ada journal type="${journalType}" untuk company_id=${companyId}`
+        `[accounting_entry] Tidak ada bank journal untuk company_id=${companyId}`
       );
       return;
     }
