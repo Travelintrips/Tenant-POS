@@ -81,21 +81,38 @@ export async function postPosPaymentJournal(
     (opts.invoiceNumber ? ` — ${opts.invoiceNumber}` : "") +
     ` — ${opts.receiptNumber}`;
 
-  // Lookup journal kas untuk company ini (+ default_debit_account_id untuk Kas)
+  // Pilih journal berdasarkan metode bayar:
+  // tunai/cash/qris → cash journal (Kas), transfer/edc/bank → bank journal (Bank)
+  const CASH_METHODS = ["tunai", "cash", "qris"];
+  const journalType = CASH_METHODS.includes((opts.paymentMethod ?? "").toLowerCase()) ? "cash" : "bank";
+
   const journalRow = await db.execute(
-    sql`SELECT id, default_debit_account_id FROM accounting_journals WHERE company_id = ${companyId} AND type = 'cash' LIMIT 1`
+    sql`SELECT id, default_debit_account_id FROM accounting_journals WHERE company_id = ${companyId} AND type = ${journalType} LIMIT 1`
   );
-  const journalDbId: number | null = (journalRow as any).rows?.[0]?.id != null
+  let journalDbId: number | null = (journalRow as any).rows?.[0]?.id != null
     ? Number((journalRow as any).rows[0].id)
     : null;
-  const kasAccountId: number | null = (journalRow as any).rows?.[0]?.default_debit_account_id
+  let kasAccountId: number | null = (journalRow as any).rows?.[0]?.default_debit_account_id
     ? Number((journalRow as any).rows[0].default_debit_account_id)
     : null;
 
-  // Jika tidak ada cash journal untuk company ini, skip accounting (jangan pakai journal_id=1 yang tidak ada)
+  // Fallback ke cash journal jika bank journal tidak ada
+  if (journalDbId == null && journalType === "bank") {
+    const { logger: log } = await import("./logger");
+    log.warn(`[pos-journal] Tidak ada bank journal untuk company_id=${companyId} — fallback ke cash journal`);
+    const fallbackRow = await db.execute(
+      sql`SELECT id, default_debit_account_id FROM accounting_journals WHERE company_id = ${companyId} AND type = 'cash' LIMIT 1`
+    );
+    journalDbId = (fallbackRow as any).rows?.[0]?.id != null ? Number((fallbackRow as any).rows[0].id) : null;
+    kasAccountId = (fallbackRow as any).rows?.[0]?.default_debit_account_id
+      ? Number((fallbackRow as any).rows[0].default_debit_account_id)
+      : null;
+  }
+
+  // Jika tidak ada journal sama sekali, skip accounting
   if (journalDbId == null) {
     const { logger: log } = await import("./logger");
-    log.warn(`[pos-journal] Tidak ada cash journal untuk company_id=${companyId} — skip accounting`);
+    log.warn(`[pos-journal] Tidak ada journal (${journalType}) untuk company_id=${companyId} — skip accounting`);
     return { journalId: correlationId, alreadyPosted: false, netAmount, taxAmount };
   }
 
