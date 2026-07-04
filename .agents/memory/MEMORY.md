@@ -63,3 +63,5 @@
 - [migration-idempotency-skipped-deps](migration-idempotency.md) — if migration A is in schema_migrations but its table is missing, migration B (that depends on A's table) will fail; fix B by prepending CREATE TABLE IF NOT EXISTS from A's SQL at the start of B's SQL block
 - [session-store-table-sql](session-store-table-sql.md) — connect-pg-simple createTableIfMissing:true gagal di esbuild dist; set false + migration CREATE TABLE IF NOT EXISTS "session"
 - [tenant-invoices-missing-braces](tenant-invoices-braces.md) — fresh clone: tenant-invoices.ts missing `}` + `});` after send-pdf route error handler (line ~1506); esbuild reports "Unexpected export" at EOF (misleading); real fix: add closing braces before next route
+
+- [company-id-consistency-guards](company-id-consistency-guards.md) — DB triggers reject writes where tenant/entry/payment company_id mismatches its parent site/journal/entry

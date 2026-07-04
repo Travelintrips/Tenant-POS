@@ -3567,3 +3567,93 @@ CREATE INDEX IF NOT EXISTS idx_tenant_invoices_tenant_site
   ON tenant_invoices (tenant_id, site_id, status);
   `.trim(),
 });
+
+MIGRATIONS.push({
+  name: "0086_company_id_consistency_guards",
+  sql: `
+-- Cegah company_id salah kirim ke company lain (root cause: dulu ada text-matching
+-- nama company yang rapuh; sekarang divalidasi di level DB agar tidak bisa terulang
+-- meski ada bug baru di kode).
+
+-- 1. tenants.company_id harus sama dengan mall_sites.company_id milik site_id-nya
+CREATE OR REPLACE FUNCTION fn_validate_tenant_company_id()
+RETURNS TRIGGER AS $$
+DECLARE
+  v_site_company_id integer;
+BEGIN
+  IF NEW.site_id IS NULL OR NEW.company_id IS NULL THEN
+    RETURN NEW;
+  END IF;
+
+  SELECT company_id INTO v_site_company_id
+  FROM mall_sites WHERE id = NEW.site_id;
+
+  IF v_site_company_id IS NOT NULL AND v_site_company_id != NEW.company_id THEN
+    RAISE EXCEPTION 'tenants.company_id (%) tidak cocok dengan mall_sites.company_id (%) untuk site_id %',
+      NEW.company_id, v_site_company_id, NEW.site_id;
+  END IF;
+
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_validate_tenant_company_id ON tenants;
+CREATE TRIGGER trg_validate_tenant_company_id
+  BEFORE INSERT OR UPDATE OF company_id, site_id ON tenants
+  FOR EACH ROW EXECUTE FUNCTION fn_validate_tenant_company_id();
+
+-- 2. accounting_entries.company_id harus sama dengan accounting_journals.company_id
+CREATE OR REPLACE FUNCTION fn_validate_entry_company_id()
+RETURNS TRIGGER AS $$
+DECLARE
+  v_journal_company_id integer;
+BEGIN
+  IF NEW.journal_id IS NULL OR NEW.company_id IS NULL THEN
+    RETURN NEW;
+  END IF;
+
+  SELECT company_id INTO v_journal_company_id
+  FROM accounting_journals WHERE id = NEW.journal_id;
+
+  IF v_journal_company_id IS NOT NULL AND v_journal_company_id != NEW.company_id THEN
+    RAISE EXCEPTION 'accounting_entries.company_id (%) tidak cocok dengan accounting_journals.company_id (%) untuk journal_id %',
+      NEW.company_id, v_journal_company_id, NEW.journal_id;
+  END IF;
+
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_validate_entry_company_id ON accounting_entries;
+CREATE TRIGGER trg_validate_entry_company_id
+  BEFORE INSERT OR UPDATE OF company_id, journal_id ON accounting_entries
+  FOR EACH ROW EXECUTE FUNCTION fn_validate_entry_company_id();
+
+-- 3. accounting_payments.company_id harus sama dengan accounting_entries.company_id (via entry_id)
+CREATE OR REPLACE FUNCTION fn_validate_payment_company_id()
+RETURNS TRIGGER AS $$
+DECLARE
+  v_entry_company_id integer;
+BEGIN
+  IF NEW.entry_id IS NULL OR NEW.company_id IS NULL THEN
+    RETURN NEW;
+  END IF;
+
+  SELECT company_id INTO v_entry_company_id
+  FROM accounting_entries WHERE id = NEW.entry_id;
+
+  IF v_entry_company_id IS NOT NULL AND v_entry_company_id != NEW.company_id THEN
+    RAISE EXCEPTION 'accounting_payments.company_id (%) tidak cocok dengan accounting_entries.company_id (%) untuk entry_id %',
+      NEW.company_id, v_entry_company_id, NEW.entry_id;
+  END IF;
+
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_validate_payment_company_id ON accounting_payments;
+CREATE TRIGGER trg_validate_payment_company_id
+  BEFORE INSERT OR UPDATE OF company_id, entry_id ON accounting_payments
+  FOR EACH ROW EXECUTE FUNCTION fn_validate_payment_company_id();
+  `.trim(),
+});
