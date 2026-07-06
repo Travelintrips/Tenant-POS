@@ -503,12 +503,15 @@ router.post("/whatsapp/test-send", async (req, res) => {
       await logWa({ phone: normalized, messageType: "test", status: "failed", errorMessage: errMsg, sentBy });
       res.json({ ok: false, error: errMsg, raw: reason });
     } else if (processPending) {
-      await logWa({ phone: normalized, messageType: "test", status: "sent", errorMessage: "process:pending — sesi WA device mungkin expired", sentBy });
+      await logWa({ phone: normalized, messageType: "test", status: "sent", errorMessage: "process:pending — antrian Fonnte penuh", sentBy });
       res.json({
         ok: true,
         pending: true,
-        message: `Pesan masuk antrian Fonnte ke ${normalized}, namun belum terkirim ke WA.`,
-        detail: "Perangkat Fonnte perlu di-reconnect: buka dashboard.fonnte.com → pilih device → klik Disconnect lalu scan ulang QR code dengan HP yang terdaftar.",
+        isGroup: isGroupJid,
+        message: isGroupJid
+          ? `Pesan ke grup ${normalized} masuk antrian Fonnte, namun belum terkirim ke WhatsApp.`
+          : `Pesan masuk antrian Fonnte ke ${normalized}, namun belum terkirim ke WA.`,
+        detail: "Antrian pesan Fonnte penuh (bukan masalah koneksi/device). Ini terjadi baik untuk nomor pribadi maupun grup, karena antrian bersifat per-akun Fonnte. Buka dashboard.fonnte.com → Device → hapus antrian (Clear Queue) untuk membersihkannya. Reconnect device tidak akan membantu jika penyebabnya antrian penuh.",
         target: normalized,
       });
     } else {

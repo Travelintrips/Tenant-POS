@@ -263,12 +263,12 @@ export default function WhatsAppSend() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ phone: testPhone, message: testMsg || undefined }),
       }).then(r => r.json()),
-    onSuccess: (data: { ok: boolean; pending?: boolean; message?: string; detail?: string; error?: string }) => {
+    onSuccess: (data: { ok: boolean; pending?: boolean; isGroup?: boolean; message?: string; detail?: string; error?: string }) => {
       void qc.invalidateQueries({ queryKey: ["wa-logs"] });
       if (data.pending) {
         toast({
-          title: "⚠️ Pesan Masuk Antrian — Belum Terkirim",
-          description: "Antrian Fonnte penuh. Buka dashboard.fonnte.com → Device → Hapus Antrian (Clear Queue). Reconnect tidak akan membantu.",
+          title: data.isGroup ? "⚠️ Pesan ke Grup Masuk Antrian — Belum Terkirim" : "⚠️ Pesan Masuk Antrian — Belum Terkirim",
+          description: data.detail ?? "Antrian Fonnte penuh. Buka dashboard.fonnte.com → Device → Hapus Antrian (Clear Queue). Reconnect tidak akan membantu.",
           variant: "destructive",
         });
       } else {
