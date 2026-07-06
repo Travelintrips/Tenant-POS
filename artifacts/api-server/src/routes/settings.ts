@@ -28,6 +28,7 @@ const DEFAULT_SETTINGS = {
   invoiceColor: "#1e3a5f",
   invoiceFooterNote: "",
   invoiceSignerName: "",
+  waGroups: [] as { label: string; jid: string }[],
 };
 
 router.get("/settings", requireAuth, requireAnyRole("owner", "admin", "finance"), async (req, res) => {
@@ -63,6 +64,21 @@ router.get("/settings", requireAuth, requireAnyRole("owner", "admin", "finance")
 router.put("/settings", requireAuth, requireAnyRole("owner"), async (req, res) => {
   try {
     const payload = req.body as Record<string, unknown>;
+
+    if (payload.waGroups !== undefined) {
+      if (!Array.isArray(payload.waGroups)) {
+        res.status(400).json({ error: "waGroups harus berupa array" });
+        return;
+      }
+      const cleaned: { label: string; jid: string }[] = [];
+      for (const g of payload.waGroups as unknown[]) {
+        const label = typeof (g as any)?.label === "string" ? (g as any).label.trim().slice(0, 100) : "";
+        const jid = typeof (g as any)?.jid === "string" ? (g as any).jid.trim() : "";
+        if (!label || !jid || !jid.includes("@g.")) continue;
+        cleaned.push({ label, jid });
+      }
+      payload.waGroups = cleaned;
+    }
 
     const [existing] = await db
       .select()

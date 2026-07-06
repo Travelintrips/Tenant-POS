@@ -11,7 +11,7 @@ import { apiFetch } from "@/lib/api";
 import {
   MessageCircle, Send, AlertTriangle, CheckCircle2, Wifi, WifiOff,
   Loader2, RefreshCw, Megaphone, Link2, PhoneCall, History, XCircle, Clock,
-  CalendarClock, BellOff, BellRing,
+  CalendarClock, BellOff, BellRing, Users, Plus, Trash2,
 } from "lucide-react";
 import { useSite } from "@/contexts/site-context";
 
@@ -89,6 +89,11 @@ interface WaLog {
   createdAt: string;
 }
 
+interface WaGroup {
+  label: string;
+  jid: string;
+}
+
 const MESSAGE_TYPE_LABELS: Record<string, string> = {
   invoice: "Notifikasi Invoice",
   overdue_reminder: "Pengingat Overdue",
@@ -137,6 +142,50 @@ export default function WhatsAppSend() {
   const [testMsg, setTestMsg] = useState("");
   const [blastResult, setBlastResult] = useState<BlastResult | null>(null);
   const [blastLinkResult, setBlastLinkResult] = useState<BlastResult | null>(null);
+  const [newGroupLabel, setNewGroupLabel] = useState("");
+  const [newGroupJid, setNewGroupJid] = useState("");
+
+  const { data: waGroups = [] } = useQuery<WaGroup[]>({
+    queryKey: ["settings-wa-groups"],
+    queryFn: () => apiFetch("/api/settings").then(r => r.json()).then(d => d.waGroups ?? []),
+  });
+
+  const saveGroupsMut = useMutation({
+    mutationFn: (groups: WaGroup[]) =>
+      apiFetch("/api/settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ waGroups: groups }),
+      }).then(r => {
+        if (!r.ok) throw new Error("Gagal menyimpan");
+        return r.json();
+      }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["settings-wa-groups"] });
+      void qc.invalidateQueries({ queryKey: ["settings"] });
+    },
+    onError: () => toast({ title: "Gagal", description: "Gagal menyimpan daftar grup.", variant: "destructive" }),
+  });
+
+  const handleAddGroup = () => {
+    const label = newGroupLabel.trim();
+    const jid = newGroupJid.trim();
+    if (!label || !jid) {
+      toast({ title: "Lengkapi data", description: "Nama grup dan Group JID wajib diisi.", variant: "destructive" });
+      return;
+    }
+    if (!jid.includes("@g.")) {
+      toast({ title: "Format JID salah", description: "Group JID harus diakhiri @g.us (contoh: 12036xxxx@g.us).", variant: "destructive" });
+      return;
+    }
+    saveGroupsMut.mutate([...waGroups, { label, jid }]);
+    setNewGroupLabel("");
+    setNewGroupJid("");
+  };
+
+  const handleRemoveGroup = (jid: string) => {
+    saveGroupsMut.mutate(waGroups.filter(g => g.jid !== jid));
+  };
 
   const reconnectMut = useMutation({
     mutationFn: () =>
@@ -459,15 +508,33 @@ export default function WhatsAppSend() {
         <CardContent className="space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-1.5">
-              <Label className="text-xs">Nomor HP Tujuan</Label>
+              <Label className="text-xs">Nomor HP Tujuan / Group JID</Label>
               <Input
-                placeholder="0812xxxx / 628xx"
+                placeholder="0812xxxx / 628xx / 12036xxxx@g.us"
                 value={testPhone}
                 onChange={e => setTestPhone(e.target.value)}
                 className="h-8 text-sm"
               />
             </div>
           </div>
+          {waGroups.length > 0 && (
+            <div className="space-y-1.5">
+              <Label className="text-xs text-muted-foreground">Atau pilih grup tersimpan</Label>
+              <div className="flex flex-wrap gap-1.5">
+                {waGroups.map(g => (
+                  <Badge
+                    key={g.jid}
+                    variant="outline"
+                    className={`cursor-pointer text-xs ${testPhone === g.jid ? "bg-green-100 border-green-300 text-green-700" : ""}`}
+                    onClick={() => setTestPhone(g.jid)}
+                  >
+                    <Users className="h-3 w-3 mr-1" />
+                    {g.label}
+                  </Badge>
+                ))}
+              </div>
+            </div>
+          )}
           <div className="space-y-1.5">
             <Label className="text-xs">Pesan (opsional — dikosongkan = pesan default)</Label>
             <Textarea
@@ -486,6 +553,65 @@ export default function WhatsAppSend() {
             {testSendMut.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" /> : <Send className="h-3.5 w-3.5 mr-1.5" />}
             {testSendMut.isPending ? "Mengirim..." : "Kirim Pesan Tes"}
           </Button>
+        </CardContent>
+      </Card>
+
+      {/* Grup WA Favorit */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base flex items-center gap-2">
+            <Users className="h-4 w-4 text-indigo-500" />
+            Grup WhatsApp Favorit
+          </CardTitle>
+          <CardDescription className="text-xs">
+            Simpan Group JID (format: xxxxxxxxx@g.us) supaya bisa dipilih cepat saat kirim pesan tes ke grup.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {waGroups.length > 0 && (
+            <div className="divide-y text-sm border rounded-md">
+              {waGroups.map(g => (
+                <div key={g.jid} className="flex items-center justify-between px-3 py-2 gap-3">
+                  <div className="min-w-0 flex-1">
+                    <p className="font-medium truncate">{g.label}</p>
+                    <p className="text-xs text-muted-foreground truncate">{g.jid}</p>
+                  </div>
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    className="h-7 w-7 shrink-0 text-red-500 hover:text-red-600 hover:bg-red-50"
+                    onClick={() => handleRemoveGroup(g.jid)}
+                    disabled={saveGroupsMut.isPending}
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+              ))}
+            </div>
+          )}
+          <div className="grid grid-cols-1 md:grid-cols-[1fr_1.5fr_auto] gap-2">
+            <Input
+              placeholder="Nama grup (mis. Grup Admin Mall)"
+              value={newGroupLabel}
+              onChange={e => setNewGroupLabel(e.target.value)}
+              className="h-8 text-sm"
+            />
+            <Input
+              placeholder="Group JID (mis. 12036xxxx@g.us)"
+              value={newGroupJid}
+              onChange={e => setNewGroupJid(e.target.value)}
+              className="h-8 text-sm"
+            />
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={handleAddGroup}
+              disabled={saveGroupsMut.isPending}
+            >
+              <Plus className="h-3.5 w-3.5 mr-1.5" />
+              Tambah
+            </Button>
+          </div>
         </CardContent>
       </Card>
 
