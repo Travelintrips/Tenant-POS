@@ -138,6 +138,20 @@ export default function WhatsAppSend() {
   const [blastResult, setBlastResult] = useState<BlastResult | null>(null);
   const [blastLinkResult, setBlastLinkResult] = useState<BlastResult | null>(null);
 
+  const reconnectMut = useMutation({
+    mutationFn: () =>
+      apiFetch("/api/whatsapp/reconnect-device", { method: "POST" }).then(r => r.json()),
+    onSuccess: (data: { ok: boolean; message?: string; error?: string }) => {
+      if (data.ok) {
+        toast({ title: "✅ Reconnect Dikirim", description: data.message });
+        setTimeout(() => { void refetchStatus(); }, 20000);
+      } else {
+        toast({ title: "Gagal Reconnect", description: data.error, variant: "destructive" });
+      }
+    },
+    onError: () => toast({ title: "Gagal", description: "Terjadi kesalahan.", variant: "destructive" }),
+  });
+
   const { data: status, isLoading: statusLoading, refetch: refetchStatus } = useQuery<WaStatus>({
     queryKey: ["wa-status"],
     queryFn: () => apiFetch("/api/whatsapp/status").then(r => r.json()),
@@ -311,27 +325,46 @@ export default function WhatsAppSend() {
 
               {/* Peringatan antrian menumpuk */}
               {status?.queueWarning && (
-                <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800 space-y-1.5">
+                <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800 space-y-2">
                   <p className="font-semibold flex items-center gap-1.5">
-                    <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-                    Antrian Pesan Menumpuk ({(status.queueCount ?? 0).toLocaleString("id-ID")} pesan)
+                    <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-amber-600" />
+                    Antrian Pesan Menumpuk — {(status.queueCount ?? 0).toLocaleString("id-ID")} pesan belum terkirim
                   </p>
                   <p>
-                    Pesan masuk antrian tapi <strong>belum dikirim ke WhatsApp</strong> karena antrian Fonnte terlalu penuh.
-                    Reconnect device <strong>tidak akan membantu</strong> — ini bukan masalah koneksi.
+                    Pesan masuk antrian Fonnte tapi <strong>belum dikirim ke WhatsApp</strong>.
+                    Ini bukan masalah koneksi — device sudah terhubung.
                   </p>
-                  <p className="font-medium">
-                    Cara memperbaiki: buka{" "}
-                    <a
-                      href="https://dashboard.fonnte.com"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="underline text-amber-900"
+
+                  {/* Opsi 1: Tombol reconnect dari portal */}
+                  <div className="rounded border border-amber-300 bg-white p-2.5 space-y-1.5">
+                    <p className="font-semibold text-amber-900">Opsi 1 — Reconnect via Portal (Coba dulu)</p>
+                    <p>Tekan tombol di bawah untuk paksa restart koneksi device Fonnte. Setelah berhasil, tunggu 15–30 detik lalu klik Refresh.</p>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="border-amber-400 text-amber-800 hover:bg-amber-100 h-7 text-xs"
+                      onClick={() => reconnectMut.mutate()}
+                      disabled={reconnectMut.isPending}
                     >
-                      dashboard.fonnte.com
-                    </a>{" "}
-                    → pilih Device → cari tombol <strong>"Hapus Antrian"</strong> atau <strong>"Clear Queue"</strong> → konfirmasi penghapusan.
-                  </p>
+                      {reconnectMut.isPending
+                        ? <><Loader2 className="h-3 w-3 animate-spin mr-1.5" />Mengirim...</>
+                        : <><RefreshCw className="h-3 w-3 mr-1.5" />Reconnect Device Sekarang</>
+                      }
+                    </Button>
+                  </div>
+
+                  {/* Opsi 2: Hapus antrian manual via dashboard Fonnte */}
+                  <div className="rounded border border-amber-300 bg-white p-2.5 space-y-1">
+                    <p className="font-semibold text-amber-900">Opsi 2 — Hapus Antrian di Dashboard Fonnte</p>
+                    <p>Jika reconnect tidak membantu, hapus antrian manual:</p>
+                    <ol className="list-decimal list-inside space-y-0.5 pl-1">
+                      <li>Buka <a href="https://dashboard.fonnte.com" target="_blank" rel="noopener noreferrer" className="underline font-medium">dashboard.fonnte.com</a> → Login</li>
+                      <li>Klik menu <strong>"Pesan"</strong> di sidebar kiri</li>
+                      <li>Pilih tab/filter <strong>"Antrian"</strong> atau <strong>"Pending"</strong></li>
+                      <li>Pilih semua pesan → klik <strong>"Hapus"</strong> atau <strong>"Delete All"</strong></li>
+                    </ol>
+                    <p className="text-amber-700">Jika tidak ada menu "Pesan", coba: <strong>Device</strong> → klik nama device → tab <strong>"Queue"</strong>.</p>
+                  </div>
                 </div>
               )}
             </>

@@ -619,6 +619,35 @@ router.get("/whatsapp/reminder-status", async (req, res) => {
 });
 
 /**
+ * POST /api/whatsapp/reconnect-device
+ * Panggil Fonnte /reconnect — restart koneksi device dan flush antrian yang stuck.
+ * Biasanya membantu jika antrian menumpuk namun device masih terhubung.
+ */
+router.post("/whatsapp/reconnect-device", requireAuth, requireAnyRole("owner", "admin"), async (_req, res) => {
+  const token = process.env.FONNTE_API_KEY ?? process.env.FONNTE_TOKEN;
+  if (!token) {
+    res.status(400).json({ ok: false, error: "FONNTE_TOKEN belum dikonfigurasi" });
+    return;
+  }
+
+  try {
+    const r = await fetch("https://api.fonnte.com/reconnect", {
+      method: "POST",
+      headers: { Authorization: token, "Content-Type": "application/x-www-form-urlencoded" },
+      signal: AbortSignal.timeout(15000),
+    });
+    const data = await r.json() as Record<string, unknown>;
+    if (data["status"] === true) {
+      res.json({ ok: true, message: "Reconnect berhasil. Device sedang restart — tunggu 15-30 detik lalu cek status kembali." });
+    } else {
+      res.json({ ok: false, error: String(data["reason"] ?? "Gagal reconnect") });
+    }
+  } catch {
+    res.status(502).json({ ok: false, error: "Tidak dapat menghubungi server Fonnte" });
+  }
+});
+
+/**
  * GET /api/whatsapp/status
  * Cek status konfigurasi WA + konektivitas perangkat Fonnte
  */
