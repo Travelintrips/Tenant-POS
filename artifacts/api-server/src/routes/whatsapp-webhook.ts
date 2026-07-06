@@ -32,6 +32,27 @@ import { webhookRateLimiter } from "../middlewares/rate-limit";
 
 const router: IRouter = Router();
 
+// ─── POST /api/webhook/fonnte ─────────────────────────────────────────────────
+// Fonnte Delivery Status Callback — dipanggil Fonnte setiap kali status pesan
+// berubah (pending → sent / failed). Harus public (sebelum requireAuth).
+// Format body: { id, target, message, status, statusType, reason, device }
+router.post("/webhook/fonnte", webhookRateLimiter, async (req, res) => {
+  res.json({ ok: true });
+
+  const body = req.body as Record<string, unknown>;
+  const msgId = String(body["id"] ?? "");
+  const target = String(body["target"] ?? "");
+  const statusType = String(body["statusType"] ?? body["status"] ?? "");
+  const reason = String(body["reason"] ?? "");
+
+  if (msgId || target) {
+    logger.info(
+      { id: msgId, target, statusType, reason },
+      "[wa-delivery] Fonnte delivery callback",
+    );
+  }
+});
+
 // ─── POST /api/whatsapp/webhook ───────────────────────────────────────────────
 router.post("/whatsapp/webhook", webhookRateLimiter, async (req, res) => {
   // Segera balas 200 agar Fonnte tidak retry

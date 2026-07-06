@@ -541,7 +541,7 @@ router.get("/whatsapp/logs", requireAuth, requireAnyRole("owner", "admin", "fina
  * Ambil daftar perangkat/nomor HP yang terhubung ke akun Fonnte
  */
 router.get("/whatsapp/devices", requireAuth, requireAnyRole("owner", "admin"), async (_req, res) => {
-  const token = process.env.FONNTE_TOKEN;
+  const token = process.env.FONNTE_API_KEY ?? process.env.FONNTE_TOKEN;
   if (!token) {
     res.json({ configured: false, devices: [] });
     return;
@@ -549,8 +549,8 @@ router.get("/whatsapp/devices", requireAuth, requireAnyRole("owner", "admin"), a
 
   try {
     const r = await fetch("https://api.fonnte.com/device", {
-      method: "GET",
-      headers: { Authorization: token },
+      method: "POST",
+      headers: { Authorization: token, "Content-Type": "application/x-www-form-urlencoded" },
       signal: AbortSignal.timeout(8000),
     });
     const data = await r.json() as Record<string, unknown>;
@@ -560,16 +560,22 @@ router.get("/whatsapp/devices", requireAuth, requireAnyRole("owner", "admin"), a
       return;
     }
 
-    const raw = data["data"] as Array<Record<string, unknown>> | undefined;
-    const devices = (raw ?? []).map((d) => ({
-      name: String(d["name"] ?? d["label"] ?? "Perangkat"),
-      phone: String(d["device"] ?? d["phone"] ?? ""),
-      status: String(d["status"] ?? "unknown"),
-      connected: String(d["status"] ?? "").toLowerCase() === "connected",
-    }));
+    // Fonnte /device (single device token) returns flat object, not array
+    const isConnected = String(data["device_status"] ?? "").toLowerCase() === "connect";
+    const devices = data["device"]
+      ? [{
+          name: String(data["name"] ?? "Perangkat"),
+          phone: String(data["device"] ?? ""),
+          status: isConnected ? "connected" : "disconnected",
+          connected: isConnected,
+          queueCount: Number(data["messages"] ?? 0),
+          quota: String(data["quota"] ?? ""),
+          expired: String(data["expired"] ?? ""),
+        }]
+      : [];
 
     res.json({ configured: true, devices });
-  } catch (err) {
+  } catch {
     res.json({ configured: true, devices: [], error: "Gagal menghubungi Fonnte" });
   }
 });
@@ -617,28 +623,49 @@ router.get("/whatsapp/reminder-status", async (req, res) => {
  * Cek status konfigurasi WA + konektivitas perangkat Fonnte
  */
 router.get("/whatsapp/status", async (_req, res) => {
-  const token = process.env.FONNTE_TOKEN;
+  const token = process.env.FONNTE_API_KEY ?? process.env.FONNTE_TOKEN;
   if (!token) {
     res.json({ configured: false, connected: false, provider: "Fonnte", message: "FONNTE_TOKEN belum dikonfigurasi" });
     return;
   }
 
   try {
-    // Probe Fonnte dengan pesan kosong ke nomor dummy — cukup untuk deteksi status device
-    const probe = await fetch("https://api.fonnte.com/send", {
+    // Gunakan /device API (lebih akurat, tidak membuat pesan dummy)
+    const probe = await fetch("https://api.fonnte.com/device", {
       method: "POST",
       headers: { Authorization: token, "Content-Type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({ target: "000", message: "_" }).toString(),
-      signal: AbortSignal.timeout(5000),
+      signal: AbortSignal.timeout(8000),
     });
     const data = await probe.json() as Record<string, unknown>;
-    // Fonnte: status=false + reason contains "disconnected" → device off
-    const reason = String(data["reason"] ?? "");
-    const connected = !reason.toLowerCase().includes("disconnected");
-    const message = connected
-      ? "WhatsApp aktif dan terhubung"
+
+    const isConnected = String(data["device_status"] ?? "").toLowerCase() === "connect";
+    const queueCount = Number(data["messages"] ?? 0);
+    const quota = String(data["quota"] ?? "");
+    const expired = String(data["expired"] ?? "");
+    const devicePhone = String(data["device"] ?? "");
+
+    // Peringatan antrian: lebih dari 50 pesan menumpuk
+    const queueWarning = queueCount > 50
+      ? `⚠️ ${queueCount.toLocaleString("id-ID")} pesan menumpuk di antrian Fonnte. Buka dashboard.fonnte.com → Device → klik "Hapus Antrian" untuk membersihkannya.`
+      : undefined;
+
+    const message = isConnected
+      ? queueCount > 50
+        ? `WhatsApp terhubung — ${queueCount.toLocaleString("id-ID")} pesan dalam antrian (belum terkirim)`
+        : "WhatsApp aktif dan terhubung"
       : "Perangkat WhatsApp tidak terhubung — scan ulang QR di dashboard Fonnte";
-    res.json({ configured: true, connected, provider: "Fonnte", message });
+
+    res.json({
+      configured: true,
+      connected: isConnected,
+      provider: "Fonnte",
+      message,
+      queueCount,
+      queueWarning,
+      quota,
+      expired,
+      devicePhone,
+    });
   } catch {
     res.json({ configured: true, connected: null, provider: "Fonnte", message: "Tidak dapat menghubungi server Fonnte" });
   }

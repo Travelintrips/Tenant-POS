@@ -35,6 +35,11 @@ interface WaStatus {
   connected: boolean | null;
   provider: string;
   message: string;
+  queueCount?: number;
+  queueWarning?: string;
+  quota?: string;
+  expired?: string;
+  devicePhone?: string;
 }
 
 interface BlastResult {
@@ -200,7 +205,7 @@ export default function WhatsAppSend() {
       if (data.pending) {
         toast({
           title: "⚠️ Pesan Masuk Antrian — Belum Terkirim",
-          description: data.detail ?? "Perangkat Fonnte perlu di-reconnect. Buka dashboard.fonnte.com → pilih device → Disconnect lalu scan ulang QR.",
+          description: "Antrian Fonnte penuh. Buka dashboard.fonnte.com → Device → Hapus Antrian (Clear Queue). Reconnect tidak akan membantu.",
           variant: "destructive",
         });
       } else {
@@ -223,7 +228,7 @@ export default function WhatsAppSend() {
       if (data.pending) {
         toast({
           title: "⚠️ Masuk Antrian — Belum Terkirim",
-          description: "Perangkat Fonnte perlu di-reconnect. Buka dashboard.fonnte.com dan scan ulang QR.",
+          description: "Antrian Fonnte penuh. Buka dashboard.fonnte.com → Device → Hapus Antrian (Clear Queue).",
           variant: "destructive",
         });
       } else {
@@ -275,26 +280,61 @@ export default function WhatsAppSend() {
             </Button>
           </div>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-3">
           {statusLoading ? (
             <div className="flex items-center gap-2 text-muted-foreground text-sm">
               <Loader2 className="h-4 w-4 animate-spin" /> Memeriksa koneksi...
             </div>
           ) : (
-            <div className="flex items-start gap-3">
-              <StatusIcon className={`h-5 w-5 mt-0.5 shrink-0 ${statusColor}`} />
-              <div>
-                <p className={`font-medium text-sm ${statusColor}`}>
-                  {status?.connected === true ? "Terhubung" : status?.connected === false ? "Tidak Terhubung" : "Status Tidak Diketahui"}
-                </p>
-                <p className="text-xs text-muted-foreground mt-0.5">{status?.message}</p>
-                {!status?.configured && (
-                  <p className="text-xs text-amber-600 mt-1">
-                    ⚠ FONNTE_TOKEN belum dikonfigurasi. Masuk ke Pengaturan &rsaquo; WhatsApp untuk mengatur.
+            <>
+              <div className="flex items-start gap-3">
+                <StatusIcon className={`h-5 w-5 mt-0.5 shrink-0 ${statusColor}`} />
+                <div className="flex-1 min-w-0">
+                  <p className={`font-medium text-sm ${statusColor}`}>
+                    {status?.connected === true ? "Terhubung" : status?.connected === false ? "Tidak Terhubung" : "Status Tidak Diketahui"}
                   </p>
-                )}
+                  <p className="text-xs text-muted-foreground mt-0.5">{status?.message}</p>
+                  {status?.devicePhone && (
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      Device: {status.devicePhone}
+                      {status.expired && ` · Aktif s/d ${status.expired}`}
+                      {status.quota && ` · Sisa kuota: ${status.quota}`}
+                    </p>
+                  )}
+                  {!status?.configured && (
+                    <p className="text-xs text-amber-600 mt-1">
+                      ⚠ FONNTE_TOKEN belum dikonfigurasi. Masuk ke Pengaturan › WhatsApp untuk mengatur.
+                    </p>
+                  )}
+                </div>
               </div>
-            </div>
+
+              {/* Peringatan antrian menumpuk */}
+              {status?.queueWarning && (
+                <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800 space-y-1.5">
+                  <p className="font-semibold flex items-center gap-1.5">
+                    <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                    Antrian Pesan Menumpuk ({(status.queueCount ?? 0).toLocaleString("id-ID")} pesan)
+                  </p>
+                  <p>
+                    Pesan masuk antrian tapi <strong>belum dikirim ke WhatsApp</strong> karena antrian Fonnte terlalu penuh.
+                    Reconnect device <strong>tidak akan membantu</strong> — ini bukan masalah koneksi.
+                  </p>
+                  <p className="font-medium">
+                    Cara memperbaiki: buka{" "}
+                    <a
+                      href="https://dashboard.fonnte.com"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="underline text-amber-900"
+                    >
+                      dashboard.fonnte.com
+                    </a>{" "}
+                    → pilih Device → cari tombol <strong>"Hapus Antrian"</strong> atau <strong>"Clear Queue"</strong> → konfirmasi penghapusan.
+                  </p>
+                </div>
+              )}
+            </>
           )}
         </CardContent>
       </Card>
