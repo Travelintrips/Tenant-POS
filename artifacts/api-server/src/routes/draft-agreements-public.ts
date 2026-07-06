@@ -37,11 +37,11 @@ async function notifyAdmin(opts: {
   phone?: string | null;
   docUrl: string;
 }) {
-  const token_api = process.env.FONNTE_TOKEN;
+  const token_api = process.env.FONNTE_API_KEY ?? process.env.FONNTE_TOKEN;
   if (!token_api) return;
 
   // Ambil nomor admin dari env atau DB
-  const adminPhone = process.env.ADMIN_WHATSAPP ?? await (async () => {
+  const adminPhone = process.env.ADMIN_WHATSAPP ?? process.env.FONNTE_ADMIN_WA ?? await (async () => {
     try {
       const r = await db.execute(
         sql`SELECT phone_number FROM users WHERE role IN ('owner', 'admin') AND phone_number IS NOT NULL ORDER BY created_at ASC LIMIT 1`
@@ -59,8 +59,11 @@ async function notifyAdmin(opts: {
   const message = `📄 *Respon ${docLabel}*\n\nStatus: ${statusLabel}\nNama: ${opts.tenantName}\nBrand: ${opts.brandName}${alasan}\n\nLihat dokumen:\n${opts.docUrl}`;
 
   try {
-    const adminDigits = String(adminPhone).replace(/\D/g, "");
-    const adminTarget = adminDigits.startsWith("0") ? "62" + adminDigits.slice(1) : adminDigits.startsWith("62") ? adminDigits : "62" + adminDigits;
+    // Normalisasi nomor — tapi group JID (mengandung '@') tidak dinormalisasi
+    const rawAdmin = String(adminPhone);
+    const adminTarget = rawAdmin.includes("@")
+      ? rawAdmin
+      : (() => { const d = rawAdmin.replace(/\D/g, ""); return d.startsWith("0") ? "62" + d.slice(1) : d.startsWith("62") ? d : "62" + d; })();
     await fetch("https://api.fonnte.com/send", {
       method: "POST",
       headers: { Authorization: token_api, "Content-Type": "application/x-www-form-urlencoded" },
@@ -79,7 +82,7 @@ async function notifyTenant(opts: {
   status: "approved" | "rejected";
   mallName?: string;
 }) {
-  const token_api = process.env.FONNTE_TOKEN;
+  const token_api = process.env.FONNTE_API_KEY ?? process.env.FONNTE_TOKEN;
   if (!token_api) return;
 
   const docLabel = opts.docType === "perjanjian_sewa" ? "Perjanjian Sewa" : "Surat Minat Menyewa";
@@ -93,8 +96,11 @@ async function notifyTenant(opts: {
   }
 
   try {
-    const tDigits = String(opts.tenantPhone).replace(/\D/g, "");
-    const tTarget = tDigits.startsWith("0") ? "62" + tDigits.slice(1) : tDigits.startsWith("62") ? tDigits : "62" + tDigits;
+    // Normalisasi nomor — tapi group JID (mengandung '@') tidak dinormalisasi
+    const rawTenant = String(opts.tenantPhone);
+    const tTarget = rawTenant.includes("@")
+      ? rawTenant
+      : (() => { const d = rawTenant.replace(/\D/g, ""); return d.startsWith("0") ? "62" + d.slice(1) : d.startsWith("62") ? d : "62" + d; })();
     await fetch("https://api.fonnte.com/send", {
       method: "POST",
       headers: { Authorization: token_api, "Content-Type": "application/x-www-form-urlencoded" },

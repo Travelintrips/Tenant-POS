@@ -212,7 +212,7 @@ router.post("/reconciliation/notify", requireAnyRole("owner", "admin", "finance"
     });
 
     if (result.skipped) {
-      skipped.push({ invoiceNumber: inv.invoiceNumber, reason: "FONNTE_TOKEN belum dikonfigurasi" });
+      skipped.push({ invoiceNumber: inv.invoiceNumber, reason: "FONNTE_TOKEN / FONNTE_API_KEY belum dikonfigurasi" });
     } else if (result.ok) {
       sent.push(inv.invoiceNumber);
     } else {

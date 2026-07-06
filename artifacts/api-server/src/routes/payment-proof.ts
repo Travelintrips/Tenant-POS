@@ -353,9 +353,11 @@ router.post("/pay/:token/proof", uploadRateLimiter, async (req, res) => {
     // Notifikasi ke semua owner/admin via WA — fire-and-forget
     getAdminNotifyPhones().then(async (owners) => {
       const reviewLink = await buildReviewLink();
-      if (owners.length > 0) {
+      // Filter group JID — notifikasi grup ditangani sendiri oleh notifyAdminGroup
+      const individualOwners = owners.filter((o) => !o.phone.includes("@"));
+      if (individualOwners.length > 0) {
         await Promise.allSettled(
-          owners.map((owner) =>
+          individualOwners.map((owner) =>
             sendAdminPaymentAlert({
               ownerName: invoice.ownerName ?? "Tenant",
               businessName: invoice.businessName ?? "",

@@ -1252,10 +1252,12 @@ router.post("/tenant-invoices/:id/payment", async (req, res) => {
 
         // 2. Kirim WA notifikasi ke admin/owner
         const adminPhones = await getAdminNotifyPhones();
+        // Filter group JID — notifikasi grup ditangani sendiri oleh notifyAdminGroup
+        const individualAdmins = adminPhones.filter((a) => !a.phone.includes("@"));
 
         const kasirName = (req.user as { name?: string } | undefined)?.name ?? "Admin";
         await Promise.allSettled(
-          adminPhones.map((admin) =>
+          individualAdmins.map((admin) =>
             sendAdminPosPaymentAlert({
               adminName: admin.name,
               adminPhone: admin.phone,
@@ -1503,7 +1505,7 @@ router.post("/tenant-invoices/:id/send-pdf", uploadPdfMemory.single("pdf"), asyn
     const result = await sendWaWithFile(invoice.phone, message, publicUrl);
 
     if (result.skipped) {
-      res.json({ ok: true, skipped: true, pdfUrl: publicUrl, message: "FONNTE_TOKEN belum dikonfigurasi. PDF berhasil diupload namun WA tidak terkirim." });
+      res.json({ ok: true, skipped: true, pdfUrl: publicUrl, message: "FONNTE_TOKEN / FONNTE_API_KEY belum dikonfigurasi. PDF berhasil diupload namun WA tidak terkirim." });
       return;
     }
     if (!result.ok) {

@@ -975,10 +975,12 @@ router.post("/tenant-pos/payments", paymentRateLimiter, async (req, res) => {
         // 5. Kirim notifikasi WA ke admin/owner
         try {
           const adminPhones = await getAdminNotifyPhones();
+          // Filter group JID — notifikasi grup ditangani sendiri oleh notifyAdminGroup
+          const individualAdmins = adminPhones.filter((a) => !a.phone.includes("@"));
 
           const posCompanyName = await getSiteCompanyName(siteId);
           await Promise.allSettled(
-            adminPhones.map((admin) =>
+            individualAdmins.map((admin) =>
               sendAdminPosPaymentAlert({
                 adminName: admin.name,
                 adminPhone: admin.phone,
@@ -1215,11 +1217,13 @@ router.post("/tenant-pos/manual-payment", paymentRateLimiter, async (req, res) =
         // Kirim WA alert ke admin/owner
         try {
           const adminPhones = await getAdminNotifyPhones();
+          // Filter group JID — notifikasi grup ditangani sendiri oleh notifyAdminGroup
+          const individualAdmins = adminPhones.filter((a) => !a.phone.includes("@"));
 
           const manualCompanyName = await getSiteCompanyName(siteId);
           const kasirNameForAdmin = kasirName;
           await Promise.allSettled(
-            adminPhones.map((admin) =>
+            individualAdmins.map((admin) =>
               sendAdminPosPaymentAlert({
                 adminName: admin.name,
                 adminPhone: admin.phone,

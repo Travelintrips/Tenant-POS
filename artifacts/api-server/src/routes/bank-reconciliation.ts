@@ -1750,7 +1750,7 @@ router.post("/bank-reconciliation/send-reminder-wa", async (req, res) => {
         monthLabel,
       });
       if (result.skipped) {
-        skipped.push({ ref: inv.invoice_number, reason: "FONNTE_TOKEN belum dikonfigurasi" });
+        skipped.push({ ref: inv.invoice_number, reason: "FONNTE_TOKEN / FONNTE_API_KEY belum dikonfigurasi" });
       } else if (result.ok) {
         sent.push(inv.invoice_number);
       } else {
