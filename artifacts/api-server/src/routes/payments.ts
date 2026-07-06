@@ -9,6 +9,7 @@ import { cashierShiftsTable } from "@workspace/db/schema";
 import { postPosPaymentJournal } from "../lib/pos-journal";
 import { writePaymentEvent, normalizePaymentMethod } from "../lib/payment-events";
 import { postTenantPaymentAccountingEntry } from "../lib/accounting-entry";
+import { notifyAdminGroup } from "../lib/whatsapp";
 import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
@@ -191,6 +192,18 @@ router.post("/payments", async (req, res) => {
           paymentReference: referenceId ?? null,
           paymentStatus: "confirmed",
         });
+
+        // 5. Notifikasi ke WA Group admin
+        notifyAdminGroup({
+          eventType: "pos_kasir",
+          businessName: tenantRow?.businessName ?? "Tenant",
+          ownerName: tenantRow?.ownerName ?? "-",
+          receiptNumber: result.receiptNumber,
+          invoiceNumber: inv?.invoiceNumber ?? null,
+          amount,
+          paymentMethod,
+          kasirName: req.user?.name ?? "Admin",
+        }).catch(() => {});
       } catch (err) {
         logger.error({ err, invoiceId, paymentMethod }, "[POST /payments] post-commit side-effects gagal — jurnal/receipt/event mungkin tidak tercatat");
       }

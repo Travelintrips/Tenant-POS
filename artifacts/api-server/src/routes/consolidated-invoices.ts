@@ -11,7 +11,7 @@ import {
 import { eq, and, inArray, sql, desc, asc } from "drizzle-orm";
 import { z } from "zod";
 import { logAudit } from "../lib/audit";
-import { sendConsolidatedInvoiceNotification, getSiteCompanyName } from "../lib/whatsapp";
+import { sendConsolidatedInvoiceNotification, getSiteCompanyName, notifyAdminGroup } from "../lib/whatsapp";
 import { recordPayment, LedgerError } from "../lib/payment-ledger";
 import { postPosPaymentJournal } from "../lib/pos-journal";
 import { postTenantPaymentAccountingEntry } from "../lib/accounting-entry";
@@ -803,6 +803,18 @@ router.post("/consolidated-invoices/:id/record-payment", async (req, res) => {
             sourceModule: "consolidated_invoice_payment",
           });
         }
+
+        // Notifikasi ke WA Group admin (satu ringkasan untuk seluruh pembayaran konsolidasi)
+        notifyAdminGroup({
+          eventType: "pos_kasir",
+          businessName: tenantRow?.businessName ?? "Tenant",
+          ownerName: "-",
+          receiptNumber: baseReceipt,
+          invoiceNumber: consolidated.invoiceNumber,
+          amount,
+          paymentMethod,
+          kasirName: req.user?.name ?? "Admin",
+        }).catch(() => {});
       } catch (err) {
         req.log?.error?.(err, "[consolidated-payment] post-journal gagal — non-fatal");
       }

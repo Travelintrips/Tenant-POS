@@ -21,7 +21,7 @@ import { z } from "zod";
 import { logAudit } from "../lib/audit";
 import { logBankReconAudit } from "../lib/bank-recon-audit";
 import { writeToSheet, readFromSheet, extractSheetId, getServiceAccountEmail } from "../services/google-sheets";
-import { sendReconciliationReminder } from "../lib/whatsapp";
+import { sendReconciliationReminder, notifyAdminGroup } from "../lib/whatsapp";
 import {
   normalizeDescription,
   extractOrderId,
@@ -1038,6 +1038,25 @@ router.post("/bank-reconciliation/:mutationId/approve", async (req, res) => {
   });
 
   if (match.candidateType === "invoice" && newPaymentId) {
+    const [invoiceInfo] = await db
+      .select({
+        invoiceNumber: tenantInvoicesTable.invoiceNumber,
+        businessName: tenantsTable.businessName,
+        ownerName: tenantsTable.ownerName,
+      })
+      .from(tenantInvoicesTable)
+      .leftJoin(tenantsTable, eq(tenantInvoicesTable.tenantId, tenantsTable.id))
+      .where(eq(tenantInvoicesTable.id, match.candidateId));
+
+    notifyAdminGroup({
+      eventType: "payment_approved",
+      businessName: invoiceInfo?.businessName ?? "Tenant",
+      ownerName: invoiceInfo?.ownerName ?? "-",
+      invoiceNumber: invoiceInfo?.invoiceNumber ?? null,
+      amount: mutation.amount,
+      paymentMethod: "transfer",
+    }).catch(() => {});
+
     await writePaymentEvent({
       sourceApp: ctx.sourceApp,
       ownerApp: ctx.ownerApp,
