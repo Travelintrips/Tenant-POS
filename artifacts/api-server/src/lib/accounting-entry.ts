@@ -18,7 +18,7 @@ interface AccountingEntryParams {
  * Posting pembayaran sewa tenant ke accounting_entries + accounting_entry_lines + accounting_payments.
  * Idempotent via correlation_id = "tenant_payment_{paymentId}" ATAU via unique index (source, source_id).
  * Pilih journal: tunai/qris → CSH, transfer/edc → BNK.
- * Company di-lookup dari mall_sites.company_name → companies.name.
+ * Company di-lookup dari mall_sites.company_id → companies.id (bukan text match nama).
  */
 export async function postTenantPaymentAccountingEntry(
   params: AccountingEntryParams
@@ -62,9 +62,7 @@ export async function postTenantPaymentAccountingEntry(
       const siteRow = await db.execute(sql`
         SELECT c.id AS company_id, c.code AS company_code
         FROM mall_sites ms
-        JOIN companies c
-          ON UPPER(TRIM(c.name)) = UPPER(TRIM(ms.company_name))
-         OR UPPER(TRIM(c.company_name)) = UPPER(TRIM(ms.company_name))
+        JOIN companies c ON c.id = ms.company_id
         WHERE ms.id = ${siteId}
         LIMIT 1
       `);
@@ -72,25 +70,26 @@ export async function postTenantPaymentAccountingEntry(
       if (row?.company_id) {
         companyId = Number(row.company_id);
         companyCode = String(row.company_code ?? "CST");
+      } else {
+        logger.warn(
+          `[accounting_entry] mall_sites.id=${siteId} tidak punya company_id yang valid — fallback ke company default CST`
+        );
       }
     }
 
-    // --- Pilih journal berdasarkan payment method ---
-    const CASH_METHODS = ["tunai", "cash", "qris"];
-    const journalType = CASH_METHODS.includes((paymentMethod ?? "").toLowerCase())
-      ? "cash"
-      : "bank";
-
+    // --- Pembayaran sewa tenant SELALU ke jurnal Bank ---
+    // Tenant tidak membayar tunai — semua pembayaran sewa via transfer/bank.
+    // Tidak ada routing ke cash journal untuk modul ini.
     const journalRow = await db.execute(sql`
       SELECT id, code, default_debit_account_id
       FROM accounting_journals
-      WHERE company_id = ${companyId} AND type = ${journalType}
-      LIMIT 1
+      WHERE company_id = ${companyId} AND type = 'bank'
+      ORDER BY id LIMIT 1
     `);
     const journal = (journalRow as any).rows?.[0];
     if (!journal) {
       logger.warn(
-        `[accounting_entry] Tidak ada journal type="${journalType}" untuk company_id=${companyId}`
+        `[accounting_entry] Tidak ada bank journal untuk company_id=${companyId}`
       );
       return;
     }

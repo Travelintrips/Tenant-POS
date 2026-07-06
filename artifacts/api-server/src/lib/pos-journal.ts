@@ -8,6 +8,9 @@ const COA_PPN        = { name: "Hutang PPN Keluaran" };
 
 const PPN_RATE = 0.11;
 
+/** Metode pembayaran yang dianggap "tunai" → debit ke Kas */
+const CASH_METHODS = new Set(["tunai", "cash"]);
+
 export interface PostPosJournalOptions {
   paymentId: number;
   tenantId: number;
@@ -32,9 +35,7 @@ async function resolveCompanyFromSite(siteId: number | null | undefined): Promis
     const row = await db.execute<{ company_id: number }>(sql`
       SELECT c.id AS company_id
       FROM mall_sites ms
-      JOIN companies c
-        ON UPPER(TRIM(c.name))         = UPPER(TRIM(ms.company_name))
-        OR UPPER(TRIM(c.company_name)) = UPPER(TRIM(ms.company_name))
+      JOIN companies c ON c.id = ms.company_id
       WHERE ms.id = ${siteId}
       LIMIT 1
     `);
@@ -88,6 +89,17 @@ export async function postPosPaymentJournal(
 
   const journalRow = await db.execute(
     sql`SELECT id, default_debit_account_id FROM accounting_journals WHERE company_id = ${companyId} AND type = ${journalType} LIMIT 1`
+  // Tentukan tipe jurnal berdasarkan metode pembayaran:
+  // tunai/cash → cash journal (Kas)
+  // transfer/qris/edc/other → bank journal (Bank Mandiri)
+  const isCash = CASH_METHODS.has(opts.paymentMethod);
+  const journalType = isCash ? "cash" : "bank";
+
+  // Lookup jurnal yang sesuai untuk company ini
+  const journalRow = await db.execute(
+    sql`SELECT id, default_debit_account_id FROM accounting_journals
+        WHERE company_id = ${companyId} AND type = ${journalType}
+        ORDER BY id LIMIT 1`
   );
   let journalDbId: number | null = (journalRow as any).rows?.[0]?.id != null
     ? Number((journalRow as any).rows[0].id)
@@ -113,6 +125,33 @@ export async function postPosPaymentJournal(
   if (journalDbId == null) {
     const { logger: log } = await import("./logger");
     log.warn(`[pos-journal] Tidak ada journal (${journalType}) untuk company_id=${companyId} — skip accounting`);
+  const debitAccountId: number | null = (journalRow as any).rows?.[0]?.default_debit_account_id
+    ? Number((journalRow as any).rows[0].default_debit_account_id)
+    : null;
+
+  // Jika tidak ada jurnal yang sesuai, coba fallback ke cash journal
+  let finalJournalDbId = journalDbId;
+  let finalDebitAccountId = debitAccountId;
+
+  if (finalJournalDbId == null && !isCash) {
+    const { logger: log } = await import("./logger");
+    log.warn(`[pos-journal] Tidak ada bank journal untuk company_id=${companyId}, fallback ke cash journal`);
+    const cashRow = await db.execute(
+      sql`SELECT id, default_debit_account_id FROM accounting_journals
+          WHERE company_id = ${companyId} AND type = 'cash'
+          ORDER BY id LIMIT 1`
+    );
+    finalJournalDbId = (cashRow as any).rows?.[0]?.id != null
+      ? Number((cashRow as any).rows[0].id)
+      : null;
+    finalDebitAccountId = (cashRow as any).rows?.[0]?.default_debit_account_id
+      ? Number((cashRow as any).rows[0].default_debit_account_id)
+      : null;
+  }
+
+  if (finalJournalDbId == null) {
+    const { logger: log } = await import("./logger");
+    log.warn(`[pos-journal] Tidak ada journal untuk company_id=${companyId} — skip accounting`);
     return { journalId: correlationId, alreadyPosted: false, netAmount, taxAmount };
   }
 
@@ -139,7 +178,6 @@ export async function postPosPaymentJournal(
     : null;
 
   const year = transactionDateStr.slice(0, 4);
-  // Query global (tanpa filter journal_id) karena unique constraint di entry_number bersifat global
   const maxRow = await db.execute<{ max_num: string | null }>(
     sql`SELECT MAX(entry_number) AS max_num FROM accounting_entries
         WHERE entry_number LIKE ${prefix + "/" + year + "/%"}`
@@ -153,13 +191,15 @@ export async function postPosPaymentJournal(
   }
   const entryNumber = `${prefix}/${year}/${String(nextSeq).padStart(4, "0")}`;
 
+  const debitAccountName = isCash ? COA_KAS.name : "Bank";
+
   const entryResult = await db.execute(sql`
     INSERT INTO accounting_entries
       (entry_number, journal_id, date, ref, description, status,
        source, source_module, source_table, source_id,
        total_debit, total_credit, company_id, correlation_id, created_at)
     VALUES
-      (${entryNumber}, ${journalDbId}, ${transactionDateStr}::date,
+      (${entryNumber}, ${finalJournalDbId}, ${transactionDateStr}::date,
        ${opts.receiptNumber}, ${description}, 'draft',
        ${"tenant_rent_payment"}::accounting_entry_source,
        ${srcModule}, ${"tenant_payments"}, ${opts.paymentId},
@@ -172,9 +212,8 @@ export async function postPosPaymentJournal(
     : null;
 
   if (entryId) {
-    // Hanya insert baris yang punya account_id valid (skip jika null/0 agar tidak FK violation)
     const lineValues: Array<{ accountId: number; desc: string; debit: number; credit: number }> = [];
-    if (kasAccountId) lineValues.push({ accountId: kasAccountId, desc: COA_KAS.name, debit: opts.amountPaid, credit: 0 });
+    if (finalDebitAccountId) lineValues.push({ accountId: finalDebitAccountId, desc: debitAccountName, debit: opts.amountPaid, credit: 0 });
     if (pendapatanAccountId) lineValues.push({ accountId: pendapatanAccountId, desc: COA_PENDAPATAN.name, debit: 0, credit: netAmount });
     if (ppnAccountId && taxAmount > 0) lineValues.push({ accountId: ppnAccountId, desc: COA_PPN.name, debit: 0, credit: taxAmount });
 
@@ -191,11 +230,9 @@ export async function postPosPaymentJournal(
     await db.execute(sql`UPDATE accounting_entries SET status = 'posted' WHERE id = ${entryId}`);
 
     // Catat di accounting_payments (idempoten via correlation_id)
-    // payment_type: 'inbound' (uang masuk dari penyewa)
-    // date: tanggal transaksi (kolom NOT NULL, wajib diisi)
     const payCorrelationId = `pay-${correlationId}`;
     const paymentMethodMapped =
-      opts.paymentMethod === "cash" ? "cash"
+      opts.paymentMethod === "cash" || opts.paymentMethod === "tunai" ? "cash"
       : opts.paymentMethod === "qris" ? "qris"
       : "bank";
     const paidAtStr = opts.transactionDate.toISOString();
@@ -212,21 +249,20 @@ export async function postPosPaymentJournal(
           ${"inbound"}::accounting_payment_type, ${paymentMethodMapped}, ${opts.amountPaid}, ${"IDR"},
           ${paidAtStr}::timestamptz, ${transactionDateStr}::date,
           ${opts.receiptNumber}, ${description}, ${payCorrelationId},
-          ${journalDbId}, ${opts.businessName ?? null},
+          ${finalJournalDbId}, ${opts.businessName ?? null},
           NOW(), NOW()
         WHERE NOT EXISTS (
           SELECT 1 FROM accounting_payments WHERE correlation_id = ${payCorrelationId}
         )
       `);
     } catch (e) {
-      // Non-critical — accounting_payments gagal tidak membatalkan journal entry utama
       const logger = (await import("./logger")).logger;
       logger.warn({ err: e }, "[pos-journal] accounting_payments INSERT gagal — non-fatal");
     }
 
     // Catat di tax_transactions (idempoten via correlation_id)
     if (taxAmount > 0) {
-      const period = transactionDateStr.slice(0, 7); // "YYYY-MM"
+      const period = transactionDateStr.slice(0, 7);
       const taxCorrelationId = `ppn-${correlationId}`;
       try {
         await db.execute(sql`
@@ -244,7 +280,6 @@ export async function postPosPaymentJournal(
           ON CONFLICT (correlation_id) DO NOTHING
         `);
       } catch (e) {
-        // Non-critical
         const logger = (await import("./logger")).logger;
         logger.warn({ err: e }, "[pos-journal] tax_transactions INSERT gagal — non-fatal");
       }
