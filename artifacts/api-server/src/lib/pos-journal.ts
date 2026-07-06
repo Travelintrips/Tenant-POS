@@ -82,17 +82,10 @@ export async function postPosPaymentJournal(
     (opts.invoiceNumber ? ` — ${opts.invoiceNumber}` : "") +
     ` — ${opts.receiptNumber}`;
 
-  // Pilih journal berdasarkan metode bayar:
-  // tunai/cash/qris → cash journal (Kas), transfer/edc/bank → bank journal (Bank)
-  const CASH_METHODS = ["tunai", "cash", "qris"];
-  const journalType = CASH_METHODS.includes((opts.paymentMethod ?? "").toLowerCase()) ? "cash" : "bank";
-
-  const journalRow = await db.execute(
-    sql`SELECT id, default_debit_account_id FROM accounting_journals WHERE company_id = ${companyId} AND type = ${journalType} LIMIT 1`
   // Tentukan tipe jurnal berdasarkan metode pembayaran:
-  // tunai/cash → cash journal (Kas)
-  // transfer/qris/edc/other → bank journal (Bank Mandiri)
-  const isCash = CASH_METHODS.has(opts.paymentMethod);
+  // tunai/cash/qris → cash journal (Kas)
+  // transfer/edc/other → bank journal (Bank)
+  const isCash = CASH_METHODS.has((opts.paymentMethod ?? "").toLowerCase());
   const journalType = isCash ? "cash" : "bank";
 
   // Lookup jurnal yang sesuai untuk company ini
@@ -101,41 +94,17 @@ export async function postPosPaymentJournal(
         WHERE company_id = ${companyId} AND type = ${journalType}
         ORDER BY id LIMIT 1`
   );
-  let journalDbId: number | null = (journalRow as any).rows?.[0]?.id != null
+  let finalJournalDbId: number | null = (journalRow as any).rows?.[0]?.id != null
     ? Number((journalRow as any).rows[0].id)
     : null;
-  let kasAccountId: number | null = (journalRow as any).rows?.[0]?.default_debit_account_id
+  let finalDebitAccountId: number | null = (journalRow as any).rows?.[0]?.default_debit_account_id
     ? Number((journalRow as any).rows[0].default_debit_account_id)
     : null;
 
   // Fallback ke cash journal jika bank journal tidak ada
-  if (journalDbId == null && journalType === "bank") {
-    const { logger: log } = await import("./logger");
-    log.warn(`[pos-journal] Tidak ada bank journal untuk company_id=${companyId} — fallback ke cash journal`);
-    const fallbackRow = await db.execute(
-      sql`SELECT id, default_debit_account_id FROM accounting_journals WHERE company_id = ${companyId} AND type = 'cash' LIMIT 1`
-    );
-    journalDbId = (fallbackRow as any).rows?.[0]?.id != null ? Number((fallbackRow as any).rows[0].id) : null;
-    kasAccountId = (fallbackRow as any).rows?.[0]?.default_debit_account_id
-      ? Number((fallbackRow as any).rows[0].default_debit_account_id)
-      : null;
-  }
-
-  // Jika tidak ada journal sama sekali, skip accounting
-  if (journalDbId == null) {
-    const { logger: log } = await import("./logger");
-    log.warn(`[pos-journal] Tidak ada journal (${journalType}) untuk company_id=${companyId} — skip accounting`);
-  const debitAccountId: number | null = (journalRow as any).rows?.[0]?.default_debit_account_id
-    ? Number((journalRow as any).rows[0].default_debit_account_id)
-    : null;
-
-  // Jika tidak ada jurnal yang sesuai, coba fallback ke cash journal
-  let finalJournalDbId = journalDbId;
-  let finalDebitAccountId = debitAccountId;
-
   if (finalJournalDbId == null && !isCash) {
     const { logger: log } = await import("./logger");
-    log.warn(`[pos-journal] Tidak ada bank journal untuk company_id=${companyId}, fallback ke cash journal`);
+    log.warn(`[pos-journal] Tidak ada bank journal untuk company_id=${companyId} — fallback ke cash journal`);
     const cashRow = await db.execute(
       sql`SELECT id, default_debit_account_id FROM accounting_journals
           WHERE company_id = ${companyId} AND type = 'cash'
@@ -149,9 +118,10 @@ export async function postPosPaymentJournal(
       : null;
   }
 
+  // Jika tidak ada journal sama sekali, skip accounting
   if (finalJournalDbId == null) {
     const { logger: log } = await import("./logger");
-    log.warn(`[pos-journal] Tidak ada journal untuk company_id=${companyId} — skip accounting`);
+    log.warn(`[pos-journal] Tidak ada journal (${journalType}) untuk company_id=${companyId} — skip accounting`);
     return { journalId: correlationId, alreadyPosted: false, netAmount, taxAmount };
   }
 

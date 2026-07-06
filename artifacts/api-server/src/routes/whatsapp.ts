@@ -471,8 +471,11 @@ router.post("/whatsapp/test-send", async (req, res) => {
   const testMsg = message?.trim() ||
     "✅ *Tes Koneksi WhatsApp Berhasil!*\n\nNotifikasi dari Portal Admin Mall sudah aktif dan berfungsi dengan baik.\n\n_Pesan ini dikirim otomatis oleh sistem._";
 
+  const isGroupJid = phone.includes("@g.");
   const digits = phone.replace(/\D/g, "");
-  const normalized = digits.startsWith("0") ? "62" + digits.slice(1) : digits.startsWith("62") ? digits : "62" + digits;
+  const normalized = isGroupJid
+    ? phone.trim()
+    : digits.startsWith("0") ? "62" + digits.slice(1) : digits.startsWith("62") ? digits : "62" + digits;
   const sender = process.env.FONNTE_SENDER ?? "";
   const params: Record<string, string> = { target: normalized, message: testMsg, delay: "1" };
   if (sender) params.sender = sender;
