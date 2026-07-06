@@ -10,7 +10,7 @@ import { eq, and, inArray, desc } from "drizzle-orm";
 import { z } from "zod";
 import { requireAnyRole } from "../middlewares/auth";
 import { sseBroker } from "../lib/sse-broker";
-import { sendPaymentApproved, sendPaymentRejected } from "../lib/whatsapp";
+import { sendPaymentApproved, sendPaymentRejected, notifyAdminGroup } from "../lib/whatsapp";
 import { logAudit } from "../lib/audit";
 import { writePaymentEvent, normalizePaymentMethod } from "../lib/payment-events";
 import { approveExistingPayment, LedgerError } from "../lib/payment-ledger";
@@ -267,6 +267,17 @@ router.post("/pending-payments/:id/approve", async (req, res) => {
           phone: tenant.phone,
         }).catch(() => {});
       }
+
+      // Notifikasi ke WA Group admin
+      notifyAdminGroup({
+        eventType: "payment_approved",
+        businessName: tenant?.businessName ?? "Tenant",
+        ownerName: tenant?.ownerName ?? "-",
+        invoiceNumber: result.invoice.invoiceNumber,
+        receiptNumber: result.payment.receiptNumber,
+        amount: result.payment.amount,
+        paymentMethod: result.payment.paymentMethod ?? undefined,
+      }).catch(() => {});
     }
 
     res.json({ success: true, payment: result.payment, invoice: result.invoice });
