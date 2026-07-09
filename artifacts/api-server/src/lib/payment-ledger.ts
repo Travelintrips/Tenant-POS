@@ -1,5 +1,5 @@
 import { db } from "@workspace/db";
-import { tenantPaymentsTable, tenantInvoicesTable } from "@workspace/db/schema";
+import { tenantPaymentsTable, tenantInvoicesTable, tenantBookingsTable } from "@workspace/db/schema";
 import { eq, and, sql } from "drizzle-orm";
 
 // ── Error types ───────────────────────────────────────────────────────────────
@@ -96,6 +96,28 @@ export async function syncInvoiceFromPayments(
     .update(tenantInvoicesTable)
     .set({ paidAmount: String(paidAmount), outstandingAmount: String(outstanding), status, updatedAt: now })
     .where(eq(tenantInvoicesTable.id, invoiceId));
+
+  // Sinkron paymentStatus di tenant_bookings agar tampilan unit (Tunggakan/Terisi)
+  // selalu akurat tanpa menunggu scheduler. Mapping: invoice status → booking paymentStatus.
+  try {
+    const [inv] = await tx
+      .select({ bookingId: tenantInvoicesTable.bookingId })
+      .from(tenantInvoicesTable)
+      .where(eq(tenantInvoicesTable.id, invoiceId));
+    if (inv?.bookingId) {
+      const bookingPaymentStatus =
+        status === "paid" ? "PAID" :
+        status === "overdue" ? "OVERDUE" :
+        status === "partial" ? "PARTIAL" :
+        "UNPAID";
+      await tx
+        .update(tenantBookingsTable)
+        .set({ paymentStatus: bookingPaymentStatus, updatedAt: now })
+        .where(eq(tenantBookingsTable.id, inv.bookingId));
+    }
+  } catch {
+    // Non-fatal — unit status masih bisa dibaca dari latestInvoiceStatus
+  }
 
   return { paidAmount, outstanding, status };
 }

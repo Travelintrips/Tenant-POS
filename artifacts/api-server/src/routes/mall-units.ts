@@ -33,8 +33,12 @@ function computeUnitStatus(opts: {
   bookingDueDate: string | null;
   hasBooking: boolean;
   hasTenant: boolean;
+  /** Status invoice terbaru — selalu akurat karena diupdate saat pembayaran diproses.
+   *  Dipakai sebagai sinyal utama; bookingPaymentStatus sebagai fallback. */
+  latestInvoiceStatus?: string | null;
+  latestInvoiceDueDate?: string | null;
 }): UnitStatus {
-  const { storedStatus, hasBooking, hasTenant, bookingContractStatus, bookingPaymentStatus, bookingEndDate, bookingDueDate } = opts;
+  const { storedStatus, hasBooking, hasTenant, bookingContractStatus, bookingPaymentStatus, bookingEndDate, bookingDueDate, latestInvoiceStatus, latestInvoiceDueDate } = opts;
   const todayStr = today();
 
   if (storedStatus === "maintenance") return "maintenance";
@@ -54,9 +58,27 @@ function computeUnitStatus(opts: {
   if (endDate && endDate < todayStr) return "expired";
   if (bookingContractStatus === "terminated" || bookingContractStatus === "expired") return "expired";
 
-  const ps = (bookingPaymentStatus ?? "").toUpperCase();
+  // Gunakan status invoice terbaru sebagai sinyal utama (selalu sinkron dengan pembayaran).
+  // Fallback ke bookingPaymentStatus jika belum ada invoice.
+  const invoiceStatus = (latestInvoiceStatus ?? "").toLowerCase();
+  const effectiveDue = latestInvoiceDueDate ?? dueDate;
+
+  let ps: string;
+  if (invoiceStatus === "paid") {
+    ps = "PAID";
+  } else if (invoiceStatus === "overdue") {
+    ps = "OVERDUE";
+  } else if (invoiceStatus === "partial") {
+    ps = "PARTIAL";
+  } else if (invoiceStatus === "unpaid") {
+    ps = "UNPAID";
+  } else {
+    // Tidak ada invoice — pakai paymentStatus dari booking
+    ps = (bookingPaymentStatus ?? "").toUpperCase();
+  }
+
   if (ps === "OVERDUE") return "overdue";
-  if ((ps === "UNPAID" || ps === "PARTIAL") && dueDate && dueDate < todayStr) return "overdue";
+  if ((ps === "UNPAID" || ps === "PARTIAL") && effectiveDue && effectiveDue < todayStr) return "overdue";
   if (bookingContractStatus === "draft") return "booked";
   if (ps === "PAID" || ps === "PARTIAL") return "occupied";
 
@@ -156,6 +178,8 @@ router.get("/mall-units", async (req, res) => {
         bookingStartDate: booking?.startDate ?? null,
         bookingEndDate: booking?.endDate ?? null,
         bookingDueDate: booking?.dueDate ?? null,
+        latestInvoiceStatus: invoice?.status ?? null,
+        latestInvoiceDueDate: invoice?.dueDate ?? null,
       });
 
       return {
