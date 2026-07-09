@@ -36,12 +36,22 @@ import { postAccountingJournal } from "../lib/accounting-journal";
 import { recordPayment, LedgerError } from "../lib/payment-ledger";
 import { postTenantPaymentAccountingEntry } from "../lib/accounting-entry";
 import { appContextMiddleware, type AppContext } from "../middlewares/app-context";
+import { requireAnyRole } from "../middlewares/auth";
 import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
 router.use(appContextMiddleware);
+
+// GET routes tetap terbuka untuk tenant_user (data di-scope via appContextMiddleware).
+// Operasi write (POST/PUT/DELETE) hanya untuk owner, admin, finance.
+router.use((req, res, next) => {
+  if (["POST", "PUT", "DELETE", "PATCH"].includes(req.method)) {
+    return requireAnyRole("owner", "admin", "finance")(req, res, next);
+  }
+  next();
+});
 
 // ── Context helpers ───────────────────────────────────────────────────────────
 

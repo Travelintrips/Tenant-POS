@@ -11,8 +11,18 @@ import { writePaymentEvent, normalizePaymentMethod } from "../lib/payment-events
 import { postTenantPaymentAccountingEntry } from "../lib/accounting-entry";
 import { notifyAdminGroup } from "../lib/whatsapp";
 import { logger } from "../lib/logger";
+import { requireAnyRole } from "../middlewares/auth";
 
 const router: IRouter = Router();
+
+// POST /payments adalah pencatatan manual — hanya owner, admin, finance.
+// Kasir menggunakan /tenant-pos/payments (alur POS dengan shift).
+router.use("/payments", (req, res, next) => {
+  if (req.method === "POST") {
+    return requireAnyRole("owner", "admin", "finance")(req, res, next);
+  }
+  next();
+});
 
 const createPaymentSchema = z.object({
   invoiceId: z.number().int().positive(),
