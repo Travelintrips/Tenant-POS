@@ -97,26 +97,70 @@ export async function syncInvoiceFromPayments(
     .set({ paidAmount: String(paidAmount), outstandingAmount: String(outstanding), status, updatedAt: now })
     .where(eq(tenantInvoicesTable.id, invoiceId));
 
-  // Sinkron paymentStatus di tenant_bookings agar tampilan unit (Tunggakan/Terisi)
-  // selalu akurat tanpa menunggu scheduler. Mapping: invoice status → booking paymentStatus.
+  // Sinkron paymentStatus + paidAmount + remainingAmount di tenant_bookings
+  // agar kolom "Terbayar" di halaman Kontrak Sewa selalu akurat.
   try {
     const [inv] = await tx
       .select({ bookingId: tenantInvoicesTable.bookingId })
       .from(tenantInvoicesTable)
       .where(eq(tenantInvoicesTable.id, invoiceId));
+
     if (inv?.bookingId) {
-      const bookingPaymentStatus =
-        status === "paid" ? "PAID" :
-        status === "overdue" ? "OVERDUE" :
-        status === "partial" ? "PARTIAL" :
-        "UNPAID";
-      await tx
-        .update(tenantBookingsTable)
-        .set({ paymentStatus: bookingPaymentStatus, updatedAt: now })
-        .where(eq(tenantBookingsTable.id, inv.bookingId));
+      // Lock booking row agar concurrent payments di booking yang sama tidak race
+      const [booking] = await tx
+        .select({
+          id: tenantBookingsTable.id,
+          totalAmount: tenantBookingsTable.totalAmount,
+        })
+        .from(tenantBookingsTable)
+        .where(eq(tenantBookingsTable.id, inv.bookingId))
+        .for("update");
+
+      if (booking) {
+        // Hanya jumlahkan paid_amount dari invoice non-cancelled
+        // (totalAmount booking = kontrak, autoritatif; jangan pakai sum(invoice.total))
+        const [sumRow] = await tx
+          .select({
+            totalPaid: sql<string>`coalesce(sum(paid_amount::numeric), 0)::text`,
+            hasOverdue: sql<boolean>`bool_or(status = 'overdue')`,
+            hasPartial: sql<boolean>`bool_or(status = 'partial')`,
+            allPaid: sql<boolean>`bool_and(status = 'paid')`,
+          })
+          .from(tenantInvoicesTable)
+          .where(
+            and(
+              eq(tenantInvoicesTable.bookingId, inv.bookingId),
+              // Kecualikan invoice yang dibatalkan
+              sql`status != 'cancelled'`,
+            ),
+          );
+
+        const bookingPaid = parseFloat(sumRow?.totalPaid ?? "0");
+        const bookingTotal = parseFloat(String(booking.totalAmount ?? "0"));
+        const bookingRemaining = Math.max(bookingTotal - bookingPaid, 0);
+
+        // Status booking berdasarkan agregat semua invoice (bukan status invoice tunggal)
+        const bookingPaymentStatus =
+          sumRow?.allPaid ? "PAID" :
+          sumRow?.hasOverdue ? "OVERDUE" :
+          sumRow?.hasPartial || bookingPaid > 0 ? "PARTIAL" :
+          "UNPAID";
+
+        await tx
+          .update(tenantBookingsTable)
+          .set({
+            paymentStatus: bookingPaymentStatus,
+            paidAmount: String(bookingPaid),
+            remainingAmount: String(bookingRemaining),
+            updatedAt: now,
+          })
+          .where(eq(tenantBookingsTable.id, booking.id));
+      }
     }
-  } catch {
-    // Non-fatal — unit status masih bisa dibaca dari latestInvoiceStatus
+  } catch (err) {
+    // Non-fatal — unit status masih terbaca dari latestInvoiceStatus
+    // Log untuk debugging jika ada error tak terduga
+    console.warn("[payment-ledger] booking sync warning:", err instanceof Error ? err.message : err);
   }
 
   return { paidAmount, outstanding, status };
