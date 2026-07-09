@@ -161,7 +161,7 @@ router.post("/whatsapp/invoice/:id/send", async (req, res) => {
 
     if (result.pending) {
       await logWa({ siteId: req.siteId, tenantId: invoice.tenantId, invoiceId: id, phone: invoice.phone, messageType: "invoice", status: "sent", errorMessage: "process:pending", sentBy });
-      res.json({ ok: true, pending: true, paymentLink: paymentLink ?? null, message: "Pesan masuk antrian Fonnte namun belum terkirim ke WA. Reconnect device di dashboard Fonnte." });
+      res.json({ ok: true, pending: true, paymentLink: paymentLink ?? null, message: `Invoice masuk antrian Fonnte ke ${invoice.phone} — akan terkirim dalam beberapa saat.` });
       return;
     }
 
@@ -503,15 +503,15 @@ router.post("/whatsapp/test-send", async (req, res) => {
       await logWa({ phone: normalized, messageType: "test", status: "failed", errorMessage: errMsg, sentBy });
       res.json({ ok: false, error: errMsg, raw: reason });
     } else if (processPending) {
-      await logWa({ phone: normalized, messageType: "test", status: "sent", errorMessage: "process:pending — antrian Fonnte penuh", sentBy });
+      await logWa({ phone: normalized, messageType: "test", status: "sent", errorMessage: "process:pending", sentBy });
       res.json({
         ok: true,
         pending: true,
         isGroup: isGroupJid,
         message: isGroupJid
-          ? `Pesan ke grup ${normalized} masuk antrian Fonnte, namun belum terkirim ke WhatsApp.`
-          : `Pesan masuk antrian Fonnte ke ${normalized}, namun belum terkirim ke WA.`,
-        detail: "Antrian pesan Fonnte penuh (bukan masalah koneksi/device). Ini terjadi baik untuk nomor pribadi maupun grup, karena antrian bersifat per-akun Fonnte. Buka dashboard.fonnte.com → Device → hapus antrian (Clear Queue) untuk membersihkannya. Reconnect device tidak akan membantu jika penyebabnya antrian penuh.",
+          ? `Pesan ke grup ${normalized} masuk antrian Fonnte — akan terkirim dalam beberapa saat.`
+          : `Pesan ke ${normalized} masuk antrian Fonnte — akan terkirim dalam beberapa saat.`,
+        detail: "Fonnte menerima pesan dan memasukkannya ke antrian pengiriman. Pesan tetap akan sampai ke penerima. Jika antrian menumpuk banyak, bisa dibersihkan di dashboard.fonnte.com → Device → Clear Queue.",
         target: normalized,
       });
     } else {

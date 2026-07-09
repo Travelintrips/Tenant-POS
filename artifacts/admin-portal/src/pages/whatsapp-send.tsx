@@ -267,9 +267,8 @@ export default function WhatsAppSend() {
       void qc.invalidateQueries({ queryKey: ["wa-logs"] });
       if (data.pending) {
         toast({
-          title: data.isGroup ? "⚠️ Pesan ke Grup Masuk Antrian — Belum Terkirim" : "⚠️ Pesan Masuk Antrian — Belum Terkirim",
-          description: data.detail ?? "Antrian Fonnte penuh. Buka dashboard.fonnte.com → Device → Hapus Antrian (Clear Queue). Reconnect tidak akan membantu.",
-          variant: "destructive",
+          title: data.isGroup ? "🕐 Pesan ke Grup Masuk Antrian" : "🕐 Pesan Masuk Antrian Fonnte",
+          description: data.message ?? "Pesan sudah diterima Fonnte dan akan dikirim ke penerima dalam beberapa saat.",
         });
       } else {
         toast({
@@ -290,9 +289,8 @@ export default function WhatsAppSend() {
       void qc.invalidateQueries({ queryKey: ["wa-reminder-status"] });
       if (data.pending) {
         toast({
-          title: "⚠️ Masuk Antrian — Belum Terkirim",
-          description: "Antrian Fonnte penuh. Buka dashboard.fonnte.com → Device → Hapus Antrian (Clear Queue).",
-          variant: "destructive",
+          title: "🕐 Pengingat Masuk Antrian Fonnte",
+          description: "Pesan sudah diterima Fonnte dan akan dikirim ke tenant dalam beberapa saat.",
         });
       } else {
         toast({
