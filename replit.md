@@ -118,12 +118,24 @@ Mall tenant management system:
 1. **Fork/buka proyek ini di Replit**
 2. **Buka tab Secrets** (ikon kunci di sidebar kiri)
 3. **Tambahkan secret-secret di atas** sesuai kebutuhan
-   - Minimal wajib: `SUPABASE_PG_URL_PROD` + `SESSION_SECRET`
+   - Minimal wajib: `SUPABASE_PG_URL_PROD` + `SESSION_SECRET` (atau cukup `DATABASE_URL` bawaan Replit jika tidak pakai Supabase — lihat status di bawah)
    - Untuk fitur WA: tambahkan `FONNTE_API_KEY`
    - Untuk Google Sheets: tambahkan `GOOGLE_SERVICE_ACCOUNT_JSON` + `GOOGLE_SPREADSHEET_ID`
    - Untuk upload bukti: tambahkan semua `SUPABASE_*` keys
 4. **Jalankan workflow** "Start application" — migrasi DB akan berjalan otomatis
 5. **Login** via tombol DEV MODE di halaman login (jika `ENABLE_DEV_LOGIN=true`)
+
+### Status setup saat ini (imported project, 15 Jul 2026)
+
+- Workflow **"Start application"** dikonfigurasi & berjalan: `bash scripts/start-dev.sh` (API server port 8080 lalu admin portal port 5000, webview).
+- DB: tidak ada `SUPABASE_PG_URL*` yang di-set, jadi `config.ts` fallback ke `DATABASE_URL` bawaan Replit (PostgreSQL). Semua 86 migrasi berhasil dijalankan di DB ini.
+- `SESSION_SECRET` sudah tersedia di Secrets.
+- Dev login (tombol Pemilik/Admin/Keuangan/Kasir/Tenant User) sudah dicoba dan berfungsi.
+- **Belum dikonfigurasi (opsional, fitur akan gagal tanpa ini):**
+  - `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY` (atau `*_DEV`) — upload bukti pembayaran akan gagal tanpa ini (tidak ada fallback lokal).
+  - `FONNTE_API_KEY` — OTP WhatsApp asli (dev pakai dev-login, jadi tidak wajib untuk development).
+  - `GOOGLE_SERVICE_ACCOUNT_JSON` + `GOOGLE_SPREADSHEET_ID` — sinkronisasi rekonsiliasi bank ke Google Sheets.
+  - Minta secret-secret ini ke user saat fitur terkait mulai dikerjakan.
 
 ---
 
