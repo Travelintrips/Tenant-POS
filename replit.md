@@ -127,13 +127,17 @@ Mall tenant management system:
 
 ### Status setup saat ini (imported project, 15 Jul 2026)
 
-- Workflow **"Start application"** dikonfigurasi & berjalan: `bash scripts/start-dev.sh` (API server port 8080 lalu admin portal port 5000, webview).
-- DB: tidak ada `SUPABASE_PG_URL*` yang di-set, jadi `config.ts` fallback ke `DATABASE_URL` bawaan Replit (PostgreSQL). Semua 86 migrasi berhasil dijalankan di DB ini.
+- Proyek dikonversi ke struktur artifact: workflow terkelola otomatis dari `artifact.toml`:
+  - `artifacts/api-server: API Server` — `pnpm --filter @workspace/api-server run dev` (port 8080)
+  - `artifacts/admin-portal: web` — `pnpm --filter @workspace/admin-portal run dev` (port 5000, webview)
+  - `artifacts/mockup-sandbox: Component Preview Server` — canvas preview (tidak perlu auto-start)
+  - Restart workflow-workflow ini langsung (bukan bikin workflow custom baru) setelah ubah kode.
+- DB: `SUPABASE_PG_URL_PROD` sudah di-set → `config.ts` memprioritaskan Supabase (host `*.pooler.supabase.com`, bukan DB Replit lagi). Semua migrasi sudah tersinkron di Supabase (skema lama sudah ada).
 - `SESSION_SECRET` sudah tersedia di Secrets.
-- Dev login (tombol Pemilik/Admin/Keuangan/Kasir/Tenant User) sudah dicoba dan berfungsi.
+- Dev login (tombol Pemilik/Admin/Keuangan/Kasir/Tenant User) sudah dicoba dan berfungsi terhadap Supabase.
 - **Belum dikonfigurasi (opsional, fitur akan gagal tanpa ini):**
   - `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY` (atau `*_DEV`) — upload bukti pembayaran akan gagal tanpa ini (tidak ada fallback lokal).
-  - `FONNTE_API_KEY` — OTP WhatsApp asli (dev pakai dev-login, jadi tidak wajib untuk development).
+  - `FONNTE_API_KEY`/`FONNTE_TOKEN` — OTP WhatsApp asli (dev pakai dev-login, jadi tidak wajib untuk development).
   - `GOOGLE_SERVICE_ACCOUNT_JSON` + `GOOGLE_SPREADSHEET_ID` — sinkronisasi rekonsiliasi bank ke Google Sheets.
   - Minta secret-secret ini ke user saat fitur terkait mulai dikerjakan.
 
