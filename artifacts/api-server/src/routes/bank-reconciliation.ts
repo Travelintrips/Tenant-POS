@@ -50,7 +50,7 @@ router.use((req, res, next) => {
   if (["POST", "PUT", "DELETE", "PATCH"].includes(req.method)) {
     return requireAnyRole("owner", "admin", "finance")(req, res, next);
   }
-  next();
+  return next();
 });
 
 // ── Context helpers ───────────────────────────────────────────────────────────

@@ -21,7 +21,7 @@ router.use("/payments", (req, res, next) => {
   if (req.method === "POST") {
     return requireAnyRole("owner", "admin", "finance")(req, res, next);
   }
-  next();
+  return next();
 });
 
 const createPaymentSchema = z.object({
