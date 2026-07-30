@@ -125,8 +125,9 @@ if (!sessionSecret) {
 // Prioritas URL DB selalu SUPABASE_PG_URL_PROD agar sesi konsisten dengan
 // data aplikasi — baik di development maupun production.
 const sessionDbUrl =
-  process.env.SUPABASE_PG_URL_PROD ??
+  process.env.SUPABASE_POOLER_URL ??
   process.env.SUPABASE_PG_URL ??
+  process.env.SUPABASE_PG_URL_PROD ??
   process.env.DATABASE_URL ??
   "";
 
