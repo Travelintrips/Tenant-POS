@@ -578,7 +578,7 @@ function buildInvoiceHtml(inv: Invoice, cfg: MallInvoiceConfig): string {
     <div>${brandBlock}${contactHtml}</div>
     <div class="inv-meta">
       <div class="inv-number">${escapeHtml(inv.invoiceNumber)}</div>
-      <div style="font-size:12px;color:#666;margin-top:4px">Tanggal: ${formatDate(inv.createdAt)}</div>
+      <div style="font-size:12px;color:#666;margin-top:4px">Tanggal: ${formatDate(inv.periodStart)}</div>
       <div class="status-badge">${STATUS_LABEL[inv.status] ?? escapeHtml(inv.status)}</div>
     </div>
   </div>
