@@ -65,3 +65,4 @@
 - [tenant-invoices-missing-braces](tenant-invoices-braces.md) — fresh clone: tenant-invoices.ts missing `}` + `});` after send-pdf route error handler (line ~1506); esbuild reports "Unexpected export" at EOF (misleading); real fix: add closing braces before next route
 
 - [company-id-consistency-guards](company-id-consistency-guards.md) — DB triggers reject writes where tenant/entry/payment company_id mismatches its parent site/journal/entry
+- [supabase-pooler-url-workaround](supabase-pooler-url-workaround.md) — SUPABASE_PG_URL_PROD (secret) overrides production-scoped SUPABASE_PG_URL; fix: set SUPABASE_POOLER_URL in shared scope + check first in config.ts

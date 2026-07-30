@@ -1,14 +1,18 @@
 const isProduction = (process.env["NODE_ENV"] ?? "development") === "production";
 
 function resolveDbUrl(): string {
-  // Selalu prioritaskan SUPABASE_PG_URL_PROD agar data masuk ke Supabase
-  // baik di development maupun production
+  // Prioritas url koneksi database:
+  // 1. SUPABASE_POOLER_URL — shared env var, selalu tersedia di semua environment
+  // 2. SUPABASE_PG_URL — production env var (hanya tersedia saat deploy)
+  // 3. SUPABASE_PG_URL_PROD — secret (fallback jika di atas tidak ada)
+  // 4. SUPABASE_PG_URL_DEV — env var development (project dev, schema mungkin berbeda)
   const url =
-    process.env["SUPABASE_PG_URL_PROD"] ??
+    process.env["SUPABASE_POOLER_URL"] ??
     process.env["SUPABASE_PG_URL"] ??
+    process.env["SUPABASE_PG_URL_PROD"] ??
     process.env["SUPABASE_PG_URL_DEV"] ??
     process.env["DATABASE_URL"];
-  if (!url) throw new Error("SUPABASE_PG_URL_PROD harus diset di Secrets");
+  if (!url) throw new Error("SUPABASE_POOLER_URL atau SUPABASE_PG_URL_PROD harus diset di Secrets/Config");
   return url;
 }
 
