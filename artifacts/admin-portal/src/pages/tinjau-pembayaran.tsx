@@ -8,6 +8,7 @@ import {
   Loader2,
   RefreshCw,
   ClipboardCheck,
+  AlertTriangle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -130,6 +131,7 @@ export default function TinjauPembayaran() {
   const [approveId, setApproveId] = useState<number | null>(null);
   const [rejectId, setRejectId] = useState<number | null>(null);
   const [rejectReason, setRejectReason] = useState("");
+  const [alreadyPaidWarning, setAlreadyPaidWarning] = useState(false);
 
   const { data: payments = [], isLoading, refetch } = useQuery<PendingPayment[]>({
     queryKey: ["pending-payments", activeTab],
@@ -160,7 +162,16 @@ export default function TinjauPembayaran() {
       setApproveId(null);
     },
     onError: (e: Error) => {
-      toast({ title: "Gagal", description: e.message, variant: "destructive" });
+      // Jika invoice sudah lunas (outstanding = 0), tawarkan reject langsung
+      if (e.message.includes("melebihi total invoice") || e.message.includes("OVERPAYMENT")) {
+        setApproveId(null);
+        setAlreadyPaidWarning(true);
+        setRejectReason("Invoice sudah lunas melalui pembayaran lain. Bukti pembayaran ini ditolak.");
+        // rejectId diset oleh approveId yang sudah tersimpan; re-set dari approveId
+        setRejectId(approveId);
+      } else {
+        toast({ title: "Gagal", description: e.message, variant: "destructive" });
+      }
     },
   });
 
@@ -177,6 +188,7 @@ export default function TinjauPembayaran() {
       toast({ title: "Pembayaran ditolak", description: "Tenant akan diberitahu via WhatsApp." });
       setRejectId(null);
       setRejectReason("");
+      setAlreadyPaidWarning(false);
     },
     onError: (e: Error) => {
       toast({ title: "Gagal", description: e.message, variant: "destructive" });
@@ -186,6 +198,12 @@ export default function TinjauPembayaran() {
   function handleReject() {
     if (!rejectId || !rejectReason.trim()) return;
     rejectMut.mutate({ id: rejectId, reason: rejectReason.trim() });
+  }
+
+  function closeRejectDialog() {
+    setRejectId(null);
+    setRejectReason("");
+    setAlreadyPaidWarning(false);
   }
 
   return (
@@ -286,6 +304,12 @@ export default function TinjauPembayaran() {
                               <p className="text-xs text-muted-foreground">
                                 dr {formatRupiah(p.totalAmount)}
                               </p>
+                            )}
+                            {p.approvalStatus === "pending_review" && Number(p.outstandingAmount) === 0 && (
+                              <span className="inline-flex items-center gap-1 text-xs font-medium text-amber-700 bg-amber-50 border border-amber-200 rounded px-1.5 py-0.5">
+                                <AlertTriangle className="h-3 w-3" />
+                                Invoice sudah lunas
+                              </span>
                             )}
                           </div>
                         </TableCell>
@@ -432,12 +456,17 @@ export default function TinjauPembayaran() {
       </Dialog>
 
       {/* Dialog tolak + alasan */}
-      <Dialog open={rejectId !== null} onOpenChange={(o) => { if (!o) { setRejectId(null); setRejectReason(""); } }}>
+      <Dialog open={rejectId !== null} onOpenChange={(o) => { if (!o) closeRejectDialog(); }}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Tolak Pembayaran</DialogTitle>
+            <DialogTitle className="flex items-center gap-2">
+              {alreadyPaidWarning && <AlertTriangle className="h-5 w-5 text-amber-500" />}
+              Tolak Pembayaran
+            </DialogTitle>
             <DialogDescription>
-              Masukkan alasan penolakan. Tenant akan mendapat notifikasi via WhatsApp beserta alasan ini.
+              {alreadyPaidWarning
+                ? "Invoice ini sudah lunas melalui pembayaran lain — pembayaran ini tidak bisa disetujui. Silakan tolak dengan alasan di bawah agar tenant mendapat notifikasi."
+                : "Masukkan alasan penolakan. Tenant akan mendapat notifikasi via WhatsApp beserta alasan ini."}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-2 py-2">
@@ -453,7 +482,7 @@ export default function TinjauPembayaran() {
           <DialogFooter className="gap-2">
             <Button
               variant="outline"
-              onClick={() => { setRejectId(null); setRejectReason(""); }}
+              onClick={closeRejectDialog}
               disabled={rejectMut.isPending}
             >
               Batal
