@@ -3657,3 +3657,11 @@ CREATE TRIGGER trg_validate_payment_company_id
   FOR EACH ROW EXECUTE FUNCTION fn_validate_payment_company_id();
   `.trim(),
 });
+
+MIGRATIONS.push({
+  name: "0087_invoice_monthly_reminder_tracking",
+  sql: `
+ALTER TABLE tenant_invoices
+  ADD COLUMN IF NOT EXISTS last_payment_reminder_at TIMESTAMPTZ;
+  `.trim(),
+});

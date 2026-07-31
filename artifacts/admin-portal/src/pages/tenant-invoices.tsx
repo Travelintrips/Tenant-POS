@@ -1246,9 +1246,7 @@ export default function TenantInvoices() {
     lastResult: {
       invoicesCreated: number;
       invoiceSent: number;
-      reminderH7: number;
-      reminderH3: number;
-      reminderH1: number;
+      reminderH7: number; // total pengingat harian tanggal 2-7
       overdueSent: number;
     } | null;
   };
@@ -1259,9 +1257,7 @@ export default function TenantInvoices() {
     label: string;
     invoicesCreated: number;
     invoicesSent: number;
-    reminderH7: number;
-    reminderH3: number;
-    reminderH1: number;
+    reminderH7: number; // total pengingat harian tanggal 2-7
     overdueSent: number;
   };
 
@@ -1872,9 +1868,7 @@ export default function TenantInvoices() {
                     <th className="px-2.5 py-1.5 font-semibold">Waktu (WIB)</th>
                     <th className="px-2.5 py-1.5 font-semibold text-center">Invoice Dibuat</th>
                     <th className="px-2.5 py-1.5 font-semibold text-center">WA Terkirim</th>
-                    <th className="px-2.5 py-1.5 font-semibold text-center">H-7</th>
-                    <th className="px-2.5 py-1.5 font-semibold text-center">H-3</th>
-                    <th className="px-2.5 py-1.5 font-semibold text-center">H-1</th>
+                    <th className="px-2.5 py-1.5 font-semibold text-center">Pengingat Harian</th>
                     <th className="px-2.5 py-1.5 font-semibold text-center">Overdue</th>
                     <th className="px-2.5 py-1.5 font-semibold text-blue-600">Pemicu</th>
                   </tr>
@@ -1894,8 +1888,6 @@ export default function TenantInvoices() {
                         </span>
                       </td>
                       <td className="px-2.5 py-1.5 text-center text-gray-600">{run.reminderH7 || "-"}</td>
-                      <td className="px-2.5 py-1.5 text-center text-gray-600">{run.reminderH3 || "-"}</td>
-                      <td className="px-2.5 py-1.5 text-center text-gray-600">{run.reminderH1 || "-"}</td>
                       <td className="px-2.5 py-1.5 text-center">
                         <span className={run.overdueSent > 0 ? "font-semibold text-orange-600" : "text-gray-400"}>
                           {run.overdueSent || "-"}

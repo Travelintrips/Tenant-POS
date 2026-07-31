@@ -42,6 +42,7 @@ export const tenantInvoicesTable = pgTable("tenant_invoices", {
   dueReminder3dAt: timestamp("due_reminder_3d_at", { withTimezone: true }),
   dueReminder1dAt: timestamp("due_reminder_1d_at", { withTimezone: true }),
   invoiceNotifiedAt: timestamp("invoice_notified_at", { withTimezone: true }),
+  lastPaymentReminderAt: timestamp("last_payment_reminder_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
