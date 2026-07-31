@@ -1086,6 +1086,29 @@ router.post("/tenant-invoices/:id/payment", async (req, res) => {
       if (invoice.status === "cancelled") throw Object.assign(new Error("Invoice telah dibatalkan"), { status: 409 });
       if (invoice.status === "paid") throw Object.assign(new Error("Invoice ini sudah lunas"), { status: 409 });
 
+      // Blokir pembayaran langsung jika ada bukti yang masih pending_review.
+      // Admin harus memproses bukti tersebut terlebih dahulu di halaman Tinjau Pembayaran
+      // agar tidak terjadi pembayaran ganda.
+      const [pendingProof] = await tx
+        .select({ id: tenantPaymentsTable.id, receiptNumber: tenantPaymentsTable.receiptNumber })
+        .from(tenantPaymentsTable)
+        .where(and(
+          eq(tenantPaymentsTable.invoiceId, id),
+          eq(tenantPaymentsTable.approvalStatus, "pending_review"),
+          eq(tenantPaymentsTable.isVoided, false),
+        ))
+        .limit(1);
+
+      if (pendingProof) {
+        throw Object.assign(
+          new Error(
+            `Invoice ini memiliki bukti pembayaran yang sedang menunggu verifikasi (${pendingProof.receiptNumber}). ` +
+            `Setujui atau tolak bukti tersebut di halaman Tinjau Pembayaran sebelum mencatat pembayaran baru.`
+          ),
+          { status: 409 },
+        );
+      }
+
       const newPaidAmount = Number(invoice.paidAmount) + amountPaid;
       const total = Number(invoice.totalAmount);
       const outstanding = Math.max(total - newPaidAmount, 0);

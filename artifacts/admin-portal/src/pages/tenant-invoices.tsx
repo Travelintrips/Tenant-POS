@@ -32,7 +32,7 @@ import {
   Plus, FileText, Printer, CreditCard, X, Search, Zap, AlertCircle,
   CheckCircle2, Clock, Ban, CircleDashed, MessageCircle, Send, Link2, Loader2,
   Copy, WifiOff, CheckCheck, Download, Layers, ChevronDown, ChevronRight, Eye, Trash2,
-  BarChart2, FileDown, FileSpreadsheet, Pencil, History,
+  BarChart2, FileDown, FileSpreadsheet, Pencil, History, AlertTriangle,
 } from "lucide-react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -836,6 +836,18 @@ export default function TenantInvoices() {
   const [paymentOpen, setPaymentOpen] = useState(false);
   const [paymentTarget, setPaymentTarget] = useState<Invoice | null>(null);
   const [paymentForm, setPaymentForm] = useState<PaymentForm>(EMPTY_PAYMENT);
+
+  // Cek apakah ada bukti pending_review untuk invoice yang sedang dibuka di dialog Bayar
+  const { data: pendingProofCheck } = useQuery<{ hasPending: boolean; receiptNumber?: string }>({
+    queryKey: ["pending-proof-check", paymentTarget?.id],
+    queryFn: async () => {
+      if (!paymentTarget) return { hasPending: false };
+      const rows = await apiFetchBase(`/api/pending-payments?status=pending_review`) as Array<{ invoiceId: number; receiptNumber: string }>;
+      const found = rows.find((r) => r.invoiceId === paymentTarget.id);
+      return { hasPending: !!found, receiptNumber: found?.receiptNumber };
+    },
+    enabled: paymentOpen && !!paymentTarget,
+  });
 
   const [detailOpen, setDetailOpen] = useState(false);
   const [detailTarget, setDetailTarget] = useState<Invoice | null>(null);
@@ -2531,6 +2543,19 @@ export default function TenantInvoices() {
               <div className="flex gap-4 mt-1 text-xs text-muted-foreground">
                 <span>Total: <strong className="text-foreground">{formatRupiah(paymentTarget.totalAmount)}</strong></span>
                 <span>Sisa: <strong className="text-orange-600">{formatRupiah(paymentTarget.outstandingAmount)}</strong></span>
+              </div>
+            </div>
+          )}
+          {pendingProofCheck?.hasPending && (
+            <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+              <AlertTriangle className="h-4 w-4 flex-shrink-0 mt-0.5" />
+              <div>
+                <p className="font-semibold">Ada bukti pembayaran menunggu verifikasi</p>
+                <p className="text-xs mt-0.5">
+                  {pendingProofCheck.receiptNumber} sedang <em>pending review</em>. Setujui atau tolak terlebih dahulu
+                  di halaman <a href="/tinjau-pembayaran" className="underline font-medium">Tinjau Pembayaran</a> sebelum mencatat pembayaran baru.
+                  Mencatat dua pembayaran untuk satu invoice akan menyebabkan data ganda.
+                </p>
               </div>
             </div>
           )}
