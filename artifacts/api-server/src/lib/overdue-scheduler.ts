@@ -9,11 +9,10 @@ import { getBaseUrl } from "./app-url";
 let _started = false;
 
 // Jam eksekusi scheduler (dalam WIB = UTC+7, diperhitungkan sbg UTC)
-// Cek dilakukan 3x sehari:
-//   01 UTC = 08:00 WIB  → blast tagihan awal bulan (permintaan user)
-//   23 UTC = 06:00 WIB  → pengecekan pagi
-//   11 UTC = 18:00 WIB  → pengecekan sore
-const SCHEDULE_HOURS_UTC = [1, 23, 11]; // 01 UTC = 08:00 WIB, 23 UTC = 06:00 WIB, 11 UTC = 18:00 WIB
+// Cek dilakukan 2x sehari:
+//   01 UTC = 08:00 WIB  → blast tagihan awal bulan + reminder + overdue (utama)
+//   11 UTC = 18:00 WIB  → pengecekan sore (reminder + overdue saja, invoice sudah terkirim pagi)
+const SCHEDULE_HOURS_UTC = [1, 11]; // 01 UTC = 08:00 WIB, 11 UTC = 18:00 WIB
 
 let _lastRunDateKey = ""; // format: "YYYY-MM-DD-HH"
 
@@ -137,15 +136,24 @@ export function startOverdueScheduler(): void {
   if (_started) return;
   _started = true;
 
-  // Jalankan sekali 30 detik setelah startup (catch-up jika server baru restart)
-  setTimeout(
-    () => runAllChecks("startup").catch(() => {}),
-    30_000,
-  );
+  // Startup catch-up: hanya BUAT invoice (idempoten), TIDAK kirim notifikasi WA.
+  // Ini penting agar server restart kapan saja (termasuk jam 04:00 pagi) tidak
+  // langsung mengirim blast ke seluruh tenant di luar jam terjadwal.
+  // Notifikasi WA hanya dikirim oleh cron di jam 01 UTC (08:00 WIB).
+  setTimeout(async () => {
+    try {
+      logger.info("[scheduler] Startup: membuat invoice bulanan (tanpa kirim WA)...");
+      const created = await runMonthlyInvoiceGeneration();
+      logger.info({ created }, "[scheduler] Startup selesai — invoice generation only");
+    } catch (err) {
+      logger.warn({ err }, "[scheduler] Startup invoice generation gagal");
+    }
+  }, 30_000);
 
-  // Cron sederhana: cek setiap 5 menit, eksekusi jika jam-nya tepat
-  // Ini memastikan scheduler berjalan pada jam yang terprediksi (06:00 dan 18:00 WIB)
-  // meski server restart kapan saja
+  // Cron sederhana: cek setiap 5 menit, eksekusi jika jam-nya tepat.
+  // Hanya 2 jam terjadwal:
+  //   01 UTC = 08:00 WIB → blast tagihan + reminder + overdue (utama)
+  //   11 UTC = 18:00 WIB → reminder + overdue sore
   setInterval(() => {
     const now = new Date();
     const hourUtc = now.getUTCHours();
@@ -159,7 +167,8 @@ export function startOverdueScheduler(): void {
   }, 5 * 60 * 1000); // setiap 5 menit
 
   logger.info(
-    "[scheduler] Scheduler aktif — cron 08:00, 06:00, 18:00 WIB (buat invoice bulanan + kirim tagihan, H-7, H-3, H-1, overdue, unmatched)",
+    "[scheduler] Scheduler aktif — cron 08:00 WIB (01 UTC) dan 18:00 WIB (11 UTC). " +
+    "Startup hanya generate invoice, notifikasi WA hanya di jam terjadwal.",
   );
 }
 
