@@ -1086,6 +1086,27 @@ router.post("/tenant-invoices/:id/payment", async (req, res) => {
       if (invoice.status === "cancelled") throw Object.assign(new Error("Invoice telah dibatalkan"), { status: 409 });
       if (invoice.status === "paid") throw Object.assign(new Error("Invoice ini sudah lunas"), { status: 409 });
 
+      // Blokir pembayaran jika period_start invoice belum dimulai (invoice bulan depan/lusa).
+      // Mencegah admin tidak sengaja mencatat bayar pada invoice yang belum jatuh tempo bulannya.
+      if (invoice.periodStart) {
+        const periodStart = new Date(invoice.periodStart + "T00:00:00Z");
+        // Gunakan tanggal WIB: UTC+7
+        const nowWib = new Date(Date.now() + 7 * 60 * 60 * 1000);
+        const todayWib = new Date(
+          `${nowWib.getUTCFullYear()}-${String(nowWib.getUTCMonth() + 1).padStart(2, "0")}-${String(nowWib.getUTCDate()).padStart(2, "0")}T00:00:00Z`
+        );
+        if (periodStart > todayWib) {
+          const periodeLabel = periodStart.toLocaleDateString("id-ID", { month: "long", year: "numeric" });
+          throw Object.assign(
+            new Error(
+              `Invoice periode ${periodeLabel} belum bisa dibayar — periode sewa belum dimulai. ` +
+              `Pembayaran hanya dapat dicatat setelah tanggal ${periodStart.toLocaleDateString("id-ID", { day: "numeric", month: "long", year: "numeric" })}.`
+            ),
+            { status: 409 },
+          );
+        }
+      }
+
       // Blokir pembayaran langsung jika ada bukti yang masih pending_review.
       // Admin harus memproses bukti tersebut terlebih dahulu di halaman Tinjau Pembayaran
       // agar tidak terjadi pembayaran ganda.
