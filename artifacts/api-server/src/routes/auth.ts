@@ -26,6 +26,16 @@ const DEV_ROLE_EMAILS: Record<string, { email: string; name: string; phoneNumber
 
 if (DEV_LOGIN_ENABLED) {
   router.post("/auth/dev-login", devLoginRateLimiter, async (req, res) => {
+    // Jika DEV_LOGIN_SECRET diset, wajib disertakan di body request
+    const devLoginSecret = process.env.DEV_LOGIN_SECRET;
+    if (devLoginSecret) {
+      const provided = (req.body as any).devSecret as string | undefined;
+      if (!provided || provided !== devLoginSecret) {
+        res.status(401).json({ error: "Password dev tidak valid" });
+        return;
+      }
+    }
+
     const { role } = req.body as { role?: string; email?: string; name?: string };
 
     const effectiveRole: UserRole = (USER_ROLES.includes(role as UserRole) ? role : "admin") as UserRole;

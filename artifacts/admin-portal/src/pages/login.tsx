@@ -26,6 +26,7 @@ export default function Login() {
   const [devLoginEnabled, setDevLoginEnabled] = useState<boolean>(
     typeof __DEV_LOGIN_ENABLED__ !== "undefined" ? __DEV_LOGIN_ENABLED__ : false,
   );
+  const [devSecret, setDevSecret] = useState("");
   const [loginError, setLoginError] = useState<string | null>(null);
   const [step, setStep] = useState<Step>("phone");
   const [phoneNumber, setPhoneNumber] = useState("");
@@ -66,7 +67,7 @@ export default function Login() {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           credentials: "include",
-          body: JSON.stringify({ role }),
+          body: JSON.stringify({ role, devSecret: devSecret || undefined }),
         });
         if (res.ok) {
           const user = await res.json();
@@ -244,21 +245,30 @@ export default function Login() {
                 </span>
                 <Separator className="flex-1" />
               </div>
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="devSecret" className="text-xs">Password Dev</Label>
+                <Input
+                  id="devSecret"
+                  type="password"
+                  placeholder="Masukkan password dev"
+                  value={devSecret}
+                  onChange={(e) => setDevSecret(e.target.value)}
+                  disabled={loadingRole !== null}
+                  className="text-xs h-8"
+                />
+              </div>
               <div className="grid grid-cols-2 gap-2">
                 {DEV_ACCOUNTS.map((acc) => (
                   <button
                     key={acc.role}
                     onClick={() => handleDevLogin(acc.role)}
-                    disabled={loadingRole !== null}
+                    disabled={loadingRole !== null || !devSecret.trim()}
                     className={`rounded-md px-3 py-2 text-xs font-medium transition-colors disabled:opacity-60 ${acc.color}`}
                   >
                     {loadingRole === acc.role ? "Masuk..." : acc.label}
                   </button>
                 ))}
               </div>
-              <p className="text-[10px] text-center text-muted-foreground">
-                Akses cepat untuk pengujian. Tidak tersedia di production.
-              </p>
             </>
           )}
 
