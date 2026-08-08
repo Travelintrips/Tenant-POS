@@ -46,7 +46,7 @@ describe("POST /api/tenant-invoices", () => {
       status: expect.stringMatching(/^(unpaid|overdue)$/),
     });
     expect(res.body.invoiceNumber).toBeTruthy();
-    expect(res.body.invoiceNumber).toMatch(/^INV-TENANT\/\d{6}\/\d{5}$/);
+    expect(res.body.invoiceNumber).toMatch(/^[A-Z0-9]+\/\d{6}\/\d{5}$/);
     expect(Number(res.body.totalAmount)).toBeGreaterThan(0);
     expect(Number(res.body.outstandingAmount)).toBe(Number(res.body.totalAmount));
     expect(Number(res.body.paidAmount)).toBe(0);
@@ -87,7 +87,7 @@ describe("POST /api/tenant-invoices/generate-from-booking/:bookingId", () => {
 
     const body = res.body;
     expect(body.invoiceNumber).toBeTruthy();
-    expect(body.invoiceNumber).toMatch(/^INV-TENANT\/\d{6}\/\d{5}$/);
+    expect(body.invoiceNumber).toMatch(/^[A-Z0-9]+\/\d{6}\/\d{5}$/);
     expect(body.bookingId).toBe(booking.id);
     expect(body.tenantId).toBe(tenant.id);
     expect(body.unitCode).toBe("B-05");

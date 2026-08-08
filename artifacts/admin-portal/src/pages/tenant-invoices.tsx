@@ -842,7 +842,7 @@ export default function TenantInvoices() {
     queryKey: ["pending-proof-check", paymentTarget?.id],
     queryFn: async () => {
       if (!paymentTarget) return { hasPending: false };
-      const rows = await apiFetchBase(`/api/pending-payments?status=pending_review`) as Array<{ invoiceId: number; receiptNumber: string }>;
+      const rows = await apiFetchBase(`/api/pending-payments?status=pending_review`) as unknown as Array<{ invoiceId: number; receiptNumber: string }>;
       const found = rows.find((r) => r.invoiceId === paymentTarget.id);
       return { hasPending: !!found, receiptNumber: found?.receiptNumber };
     },

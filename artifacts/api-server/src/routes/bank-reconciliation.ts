@@ -42,11 +42,14 @@ import { logger } from "../lib/logger";
 const router: IRouter = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
-router.use(appContextMiddleware);
+// Scope context + write-guard to bank-reconciliation prefix only so that
+// other routers (e.g. /tenant-pos/payments) mounted after this one are NOT
+// inadvertently intercepted.
+router.use("/bank-reconciliation", appContextMiddleware);
 
 // GET routes tetap terbuka untuk tenant_user (data di-scope via appContextMiddleware).
 // Operasi write (POST/PUT/DELETE) hanya untuk owner, admin, finance.
-router.use((req, res, next) => {
+router.use("/bank-reconciliation", (req, res, next) => {
   if (["POST", "PUT", "DELETE", "PATCH"].includes(req.method)) {
     return requireAnyRole("owner", "admin", "finance")(req, res, next);
   }

@@ -31,17 +31,37 @@ export function track(type: keyof typeof ids, id: number | string) {
   (ids[type] as Set<any>).add(id);
 }
 
-let _defaultSiteId: number | null = null;
+let _defaultSite: { id: number; companyId: number | null } | null = null;
 export async function getDefaultSiteId(): Promise<number> {
-  if (_defaultSiteId !== null) return _defaultSiteId;
+  if (_defaultSite !== null) return _defaultSite.id;
   const [site] = await db
-    .select({ id: mallSitesTable.id })
+    .select({ id: mallSitesTable.id, companyId: mallSitesTable.companyId })
     .from(mallSitesTable)
     .where(eq(mallSitesTable.code, "TOD_M1_BANDARA"))
     .limit(1);
   if (!site) throw new Error("Default site TOD_M1_BANDARA not found in DB");
-  _defaultSiteId = site.id;
-  return _defaultSiteId;
+  _defaultSite = site;
+  return _defaultSite.id;
+}
+
+export async function getDefaultSiteCompanyId(): Promise<number | null> {
+  if (_defaultSite !== null) return _defaultSite.companyId;
+  await getDefaultSiteId(); // populates _defaultSite
+  return _defaultSite!.companyId;
+}
+
+// Cache for companyId lookups by siteId
+const _siteCompanyIdCache = new Map<number, number | null>();
+export async function getSiteCompanyId(siteId: number): Promise<number | null> {
+  if (_siteCompanyIdCache.has(siteId)) return _siteCompanyIdCache.get(siteId)!;
+  const [site] = await db
+    .select({ companyId: mallSitesTable.companyId })
+    .from(mallSitesTable)
+    .where(eq(mallSitesTable.id, siteId))
+    .limit(1);
+  const companyId = site?.companyId ?? null;
+  _siteCompanyIdCache.set(siteId, companyId);
+  return companyId;
 }
 
 let _sportSiteId: number | null = null;
@@ -58,11 +78,18 @@ export async function getSportSiteId(): Promise<number> {
 }
 
 export async function createTestTenant(overrides: Record<string, unknown> = {}) {
-  const siteId = await getDefaultSiteId();
+  const defaultSiteId = await getDefaultSiteId();
+  // Determine actual siteId after applying overrides, so we look up the right company
+  const actualSiteId = (overrides.siteId as number | undefined) ?? defaultSiteId;
+  // Only resolve companyId if caller didn't supply one
+  const resolvedCompanyId = "companyId" in overrides
+    ? undefined
+    : await getSiteCompanyId(actualSiteId);
   const [row] = await db
     .insert(tenantsTable)
     .values({
-      siteId,
+      siteId: actualSiteId,
+      ...(resolvedCompanyId != null ? { companyId: resolvedCompanyId } : {}),
       businessName: `${TEST_PREFIX} Toko Uji`,
       ownerName: "Pemilik Uji",
       status: "active",

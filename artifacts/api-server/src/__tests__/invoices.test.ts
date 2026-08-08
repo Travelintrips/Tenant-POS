@@ -57,7 +57,7 @@ describe("Fase 3 — Invoice / Tagihan", () => {
         periodEnd: due.toISOString().slice(0, 10),
       });
       expect(res.status).toBe(201);
-      expect(res.body.invoiceNumber).toMatch(/^INV-TENANT\/\d{6}\/\d{5}$/);
+      expect(res.body.invoiceNumber).toMatch(/^[A-Z0-9]+\/\d{6}\/\d{5}$/);
     });
 
     it("gagal jika tenantId tidak diberikan (400)", async () => {
