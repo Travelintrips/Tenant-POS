@@ -25,6 +25,10 @@ const qualityArgIndex = process.argv.indexOf("--quality");
 const quality = Number(
   qualityArgIndex >= 0 ? process.argv[qualityArgIndex + 1] : 82,
 );
+const concurrencyArgIndex = process.argv.indexOf("--concurrency");
+const concurrency = Number(
+  concurrencyArgIndex >= 0 ? process.argv[concurrencyArgIndex + 1] : 6,
+);
 
 if (!supabaseUrl || !supabaseKey) {
   throw new Error(
@@ -36,6 +40,9 @@ if (!Number.isInteger(maxDimension) || maxDimension < 256) {
 }
 if (!Number.isInteger(quality) || quality < 1 || quality > 100) {
   throw new Error("--quality harus berupa angka 1 sampai 100.");
+}
+if (!Number.isInteger(concurrency) || concurrency < 1 || concurrency > 12) {
+  throw new Error("--concurrency harus berupa angka 1 sampai 12.");
 }
 if (!isProduction && !allowNonProduction) {
   throw new Error(
@@ -112,40 +119,49 @@ let scanned = 0;
 let images = 0;
 let updated = 0;
 let skipped = 0;
+let failed = 0;
 let savedBytes = 0;
 
 console.log(
-  `${apply ? "MODE APPLY" : "MODE PREVIEW"} — bucket: ${buckets.join(", ")}`,
+  `${apply ? "MODE APPLY" : "MODE PREVIEW"} — bucket: ${buckets.join(", ")} — ` +
+    `concurrency: ${concurrency}`,
 );
 
-for (const bucket of buckets) {
-  const files = await listFiles(bucket);
-  for (const file of files) {
-    scanned++;
-    if (!isImageFile(file)) continue;
-    images++;
+async function processFile(bucket, file) {
+  scanned++;
+  if (!isImageFile(file)) return;
+  images++;
 
-    const { data, error } = await client.from(bucket).download(file.path);
-    if (error || !data) {
-      throw new Error(
-        `Gagal mengunduh ${bucket}/${file.path}: ${error?.message ?? "data kosong"}`,
-      );
+  let data;
+  try {
+    const result = await client.from(bucket).download(file.path);
+    if (result.error || !result.data) {
+      throw new Error(result.error?.message ?? "data kosong");
     }
+    data = result.data;
+  } catch (error) {
+    failed++;
+    const message = error instanceof Error ? error.message : String(error);
+    console.log(`SKIP gagal diunduh: ${bucket}/${file.path} (${message})`);
+    return;
+  }
 
-    const original = Buffer.from(await data.arrayBuffer());
+  const original = Buffer.from(await data.arrayBuffer());
+  let compressed;
+  try {
     const metadata = await sharp(original).metadata();
     if (!metadata.format) {
       skipped++;
       console.log(`SKIP bukan gambar valid: ${bucket}/${file.path}`);
-      continue;
+      return;
     }
     if ((metadata.pages ?? 1) > 1) {
       skipped++;
       console.log(`SKIP gambar animasi multi-page: ${bucket}/${file.path}`);
-      continue;
+      return;
     }
 
-    const compressed = await sharp(original)
+    compressed = await sharp(original)
       .rotate()
       .resize(maxDimension, maxDimension, {
         fit: "inside",
@@ -153,18 +169,25 @@ for (const bucket of buckets) {
       })
       .webp({ quality, effort: 4 })
       .toBuffer();
+  } catch (error) {
+    failed++;
+    const message = error instanceof Error ? error.message : String(error);
+    console.log(`SKIP gagal diproses: ${bucket}/${file.path} (${message})`);
+    return;
+  }
 
-    const saved = original.length - compressed.length;
-    if (saved <= 0) {
-      skipped++;
-      console.log(
-        `SKIP tidak lebih kecil: ${bucket}/${file.path} ` +
-          `(${original.length} -> ${compressed.length} bytes)`,
-      );
-      continue;
-    }
+  const saved = original.length - compressed.length;
+  if (saved <= 0) {
+    skipped++;
+    console.log(
+      `SKIP tidak lebih kecil: ${bucket}/${file.path} ` +
+        `(${original.length} -> ${compressed.length} bytes)`,
+    );
+    return;
+  }
 
-    if (apply) {
+  if (apply) {
+    try {
       const { error: updateError } = await client
         .from(bucket)
         .update(file.path, compressed, {
@@ -172,17 +195,42 @@ for (const bucket of buckets) {
           cacheControl: "31536000",
         });
       if (updateError) {
-        throw new Error(
-          `Gagal memperbarui ${bucket}/${file.path}: ${updateError.message}`,
-        );
+        // Beberapa object lama dapat menolak PUT update karena metadata lama.
+        // Upload upsert tetap mempertahankan path/URL yang sama.
+        const { error: replaceError } = await client
+          .from(bucket)
+          .upload(file.path, compressed, {
+            contentType: "image/webp",
+            cacheControl: "31536000",
+            upsert: true,
+          });
+        if (replaceError) {
+          throw new Error(
+            `update: ${updateError.message}; upload: ${replaceError.message}`,
+          );
+        }
       }
+    } catch (error) {
+      failed++;
+      const message = error instanceof Error ? error.message : String(error);
+      console.log(`GAGAL update: ${bucket}/${file.path} (${message})`);
+      return;
     }
+  }
 
-    updated++;
-    savedBytes += saved;
-    console.log(
-      `${apply ? "UPDATED" : "WOULD UPDATE"} ${bucket}/${file.path}: ` +
-        `${original.length} -> ${compressed.length} bytes`,
+  updated++;
+  savedBytes += saved;
+  console.log(
+    `${apply ? "UPDATED" : "WOULD UPDATE"} ${bucket}/${file.path}: ` +
+      `${original.length} -> ${compressed.length} bytes`,
+  );
+}
+
+for (const bucket of buckets) {
+  const files = await listFiles(bucket);
+  for (let i = 0; i < files.length; i += concurrency) {
+    await Promise.all(
+      files.slice(i, i + concurrency).map((file) => processFile(bucket, file)),
     );
   }
 }
@@ -194,6 +242,7 @@ console.log(
       images,
       updated,
       skipped,
+      failed,
       savedBytes,
       mode: apply ? "apply" : "preview",
     },

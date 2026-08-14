@@ -94,7 +94,7 @@ Mall tenant management system:
 | `SUPABASE_URL` | URL project Supabase. Format: `https://[ref].supabase.co` |
 | `SUPABASE_ANON_KEY` | Anon/public key dari Supabase (untuk client-side). |
 | `SUPABASE_SERVICE_ROLE_KEY` | Service role key Supabase (untuk server-side upload). **Jaga kerahasiaannya.** |
-| `SUPABASE_STORAGE_BUCKET` | Nama bucket Supabase Storage untuk menyimpan bukti pembayaran (contoh: `payment-proofs`). |
+| `SUPABASE_STORAGE_BUCKET` | Nama bucket Supabase Storage untuk menyimpan bukti pembayaran (contoh: `payment-proofs`), bukan URL endpoint Storage/S3. Jika kosong atau berupa URL, aplikasi memakai `payment-proofs`. |
 
 Semua upload gambar server-side dikompres otomatis menjadi WebP (maksimal 2400×2400,
 quality 82; logo maksimal 512×512). Untuk mengompres gambar lama di Storage

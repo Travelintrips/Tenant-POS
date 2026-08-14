@@ -278,7 +278,13 @@ router.post("/pay/:token/proof", uploadRateLimiter, async (req, res) => {
     if (req.file) {
       const ext = path.extname(req.file.originalname).toLowerCase() || ".jpg";
       const filename = `${crypto.randomUUID()}${ext}`;
-      const bucket = process.env["SUPABASE_STORAGE_BUCKET"] ?? "payment-proofs";
+      const configuredBucket = process.env["SUPABASE_STORAGE_BUCKET"]?.trim();
+      // SUPABASE_STORAGE_BUCKET harus berupa nama bucket, bukan URL endpoint S3.
+      // Jika salah konfigurasi, gunakan bucket aplikasi yang sudah ditentukan.
+      const bucket =
+        configuredBucket && !/^https?:\/\//i.test(configuredBucket)
+          ? configuredBucket
+          : "payment-proofs";
       proofUrl = await uploadToStorage(bucket, filename, req.file.buffer, req.file.mimetype);
     }
 
