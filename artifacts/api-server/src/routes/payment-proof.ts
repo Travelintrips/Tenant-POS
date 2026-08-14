@@ -278,7 +278,8 @@ router.post("/pay/:token/proof", uploadRateLimiter, async (req, res) => {
     if (req.file) {
       const ext = path.extname(req.file.originalname).toLowerCase() || ".jpg";
       const filename = `${crypto.randomUUID()}${ext}`;
-      proofUrl = await uploadToStorage("payment-proofs", filename, req.file.buffer, req.file.mimetype);
+      const bucket = process.env["SUPABASE_STORAGE_BUCKET"] ?? "payment-proofs";
+      proofUrl = await uploadToStorage(bucket, filename, req.file.buffer, req.file.mimetype);
     }
 
     const datePart = new Date().toISOString().slice(0, 10).replace(/-/g, "");
