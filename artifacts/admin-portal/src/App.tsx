@@ -39,6 +39,7 @@ import PengeluaranOperasional from "@/pages/pengeluaran-operasional";
 import RiwayatPembayaran from "@/pages/riwayat-pembayaran";
 import PemasukanLain from "@/pages/pemasukan-lain";
 import ConsolidatedInvoices from "@/pages/consolidated-invoices";
+import RekonsiliasiBank from "@/pages/rekonsiliasi-bank";
 
 const queryClient = new QueryClient();
 
@@ -279,6 +280,13 @@ function Router() {
         <AuthGuard roles={["owner", "admin", "finance"]}>
           <SidebarLayout>
             <PemasukanLain />
+          </SidebarLayout>
+        </AuthGuard>
+      </Route>
+      <Route path="/rekonsiliasi-bank">
+        <AuthGuard roles={["owner", "admin", "finance"]}>
+          <SidebarLayout>
+            <RekonsiliasiBank />
           </SidebarLayout>
         </AuthGuard>
       </Route>
