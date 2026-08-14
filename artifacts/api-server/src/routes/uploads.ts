@@ -10,26 +10,6 @@ const LOGO_ALLOWED_MIME = new Set(["image/jpeg", "image/jpg", "image/png", "imag
 const DOC_ALLOWED_MIME = new Set(["application/pdf", "image/jpeg", "image/jpg", "image/png", "image/webp"]);
 const MAX_SIZE_BYTES = 5 * 1024 * 1024;
 
-/**
- * Kompres gambar logo sebelum upload ke Supabase.
- * - Resize ke max 512×512 (aspect ratio dipertahankan)
- * - Konversi ke WebP, quality 82
- * - Hasilnya jauh lebih kecil → hemat egress & storage
- */
-async function compressLogoImage(buffer: Buffer): Promise<{ buffer: Buffer; mimeType: string; ext: string }> {
-  try {
-    const sharp = (await import("sharp")).default;
-    const compressed = await sharp(buffer)
-      .resize(512, 512, { fit: "inside", withoutEnlargement: true })
-      .webp({ quality: 82 })
-      .toBuffer();
-    return { buffer: compressed, mimeType: "image/webp", ext: ".webp" };
-  } catch {
-    // Jika sharp gagal (format tidak dikenal), upload buffer asli
-    return { buffer, mimeType: "image/jpeg", ext: ".jpg" };
-  }
-}
-
 const memStorage = multer.memoryStorage();
 
 const uploadLogo = multer({
@@ -89,10 +69,16 @@ router.post("/uploads/tenant-logo", uploadRateLimiter, requireAuth, async (req, 
   }
 
   try {
-    const { buffer: compressed, mimeType, ext } = await compressLogoImage(req.file.buffer);
-    const filename = `${crypto.randomUUID()}${ext}`;
-    const url = await uploadToStorage("tenant-logos", filename, compressed, mimeType);
-    res.json({ url, compressed: true, originalSize: req.file.size, compressedSize: compressed.length });
+    const filename = `${crypto.randomUUID()}.webp`;
+    const url = await uploadToStorage(
+      "tenant-logos",
+      filename,
+      req.file.buffer,
+      req.file.mimetype,
+      true,
+      { imageMaxDimension: 512 },
+    );
+    res.json({ url, compressed: true, originalSize: req.file.size });
   } catch (err) {
     req.log?.error(err, "Upload tenant logo gagal");
     res.status(500).json({ error: "Gagal menyimpan file ke storage" });
@@ -117,10 +103,16 @@ router.post("/uploads/mall-logo", uploadRateLimiter, requireAuth, async (req, re
   }
 
   try {
-    const { buffer: compressed, mimeType, ext } = await compressLogoImage(req.file.buffer);
-    const filename = `mall-logo-${crypto.randomUUID()}${ext}`;
-    const url = await uploadToStorage("tenant-logos", filename, compressed, mimeType);
-    res.json({ url, compressed: true, originalSize: req.file.size, compressedSize: compressed.length });
+    const filename = `mall-logo-${crypto.randomUUID()}.webp`;
+    const url = await uploadToStorage(
+      "tenant-logos",
+      filename,
+      req.file.buffer,
+      req.file.mimetype,
+      true,
+      { imageMaxDimension: 512 },
+    );
+    res.json({ url, compressed: true, originalSize: req.file.size });
   } catch (err) {
     req.log?.error(err, "Upload mall logo gagal");
     res.status(500).json({ error: "Gagal menyimpan file ke storage" });

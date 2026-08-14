@@ -1,5 +1,6 @@
 // Dev: coba URL/KEY versi _DEV dulu, fallback ke versi PROD
 import { logger } from "./logger";
+import { compressImageForStorage } from "./image-compression";
 // Prod: pakai URL/KEY tanpa suffix (wajib diset di Replit Secrets)
 const isProduction = process.env["NODE_ENV"] === "production";
 
@@ -86,13 +87,25 @@ export async function uploadToStorage(
   buffer: Buffer,
   contentType: string,
   isPublic = true,
+  options: { compressImage?: boolean; imageMaxDimension?: number } = {},
 ): Promise<string> {
   const client = await getClient();
   await ensureBucket(client, bucket, isPublic);
 
+  const prepared =
+    options.compressImage === false
+      ? { buffer, contentType }
+      : await compressImageForStorage(buffer, contentType, {
+          maxDimension: options.imageMaxDimension,
+        });
+
   const { data, error } = await client
     .from(bucket)
-    .upload(filename, buffer, { contentType, upsert: true });
+    .upload(filename, prepared.buffer, {
+      contentType: prepared.contentType,
+      cacheControl: prepared.contentType.startsWith("image/") ? "31536000" : undefined,
+      upsert: true,
+    });
 
   if (error) throw new Error(`Upload ke Supabase Storage gagal: ${error.message}`);
 

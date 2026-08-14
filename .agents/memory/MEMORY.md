@@ -66,3 +66,4 @@
 
 - [company-id-consistency-guards](company-id-consistency-guards.md) — DB triggers reject writes where tenant/entry/payment company_id mismatches its parent site/journal/entry
 - [supabase-pooler-url-workaround](supabase-pooler-url-workaround.md) — SUPABASE_PG_URL_PROD (secret) overrides production-scoped SUPABASE_PG_URL; fix: set SUPABASE_POOLER_URL in shared scope + check first in config.ts
+- [storage-image-compression](storage-image-compression.md) — compress images centrally; rewrite legacy objects in place so database URLs remain valid

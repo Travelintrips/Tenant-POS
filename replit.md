@@ -96,6 +96,19 @@ Mall tenant management system:
 | `SUPABASE_SERVICE_ROLE_KEY` | Service role key Supabase (untuk server-side upload). **Jaga kerahasiaannya.** |
 | `SUPABASE_STORAGE_BUCKET` | Nama bucket Supabase Storage untuk menyimpan bukti pembayaran (contoh: `payment-proofs`). |
 
+Semua upload gambar server-side dikompres otomatis menjadi WebP (maksimal 2400×2400,
+quality 82; logo maksimal 512×512). Untuk mengompres gambar lama di Storage
+production tanpa mengganti path/URL yang tersimpan di database:
+
+```bash
+NODE_ENV=production pnpm --filter @workspace/api-server run compress:storage-images
+NODE_ENV=production pnpm --filter @workspace/api-server run compress:storage-images -- --apply
+```
+
+Perintah pertama hanya preview. Jalankan perintah kedua setelah hasil preview
+sesuai; script melewati file yang bukan gambar, gambar animasi multi-page, dan
+file yang hasil WebP-nya tidak lebih kecil.
+
 ### Aplikasi
 
 | Secret | Keterangan |
