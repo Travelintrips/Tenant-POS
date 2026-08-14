@@ -66,4 +66,5 @@
 
 - [company-id-consistency-guards](company-id-consistency-guards.md) — DB triggers reject writes where tenant/entry/payment company_id mismatches its parent site/journal/entry
 - [supabase-pooler-url-workaround](supabase-pooler-url-workaround.md) — SUPABASE_PG_URL_PROD (secret) overrides production-scoped SUPABASE_PG_URL; fix: set SUPABASE_POOLER_URL in shared scope + check first in config.ts
+- [users-id-supabase-schema-bug](users-id-supabase-schema-bug.md) — runUsersIdTextMigration silently skips on Supabase: auth.users.id (uuid) shadows public.users.id check without table_schema='public' filter; fixed by migration 0088
 - [storage-image-compression](storage-image-compression.md) — compress images centrally; rewrite legacy objects in place so database URLs remain valid

@@ -2043,7 +2043,7 @@ export async function runUsersIdTextMigration(): Promise<void> {
 
   try {
     const res = await client.query(
-      `SELECT data_type FROM information_schema.columns WHERE table_name = 'users' AND column_name = 'id'`
+      `SELECT data_type FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'users' AND column_name = 'id'`
     );
     const dataType = res.rows[0]?.data_type;
 
@@ -3663,5 +3663,34 @@ MIGRATIONS.push({
   sql: `
 ALTER TABLE tenant_invoices
   ADD COLUMN IF NOT EXISTS last_payment_reminder_at TIMESTAMPTZ;
+  `.trim(),
+});
+
+MIGRATIONS.push({
+  name: "0088_users_id_to_text",
+  sql: `
+DO $$
+BEGIN
+  -- Hanya jalankan jika users.id masih integer
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'users' AND column_name = 'id'
+      AND data_type IN ('integer', 'bigint', 'smallint')
+  ) THEN
+    -- Drop FK constraints yang bergantung pada users.id
+    ALTER TABLE user_site_access DROP CONSTRAINT IF EXISTS user_site_access_user_id_users_id_fk;
+    ALTER TABLE user_site_access DROP CONSTRAINT IF EXISTS user_site_access_user_id_fkey;
+
+    -- Drop default dulu sebelum ubah tipe
+    ALTER TABLE users ALTER COLUMN id DROP DEFAULT;
+
+    -- Konversi users.id ke text
+    ALTER TABLE users ALTER COLUMN id TYPE text USING id::text;
+    ALTER TABLE users ALTER COLUMN id SET DEFAULT gen_random_uuid()::text;
+
+    -- Konversi user_site_access.user_id ke text
+    ALTER TABLE user_site_access ALTER COLUMN user_id TYPE text USING user_id::text;
+  END IF;
+END$$;
   `.trim(),
 });
