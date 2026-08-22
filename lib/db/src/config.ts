@@ -46,7 +46,6 @@ export const dbConfig = {
         user: parsedUrl.user,
         password: parsedUrl.password,
         database: parsedUrl.database,
-        options: "-c search_path=public",
       }
     : { connectionString: rawUrl },
   ssl: isSupabase ? ({ rejectUnauthorized: false } as const) : (false as const),

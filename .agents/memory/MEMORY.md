@@ -5,7 +5,7 @@
 - [scripts workspace resolution](scripts-workspace-resolution.md) — scripts pkg needs `paths` in tsconfig to resolve `@workspace/*` libs; symlinks not created by pnpm for scripts
 - [invalid hook call fix](invalid-hook-call.md) — avoid generated lib hooks (useListTenants etc); use `useQuery` directly in admin-portal pages
 - [DB active connection](db-connection-priority.md) — dev: SUPABASE_PG_URL_DEV → DATABASE_URL; prod: SUPABASE_PG_URL_PROD → SUPABASE_PG_URL → DATABASE_URL; config.ts selalu pakai resolveDbUrl() function style
-- [supabase-search-path](supabase-search-path.md) — Supabase Transaction Pooler (port 6543) tidak otomatis set search_path=public; add `options:"-c search_path=public"` ke parsed config di lib/db/src/config.ts; tanpa ini query gagal "relation does not exist"
+- [Supabase search path](supabase-search-path.md) — set `search_path` after connecting; do not send it as a PostgreSQL startup option because some Supabase endpoints reject it.
 - [config-ts-keep-function-style](config-ts-merge-conflict.md) — lib/db/src/config.ts rentan kena duplicate `return (` dari repeated edits; ALWAYS overwrite penuh dengan WriteFile tool, gunakan `if (!url) throw` style (bukan nested ternary/return chain)
 - [schema-column-fix](schema-column-fix.md) — 3 tables needed ALTER TABLE to add missing columns; sync old data booking_id from tenant_booking_id after adding new column
 - [drizzle-kit-tty](drizzle-kit-tty.md) — drizzle-kit push requires interactive TTY for new tables; add SQL migration to lib/db/src/migrator.ts instead
@@ -65,6 +65,5 @@
 - [tenant-invoices-missing-braces](tenant-invoices-braces.md) — fresh clone: tenant-invoices.ts missing `}` + `});` after send-pdf route error handler (line ~1506); esbuild reports "Unexpected export" at EOF (misleading); real fix: add closing braces before next route
 
 - [company-id-consistency-guards](company-id-consistency-guards.md) — DB triggers reject writes where tenant/entry/payment company_id mismatches its parent site/journal/entry
-- [supabase-pooler-url-workaround](supabase-pooler-url-workaround.md) — SUPABASE_PG_URL_PROD (secret) overrides production-scoped SUPABASE_PG_URL; fix: set SUPABASE_POOLER_URL in shared scope + check first in config.ts
 - [users-id-supabase-schema-bug](users-id-supabase-schema-bug.md) — runUsersIdTextMigration silently skips on Supabase: auth.users.id (uuid) shadows public.users.id check without table_schema='public' filter; fixed by migration 0088
 - [storage-image-compression](storage-image-compression.md) — compress images centrally; rewrite legacy objects in place so database URLs remain valid
