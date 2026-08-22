@@ -11,18 +11,21 @@ function validateProductionEnv(): void {
   const errors: string[] = [];
   const warnings: string[] = [];
 
-  // lib/db/src/config.ts pakai prioritas: SUPABASE_PG_URL_PROD → SUPABASE_PG_URL → DATABASE_URL
+  // lib/db/src/config.ts pakai prioritas: SUPABASE_PG_URL_PROD → SUPABASE_PG_URL
+  // → SUPABASE_POOLER_URL → DATABASE_URL. Validasi harus sama agar startup
+  // tidak memberikan diagnosa yang berbeda dengan koneksi yang dipakai aplikasi.
   // Validasi harus konsisten dengan urutan prioritas itu.
   const pgUrlProd = process.env["SUPABASE_PG_URL_PROD"];
   const pgUrl = process.env["SUPABASE_PG_URL"];
+  const poolerUrl = process.env["SUPABASE_POOLER_URL"];
   const databaseUrl = process.env["DATABASE_URL"];
 
-  if (!pgUrlProd && !pgUrl && !databaseUrl) {
+  if (!pgUrlProd && !pgUrl && !poolerUrl && !databaseUrl) {
     errors.push(
-      "Tidak ada DB URL yang tersedia (SUPABASE_PG_URL_PROD, SUPABASE_PG_URL, maupun DATABASE_URL tidak diset). " +
+      "Tidak ada DB URL yang tersedia (SUPABASE_PG_URL_PROD, SUPABASE_PG_URL, SUPABASE_POOLER_URL, maupun DATABASE_URL tidak diset). " +
       "Server tidak dapat terhubung ke database."
     );
-  } else if (!pgUrlProd && !pgUrl && databaseUrl) {
+  } else if (!pgUrlProd && !pgUrl && !poolerUrl && databaseUrl) {
     // Hanya DATABASE_URL yang tersedia — ini kemungkinan Replit managed PostgreSQL (dev/lokal),
     // BUKAN database production Supabase. Invoice dan token pembayaran yang dibuat di Supabase
     // tidak akan ditemukan, menyebabkan error "Link pembayaran tidak valid" di halaman /bayar/:token.
@@ -39,6 +42,11 @@ function validateProductionEnv(): void {
     if (pgUrl.trimEnd() !== pgUrl) {
       warnings.push("SUPABASE_PG_URL memiliki trailing whitespace — bisa menyebabkan koneksi gagal.");
     }
+  } else if (!pgUrlProd && !pgUrl && poolerUrl) {
+    warnings.push(
+      "Production menggunakan SUPABASE_POOLER_URL sebagai fallback. " +
+      "Pastikan kredensial pooler masih valid."
+    );
   } else if (pgUrlProd) {
     if (pgUrlProd.trimEnd() !== pgUrlProd) {
       warnings.push("SUPABASE_PG_URL_PROD memiliki trailing whitespace — bisa menyebabkan koneksi gagal.");

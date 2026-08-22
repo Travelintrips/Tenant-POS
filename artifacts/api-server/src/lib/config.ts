@@ -7,15 +7,20 @@ function optional(key: string, fallback?: string): string | undefined {
 function resolveDbUrl(): string {
   if (isProduction) {
     return (
+      process.env["SUPABASE_PG_URL_PROD"] ??
+      process.env["SUPABASE_PG_URL"] ??
+      process.env["SUPABASE_POOLER_URL"] ??
       process.env["SUPABASE_DATABASE_URL"] ??
       process.env["DATABASE_URL"] ??
-      (() => { throw new Error("SUPABASE_DATABASE_URL atau DATABASE_URL harus diset di production"); })()
+      (() => { throw new Error("URL database production harus diset di Secrets/Config"); })()
     );
   }
   return (
+    process.env["SUPABASE_PG_URL_PROD"] ??
+    process.env["SUPABASE_POOLER_URL"] ??
     process.env["SUPABASE_DATABASE_URL_DEV"] ??
     process.env["DATABASE_URL"] ??
-    (() => { throw new Error("SUPABASE_DATABASE_URL_DEV atau DATABASE_URL harus diset di development"); })()
+    (() => { throw new Error("URL database development harus diset di Secrets/Config"); })()
   );
 }
 

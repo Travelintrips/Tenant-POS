@@ -76,8 +76,9 @@ const isProduction = process.env.NODE_ENV === "production";
 //
 // CATATAN: Webhook Fonnte (/api/whatsapp-webhook/*) tidak butuh credentials
 //          sehingga penolakan CORS di sini tidak menghalangi webhook.
-const allowedOrigins: string[] = process.env.ALLOWED_ORIGINS
-  ? process.env.ALLOWED_ORIGINS.split(",").map((o) => o.trim()).filter(Boolean)
+const configuredOrigins = process.env.ALLOWED_ORIGINS ?? process.env.APP_URL ?? "";
+const allowedOrigins: string[] = configuredOrigins
+  ? configuredOrigins.split(",").map((o) => o.trim()).filter(Boolean)
   : [];
 
 app.use(
@@ -122,12 +123,12 @@ if (!sessionSecret) {
 // ─── PostgreSQL Session Store ──────────────────────────────────────────────
 // Sesi disimpan ke PostgreSQL agar tidak hilang saat server restart.
 // Tabel `session` harus sudah ada di DB (dibuat oleh migration 0069).
-// Prioritas URL DB selalu SUPABASE_PG_URL_PROD agar sesi konsisten dengan
-// data aplikasi — baik di development maupun production.
+// Samakan prioritas session store dengan koneksi data aplikasi. URL khusus
+// production dipilih sebelum URL pooler bersama yang mungkin sudah kedaluwarsa.
 const sessionDbUrl =
-  process.env.SUPABASE_POOLER_URL ??
-  process.env.SUPABASE_PG_URL ??
   process.env.SUPABASE_PG_URL_PROD ??
+  process.env.SUPABASE_PG_URL ??
+  process.env.SUPABASE_POOLER_URL ??
   process.env.DATABASE_URL ??
   "";
 
