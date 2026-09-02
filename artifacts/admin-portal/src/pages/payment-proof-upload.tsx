@@ -51,6 +51,10 @@ interface ScanResult {
   rawText: string;
 }
 
+function isLikelyYearAmount(value: number): boolean {
+  return Number.isInteger(value) && value >= 2000 && value <= 2099;
+}
+
 interface MallInfo {
   mallName: string;
   phone: string | null;
@@ -113,7 +117,12 @@ export default function PaymentProofUpload() {
       if (!res.ok) return;
       const data: ScanResult = await res.json();
       setScanResult(data);
-      if (data.extractedAmount && data.extractedAmount > 0) {
+      if (
+        data.extractedAmount &&
+        data.extractedAmount > 0 &&
+        !isLikelyYearAmount(data.extractedAmount) &&
+        data.confidence >= 0.65
+      ) {
         setAmount(String(data.extractedAmount));
         setOcrFilled(true);
       }
@@ -463,10 +472,12 @@ export default function PaymentProofUpload() {
                     Nominal terdeteksi dari bukti transfer. Pastikan sudah sesuai sebelum mengirim.
                   </p>
                 )}
-                {!scanning && proofFile && !ocrFilled && scanResult && !scanResult.extractedAmount && (
+                {!scanning && proofFile && !ocrFilled && scanResult && (
                   <p className="text-xs text-muted-foreground flex items-center gap-1">
                     <Info className="h-3 w-3" />
-                    Nominal tidak terdeteksi otomatis. Silakan isi manual.
+                    {scanResult.extractedAmount
+                      ? "Hasil deteksi belum cukup meyakinkan. Silakan periksa bukti dan isi nominal secara manual."
+                      : "Nominal tidak terdeteksi otomatis. Silakan isi manual."}
                   </p>
                 )}
               </div>

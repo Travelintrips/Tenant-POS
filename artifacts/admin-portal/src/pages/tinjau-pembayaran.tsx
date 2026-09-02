@@ -111,6 +111,14 @@ interface PendingPayment {
   tenantName: string | null;
   ownerName: string | null;
   phone: string | null;
+  ocrExtractedAmount: string | null;
+  ocrConfidence: string | null;
+}
+
+function isSuspiciousOcrPayment(payment: PendingPayment): boolean {
+  const amount = Number(payment.amount);
+  const outstanding = Number(payment.outstandingAmount ?? payment.totalAmount ?? 0);
+  return Number.isInteger(amount) && amount >= 2000 && amount <= 2099 && outstanding >= 100_000;
 }
 
 async function apiFetch(url: string, opts?: RequestInit) {
@@ -286,6 +294,7 @@ export default function TinjauPembayaran() {
                 <TableBody>
                   {payments.map((p) => {
                     const statusCfg = STATUS_CONFIG[p.approvalStatus as keyof typeof STATUS_CONFIG];
+                    const suspiciousOcr = isSuspiciousOcrPayment(p);
                     return (
                       <TableRow key={p.id}>
                         <TableCell>
@@ -309,6 +318,12 @@ export default function TinjauPembayaran() {
                               <span className="inline-flex items-center gap-1 text-xs font-medium text-amber-700 bg-amber-50 border border-amber-200 rounded px-1.5 py-0.5">
                                 <AlertTriangle className="h-3 w-3" />
                                 Invoice sudah lunas
+                              </span>
+                            )}
+                            {p.approvalStatus === "pending_review" && suspiciousOcr && (
+                              <span className="inline-flex items-center gap-1 text-xs font-medium text-red-700 bg-red-50 border border-red-200 rounded px-1.5 py-0.5">
+                                <AlertTriangle className="h-3 w-3" />
+                                Nominal mirip tahun — periksa bukti
                               </span>
                             )}
                           </div>
@@ -353,7 +368,9 @@ export default function TinjauPembayaran() {
                               <Button
                                 size="sm"
                                 className="h-8 text-xs bg-green-600 hover:bg-green-700"
+                                disabled={suspiciousOcr}
                                 onClick={() => setApproveId(p.id)}
+                                title={suspiciousOcr ? "Nominal mencurigakan tidak dapat disetujui. Periksa bukti lalu tolak agar tenant mengirim ulang." : undefined}
                               >
                                 <CheckCircle className="h-3.5 w-3.5 mr-1" />
                                 Setujui
@@ -432,8 +449,12 @@ export default function TinjauPembayaran() {
           <DialogHeader>
             <DialogTitle>Setujui Pembayaran</DialogTitle>
             <DialogDescription>
-              Apakah Anda yakin ingin menyetujui pembayaran ini? Nominal akan ditambahkan ke invoice
-              dan tenant akan mendapat notifikasi via WhatsApp.
+              {(() => {
+                const selected = payments.find((payment) => payment.id === approveId);
+                return selected
+                  ? `Pastikan nominal ${formatRupiah(selected.amount)} sesuai dengan bukti transfer dan total invoice ${formatRupiah(selected.totalAmount)}. Setelah disetujui, nominal akan masuk ke invoice dan tenant mendapat notifikasi WhatsApp.`
+                  : "Pastikan nominal sesuai dengan bukti transfer sebelum menyetujui pembayaran.";
+              })()}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter className="gap-2">

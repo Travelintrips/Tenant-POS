@@ -11,7 +11,7 @@ import { sendPaymentReceived, sendAdminPaymentAlert, notifyAdminGroup, getSiteCo
 import { uploadRateLimiter, publicReadRateLimiter } from "../middlewares/rate-limit";
 import { uploadToStorage } from "../lib/supabase-storage";
 import { getBaseUrl } from "../lib/app-url";
-import { extractAmountFromFile } from "../lib/ocr-service";
+import { extractAmountFromFile, isLikelyYearAmount } from "../lib/ocr-service";
 
 /** Ambil semua nomor WA owner/admin yang aktif dari DB, fallback ke env */
 // getOwnerPhones → digantikan getAdminNotifyPhones() dari whatsapp.ts
@@ -236,6 +236,8 @@ router.post("/pay/:token/proof", uploadRateLimiter, async (req, res) => {
         bookingId: tenantInvoicesTable.bookingId,
         siteId: tenantInvoicesTable.siteId,
         status: tenantInvoicesTable.status,
+        totalAmount: tenantInvoicesTable.totalAmount,
+        outstandingAmount: tenantInvoicesTable.outstandingAmount,
         ownerName: tenantsTable.ownerName,
         businessName: tenantsTable.businessName,
         phone: tenantsTable.phone,
@@ -256,6 +258,19 @@ router.post("/pay/:token/proof", uploadRateLimiter, async (req, res) => {
 
     if (invoice.status === "paid") {
       res.status(409).json({ error: "Invoice ini sudah lunas" });
+      return;
+    }
+
+    if (
+      isLikelyYearAmount(amount) &&
+      Number(invoice.outstandingAmount ?? invoice.totalAmount ?? 0) >= 100_000
+    ) {
+      res.status(422).json({
+        error:
+          `Nominal Rp ${amount.toLocaleString("id-ID")} terlihat seperti angka tahun. ` +
+          "Periksa kembali bukti transfer dan masukkan nominal pembayaran yang sebenarnya.",
+        code: "OCR_AMOUNT_SUSPICIOUS",
+      });
       return;
     }
 

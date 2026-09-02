@@ -17,6 +17,7 @@ import { approveExistingPayment, LedgerError } from "../lib/payment-ledger";
 import { postPosPaymentJournal } from "../lib/pos-journal";
 import { postTenantPaymentAccountingEntry } from "../lib/accounting-entry";
 import { logger } from "../lib/logger";
+import { isLikelyYearAmount } from "../lib/ocr-service";
 
 const router: IRouter = Router();
 
@@ -46,6 +47,8 @@ const pendingPaymentSelect = {
   tenantName: tenantsTable.businessName,
   ownerName: tenantsTable.ownerName,
   phone: tenantsTable.phone,
+  ocrExtractedAmount: tenantPaymentsTable.ocrExtractedAmount,
+  ocrConfidence: tenantPaymentsTable.ocrConfidence,
 } as const;
 
 // ─── GET /api/pending-payments ────────────────────────────────────────────────
@@ -132,6 +135,19 @@ router.post("/pending-payments/:id/approve", async (req, res) => {
       if (!invoice) throw Object.assign(new Error("Invoice tidak ditemukan"), { status: 404 });
       if (invoice.status === "cancelled") {
         throw Object.assign(new Error("Invoice telah dibatalkan"), { status: 409 });
+      }
+
+      if (
+        isLikelyYearAmount(Number(payment.amount)) &&
+        Number(invoice.outstandingAmount ?? invoice.totalAmount ?? 0) >= 100_000
+      ) {
+        throw Object.assign(
+          new Error(
+            `Nominal Rp ${Number(payment.amount).toLocaleString("id-ID")} terlihat seperti angka tahun hasil OCR. ` +
+            "Pembayaran tidak dapat disetujui sebelum nominal diperbaiki."
+          ),
+          { status: 422, code: "OCR_AMOUNT_SUSPICIOUS" },
+        );
       }
 
       const approvedBy = req.user?.name ?? req.user?.email ?? "Admin";

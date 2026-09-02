@@ -7,7 +7,11 @@ export interface OcrResult {
   confidence: number;
 }
 
-function parseAmount(text: string): { amount: number | null; confidence: number } {
+export function isLikelyYearAmount(value: number): boolean {
+  return Number.isInteger(value) && value >= 2000 && value <= 2099;
+}
+
+export function parseAmountFromText(text: string): { amount: number | null; confidence: number } {
   // 1. Hapus bagian yang berpotensi noise: tanggal, no referensi, dll.
   const scrubbed = text
     .replace(/\u2019/g, "'")
@@ -50,7 +54,7 @@ function parseAmount(text: string): { amount: number | null; confidence: number 
     while ((m = plain.exec(scrubbed)) !== null) {
       const n = parseInt(m[1], 10);
       // Buang yang mirip tanggal YYYYMMDD atau DDMMYYYY
-      if (isDateLike(n)) continue;
+      if (isDateLike(n) || isLikelyYearAmount(n)) continue;
       if (isReasonable(n)) candidates.push({ val: n, fromPrefix: false });
     }
   }
@@ -118,7 +122,7 @@ async function extractFromPdf(buffer: Buffer): Promise<OcrResult> {
     const parsed = await pdfParse(buffer);
     const rawText = (parsed.text ?? "").trim();
     if (!rawText) return { extractedAmount: null, rawText: "", confidence: 0 };
-    const { amount, confidence } = parseAmount(rawText);
+    const { amount, confidence } = parseAmountFromText(rawText);
     return { extractedAmount: amount, rawText: rawText.slice(0, 3000), confidence };
   } catch {
     return { extractedAmount: null, rawText: "", confidence: 0 };
@@ -160,7 +164,7 @@ async function extractFromImage(buffer: Buffer): Promise<OcrResult> {
             resolve({ extractedAmount: null, rawText: "", confidence: 0 });
             return;
           }
-          const { amount, confidence } = parseAmount(rawText);
+          const { amount, confidence } = parseAmountFromText(rawText);
           resolve({
             extractedAmount: amount,
             rawText: rawText.slice(0, 3000),
