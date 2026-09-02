@@ -66,6 +66,16 @@ export interface WaResult {
   error?: string;
 }
 
+// Satu pembayaran bisa melewati lebih dari satu jalur post-commit
+// (misalnya endpoint POS dan endpoint invoice). Fonnte tidak menyediakan
+// idempotency key, jadi dedupe dilakukan di level aplikasi berdasarkan
+// nomor kuitansi/invoice selama proses server masih hidup.
+const groupNotificationCache = new Map<
+  string,
+  { expiresAt: number; promise: Promise<WaResult> }
+>();
+const GROUP_NOTIFICATION_DEDUPE_MS = 30 * 60 * 1000;
+
 /**
  * Format angka ke Rupiah, contoh: 5500000 → "Rp 5.500.000"
  */
@@ -123,7 +133,7 @@ export async function getAdminNotifyPhones(): Promise<Array<{ name: string; phon
       .map((u) => ({ name: u.name, phone: u.phoneNumber! }));
 
     const envPhone = process.env.ADMIN_WHATSAPP ?? process.env.FONNTE_ADMIN_WA;
-    if (envPhone && !phones.some((p) => p.phone === envPhone)) {
+    if (envPhone && !phones.some((p) => normalizePhone(p.phone) === normalizePhone(envPhone))) {
       phones.push({ name: "Admin", phone: envPhone });
     }
 
@@ -136,7 +146,15 @@ export async function getAdminNotifyPhones(): Promise<Array<{ name: string; phon
       if (typeof phone === "string" && phone.length > 0) phones.push({ name: "Admin", phone });
     }
 
-    return phones;
+    // Data user dan konfigurasi environment bisa menunjuk nomor yang sama.
+    // Kirim satu kali per tujuan agar satu pembayaran tidak menjadi beberapa
+    // pesan identik ke admin.
+    const uniquePhones = new Map<string, { name: string; phone: string }>();
+    for (const entry of phones) {
+      const key = normalizePhone(entry.phone);
+      if (!uniquePhones.has(key)) uniquePhones.set(key, entry);
+    }
+    return [...uniquePhones.values()];
   } catch {
     const fallback = process.env.ADMIN_WHATSAPP ?? process.env.FONNTE_ADMIN_WA ?? process.env.ADMIN_WA_GROUP;
     return fallback ? [{ name: "Admin", phone: fallback }] : [];
@@ -993,6 +1011,19 @@ export async function notifyAdminGroup(params: AdminGroupPaymentParams): Promise
   const groupJid = process.env.ADMIN_WA_GROUP;
   if (!groupJid) return { ok: true, skipped: true };
 
+  const dedupeKey = [
+    groupJid.trim(),
+    params.eventType,
+    params.receiptNumber ?? "",
+    params.invoiceNumber ?? "",
+    String(params.amount),
+  ].join("|");
+  const cached = groupNotificationCache.get(dedupeKey);
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.promise;
+  }
+  if (cached) groupNotificationCache.delete(dedupeKey);
+
   const methodLabel: Record<string, string> = {
     transfer: "Transfer Bank",
     tunai: "Tunai / Cash",
@@ -1071,7 +1102,16 @@ export async function notifyAdminGroup(params: AdminGroupPaymentParams): Promise
     reviewLine +
     payLinkLine;
 
-  return sendMessage(groupJid, message);
+  const sendPromise = sendMessage(groupJid, message).then((result) => {
+    // Kegagalan boleh dicoba lagi; status sukses/pending tetap dideduplikasi.
+    if (!result.ok) groupNotificationCache.delete(dedupeKey);
+    return result;
+  });
+  groupNotificationCache.set(dedupeKey, {
+    expiresAt: Date.now() + GROUP_NOTIFICATION_DEDUPE_MS,
+    promise: sendPromise,
+  });
+  return sendPromise;
 }
 
 // ─── Invoice Konsolidasi ──────────────────────────────────────────────────────

@@ -12,6 +12,9 @@ import {
   getSiteCompanyName,
 } from "../lib/whatsapp";
 
+const recentTestSends = new Map<string, number>();
+const TEST_SEND_COOLDOWN_MS = 30 * 1000;
+
 async function logWa(params: {
   siteId?: number | null;
   tenantId?: number | null;
@@ -480,6 +483,21 @@ router.post("/whatsapp/test-send", async (req, res) => {
   const params: Record<string, string> = { target: normalized, message: testMsg, delay: "1" };
   if (sender) params.sender = sender;
 
+  const now = Date.now();
+  const lastSentAt = recentTestSends.get(normalized);
+  if (lastSentAt && now - lastSentAt < TEST_SEND_COOLDOWN_MS) {
+    const waitSeconds = Math.ceil((TEST_SEND_COOLDOWN_MS - (now - lastSentAt)) / 1000);
+    res.status(429).json({
+      ok: false,
+      cooldown: true,
+      error: `Pesan tes ke tujuan ini baru saja dikirim. Tunggu ${waitSeconds} detik sebelum mencoba lagi.`,
+    });
+    return;
+  }
+  // Kunci sebelum request dibuat agar dua request bersamaan tidak sama-sama
+  // masuk ke antrian Fonnte sebelum request pertama selesai.
+  recentTestSends.set(normalized, now);
+
   try {
     const r = await fetch("https://api.fonnte.com/send", {
       method: "POST",
@@ -494,6 +512,7 @@ router.post("/whatsapp/test-send", async (req, res) => {
     const processPending = data["process"] === "pending";
 
     if (!r.ok || statusFailed || processFailed) {
+      recentTestSends.delete(normalized);
       const reason = String(data["reason"] ?? data["message"] ?? "Gagal kirim WA");
       const r2 = reason.toLowerCase();
       let errMsg = reason;
@@ -519,6 +538,7 @@ router.post("/whatsapp/test-send", async (req, res) => {
       res.json({ ok: true, message: `Pesan tes berhasil dikirim ke ${normalized}`, target: normalized });
     }
   } catch (err) {
+    recentTestSends.delete(normalized);
     res.status(502).json({ ok: false, error: err instanceof Error ? err.message : "Gagal menghubungi Fonnte" });
   }
 });
