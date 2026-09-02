@@ -4,20 +4,17 @@ description: SUPABASE_PG_URL exists in both 'development' and 'production' Repli
 ---
 
 ## Rule
-`lib/db/src/config.ts` prioritises `SUPABASE_PG_URL` → `SUPABASE_DATABASE_URL` → `DATABASE_URL`.
+Development and production may use different Supabase projects and credentials. The application
+database connection and PostgreSQL session store must use the same environment-aware priority:
 
-**Current active credentials (June 2026):**
-- `development` env: project ref `xssrfshdrtdfupgqwfdw` (original Supabase project, was paused, resumed) — this is what the artifact API server uses
-- `production` env: was pointing to `nzdweipzckfszczzqtuw` (user's new project) — deleted to avoid conflict; if deploying to production, re-add under production scope
-- Secret (global): may differ; artifact workflows inherit from the `development` scoped env var, NOT the secret, when both exist
+- development: `SUPABASE_PG_URL_DEV` → `SUPABASE_PG_URL_PROD` → shared fallbacks
+- production: `SUPABASE_PG_URL_PROD` → shared fallbacks
 
-**Why Supabase was paused:** Free tier auto-pauses after sustained inactivity. Resume from Supabase dashboard → Settings → General.
+**Why:** A valid development URL can coexist with an invalid or expired production secret. Using
+the production URL in development caused database authentication failures; leaving the session
+store on the production URL then caused `req.login` to fail even after normal queries recovered.
 
-**Why artifact workflow env is sticky:** Artifact workflows (`artifacts/api-server: API Server`) are launched by Replit's workflow runner which injects env at launch time. Killing port 8080 and auto-restarting does NOT guarantee a fresh env injection. To force a fresh env: use `restart_workflow` tool or kill the process by PID directly, then call `restart_workflow`.
-
-**How to apply:**
-- If DB auth fails → first check if Supabase project is paused; resume from dashboard
-- If secret was recently changed and API still fails → kill API process by PID (`ps aux | grep dist/index.mjs`), then `restart_workflow artifacts/api-server: API Server`
-- Do NOT create a 'shared' scoped SUPABASE_PG_URL if 'development' or 'production' scoped ones already exist (Replit blocks it)
-- To check what data the running API sees, use the API itself (curl /api/tenants) rather than psql
-- drizzle-kit push may hang on the pooler — use the migrator script instead
+**How to apply:** When changing database URL precedence, update both `lib/db` and the API
+session pool, then restart the workflow so the long-running server reads the new environment.
+For production, keep the production secret configured separately and verify its password/project
+before deployment.
