@@ -1,27 +1,9 @@
+import { dbConfig } from "@workspace/db";
+
 const isProduction = (process.env["NODE_ENV"] ?? "development") === "production";
 
 function optional(key: string, fallback?: string): string | undefined {
   return process.env[key] ?? fallback;
-}
-
-function resolveDbUrl(): string {
-  if (isProduction) {
-    return (
-      process.env["SUPABASE_PG_URL_PROD"] ??
-      process.env["SUPABASE_PG_URL"] ??
-      process.env["SUPABASE_POOLER_URL"] ??
-      process.env["SUPABASE_DATABASE_URL"] ??
-      process.env["DATABASE_URL"] ??
-      (() => { throw new Error("URL database production harus diset di Secrets/Config"); })()
-    );
-  }
-  return (
-    process.env["SUPABASE_PG_URL_PROD"] ??
-    process.env["SUPABASE_POOLER_URL"] ??
-    process.env["SUPABASE_DATABASE_URL_DEV"] ??
-    process.env["DATABASE_URL"] ??
-    (() => { throw new Error("URL database development harus diset di Secrets/Config"); })()
-  );
 }
 
 export const config = {
@@ -33,7 +15,7 @@ export const config = {
   logLevel: optional("LOG_LEVEL", "info") as string,
 
   db: {
-    url: resolveDbUrl(),
+    url: dbConfig.url,
   },
 
   auth: {

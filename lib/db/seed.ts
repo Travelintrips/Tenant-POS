@@ -1,19 +1,13 @@
 import { drizzle } from "drizzle-orm/node-postgres";
 import pg from "pg";
 import { tenantsTable, tenantBookingsTable, tenantPaymentsTable } from "./src/schema/index.js";
+import { dbConfig } from "./src/config.js";
 
 const { Pool } = pg;
 
-const url =
-  process.env["SUPABASE_PG_URL"] ??
-  process.env["SUPABASE_DATABASE_URL"] ??
-  process.env["DATABASE_URL"];
-if (!url) throw new Error("SUPABASE_DATABASE_URL atau DATABASE_URL harus diset");
-
-const isSupabase = url.includes("supabase") || url.includes("pooler");
 const pool = new Pool({
-  connectionString: url,
-  ssl: isSupabase ? { rejectUnauthorized: false } : false,
+  ...dbConfig.parsed,
+  ssl: dbConfig.ssl,
 });
 const db = drizzle(pool);
 

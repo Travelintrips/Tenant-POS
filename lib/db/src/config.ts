@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+
 const isProduction = (process.env["NODE_ENV"] ?? "development") === "production";
 
 function resolveDbUrl(): string {
@@ -38,6 +40,30 @@ function parseDbUrl(url: string) {
 
 const parsedUrl = isSupabase ? parseDbUrl(rawUrl) : null;
 
+function resolveSslConfig() {
+  if (!isSupabase) return false as const;
+
+  const caCandidates = [
+    process.env["PGSSLROOTCERT"],
+    process.env["SSL_CERT_FILE"],
+    "/etc/ssl/certs/ca-certificates.crt",
+  ];
+
+  for (const caPath of caCandidates) {
+    if (!caPath) continue;
+    try {
+      return {
+        rejectUnauthorized: true,
+        ca: readFileSync(caPath, "utf8"),
+      } as const;
+    } catch {
+      // Continue to the next trusted CA source. Verification remains enabled.
+    }
+  }
+
+  return true as const;
+}
+
 export const dbConfig = {
   url: rawUrl,
   parsed: parsedUrl
@@ -49,6 +75,8 @@ export const dbConfig = {
         database: parsedUrl.database,
       }
     : { connectionString: rawUrl },
-  ssl: isSupabase ? ({ rejectUnauthorized: false } as const) : (false as const),
+  // Replit's system CA bundle includes the complete outbound trust chain.
+  // Certificate and hostname verification remain enabled in every case.
+  ssl: resolveSslConfig(),
   env: isProduction ? "production" : "development",
 } as const;

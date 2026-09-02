@@ -2,6 +2,7 @@ import express, { type Express, type Request, type Response, type NextFunction }
 import session from "express-session";
 import connectPgSimple from "connect-pg-simple";
 import { Pool } from "pg";
+import { dbConfig } from "@workspace/db";
 import cors from "cors";
 import helmet from "helmet";
 import pinoHttp from "pino-http";
@@ -123,26 +124,10 @@ if (!sessionSecret) {
 // ─── PostgreSQL Session Store ──────────────────────────────────────────────
 // Sesi disimpan ke PostgreSQL agar tidak hilang saat server restart.
 // Tabel `session` harus sudah ada di DB (dibuat oleh migration 0069).
-// Samakan prioritas session store dengan koneksi data aplikasi. Development
-// harus memakai URL development; production tetap memakai URL production.
-const sessionDbUrl = isProduction
-  ? process.env.SUPABASE_PG_URL_PROD ??
-    process.env.SUPABASE_PG_URL ??
-    process.env.SUPABASE_POOLER_URL ??
-    process.env.DATABASE_URL ??
-    ""
-  : process.env.SUPABASE_PG_URL_DEV ??
-    process.env.SUPABASE_PG_URL_PROD ??
-    process.env.SUPABASE_PG_URL ??
-    process.env.SUPABASE_POOLER_URL ??
-    process.env.DATABASE_URL ??
-    "";
-const sessionDbIsSupabase = sessionDbUrl.includes("supabase") || sessionDbUrl.includes("pooler");
-
 const PgSession = connectPgSimple(session);
 const sessionPool = new Pool({
-  connectionString: sessionDbUrl,
-  ssl: sessionDbIsSupabase ? { rejectUnauthorized: false } : false,
+  ...dbConfig.parsed,
+  ssl: dbConfig.ssl,
 });
 
 app.use(

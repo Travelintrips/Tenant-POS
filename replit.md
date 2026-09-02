@@ -6,7 +6,8 @@ A mall tenant management admin portal (in Indonesian) with three sections: Data 
 
 - Admin Portal runs on port 5000 (Replit webview) — `PORT=5000 BASE_PATH=/ pnpm --filter @workspace/admin-portal run dev`
 - API Server runs on port 8080 — `PORT=8080 pnpm --filter @workspace/api-server run dev`
-- Both are started together via: `bash scripts/start-dev.sh`
+- Replit workflows: `artifacts/admin-portal: web` and `artifacts/api-server: API Server`
+- Canvas preview is optional and runs via `artifacts/mockup-sandbox: Component Preview Server`
 - `pnpm run typecheck` — full typecheck across all packages
 - `pnpm run build` — typecheck + build all packages
 - `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
@@ -135,17 +136,18 @@ file yang hasil WebP-nya tidak lebih kecil.
    - Untuk fitur WA: tambahkan `FONNTE_API_KEY`
    - Untuk Google Sheets: tambahkan `GOOGLE_SERVICE_ACCOUNT_JSON` + `GOOGLE_SPREADSHEET_ID`
    - Untuk upload bukti: tambahkan semua `SUPABASE_*` keys
-4. **Jalankan workflow** "Start application" — migrasi DB akan berjalan otomatis
+4. **Jalankan workflow** `artifacts/admin-portal: web` dan `artifacts/api-server: API Server` — migrasi DB akan berjalan otomatis
 5. **Login** via tombol DEV MODE di halaman login (jika `ENABLE_DEV_LOGIN=true`)
 
-### Status setup saat ini (re-imported project, 24 Jul 2026)
+### Status setup saat ini
 
-- **Workflow dikonfigurasi:** `Start application` — `bash scripts/start-dev.sh` (menjalankan API server port 8080 + admin portal port 5000, webview)
-- **Dependencies:** `pnpm install` sudah dijalankan, semua paket terinstall.
-- **DB terhubung:** `SUPABASE_PG_URL_PROD` sudah di-set → `config.ts` memprioritaskan Supabase. Semua 40+ migrasi terdeteksi `sudah diterapkan` di Supabase.
+- **Workflow dikonfigurasi:** `artifacts/admin-portal: web` (portal) dan `artifacts/api-server: API Server` (API port 8080). Canvas tersedia sebagai workflow opsional.
+- **Dependencies:** `pnpm install --frozen-lockfile` sudah dijalankan, semua paket terinstall.
+- **DB terhubung:** `SUPABASE_PG_URL_PROD` sudah di-set → `config.ts` memprioritaskan Supabase. Migrasi database terdeteksi sudah diterapkan.
+- **Health check:** API `/api/healthz` mengembalikan `200 OK` dan portal tampil di preview.
 - **`SESSION_SECRET`** sudah tersedia di Secrets.
 - **Dev login** (tombol Pemilik/Admin/Keuangan/Kasir/Tenant User) aktif via `ENABLE_DEV_LOGIN` configuration.
-- **Belum dikonfigurasi (opsional, fitur akan gagal tanpa ini):**
+- **Konfigurasi opsional yang perlu dipastikan untuk fitur terkait:**
   - `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY` — upload bukti pembayaran akan gagal tanpa ini.
   - `FONNTE_API_KEY`/`FONNTE_TOKEN` — OTP WhatsApp asli (dev pakai dev-login, jadi tidak wajib untuk development).
   - `GOOGLE_SERVICE_ACCOUNT_JSON` + `GOOGLE_SPREADSHEET_ID` — sinkronisasi rekonsiliasi bank ke Google Sheets.
@@ -156,7 +158,7 @@ file yang hasil WebP-nya tidak lebih kecil.
 
 - Always pass `PORT=5000 BASE_PATH=/` when starting the admin portal dev server (port 5000 required for Replit webview)
 - Always pass `PORT=8080` when starting the API server
-- Workflow: "Start application" — menjalankan API server (8080) lalu admin portal (5000)
+- Workflow: `artifacts/admin-portal: web` menjalankan portal dan `artifacts/api-server: API Server` menjalankan API (8080)
 - Migrasi DB berjalan otomatis saat API server start — tidak perlu jalankan manual
 - `SUPABASE_PG_URL_PROD` adalah prioritas DB tertinggi; pastikan nilai ini benar sebelum menjalankan
 
