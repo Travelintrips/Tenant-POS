@@ -123,18 +123,26 @@ if (!sessionSecret) {
 // ─── PostgreSQL Session Store ──────────────────────────────────────────────
 // Sesi disimpan ke PostgreSQL agar tidak hilang saat server restart.
 // Tabel `session` harus sudah ada di DB (dibuat oleh migration 0069).
-// Samakan prioritas session store dengan koneksi data aplikasi. URL khusus
-// production dipilih sebelum URL pooler bersama yang mungkin sudah kedaluwarsa.
-const sessionDbUrl =
-  process.env.SUPABASE_PG_URL_PROD ??
-  process.env.SUPABASE_PG_URL ??
-  process.env.SUPABASE_POOLER_URL ??
-  process.env.DATABASE_URL ??
-  "";
+// Samakan prioritas session store dengan koneksi data aplikasi. Development
+// harus memakai URL development; production tetap memakai URL production.
+const sessionDbUrl = isProduction
+  ? process.env.SUPABASE_PG_URL_PROD ??
+    process.env.SUPABASE_PG_URL ??
+    process.env.SUPABASE_POOLER_URL ??
+    process.env.DATABASE_URL ??
+    ""
+  : process.env.SUPABASE_PG_URL_DEV ??
+    process.env.SUPABASE_PG_URL_PROD ??
+    process.env.SUPABASE_PG_URL ??
+    process.env.SUPABASE_POOLER_URL ??
+    process.env.DATABASE_URL ??
+    "";
+const sessionDbIsSupabase = sessionDbUrl.includes("supabase") || sessionDbUrl.includes("pooler");
 
 const PgSession = connectPgSimple(session);
 const sessionPool = new Pool({
   connectionString: sessionDbUrl,
+  ssl: sessionDbIsSupabase ? { rejectUnauthorized: false } : false,
 });
 
 app.use(

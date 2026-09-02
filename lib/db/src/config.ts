@@ -1,16 +1,17 @@
 const isProduction = (process.env["NODE_ENV"] ?? "development") === "production";
 
 function resolveDbUrl(): string {
-  // URL khusus production adalah sumber utama untuk data aplikasi. URL pooler
-  // bersama hanya fallback karena dapat menyimpan kredensial lama.
+  // Development dan production memakai project Supabase yang berbeda. Jangan
+  // memakai kredensial production saat workflow development berjalan karena
+  // keduanya bisa memiliki password atau project yang berbeda.
   const url = isProduction
     ? process.env["SUPABASE_PG_URL_PROD"] ??
       process.env["SUPABASE_PG_URL"] ??
       process.env["SUPABASE_POOLER_URL"] ??
       process.env["DATABASE_URL"]
-    : process.env["SUPABASE_PG_URL_PROD"] ??
+    : process.env["SUPABASE_PG_URL_DEV"] ??
+      process.env["SUPABASE_PG_URL_PROD"] ??
       process.env["SUPABASE_POOLER_URL"] ??
-      process.env["SUPABASE_PG_URL_DEV"] ??
       process.env["DATABASE_URL"];
   if (!url) throw new Error("SUPABASE_POOLER_URL atau SUPABASE_PG_URL_PROD harus diset di Secrets/Config");
   return url;
