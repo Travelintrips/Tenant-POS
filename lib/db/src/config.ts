@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { supabaseRootCa } from "./supabase-root-ca";
 
 const isProduction = (process.env["NODE_ENV"] ?? "development") === "production";
 
@@ -46,7 +47,6 @@ function resolveSslConfig() {
   const caCandidates = [
     process.env["PGSSLROOTCERT"],
     process.env["SSL_CERT_FILE"],
-    "/etc/ssl/certs/ca-certificates.crt",
   ];
 
   for (const caPath of caCandidates) {
@@ -61,7 +61,10 @@ function resolveSslConfig() {
     }
   }
 
-  return true as const;
+  return {
+    rejectUnauthorized: true,
+    ca: supabaseRootCa,
+  } as const;
 }
 
 export const dbConfig = {
@@ -75,7 +78,7 @@ export const dbConfig = {
         database: parsedUrl.database,
       }
     : { connectionString: rawUrl },
-  // Replit's system CA bundle includes the complete outbound trust chain.
+  // Use Supabase's published root CA (or an explicit operator override).
   // Certificate and hostname verification remain enabled in every case.
   ssl: resolveSslConfig(),
   env: isProduction ? "production" : "development",

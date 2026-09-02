@@ -68,3 +68,4 @@
 - [users-id-supabase-schema-bug](users-id-supabase-schema-bug.md) — runUsersIdTextMigration silently skips on Supabase: auth.users.id (uuid) shadows public.users.id check without table_schema='public' filter; fixed by migration 0088
 - [storage-image-compression](storage-image-compression.md) — compress images centrally; rewrite legacy objects in place so database URLs remain valid
 - [Posted ledger corrections](posted-ledger-corrections.md) — posted accounting entries are immutable; correct them with void/reversal/replacement entries, never direct amount edits.
+- [Supabase PostgreSQL TLS](supabase-postgres-tls.md) — Replit's Node trust store may reject Supabase Root 2021; use Supabase's published CA with full verification, never disable certificate checks.
