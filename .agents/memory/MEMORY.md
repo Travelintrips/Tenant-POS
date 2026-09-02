@@ -68,3 +68,4 @@
 - [users-id-supabase-schema-bug](users-id-supabase-schema-bug.md) — runUsersIdTextMigration silently skips on Supabase: auth.users.id (uuid) shadows public.users.id check without table_schema='public' filter; fixed by migration 0088
 - [storage-image-compression](storage-image-compression.md) — compress images centrally; rewrite legacy objects in place so database URLs remain valid
 - [Posted ledger corrections](posted-ledger-corrections.md) — posted accounting entries are immutable; correct them with void/reversal/replacement entries, never direct amount edits.
+- [WhatsApp notification dedupe](whatsapp-notification-dedupe.md) — Fonnte tidak punya idempotency key; notifikasi grup pembayaran perlu dideduplikasi berdasarkan kuitansi/invoice.
