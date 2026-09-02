@@ -1292,6 +1292,7 @@ export default function TenantInvoices() {
       unpaid: all.filter(i => i.status === "unpaid").length,
       overdue: all.filter(i => i.status === "overdue").length,
       unpaidAll: all.filter(i => ["unpaid", "partial", "overdue"].includes(i.status)).length,
+      totalPaid: all.reduce((s, i) => s + Number(i.paidAmount ?? 0), 0),
       totalOutstanding: all.reduce((s, i) => s + Number(i.outstandingAmount), 0),
     };
   }, [invoices]);
@@ -1909,9 +1910,10 @@ export default function TenantInvoices() {
       </div>
 
       {/* Summary Cards */}
-      <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+      <div className="grid grid-cols-2 gap-4 sm:grid-cols-5">
         {[
           { label: "Total Invoice", value: summary.total, sub: "semua status" },
+          { label: "Total Terbayar", value: formatRupiah(summary.totalPaid), sub: "sudah diterima", accent: "green" },
           { label: "Belum Bayar", value: summary.unpaid, sub: "perlu tindakan", accent: "orange" },
           { label: "Jatuh Tempo", value: summary.overdue, sub: "segera bayar", accent: "red" },
           { label: "Total Tunggakan", value: formatRupiah(summary.totalOutstanding), sub: "outstanding", accent: "red" },
@@ -1919,7 +1921,15 @@ export default function TenantInvoices() {
           <Card key={item.label}>
             <CardContent className="pt-5 pb-4">
               <p className="text-xs text-muted-foreground uppercase tracking-wide">{item.label}</p>
-              <p className={`text-xl font-bold mt-1 ${item.accent === "red" ? "text-red-500" : item.accent === "orange" ? "text-orange-500" : ""}`}>
+              <p className={`text-xl font-bold mt-1 ${
+                item.accent === "red"
+                  ? "text-red-500"
+                  : item.accent === "orange"
+                  ? "text-orange-500"
+                  : item.accent === "green"
+                  ? "text-green-600"
+                  : ""
+              }`}>
                 {item.value}
               </p>
               <p className="text-xs text-muted-foreground mt-0.5">{item.sub}</p>
