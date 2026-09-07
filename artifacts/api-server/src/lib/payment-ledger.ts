@@ -1,5 +1,5 @@
 import { db } from "@workspace/db";
-import { tenantPaymentsTable, tenantInvoicesTable, tenantBookingsTable } from "@workspace/db/schema";
+import { tenantPaymentsTable, tenantInvoicesTable, tenantBookingsTable, tenantsTable } from "@workspace/db/schema";
 import { eq, and, sql } from "drizzle-orm";
 
 // ── Error types ───────────────────────────────────────────────────────────────
@@ -16,6 +16,17 @@ export class LedgerError extends Error {
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 type AnyDb = Parameters<Parameters<typeof db.transaction>[0]>[0] | typeof db;
+
+async function resolveInvoiceCompanyId(tx: AnyDb, invoiceId: number): Promise<number | null> {
+  const [owner] = await tx
+    .select({ companyId: tenantsTable.companyId })
+    .from(tenantInvoicesTable)
+    .leftJoin(tenantsTable, eq(tenantInvoicesTable.tenantId, tenantsTable.id))
+    .where(eq(tenantInvoicesTable.id, invoiceId))
+    .limit(1);
+
+  return owner?.companyId ?? null;
+}
 
 export interface RecordPaymentParams {
   invoiceId: number;
@@ -261,6 +272,8 @@ export async function recordPayment(
   // 2. Overpayment guard
   await validateNoOverpayment(tx, params.invoiceId, params.amount);
 
+  const companyId = await resolveInvoiceCompanyId(tx, params.invoiceId);
+
   // 3. Insert payment record (without remaining_balance_after first)
   const [payment] = await tx
     .insert(tenantPaymentsTable)
@@ -270,6 +283,7 @@ export async function recordPayment(
       bookingId: params.bookingId ?? undefined,
       tenantBookingId: params.bookingId ?? undefined,
       siteId: params.siteId ?? undefined,
+      companyId: companyId ?? undefined,
       amount: String(params.amount),
       discountAmount: String(params.discountAmount ?? 0),
       penaltyAmount: String(params.penaltyAmount ?? 0),
@@ -337,7 +351,9 @@ export async function approveExistingPayment(
   // Overpayment check (payment is still pending_review, so not counted in existing sum)
   await validateNoOverpayment(tx, invoiceId, parseFloat(String(payment.amount)));
 
-  // Flip to approved
+  const companyId = await resolveInvoiceCompanyId(tx, invoiceId);
+
+  // Flip to approved and enforce the company that owns the linked invoice.
   await tx
     .update(tenantPaymentsTable)
     .set({
@@ -348,6 +364,7 @@ export async function approveExistingPayment(
       paymentStatus: "PAID",
       status: "PAID",
       sourceType: "ocr",
+      companyId: companyId ?? undefined,
       updatedAt: now,
     })
     .where(eq(tenantPaymentsTable.id, paymentId));

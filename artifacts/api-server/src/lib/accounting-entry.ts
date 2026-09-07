@@ -20,7 +20,7 @@ const PPN_RATE = 0.11;
  * Posting pembayaran sewa tenant ke accounting_entries + accounting_entry_lines + accounting_payments.
  * Idempotent via correlation_id = "tenant_payment_{paymentId}" ATAU via unique index (source, source_id).
  * Pilih journal: tunai/qris → CSH, transfer/edc → BNK.
- * Company di-lookup dari mall_sites.company_id → companies.id (bukan text match nama).
+ * Company di-lookup dari tenant pemilik invoice, lalu payment/site sebagai fallback.
  */
 export async function postTenantPaymentAccountingEntry(
   params: AccountingEntryParams
@@ -48,7 +48,9 @@ export async function postTenantPaymentAccountingEntry(
       WHERE correlation_id = ${correlationId}
          OR (source = 'tenant_rent_payment'::accounting_entry_source
              AND source_id IS NOT NULL
-             AND source_id = ${paymentId})
+             AND source_id = ${paymentId}
+             AND COALESCE(is_reversed, FALSE) = FALSE
+             AND COALESCE(is_voided, FALSE) = FALSE)
       LIMIT 1
     `);
     if ((existing as any).rows?.length > 0) {
@@ -66,12 +68,13 @@ export async function postTenantPaymentAccountingEntry(
 
     const paymentOwnerRow = await db.execute(sql`
       SELECT
-        COALESCE(ti.company_id, tp.company_id) AS company_id,
+        COALESCE(t.company_id, tp.company_id) AS company_id,
         c.code AS company_code,
         COALESCE(ti.use_ppn, FALSE) AS use_ppn
       FROM tenant_payments tp
       LEFT JOIN tenant_invoices ti ON ti.id = tp.invoice_id
-      LEFT JOIN companies c ON c.id = COALESCE(ti.company_id, tp.company_id)
+      LEFT JOIN tenants t ON t.id = ti.tenant_id
+      LEFT JOIN companies c ON c.id = COALESCE(t.company_id, tp.company_id)
       WHERE tp.id = ${paymentId}
       LIMIT 1
     `);
@@ -210,6 +213,8 @@ export async function postTenantPaymentAccountingEntry(
       const existing2 = await db.execute(sql`
         SELECT id FROM accounting_entries
         WHERE source = 'tenant_rent_payment'::accounting_entry_source AND source_id = ${paymentId}
+          AND COALESCE(is_reversed, FALSE) = FALSE
+          AND COALESCE(is_voided, FALSE) = FALSE
         LIMIT 1
       `);
       entryId = (existing2 as any).rows?.[0]?.id != null

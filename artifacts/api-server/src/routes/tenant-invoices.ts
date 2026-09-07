@@ -29,7 +29,7 @@ router.use("/tenant-invoices", requireAnyRole("owner", "admin", "finance"));
 /**
  * Mengambil inisial nama perusahaan dari format "PT NAMA PERUSAHAAN".
  * Contoh:
- *   "PT ELMIRA RATU ABADI"       → "ERA"
+ *   "PT ELIMIRA RATU ABADI"      → "ERA"
  *   "PT CAHAYA SEJATI TEKNOLOGI" → "CST"
  *   "Manajemen Gedung Utama"     → "MGU"
  */

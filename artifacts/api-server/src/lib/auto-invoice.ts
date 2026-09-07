@@ -31,7 +31,7 @@ function calcAmounts(opts: {
 
 /**
  * Mengambil inisial nama perusahaan dari format "PT NAMA PERUSAHAAN".
- * Contoh: "PT ELMIRA RATU ABADI" → "ERA"
+ * Contoh: "PT ELIMIRA RATU ABADI" → "ERA"
  */
 function getCompanyInitials(companyName: string): string {
   const cleaned = companyName.trim().toUpperCase().replace(/^PT\.?\s+/i, "");

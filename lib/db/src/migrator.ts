@@ -2187,7 +2187,7 @@ CREATE INDEX IF NOT EXISTS "oe_paid_at_idx" ON "operational_expenses"("paid_at")
   name: "0050_mall_sites_company_name",
   sql: `
 ALTER TABLE mall_sites ADD COLUMN IF NOT EXISTS company_name TEXT NOT NULL DEFAULT 'Manajemen CST';
-UPDATE mall_sites SET company_name = 'PT ELMIRA RATU ABADI' WHERE code = 'TOD_M1_BANDARA';
+UPDATE mall_sites SET company_name = 'PT ELIMIRA RATU ABADI' WHERE code = 'TOD_M1_BANDARA';
 UPDATE mall_sites SET company_name = 'PT CAHAYA SEJATI TEKNOLOGI' WHERE code = 'SPORT_CENTER_BANDARA';
   `.trim(),
 },
@@ -3280,7 +3280,7 @@ VALUES ('DVS', 'PT Diva Servis', 'PT Diva Servis', 'DVS')
 ON CONFLICT (code) DO NOTHING;
 
 INSERT INTO companies (code, name, company_name, company_code)
-VALUES ('ERA', 'PT Elmira Ratu Abadi', 'PT Elmira Ratu Abadi', 'ERA')
+VALUES ('ERA', 'PT Elimira Ratu Abadi', 'PT Elimira Ratu Abadi', 'ERA')
 ON CONFLICT (code) DO NOTHING;
 
 UPDATE companies
@@ -3347,7 +3347,7 @@ VALUES ('DVS', 'PT Diva Servis', 'PT Diva Servis', 'DVS')
 ON CONFLICT (code) DO NOTHING;
 
 INSERT INTO companies (code, name, company_name, company_code)
-VALUES ('ERA', 'PT Elmira Ratu Abadi', 'PT Elmira Ratu Abadi', 'ERA')
+VALUES ('ERA', 'PT Elimira Ratu Abadi', 'PT Elimira Ratu Abadi', 'ERA')
 ON CONFLICT (code) DO NOTHING;
 
 UPDATE companies
@@ -3465,7 +3465,7 @@ WHERE site_id IS NOT NULL AND company_id IS NULL;
 ALTER TABLE mall_sites ADD COLUMN IF NOT EXISTS company_id integer REFERENCES companies(id);
 
 -- Mapping site ke perusahaan yang benar:
--- Site 1 = TOD M1         → ERA (PT ELMIRA RATU ABADI, id=4)
+-- Site 1 = TOD M1         → ERA (PT ELIMIRA RATU ABADI, id=4)
 -- Site 2 = Sport Center   → CST (PT CAHAYA SEJATI TEKNOLOGI, id=1)
 -- Site 4 = Kantin SC      → CST (id=1)
 -- Site 5 = Kantin TOD M1  → CST (id=1, sesuai company_name "Manajemen CST")
