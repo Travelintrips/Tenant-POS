@@ -15,6 +15,13 @@ const FONNTE_TOKEN = process.env.FONNTE_API_KEY ?? process.env.FONNTE_TOKEN;
 const FONNTE_SENDER = process.env.FONNTE_SENDER ?? "";
 const FONNTE_URL = "https://api.fonnte.com/send";
 
+export function isWhatsappDeliveryDisabled(): boolean {
+  return (
+    process.env.NODE_ENV === "test" ||
+    process.env.DISABLE_WHATSAPP_SEND === "true"
+  );
+}
+
 // ─── Helper: ambil company_name dari mall_sites ───────────────────────────────
 
 const _companyNameCache = new Map<number, { name: string; expiresAt: number }>();
@@ -162,7 +169,7 @@ export async function getAdminNotifyPhones(): Promise<Array<{ name: string; phon
 }
 
 async function sendMessage(phone: string, message: string): Promise<WaResult> {
-  if (!FONNTE_TOKEN) {
+  if (isWhatsappDeliveryDisabled() || !FONNTE_TOKEN) {
     return { ok: true, skipped: true };
   }
 
@@ -216,7 +223,7 @@ async function sendMessage(phone: string, message: string): Promise<WaResult> {
  * fileUrl harus publicly accessible (misal: Supabase Storage public URL).
  */
 export async function sendWaWithFile(phone: string, message: string, fileUrl: string): Promise<WaResult> {
-  if (!FONNTE_TOKEN) {
+  if (isWhatsappDeliveryDisabled() || !FONNTE_TOKEN) {
     return { ok: true, skipped: true };
   }
   try {
