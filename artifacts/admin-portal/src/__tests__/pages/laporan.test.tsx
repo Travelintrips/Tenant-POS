@@ -12,12 +12,16 @@ const mockKpi = {
 };
 
 const mockSummary = {
+  tahun: 2026,
   monthly: Array.from({ length: 12 }, (_, i) => ({
     bulan: ["Jan","Feb","Mar","Apr","Mei","Jun","Jul","Ags","Sep","Okt","Nov","Des"][i],
     bulanNum: i + 1,
     totalAmount: i < 3 ? 5000000 : 0,
     jumlahTransaksi: i < 3 ? 3 : 0,
   })),
+  totalPendapatan: 15000000,
+  totalTransaksi: 9,
+  tunggakan: { totalTunggakan: 0, jumlahUnit: 0 },
   total: 15000000,
   jumlahTransaksi: 9,
 };
@@ -29,7 +33,7 @@ const mockAging = {
   bucketOver90: { count: 0, total: 0 },
 };
 
-function setupLaporanMocks() {
+function setupLaporanMocks(recentPayments: unknown[] = []) {
   vi.mocked(global.fetch).mockImplementation((url: string) => {
     const urlStr = String(url);
     if (urlStr.includes("/api/auth/me")) {
@@ -45,10 +49,21 @@ function setupLaporanMocks() {
       return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(mockAging) } as Response);
     }
     if (urlStr.includes("/api/laporan/piutang")) {
-      return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve([]) } as Response);
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ data: [], pagination: { total: 0, limit: 200, offset: 0 } }),
+      } as Response);
     }
     if (urlStr.includes("/api/laporan/rekap-payments")) {
-      return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve([]) } as Response);
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ data: [], pagination: { total: 0, limit: 100, offset: 0 }, tahun: 2026, bulan: null }),
+      } as Response);
+    }
+    if (urlStr.includes("/api/tenant-pos/recent-payments")) {
+      return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(recentPayments) } as Response);
     }
     return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve([]) } as Response);
   });
@@ -81,5 +96,27 @@ describe("Fase 6 — Halaman Laporan (Frontend)", () => {
       const buttons = document.querySelectorAll("button");
       expect(buttons.length).toBeGreaterThan(0);
     }, { timeout: 5000 });
+  });
+
+  it("tetap render saat tanggal pembayaran terbaru kosong", async () => {
+    setupLaporanMocks([{
+      id: 1,
+      amount: 100000,
+      discountAmount: 0,
+      penaltyAmount: 0,
+      paymentMethod: "transfer",
+      receiptNumber: null,
+      notes: null,
+      paidAt: null,
+      businessName: "Tenant Lama",
+      boothNumber: "A-01",
+      areaName: "Lantai 1",
+      periodLabel: null,
+    }]);
+    const Laporan = (await import("@/pages/laporan")).default;
+    renderWithProviders(<Laporan />, { user: withUser() });
+
+    expect(await screen.findByText("Tanggal tidak tersedia")).toBeTruthy();
+    expect(screen.getByText("Tenant Lama")).toBeTruthy();
   });
 });

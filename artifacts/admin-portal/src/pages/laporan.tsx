@@ -89,7 +89,7 @@ const AGING_COLORS = ["#10b981", "#f59e0b", "#ef4444", "#dc2626", "#991b1b"];
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 type Overview = { totalActiveTenants: number; unpaidCount: number; overdueCount: number; paidTodayAmount: number };
-type RecentPayment = { id: number; amount: number; discountAmount: number; penaltyAmount: number; paymentMethod: string; receiptNumber: string | null; notes: string | null; paidAt: string; businessName: string; boothNumber: string; areaName: string; periodLabel: string | null };
+type RecentPayment = { id: number; amount: number; discountAmount: number; penaltyAmount: number; paymentMethod: string; receiptNumber: string | null; notes: string | null; paidAt: string | null; businessName: string; boothNumber: string; areaName: string; periodLabel: string | null };
 type SummaryData = { tahun: number; monthly: { bulan: string; bulanNum: number; totalAmount: number; jumlahTransaksi: number }[]; totalPendapatan: number; totalTransaksi: number; tunggakan: { totalTunggakan: number; jumlahUnit: number } };
 type KPIData = { revenueThisMonth: number; paidThisMonth: number; totalOutstanding: number; totalOverdue: number; jumlahInvoiceOverdue: number; jumlahTenantOverdue: number; collectionRate: number };
 type PiutangRow = { id: number; invoiceNumber: string; tenantId: number; businessName: string; ownerName: string; unitCode: string; floor: string; dueDate: string | null; periodStart: string | null; periodEnd: string | null; totalAmount: number; paidAmount: number; outstandingAmount: number; status: string; agingDays: number | null };
@@ -969,8 +969,8 @@ function RecentPaymentsTable() {
                 {payments.map((p) => (
                   <tr key={p.id} className="hover:bg-slate-50/60 transition-colors">
                     <td className="px-4 py-3 text-xs text-muted-foreground whitespace-nowrap">
-                      <div>{fmtTglID(p.paidAt.slice(0, 10))}</div>
-                      <div className="text-[10px] text-slate-400">{fmtJamPendek(p.paidAt)}</div>
+                      <div>{p.paidAt ? fmtTglID(p.paidAt.slice(0, 10)) : "Tanggal tidak tersedia"}</div>
+                      <div className="text-[10px] text-slate-400">{p.paidAt ? fmtJamPendek(p.paidAt) : "—"}</div>
                     </td>
                     <td className="px-4 py-3">
                       <p className="font-medium truncate max-w-[150px]">{p.businessName}</p>
