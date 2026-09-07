@@ -32,6 +32,12 @@ export type CreateOtpResult =
   | { success: true; devOtp: string; plainOtp?: never }   // dev mode: OTP visible
   | { success: true; plainOtp: string; devOtp?: never };  // production: OTP for sending
 
+export function shouldReturnDevOtp(): boolean {
+  // ENABLE_DEV_LOGIN hanya mengaktifkan login alternatif berbasis password.
+  // OTP tidak boleh pernah dikembalikan ke browser ketika runtime production.
+  return process.env.NODE_ENV !== "production";
+}
+
 export async function createOtp(phoneNumber: string): Promise<CreateOtpResult> {
   const normalized = normalizePhoneNumber(phoneNumber);
   const otp = generateOtpPlaintext();
@@ -50,11 +56,7 @@ export async function createOtp(phoneNumber: string): Promise<CreateOtpResult> {
     attempts: 0,
   });
 
-  const isDev =
-    process.env.NODE_ENV !== "production" ||
-    process.env.ENABLE_DEV_LOGIN === "true";
-
-  if (isDev) {
+  if (shouldReturnDevOtp()) {
     logger.info({ phoneNumber: normalized }, "[otp] OTP dibuat (dev mode)");
     return { success: true, devOtp: otp };
   }

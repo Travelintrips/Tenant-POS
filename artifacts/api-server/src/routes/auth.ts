@@ -15,7 +15,8 @@ const router: IRouter = Router();
 
 const DEV_LOGIN_ENABLED =
   process.env.NODE_ENV !== "production" ||
-  process.env.ENABLE_DEV_LOGIN === "true";
+  process.env.ENABLE_DEV_LOGIN === "true" ||
+  Boolean(process.env.DEV_LOGIN_SECRET);
 
 const DEV_ROLE_EMAILS: Record<string, { email: string; name: string; phoneNumber?: string }> = {
   owner:   { email: "owner@mall.local",   name: "Dev Owner",   phoneNumber: "6281111111111" },

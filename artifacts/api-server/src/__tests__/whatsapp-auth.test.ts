@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach } from "vitest";
 import { db } from "@workspace/db";
 import { usersTable, otpTokensTable } from "@workspace/db/schema";
 import { eq } from "drizzle-orm";
@@ -12,8 +12,11 @@ import {
   TEST_PREFIX,
 } from "./helpers/factory";
 import { makeAuthAgent } from "./helpers/agent";
+import { createOtp } from "../services/otp-service";
 
 const TEST_PHONE = `628123${Date.now().toString().slice(-6)}`;
+const originalNodeEnv = process.env.NODE_ENV;
+const originalEnableDevLogin = process.env.ENABLE_DEV_LOGIN;
 
 async function cleanupOtps(phone: string) {
   await db.delete(otpTokensTable).where(eq(otpTokensTable.phoneNumber, phone));
@@ -34,8 +37,27 @@ beforeEach(async () => {
   await cleanupOtps(TEST_PHONE);
 });
 
+afterEach(() => {
+  process.env.NODE_ENV = originalNodeEnv;
+  if (originalEnableDevLogin === undefined) {
+    delete process.env.ENABLE_DEV_LOGIN;
+  } else {
+    process.env.ENABLE_DEV_LOGIN = originalEnableDevLogin;
+  }
+});
+
 describe("Fase 2+8 — Login WhatsApp OTP", () => {
   describe("POST /api/auth/whatsapp/request-otp", () => {
+    it("production tetap menghasilkan OTP WhatsApp saat password login diaktifkan", async () => {
+      process.env.NODE_ENV = "production";
+      process.env.ENABLE_DEV_LOGIN = "true";
+
+      const result = await createOtp(TEST_PHONE);
+
+      expect(result.devOtp).toBeUndefined();
+      expect(result.plainOtp).toMatch(/^\d{6}$/);
+    });
+
     it("nomor terdaftar mengembalikan message generik + devOtp", async () => {
       const res = await request(app as any)
         .post("/api/auth/whatsapp/request-otp")
