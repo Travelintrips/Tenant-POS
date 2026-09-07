@@ -1,4 +1,4 @@
-import { Router, type IRouter } from "express";
+import { Router, type IRouter, type Request } from "express";
 import { db } from "@workspace/db";
 import {
   tenantsTable,
@@ -10,10 +10,53 @@ import {
 } from "@workspace/db/schema";
 import { eq, sql, and, isNull, or } from "drizzle-orm";
 import { requireAnyRole } from "../middlewares/auth";
+import { appContextMiddleware } from "../middlewares/app-context";
 
 const router: IRouter = Router();
 
+router.use("/dashboard", appContextMiddleware);
 router.use("/dashboard", requireAnyRole("owner", "admin", "finance"));
+
+function companyTarget(req: Request) {
+  const companyId = req.appContext?.ownerCompanyId ?? null;
+  if (companyId) return sql`${companyId}`;
+  if (req.siteId > 0) {
+    return sql`(SELECT ms_scope.company_id FROM mall_sites ms_scope WHERE ms_scope.id = ${req.siteId})`;
+  }
+  return null;
+}
+
+function tenantCompanyClause(req: Request) {
+  const target = companyTarget(req);
+  return target
+    ? sql`COALESCE(${tenantsTable.companyId}, (SELECT ms_scope.company_id FROM mall_sites ms_scope WHERE ms_scope.id = ${tenantsTable.siteId})) = ${target}`
+    : undefined;
+}
+
+function invoiceCompanyClause(req: Request) {
+  const target = companyTarget(req);
+  return target
+    ? sql`COALESCE(
+        (SELECT t_scope.company_id FROM tenants t_scope WHERE t_scope.id = ${tenantInvoicesTable.tenantId}),
+        (SELECT ms_scope.company_id FROM mall_sites ms_scope WHERE ms_scope.id = ${tenantInvoicesTable.siteId})
+      ) = ${target}`
+    : undefined;
+}
+
+function paymentCompanyClause(req: Request) {
+  const target = companyTarget(req);
+  return target
+    ? sql`COALESCE(
+        (SELECT t_inv.company_id
+           FROM tenant_invoices i_scope
+           JOIN tenants t_inv ON t_inv.id = i_scope.tenant_id
+          WHERE i_scope.id = ${tenantPaymentsTable.invoiceId}),
+        (SELECT t_scope.company_id FROM tenants t_scope WHERE t_scope.id = ${tenantPaymentsTable.tenantId}),
+        ${tenantPaymentsTable.companyId},
+        (SELECT ms_scope.company_id FROM mall_sites ms_scope WHERE ms_scope.id = ${tenantPaymentsTable.siteId})
+      ) = ${target}`
+    : undefined;
+}
 
 /**
  * GET /api/dashboard/summary
@@ -24,6 +67,9 @@ router.get("/dashboard/summary", async (req, res) => {
     const tenantClause = siteId > 0 ? eq(tenantsTable.siteId, siteId) : undefined;
     const invClause    = siteId > 0 ? eq(tenantInvoicesTable.siteId, siteId) : undefined;
     const payClause    = siteId > 0 ? eq(tenantPaymentsTable.siteId, siteId) : undefined;
+    const tenantCompany = tenantCompanyClause(req);
+    const invoiceCompany = invoiceCompanyClause(req);
+    const paymentCompany = paymentCompanyClause(req);
 
     const now       = new Date();
     const thisYear  = now.getFullYear();
@@ -45,19 +91,20 @@ router.get("/dashboard/summary", async (req, res) => {
       db.select({
         total: sql<number>`COUNT(*)::int`,
         aktif: sql<number>`COUNT(*) FILTER (WHERE LOWER(${tenantsTable.status}) IN ('aktif','active'))::int`,
-      }).from(tenantsTable).where(tenantClause),
+      }).from(tenantsTable).where(and(tenantClause, tenantCompany)),
 
       db.select({
         overdue:      sql<number>`COUNT(*) FILTER (WHERE ${tenantInvoicesTable.status} = 'overdue')::int`,
         unpaid:       sql<number>`COUNT(*) FILTER (WHERE ${tenantInvoicesTable.status} = 'unpaid')::int`,
         partial:      sql<number>`COUNT(*) FILTER (WHERE ${tenantInvoicesTable.status} = 'partial')::int`,
         totalPiutang: sql<number>`COALESCE(SUM(${tenantInvoicesTable.outstandingAmount}) FILTER (WHERE ${tenantInvoicesTable.status} NOT IN ('paid','cancelled')), 0)::numeric`,
-      }).from(tenantInvoicesTable).where(invClause),
+      }).from(tenantInvoicesTable).where(and(invClause, invoiceCompany)),
 
       db.select({
         total: sql<number>`COALESCE(SUM(${tenantPaymentsTable.amount} - COALESCE(${tenantPaymentsTable.refundAmount}, 0)), 0)::numeric`,
       }).from(tenantPaymentsTable).where(and(
         payClause,
+        paymentCompany,
         sql`EXTRACT(YEAR  FROM ${tenantPaymentsTable.paidAt}) = ${thisYear}`,
         sql`EXTRACT(MONTH FROM ${tenantPaymentsTable.paidAt}) = ${thisMonth}`,
         sql`(${tenantPaymentsTable.isVoided} = false OR ${tenantPaymentsTable.isVoided} IS NULL)`,
@@ -65,7 +112,7 @@ router.get("/dashboard/summary", async (req, res) => {
 
       db.select({ count: sql<number>`COUNT(*)::int` })
         .from(tenantPaymentsTable)
-        .where(and(payClause, sql`${tenantPaymentsTable.approvalStatus} = 'pending_review'`)),
+        .where(and(payClause, paymentCompany, sql`${tenantPaymentsTable.approvalStatus} = 'pending_review'`)),
 
       // Invoice lunas — bulan yang dipilih (default: bulan ini)
       // Menggunakan WHERE biasa (bukan FILTER) agar Drizzle parameterisasi bekerja benar
@@ -74,6 +121,7 @@ router.get("/dashboard/summary", async (req, res) => {
         amount: sql<number>`COALESCE(SUM(${tenantInvoicesTable.paidAmount}), 0)::numeric`,
       }).from(tenantInvoicesTable).where(and(
         invClause,
+        invoiceCompany,
         eq(tenantInvoicesTable.status, "paid"),
         sql`EXTRACT(YEAR  FROM ${tenantInvoicesTable.updatedAt}) = ${paidYear}`,
         sql`EXTRACT(MONTH FROM ${tenantInvoicesTable.updatedAt}) = ${paidMonth}`,
@@ -92,6 +140,11 @@ router.get("/dashboard/summary", async (req, res) => {
       invoicePaidCount:  paidRow[0]?.count            ?? 0,
       invoicePaidAmount: Number(paidRow[0]?.amount    ?? 0),
       paidMonth: `${paidYear}-${String(paidMonth).padStart(2, "0")}`,
+      scope: {
+        siteId: siteId || null,
+        companyId: req.appContext?.ownerCompanyId ?? null,
+        aggregateAllCompanies: siteId === 0 && !req.appContext?.ownerCompanyId,
+      },
     });
   } catch (err) {
     req.log.error(err, "Failed to get dashboard summary");
@@ -107,6 +160,7 @@ router.get("/dashboard/paid-trend", async (req, res) => {
   try {
     const siteId = req.siteId;
     const invClause = siteId > 0 ? eq(tenantInvoicesTable.siteId, siteId) : undefined;
+    const companyClause = invoiceCompanyClause(req);
 
     // Ambil data 6 bulan terakhir (inklusif bulan ini)
     const rows = await db
@@ -118,13 +172,13 @@ router.get("/dashboard/paid-trend", async (req, res) => {
       })
       .from(tenantInvoicesTable)
       .where(
-        invClause
-          ? sql`${invClause} AND ${tenantInvoicesTable.status} = 'paid'
-                AND ${tenantInvoicesTable.updatedAt} >= NOW() - INTERVAL '5 months'
-                AND ${tenantInvoicesTable.updatedAt} < DATE_TRUNC('month', NOW()) + INTERVAL '1 month'`
-          : sql`${tenantInvoicesTable.status} = 'paid'
-                AND ${tenantInvoicesTable.updatedAt} >= NOW() - INTERVAL '5 months'
-                AND ${tenantInvoicesTable.updatedAt} < DATE_TRUNC('month', NOW()) + INTERVAL '1 month'`,
+        and(
+          invClause,
+          companyClause,
+          eq(tenantInvoicesTable.status, "paid"),
+          sql`${tenantInvoicesTable.updatedAt} >= NOW() - INTERVAL '5 months'`,
+          sql`${tenantInvoicesTable.updatedAt} < DATE_TRUNC('month', NOW()) + INTERVAL '1 month'`,
+        ),
       )
       .groupBy(
         sql`EXTRACT(YEAR FROM ${tenantInvoicesTable.updatedAt})`,
@@ -152,7 +206,14 @@ router.get("/dashboard/paid-trend", async (req, res) => {
       });
     }
 
-    res.json({ trend });
+    res.json({
+      trend,
+      scope: {
+        siteId: siteId || null,
+        companyId: req.appContext?.ownerCompanyId ?? null,
+        aggregateAllCompanies: siteId === 0 && !req.appContext?.ownerCompanyId,
+      },
+    });
   } catch (err) {
     req.log.error(err, "Failed to get paid trend");
     res.status(500).json({ error: "Gagal mengambil data tren pembayaran" });
@@ -166,6 +227,19 @@ router.get("/dashboard/paid-trend", async (req, res) => {
 router.get("/dashboard/export-monthly-pdf", async (req, res) => {
   try {
     const siteId = req.siteId;
+    const requestedCompanyId = req.appContext?.ownerCompanyId ?? null;
+    if (siteId === 0 && !requestedCompanyId) {
+      res.status(400).json({
+        error: "Pilih perusahaan untuk membuat laporan PDF lintas lokasi",
+      });
+      return;
+    }
+    const invoiceCompanySql = requestedCompanyId
+      ? sql`AND COALESCE(t.company_id, ms_inv.company_id) = ${requestedCompanyId}`
+      : sql`AND COALESCE(t.company_id, ms_inv.company_id) = (SELECT company_id FROM mall_sites WHERE id = ${siteId})`;
+    const expenseCompanySql = requestedCompanyId
+      ? sql`AND COALESCE(oe.company_id, et.company_id, ms_exp.company_id) = ${requestedCompanyId}`
+      : sql`AND COALESCE(oe.company_id, et.company_id, ms_exp.company_id) = (SELECT company_id FROM mall_sites WHERE id = ${siteId})`;
 
     // Parse bulan dari query
     const monthParam = typeof req.query.month === "string" ? req.query.month : null;
@@ -200,27 +274,32 @@ router.get("/dashboard/export-monthly-pdf", async (req, res) => {
         ti.unit_code
       FROM tenant_invoices ti
       LEFT JOIN tenants t ON t.id = ti.tenant_id
+      LEFT JOIN mall_sites ms_inv ON ms_inv.id = ti.site_id
       WHERE ti.status = 'paid'
         AND EXTRACT(YEAR  FROM ti.updated_at) = ${year}
         AND EXTRACT(MONTH FROM ti.updated_at) = ${month}
         ${siteId > 0 ? sql`AND ti.site_id = ${siteId}` : sql``}
+        ${invoiceCompanySql}
       ORDER BY ti.updated_at DESC
     `);
 
     // Query pengeluaran operasional bulan ini
     const expRows = await db.execute(sql`
       SELECT
-        category,
-        coa_name,
-        description,
-        amount,
-        payment_method,
-        paid_at
-      FROM operational_expenses
-      WHERE EXTRACT(YEAR  FROM paid_at) = ${year}
-        AND EXTRACT(MONTH FROM paid_at) = ${month}
-        ${siteId > 0 ? sql`AND site_id = ${siteId}` : sql``}
-      ORDER BY paid_at DESC
+        oe.category,
+        oe.coa_name,
+        oe.description,
+        oe.amount,
+        oe.payment_method,
+        oe.paid_at
+       FROM operational_expenses oe
+       LEFT JOIN tenants et ON et.id = oe.tenant_id
+       LEFT JOIN mall_sites ms_exp ON ms_exp.id = oe.site_id
+       WHERE EXTRACT(YEAR  FROM oe.paid_at) = ${year}
+         AND EXTRACT(MONTH FROM oe.paid_at) = ${month}
+         ${siteId > 0 ? sql`AND oe.site_id = ${siteId}` : sql``}
+         ${expenseCompanySql}
+       ORDER BY oe.paid_at DESC
     `);
 
     type InvRow = { invoice_number: string; paid_amount: string; period_start: string; period_end: string; paid_at: string; business_name: string | null; unit_code: string | null };
@@ -377,7 +456,7 @@ router.get("/dashboard/export-monthly-pdf", async (req, res) => {
  * GET /api/dashboard/unit-stats
  * Statistik unit mall per status untuk widget denah di dashboard.
  */
-router.get("/dashboard/unit-stats", async (_req, res) => {
+router.get("/dashboard/unit-stats", async (req, res) => {
   try {
     const rows = await db
       .select({
@@ -385,6 +464,12 @@ router.get("/dashboard/unit-stats", async (_req, res) => {
         count:  sql<number>`COUNT(*)::int`,
       })
       .from(mallUnitsTable)
+      .where(and(
+        req.siteId > 0 ? eq(mallUnitsTable.siteId, req.siteId) : undefined,
+        companyTarget(req)
+          ? sql`(SELECT ms_scope.company_id FROM mall_sites ms_scope WHERE ms_scope.id = ${mallUnitsTable.siteId}) = ${companyTarget(req)}`
+          : undefined,
+      ))
       .groupBy(mallUnitsTable.status);
 
     const stats: Record<string, number> = {};
@@ -398,7 +483,16 @@ router.get("/dashboard/unit-stats", async (_req, res) => {
     const occupied = (stats["occupied"] ?? 0) + (stats["overdue"] ?? 0);
     const occupancyRate = total > 0 ? Math.round((occupied / total) * 100) : 0;
 
-    res.json({ stats, total, occupancyRate });
+    res.json({
+      stats,
+      total,
+      occupancyRate,
+      scope: {
+        siteId: req.siteId || null,
+        companyId: req.appContext?.ownerCompanyId ?? null,
+        aggregateAllCompanies: req.siteId === 0 && !req.appContext?.ownerCompanyId,
+      },
+    });
   } catch (err) {
     res.status(500).json({ error: "Gagal mengambil statistik unit" });
   }

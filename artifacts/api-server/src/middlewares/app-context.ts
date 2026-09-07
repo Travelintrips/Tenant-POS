@@ -1,4 +1,12 @@
 import { type Request, type Response, type NextFunction } from "express";
+import { db } from "@workspace/db";
+import {
+  companiesTable,
+  mallSitesTable,
+  tenantsTable,
+  userSiteAccessTable,
+} from "@workspace/db/schema";
+import { and, eq, inArray } from "drizzle-orm";
 
 /**
  * AppContext — konteks aplikasi untuk setiap request yang terautentikasi.
@@ -44,7 +52,7 @@ declare global {
 const VALID_APPS = ["tenant_management", "tenant_pos", "bizportal"] as const;
 const VALID_SOURCE_APPS = ["tenant_management", "tenant_pos"] as const;
 
-export function appContextMiddleware(req: Request, _res: Response, next: NextFunction): void {
+export async function appContextMiddleware(req: Request, res: Response, next: NextFunction): Promise<void> {
   if (!req.user) { next(); return; }
 
   const role = (req.user.role as string) ?? "admin";
@@ -114,11 +122,94 @@ export function appContextMiddleware(req: Request, _res: Response, next: NextFun
   // (mall staff memiliki akses lintas tenant dalam app mereka)
 
   // ── ownerCompanyId ───────────────────────────────────────────────────────────
+  // A company header is only a requested context. It is never accepted as proof
+  // of ownership: resolve it against the selected site, the user's tenant
+  // session, or explicit site access first.
   let ownerCompanyId: number | null = null;
   const hc = req.headers["x-company-id"] as string | undefined;
-  if (hc) {
-    const n = parseInt(hc, 10);
-    if (!isNaN(n) && n > 0) ownerCompanyId = n;
+  const requestedCompanyId = hc == null || hc === ""
+    ? null
+    : Number(hc);
+  if (
+    requestedCompanyId != null
+    && (!Number.isInteger(requestedCompanyId) || requestedCompanyId <= 0)
+  ) {
+    res.status(400).json({ error: "X-Company-Id tidak valid" });
+    return;
+  }
+
+  try {
+    const selectedSiteId = Number.isInteger(req.siteId) && req.siteId > 0 ? req.siteId : null;
+
+    if (selectedSiteId != null) {
+      const [site] = await db
+        .select({ companyId: mallSitesTable.companyId })
+        .from(mallSitesTable)
+        .where(eq(mallSitesTable.id, selectedSiteId));
+
+      if (!site) {
+        res.status(403).json({ error: "Konteks site tidak valid" });
+        return;
+      }
+      if (
+        requestedCompanyId != null
+        && site.companyId !== requestedCompanyId
+      ) {
+        res.status(403).json({ error: "Company tidak sesuai dengan site yang dipilih" });
+        return;
+      }
+      ownerCompanyId = site.companyId ?? null;
+    } else if (requestedCompanyId != null) {
+      const [company] = await db
+        .select({ id: companiesTable.id })
+        .from(companiesTable)
+        .where(eq(companiesTable.id, requestedCompanyId));
+      if (!company) {
+        res.status(403).json({ error: "Company tidak ditemukan" });
+        return;
+      }
+
+      if (role === "owner" || role === "admin") {
+        // These roles legitimately have portfolio-wide access, but selecting a
+        // company still creates a strict company context for downstream routes.
+        ownerCompanyId = company.id;
+      } else if (role === "tenant_user") {
+        const tenantIds = (req.user.tenantAccess ?? [])
+          .filter((access) => access.status == null || access.status !== "inactive")
+          .map((access) => access.tenantId);
+        const [ownedTenant] = tenantIds.length > 0
+          ? await db
+              .select({ id: tenantsTable.id })
+              .from(tenantsTable)
+              .where(and(
+                inArray(tenantsTable.id, tenantIds),
+                eq(tenantsTable.companyId, company.id),
+              ))
+          : [];
+        if (!ownedTenant) {
+          res.status(403).json({ error: "Akses company ditolak" });
+          return;
+        }
+        ownerCompanyId = company.id;
+      } else {
+        const [companySiteAccess] = await db
+          .select({ siteId: userSiteAccessTable.siteId })
+          .from(userSiteAccessTable)
+          .innerJoin(mallSitesTable, eq(userSiteAccessTable.siteId, mallSitesTable.id))
+          .where(and(
+            eq(userSiteAccessTable.userId, req.user.dbId),
+            eq(mallSitesTable.companyId, company.id),
+          ));
+        if (!companySiteAccess) {
+          res.status(403).json({ error: "Akses company ditolak" });
+          return;
+        }
+        ownerCompanyId = company.id;
+      }
+    }
+  } catch (err) {
+    next(err);
+    return;
   }
 
   req.appContext = {

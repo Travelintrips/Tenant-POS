@@ -1,0 +1,86 @@
+Lakukan audit end-to-end seluruh jalur data yang MENULIS ke Supabase dan kemudian dibaca oleh BizPortal, khususnya untuk memastikan data antar perusahaan seperti ERA dan CST tidak pernah tercampur.
+
+Fokus hanya pada integration boundary yang berhubungan dengan BizPortal. Jangan audit fitur proyek yang tidak menulis atau memengaruhi data BizPortal.
+
+Audit production dan kode terkait:
+
+1. Identifikasi seluruh aplikasi/module/service/function/trigger/API/job yang melakukan INSERT/UPDATE ke tabel Supabase yang dibaca BizPortal, terutama:
+
+   * company / tenant
+   * invoice
+   * payment
+   * accounting entry
+   * accounting lines
+   * finance event
+   * reconciliation
+   * vendor/customer bila berpengaruh terhadap company ownership.
+
+2. Petakan source of truth dan alur:
+   Aplikasi sumber → Supabase → BizPortal.
+
+3. Pastikan `company_id` selalu berasal dari owner transaksi/invoice yang canonical, bukan hanya dari `site_id`, session, default company, atau fallback yang dapat menyebabkan cross-company contamination.
+
+4. Audit seluruh data production untuk mencari:
+
+   * invoice berbeda company dengan payment;
+   * payment berbeda company dengan jurnal;
+   * jurnal menggunakan COA milik company lain;
+   * transaksi ERA masuk CST atau sebaliknya;
+   * duplicate journal;
+   * approved payment tanpa jurnal;
+   * jurnal tanpa transaksi sumber/orphan;
+   * nominal payment berbeda dengan jurnal;
+   * `paid_amount` invoice berbeda dengan total payment valid;
+   * jurnal posted tidak balance;
+   * reversal/replacement yang tidak memiliki pasangan benar;
+   * query BizPortal yang tidak memfilter company secara benar.
+
+5. Rekonsiliasi per perusahaan secara TERPISAH. Jangan pernah menggabungkan ERA dan CST hanya karena berada pada site/module yang sama.
+
+Buktikan untuk masing-masing company:
+
+`Invoice paid amount = approved valid payments = gross accounting posting`
+
+dan:
+
+`Gross accounting posting = DPP/revenue + PPN/tax + komponen lain yang memang sah`
+
+6. Periksa BizPortal:
+
+   * pastikan membaca tabel/view canonical Supabase;
+   * pastikan filter `company_id` diterapkan;
+   * pastikan Total Debit/Kredit tidak keliru dianggap sebagai saldo bersih;
+   * pastikan reversal/replacement tidak menyebabkan dashboard menghitung transaksi dua kali;
+   * pastikan dashboard/report menggunakan saldo/net movement yang benar.
+
+Jika menemukan bug atau data salah:
+
+* cari root cause terlebih dahulu;
+* perbaiki kode sumbernya agar tidak berulang;
+* perbaiki data production hanya jika koreksinya deterministik dan dapat dibuktikan;
+* JANGAN edit/hapus jurnal `posted` langsung;
+* gunakan reversal + replacement/adjustment dengan audit trail;
+* lakukan simulasi/transaction rollback terlebih dahulu untuk koreksi berisiko;
+* setelah PASS baru commit;
+* jangan mencampurkan ERA dan CST selama remediation.
+
+Setelah perbaikan, jalankan audit ulang sampai seluruh integrity check berikut = 0:
+
+* cross-company invoice/payment
+* cross-company payment/journal
+* wrong-company COA
+* approved payment tanpa jurnal
+* duplicate active journal
+* amount mismatch
+* invoice/payment mismatch
+* orphan journal yang tidak sah
+* unbalanced posted journal
+* reversal/replacement tidak lengkap
+
+Terakhir berikan tabel rekonsiliasi FINAL per company berisi:
+
+Company | Invoice | Paid Amount | Valid Payment | Revenue/DPP | PPN | Gross Journal | Selisih
+
+Target akhir: **Selisih setiap company = Rp0 dan tidak ada data ERA/CST yang tercampur.**
+
+Kerjakan audit → fix → test → verify secara end-to-end dalam satu eksekusi. Jangan berhenti hanya pada laporan audit jika masalah yang ditemukan aman dan deterministik untuk diperbaiki. Berhenti hanya jika terdapat blocker eksternal atau keputusan bisnis yang tidak dapat ditentukan dengan aman.

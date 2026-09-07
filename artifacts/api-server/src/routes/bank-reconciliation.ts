@@ -1,4 +1,4 @@
-import { Router, type IRouter, type Request } from "express";
+import { Router, type IRouter, type Request, type Response } from "express";
 import multer from "multer";
 import { db } from "@workspace/db";
 import {
@@ -69,6 +69,52 @@ function appCtx(req: Request): AppContext {
     isFullAccess: false,
     sourceAppFilterBypass: false,
   };
+}
+
+type CompanyReadScope = {
+  companyId: number | null;
+  allCompanies: boolean;
+};
+
+/**
+ * Financial reads must have an exact, middleware-verified company context.
+ * The sole exception is an owner explicitly requesting the ALL site/company
+ * portfolio. A missing/invalid site must never silently become an unscoped
+ * company query.
+ */
+function companyReadScope(req: Request, res: Response): CompanyReadScope | null {
+  const ctx = appCtx(req);
+  if (ctx.ownerCompanyId != null && ctx.ownerCompanyId > 0) {
+    return { companyId: ctx.ownerCompanyId, allCompanies: false };
+  }
+
+  const queryScope = String(
+    req.query.company_scope ?? req.query.companyScope ?? req.query.companyId ?? "",
+  ).toLowerCase();
+  const explicitlyAll =
+    queryScope === "all"
+    || String(req.headers["x-site-code"] ?? "").toUpperCase() === "ALL";
+
+  if (explicitlyAll && ctx.isFullAccess) {
+    return { companyId: null, allCompanies: true };
+  }
+
+  res.status(400).json({
+    error: "Pilih company yang valid. Tampilan lintas company hanya tersedia untuk owner dengan scope ALL.",
+  });
+  return null;
+}
+
+function mutationCompanySql(scope: CompanyReadScope) {
+  if (scope.allCompanies) return sql``;
+  return sql`AND COALESCE(bm.company_id, bm.owner_company_id) = ${scope.companyId}`;
+}
+
+function accountingCompanySql(scope: CompanyReadScope, alias: "ae" | "accounting_entries" = "ae") {
+  if (scope.allCompanies) return sql``;
+  return alias === "ae"
+    ? sql`AND ae.company_id = ${scope.companyId}`
+    : sql`AND accounting_entries.company_id = ${scope.companyId}`;
 }
 
 function matchCtx(ctx: AppContext): MatchContext {
@@ -548,18 +594,43 @@ router.post("/bank-reconciliation/import", upload.single("file"), async (req, re
 
 router.get("/bank-reconciliation/kpi", async (req, res) => {
   const ctx = appCtx(req);
+  const companyScope = companyReadScope(req, res);
+  if (!companyScope) return;
   const siteId: number | undefined = (req as any).siteId > 0 ? (req as any).siteId : undefined;
 
   const mutConds = [];
   if (siteId) mutConds.push(eq(bankMutationsTable.siteId, siteId));
+  if (!companyScope.allCompanies) {
+    mutConds.push(
+      or(
+        eq(bankMutationsTable.companyId, companyScope.companyId!),
+        and(
+          isNull(bankMutationsTable.companyId),
+          eq(bankMutationsTable.ownerCompanyId, companyScope.companyId!),
+        ),
+      ) as any,
+    );
+  }
   mutConds.push(...mutationTenantConds(ctx));
 
   const fpeConds = [];
   if (siteId) fpeConds.push(eq(financePaymentEventsTable.siteId, siteId));
+  if (!companyScope.allCompanies) {
+    fpeConds.push(eq(financePaymentEventsTable.ownerCompanyId, companyScope.companyId!) as any);
+  }
   fpeConds.push(...fpeTenantConds(ctx));
 
   const invConds = [];
   if (siteId) invConds.push(eq(tenantInvoicesTable.siteId, siteId));
+  if (!companyScope.allCompanies) {
+    invConds.push(
+      sql`EXISTS (
+        SELECT 1 FROM tenants company_tenant
+        WHERE company_tenant.id = ${tenantInvoicesTable.tenantId}
+          AND company_tenant.company_id = ${companyScope.companyId}
+      )` as any,
+    );
+  }
   if (!ctx.isFullAccess && ctx.ownerTenantId != null) {
     invConds.push(
       or(isNull(tenantInvoicesTable.tenantId), eq(tenantInvoicesTable.tenantId, ctx.ownerTenantId)) as any
@@ -634,6 +705,8 @@ router.get("/bank-reconciliation/kpi", async (req, res) => {
 
 router.get("/bank-reconciliation/cek-kesesuaian", async (req, res) => {
   const ctx = appCtx(req);
+  const companyScope = companyReadScope(req, res);
+  if (!companyScope) return;
   const siteId: number | undefined = (req as any).siteId > 0 ? (req as any).siteId : undefined;
   const { dateFrom, dateTo, status: filterStatus } = req.query as Record<string, string>;
 
@@ -641,6 +714,24 @@ router.get("/bank-reconciliation/cek-kesesuaian", async (req, res) => {
   const fpeTenantSql = fpeRawTenantSql(ctx);
 
   const siteCond = siteId ? sql`AND bm.site_id = ${siteId}` : sql``;
+  const companyCond = mutationCompanySql(companyScope);
+  const fpeCompanyJoin = companyScope.allCompanies
+    ? sql``
+    : sql`AND fpe.owner_company_id = ${companyScope.companyId}`;
+  const invoiceCompanyJoin = companyScope.allCompanies
+    ? sql``
+    : sql`AND EXISTS (
+        SELECT 1 FROM tenants invoice_company_tenant
+        WHERE invoice_company_tenant.id = ti.tenant_id
+          AND invoice_company_tenant.company_id = ${companyScope.companyId}
+      )`;
+  const paymentCompanyJoin = companyScope.allCompanies
+    ? sql``
+    : sql`AND EXISTS (
+        SELECT 1 FROM tenants payment_company_tenant
+        WHERE payment_company_tenant.id = tp.tenant_id
+          AND payment_company_tenant.company_id = ${companyScope.companyId}
+      )`;
   const dateFromCond = dateFrom ? sql`AND bm.transaction_date >= ${dateFrom}` : sql``;
   const dateToCond = dateTo ? sql`AND bm.transaction_date <= ${dateTo}` : sql``;
   const statusCond = filterStatus && filterStatus !== "all" ? sql`AND bm.status = ${filterStatus}` : sql``;
@@ -704,16 +795,20 @@ router.get("/bank-reconciliation/cek-kesesuaian", async (req, res) => {
       ON brm.mutation_id = bm.id AND brm.status = 'applied'
     LEFT JOIN finance_payment_events fpe
       ON brm.candidate_type = 'payment_event' AND fpe.id = brm.candidate_id
+      ${fpeCompanyJoin}
       ${fpeTenantSql}
     LEFT JOIN tenants fpe_t ON fpe.tenant_id = fpe_t.id
     LEFT JOIN tenant_invoices ti
       ON brm.candidate_type = 'invoice' AND ti.id = brm.candidate_id
+      ${invoiceCompanyJoin}
     LEFT JOIN tenants inv_t ON ti.tenant_id = inv_t.id
     LEFT JOIN tenant_payments tp
       ON brm.candidate_type = 'payment' AND tp.id = brm.candidate_id
+      ${paymentCompanyJoin}
     LEFT JOIN tenants pay_t ON tp.tenant_id = pay_t.id
     WHERE 1=1
       ${siteCond}
+      ${companyCond}
       ${mutTenantSql}
       ${dateFromCond}
       ${dateToCond}
@@ -758,11 +853,24 @@ router.get("/bank-reconciliation/cek-kesesuaian", async (req, res) => {
 
 router.get("/bank-reconciliation/mutations", async (req, res) => {
   const ctx = appCtx(req);
+  const companyScope = companyReadScope(req, res);
+  if (!companyScope) return;
   const siteId: number | undefined = (req as any).siteId > 0 ? (req as any).siteId : undefined;
   const { status, direction, provider, dateFrom, dateTo, amountMin, amountMax } = req.query as Record<string, string>;
 
   const conditions = [];
   if (siteId) conditions.push(eq(bankMutationsTable.siteId, siteId));
+  if (!companyScope.allCompanies) {
+    conditions.push(
+      or(
+        eq(bankMutationsTable.companyId, companyScope.companyId!),
+        and(
+          isNull(bankMutationsTable.companyId),
+          eq(bankMutationsTable.ownerCompanyId, companyScope.companyId!),
+        ),
+      ) as any,
+    );
+  }
   conditions.push(...mutationTenantConds(ctx));
   if (status && status !== "all") conditions.push(eq(bankMutationsTable.status, status));
   if (direction && direction !== "all") conditions.push(eq(bankMutationsTable.direction, direction));
@@ -789,11 +897,29 @@ router.get("/bank-reconciliation/matches/:mutationId", async (req, res) => {
   if (isNaN(mutationId)) { res.status(400).json({ error: "ID tidak valid" }); return; }
 
   const ctx = appCtx(req);
+  const companyScope = companyReadScope(req, res);
+  if (!companyScope) return;
+  const mutationConditions: any[] = [eq(bankMutationsTable.id, mutationId)];
+  mutationConditions.push(...mutationTenantConds(ctx));
+  if ((req as any).siteId > 0) {
+    mutationConditions.push(eq(bankMutationsTable.siteId, (req as any).siteId));
+  }
+  if (!companyScope.allCompanies) {
+    mutationConditions.push(
+      or(
+        eq(bankMutationsTable.companyId, companyScope.companyId!),
+        and(
+          isNull(bankMutationsTable.companyId),
+          eq(bankMutationsTable.ownerCompanyId, companyScope.companyId!),
+        ),
+      ),
+    );
+  }
 
   const [mutation] = await db
     .select()
     .from(bankMutationsTable)
-    .where(eq(bankMutationsTable.id, mutationId))
+    .where(and(...mutationConditions))
     .limit(1);
 
   if (!mutation) { res.status(404).json({ error: "Mutasi tidak ditemukan" }); return; }
@@ -826,7 +952,12 @@ router.get("/bank-reconciliation/matches/:mutationId", async (req, res) => {
           })
           .from(tenantPaymentsTable)
           .leftJoin(tenantsTable, eq(tenantPaymentsTable.tenantId, tenantsTable.id))
-          .where(eq(tenantPaymentsTable.id, m.candidateId))
+          .where(and(
+            eq(tenantPaymentsTable.id, m.candidateId),
+            ...(!companyScope.allCompanies
+              ? [eq(tenantsTable.companyId, companyScope.companyId!)]
+              : []),
+          ))
           .limit(1);
         if (p) detail = p as Record<string, unknown>;
       } else if (m.candidateType === "invoice") {
@@ -843,7 +974,12 @@ router.get("/bank-reconciliation/matches/:mutationId", async (req, res) => {
           })
           .from(tenantInvoicesTable)
           .leftJoin(tenantsTable, eq(tenantInvoicesTable.tenantId, tenantsTable.id))
-          .where(eq(tenantInvoicesTable.id, m.candidateId))
+          .where(and(
+            eq(tenantInvoicesTable.id, m.candidateId),
+            ...(!companyScope.allCompanies
+              ? [eq(tenantsTable.companyId, companyScope.companyId!)]
+              : []),
+          ))
           .limit(1);
         if (inv) detail = inv as Record<string, unknown>;
       } else if (m.candidateType === "payment_event") {
@@ -861,7 +997,12 @@ router.get("/bank-reconciliation/matches/:mutationId", async (req, res) => {
           })
           .from(financePaymentEventsTable)
           .leftJoin(tenantsTable, eq(financePaymentEventsTable.tenantId, tenantsTable.id))
-          .where(eq(financePaymentEventsTable.id, m.candidateId))
+          .where(and(
+            eq(financePaymentEventsTable.id, m.candidateId),
+            ...(!companyScope.allCompanies
+              ? [eq(financePaymentEventsTable.ownerCompanyId, companyScope.companyId!)]
+              : []),
+          ))
           .limit(1);
         if (fpe) detail = fpe as Record<string, unknown>;
       }
@@ -1417,9 +1558,23 @@ router.post("/bank-reconciliation/:mutationId/manual-match", async (req, res) =>
 
 router.get("/bank-reconciliation/audit", async (req, res) => {
   const ctx = appCtx(req);
+  const companyScope = companyReadScope(req, res);
+  if (!companyScope) return;
   const siteId: number | undefined = (req as any).siteId > 0 ? (req as any).siteId : undefined;
 
   const siteFilter = siteId ? sql`AND bm.site_id = ${siteId}` : sql``;
+  const mutationCompanyFilter = mutationCompanySql(companyScope);
+  const journalCompanyFilter = accountingCompanySql(companyScope, "accounting_entries");
+  const invoiceCompanyFilter = companyScope.allCompanies
+    ? sql``
+    : sql`AND EXISTS (
+        SELECT 1 FROM tenants company_tenant
+        WHERE company_tenant.id = ti.tenant_id
+          AND company_tenant.company_id = ${companyScope.companyId}
+      )`;
+  const fpeCompanyFilter = companyScope.allCompanies
+    ? sql``
+    : sql`AND fpe.owner_company_id = ${companyScope.companyId}`;
   const tenantFilter = mutationRawTenantSql(ctx);
   const invTenantFilter = invoiceRawTenantSql(ctx);
   const fpeTenantFilter = fpeRawTenantSql(ctx);
@@ -1441,7 +1596,7 @@ router.get("/bank-reconciliation/audit", async (req, res) => {
           FROM bank_mutations bm
           WHERE bm.status = 'approved'
             AND (bm.accounting_posted = false OR bm.accounting_posted IS NULL)
-            ${siteFilter} ${tenantFilter}
+            ${siteFilter} ${mutationCompanyFilter} ${tenantFilter}
           ORDER BY bm.created_at DESC
           LIMIT 100`
     ),
@@ -1450,6 +1605,7 @@ router.get("/bank-reconciliation/audit", async (req, res) => {
       sql`SELECT correlation_id AS journal_id, count(*)::int AS cnt
           FROM accounting_entries
           WHERE source_module IN ('bank_reconciliation', 'pos_payment')
+          ${journalCompanyFilter}
           GROUP BY correlation_id
           HAVING count(*) > 1
           LIMIT 50`
@@ -1466,7 +1622,7 @@ router.get("/bank-reconciliation/audit", async (req, res) => {
               WHERE bab.bank_account_id = bm.bank_account_id
                 AND (bab.site_id = bm.site_id OR (bab.site_id IS NULL AND bm.site_id IS NULL))
             )
-            ${siteFilter} ${tenantFilter}
+            ${siteFilter} ${mutationCompanyFilter} ${tenantFilter}
           LIMIT 50`
     ),
 
@@ -1475,7 +1631,7 @@ router.get("/bank-reconciliation/audit", async (req, res) => {
           FROM bank_mutations bm
           WHERE bm.company_id IS NULL
             AND bm.status IN ('approved', 'matched')
-            ${siteFilter} ${tenantFilter}
+            ${siteFilter} ${mutationCompanyFilter} ${tenantFilter}
           LIMIT 50`
     ),
 
@@ -1484,6 +1640,7 @@ router.get("/bank-reconciliation/audit", async (req, res) => {
           FROM accounting_entries
           WHERE source_module IN ('bank_reconciliation', 'pos_payment')
             AND company_id IS NULL
+          ${journalCompanyFilter}
           LIMIT 50`
     ),
 
@@ -1492,24 +1649,26 @@ router.get("/bank-reconciliation/audit", async (req, res) => {
           FROM tenant_invoices ti
           WHERE ti.paid_amount::numeric > ti.total_amount::numeric
             AND ti.total_amount::numeric > 0
+            ${invoiceCompanyFilter}
             ${invTenantFilter}
           LIMIT 50`
     ),
 
     db.execute<{ cnt: string }>(
       sql`SELECT COUNT(*)::text AS cnt FROM bank_mutations bm
-          WHERE bm.status = 'duplicate_need_review' ${siteFilter} ${tenantFilter}`
+          WHERE bm.status = 'duplicate_need_review' ${siteFilter} ${mutationCompanyFilter} ${tenantFilter}`
     ),
 
     db.execute<{ cnt: string }>(
       sql`SELECT COUNT(*)::text AS cnt FROM bank_mutations bm
-          WHERE bm.status = 'unmatched' ${siteFilter} ${tenantFilter}`
+          WHERE bm.status = 'unmatched' ${siteFilter} ${mutationCompanyFilter} ${tenantFilter}`
     ),
 
     db.execute<{ cnt: string }>(
       sql`SELECT COUNT(*)::text AS cnt FROM tenant_invoices ti
           WHERE ti.status IN ('unpaid','partial','overdue')
           ${siteId ? sql`AND ti.site_id = ${siteId}` : sql``}
+          ${invoiceCompanyFilter}
           ${invTenantFilter}`
     ),
 
@@ -1517,6 +1676,7 @@ router.get("/bank-reconciliation/audit", async (req, res) => {
       sql`SELECT COUNT(*)::text AS cnt FROM finance_payment_events fpe
           WHERE fpe.payment_status IN ('pending','waiting_confirmation')
           ${siteId ? sql`AND fpe.site_id = ${siteId}` : sql``}
+          ${fpeCompanyFilter}
           ${fpeTenantFilter}`
     ),
   ]);
@@ -1829,6 +1989,8 @@ router.post("/bank-reconciliation/send-reminder-wa", async (req, res) => {
 
 router.get("/bank-reconciliation/audit-logs", async (req, res) => {
   const ctx = appCtx(req);
+  const companyScope = companyReadScope(req, res);
+  if (!companyScope) return;
   const {
     mutation_id,
     action,
@@ -1848,6 +2010,9 @@ router.get("/bank-reconciliation/audit-logs", async (req, res) => {
 
   const conditions: ReturnType<typeof eq>[] = [];
 
+  if (!companyScope.allCompanies) {
+    conditions.push(eq(bankReconAuditLogsTable.ownerCompanyId, companyScope.companyId!) as any);
+  }
   if (!ctx.isFullAccess) {
     if (ctx.ownerTenantId != null) {
       conditions.push(
@@ -1902,8 +2067,14 @@ router.get("/bank-reconciliation/audit-logs", async (req, res) => {
 
 // ── GET /bank-reconciliation/laporan ─────────────────────────────────────────
 router.get("/bank-reconciliation/laporan", async (req, res) => {
+  const ctx = appCtx(req);
+  const companyScope = companyReadScope(req, res);
+  if (!companyScope) return;
+  const siteId: number | undefined = (req as any).siteId > 0 ? (req as any).siteId : undefined;
   const { year } = req.query as Record<string, string>;
   const targetYear = year ? parseInt(year, 10) : new Date().getFullYear();
+  const tenantFilter = mutationRawTenantSql(ctx);
+  const companyFilter = mutationCompanySql(companyScope);
 
   const rows = await db.execute(sql`
     SELECT
@@ -1917,8 +2088,11 @@ router.get("/bank-reconciliation/laporan", async (req, res) => {
       COALESCE(SUM(CASE WHEN direction = 'IN' THEN credit_amount::numeric ELSE 0 END), 0) AS total_in,
       COALESCE(SUM(CASE WHEN direction = 'OUT' THEN debit_amount::numeric ELSE 0 END), 0) AS total_out,
       COALESCE(SUM(CASE WHEN status = 'approved' AND direction = 'IN' THEN credit_amount::numeric ELSE 0 END), 0) AS approved_amount
-    FROM bank_mutations
-    WHERE EXTRACT(YEAR FROM transaction_date::date) = ${targetYear}
+    FROM bank_mutations bm
+    WHERE EXTRACT(YEAR FROM bm.transaction_date::date) = ${targetYear}
+      ${siteId ? sql`AND bm.site_id = ${siteId}` : sql``}
+      ${companyFilter}
+      ${tenantFilter}
     GROUP BY year_month
     ORDER BY year_month DESC
   `);
@@ -2082,8 +2256,13 @@ router.delete("/bank-reconciliation/coa-rules/:id", async (req, res) => {
 router.get("/bank-reconciliation/account-balances", async (req, res) => {
   try {
     const ctx = appCtx(req);
+    const companyScope = companyReadScope(req, res);
+    if (!companyScope) return;
     const conditions: any[] = [];
 
+    if (!companyScope.allCompanies) {
+      conditions.push(eq(bankAccountBalancesTable.companyId, companyScope.companyId!));
+    }
     if (ctx.ownerTenantId != null) {
       conditions.push(eq(bankAccountBalancesTable.ownerTenantId, ctx.ownerTenantId));
     }
@@ -2106,6 +2285,8 @@ router.get("/bank-reconciliation/account-balances", async (req, res) => {
 
 router.get("/bank-reconciliation/journal-entries", async (req, res) => {
   try {
+    const companyScope = companyReadScope(req, res);
+    if (!companyScope) return;
     const {
       date_from,
       date_to,
@@ -2119,20 +2300,7 @@ router.get("/bank-reconciliation/journal-entries", async (req, res) => {
     const limit = Math.min(200, Math.max(1, parseInt(limitStr, 10) || 50));
     const offset = (page - 1) * limit;
 
-    // Resolve company_id dari siteId aktif
-    const siteId: number = (req as any).siteId ?? 0;
-    let companyId: number | null = null;
-    if (siteId > 0) {
-      const compRes = await db.execute(
-        sql`SELECT DISTINCT company_id FROM tenants WHERE site_id = ${siteId} AND company_id IS NOT NULL LIMIT 1`
-      );
-      const cRow = ((compRes as any).rows ?? [])[0];
-      if (cRow?.company_id) companyId = Number(cRow.company_id);
-    }
-
-    const companyFilter = companyId != null
-      ? sql`AND ae.company_id = ${companyId}`
-      : sql``;
+    const companyFilter = accountingCompanySql(companyScope);
     const dfFilter = date_from ? sql`AND ae.date >= ${date_from}::date` : sql``;
     const dtFilter = date_to   ? sql`AND ae.date <= ${date_to}::date`   : sql``;
 
@@ -2154,7 +2322,7 @@ router.get("/bank-reconciliation/journal-entries", async (req, res) => {
       sourceFilter = sql`AND (ae.entry_number LIKE 'OCR/%' OR ae.source_module ILIKE '%bank%' OR ae.source_module ILIKE '%recon%')`;
     }
 
-    const [rowsRes, countRes] = await Promise.all([
+    const [rowsRes, countRes, movementRes] = await Promise.all([
       db.execute(sql`
         SELECT
           ae.id,
@@ -2165,6 +2333,10 @@ router.get("/bank-reconciliation/journal-entries", async (req, res) => {
           ae.status,
           ae.source,
           ae.source_module       AS "sourceModule",
+          ae.source_table        AS "sourceTable",
+          ae.source_id           AS "sourceId",
+          ae.ref,
+          ae.correlation_id      AS "correlationId",
           ae.total_debit         AS "debitAmount",
           ae.total_credit        AS "creditAmount",
           ae.company_id          AS "companyId",
@@ -2209,12 +2381,38 @@ router.get("/bank-reconciliation/journal-entries", async (req, res) => {
           ${searchFilter}
           ${sourceFilter}
       `),
+      db.execute(sql`
+        SELECT
+          COALESCE(SUM(ae.total_debit), 0)::text AS "debitMovement",
+          COALESCE(SUM(ae.total_credit), 0)::text AS "creditMovement"
+        FROM accounting_entries ae
+        WHERE 1=1
+          ${companyFilter}
+          ${dfFilter}
+          ${dtFilter}
+          ${searchFilter}
+          ${sourceFilter}
+      `),
     ]);
 
     const rows = (rowsRes as any).rows ?? [];
     const total = ((countRes as any).rows ?? [])[0]?.count ?? 0;
+    const movements = ((movementRes as any).rows ?? [])[0] ?? {
+      debitMovement: "0",
+      creditMovement: "0",
+    };
 
-    res.json({ data: rows, total, page, limit });
+    res.json({
+      data: rows,
+      total,
+      page,
+      limit,
+      movements: {
+        totalDebit: movements.debitMovement,
+        totalCredit: movements.creditMovement,
+      },
+      companyScope: companyScope.allCompanies ? "all" : companyScope.companyId,
+    });
   } catch (err) {
     logger.error({ err: err }, "journal-entries error:");
     res.status(500).json({ error: "Gagal memuat jurnal" });

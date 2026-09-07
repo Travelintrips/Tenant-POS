@@ -1,4 +1,4 @@
-import { Router, type IRouter } from "express";
+import { Router, type IRouter, type Request } from "express";
 import { db } from "@workspace/db";
 import { tenantInvoicesTable, tenantsTable } from "@workspace/db/schema";
 import { eq, and, gte, lte, sql, inArray } from "drizzle-orm";
@@ -7,8 +7,27 @@ import { writeToSheet, readFromSheet, extractSheetId, getServiceAccountEmail } f
 import { sendReconciliationReminder } from "../lib/whatsapp";
 import { logger } from "../lib/logger";
 import { requireAnyRole } from "../middlewares/auth";
+import { appContextMiddleware } from "../middlewares/app-context";
 
 const router: IRouter = Router();
+
+router.use("/reconciliation", appContextMiddleware);
+
+function invoiceCompanyCondition(req: Request) {
+  const companyId = req.appContext?.ownerCompanyId ?? null;
+  const target = companyId
+    ? sql`${companyId}`
+    : req.siteId > 0
+      ? sql`(SELECT ms_scope.company_id FROM mall_sites ms_scope WHERE ms_scope.id = ${req.siteId})`
+      : null;
+
+  return target
+    ? sql`COALESCE(
+        ${tenantsTable.companyId},
+        (SELECT ms_scope.company_id FROM mall_sites ms_scope WHERE ms_scope.id = ${tenantInvoicesTable.siteId})
+      ) = ${target}`
+    : sql`true`;
+}
 
 router.get("/reconciliation/info", requireAnyRole("owner", "admin", "finance"), (_req, res) => {
   res.json({ serviceAccountEmail: getServiceAccountEmail() });
@@ -30,6 +49,10 @@ router.post("/reconciliation/export", requireAnyRole("owner", "admin", "finance"
   }
   const { spreadsheetId: rawId, year, month, sheetTitle: customSheetTitle } = parsed.data;
   const spreadsheetId = extractSheetId(rawId);
+  if (req.siteId === 0 && !req.appContext?.ownerCompanyId) {
+    res.status(400).json({ error: "Pilih perusahaan sebelum mengekspor rekonsiliasi lintas lokasi" });
+    return;
+  }
 
   const periodStart = `${year}-${String(month).padStart(2, "0")}-01`;
   const lastDay = new Date(year, month, 0).getDate();
@@ -63,6 +86,7 @@ router.post("/reconciliation/export", requireAnyRole("owner", "admin", "finance"
     .where(
       and(
         req.siteId ? eq(tenantInvoicesTable.siteId, req.siteId) : sql`1=1`,
+        invoiceCompanyCondition(req),
         gte(tenantInvoicesTable.periodStart, periodStart),
         lte(tenantInvoicesTable.periodStart, periodEnd),
       ),
@@ -175,6 +199,10 @@ router.post("/reconciliation/notify", requireAnyRole("owner", "admin", "finance"
     return;
   }
   const { invoiceNumbers, monthLabel } = parsed.data;
+  if (req.siteId === 0 && !req.appContext?.ownerCompanyId) {
+    res.status(400).json({ error: "Pilih perusahaan sebelum mengirim pengingat rekonsiliasi" });
+    return;
+  }
 
   const invoices = await db
     .select({
@@ -188,7 +216,11 @@ router.post("/reconciliation/notify", requireAnyRole("owner", "admin", "finance"
     })
     .from(tenantInvoicesTable)
     .leftJoin(tenantsTable, eq(tenantInvoicesTable.tenantId, tenantsTable.id))
-    .where(inArray(tenantInvoicesTable.invoiceNumber, invoiceNumbers));
+    .where(and(
+      inArray(tenantInvoicesTable.invoiceNumber, invoiceNumbers),
+      req.siteId > 0 ? eq(tenantInvoicesTable.siteId, req.siteId) : sql`true`,
+      invoiceCompanyCondition(req),
+    ));
 
   const sent: string[] = [];
   const failed: Array<{ invoiceNumber: string; error: string }> = [];

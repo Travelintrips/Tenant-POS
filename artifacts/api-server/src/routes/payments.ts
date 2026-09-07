@@ -1,7 +1,7 @@
 import { Router, type IRouter } from "express";
 import { db } from "@workspace/db";
-import { tenantPaymentsTable, tenantInvoicesTable, tenantsTable, tenantReceiptsTable } from "@workspace/db/schema";
-import { eq, sql, desc, and, gte, lte } from "drizzle-orm";
+import { tenantPaymentsTable, tenantInvoicesTable, tenantsTable, tenantReceiptsTable, mallSitesTable } from "@workspace/db/schema";
+import { eq, sql, desc, and, gte, lte, type SQL } from "drizzle-orm";
 import { z } from "zod";
 import { logAudit } from "../lib/audit";
 import { LedgerError, recordPayment } from "../lib/payment-ledger";
@@ -12,8 +12,11 @@ import { postTenantPaymentAccountingEntry } from "../lib/accounting-entry";
 import { notifyAdminGroup } from "../lib/whatsapp";
 import { logger } from "../lib/logger";
 import { requireAnyRole } from "../middlewares/auth";
+import { appContextMiddleware } from "../middlewares/app-context";
 
 const router: IRouter = Router();
+
+router.use("/payments", appContextMiddleware);
 
 // POST /payments adalah pencatatan manual — hanya owner, admin, finance.
 // Kasir menggunakan /tenant-pos/payments (alur POS dengan shift).
@@ -52,6 +55,16 @@ router.post("/payments", async (req, res) => {
   } = parsed.data;
 
   try {
+    const requestContext = req.appContext!;
+    if (
+      req.siteId === 0
+      && !requestContext.ownerCompanyId
+      && !["owner", "admin"].includes(requestContext.role)
+    ) {
+      res.status(403).json({ error: "Pilih company untuk mencatat pembayaran semua site" });
+      return;
+    }
+
     const result = await db.transaction(async (tx) => {
       const [invoice] = await tx
         .select({
@@ -59,13 +72,32 @@ router.post("/payments", async (req, res) => {
           tenantId: tenantInvoicesTable.tenantId,
           bookingId: tenantInvoicesTable.bookingId,
           siteId: tenantInvoicesTable.siteId,
+          tenantSiteId: tenantsTable.siteId,
+          companyId: tenantsTable.companyId,
+          siteCompanyId: mallSitesTable.companyId,
           status: tenantInvoicesTable.status,
         })
         .from(tenantInvoicesTable)
+        .innerJoin(tenantsTable, eq(tenantInvoicesTable.tenantId, tenantsTable.id))
+        .leftJoin(
+          mallSitesTable,
+          eq(mallSitesTable.id, sql<number>`coalesce(${tenantInvoicesTable.siteId}, ${tenantsTable.siteId})`),
+        )
         .where(eq(tenantInvoicesTable.id, invoiceId))
         .for("update");
 
       if (!invoice) {
+        throw Object.assign(new Error("Invoice tidak ditemukan"), { status: 404 });
+      }
+      const ctx = req.appContext!;
+      const invoiceSiteId = invoice.siteId ?? invoice.tenantSiteId;
+      const invoiceCompanyId = invoice.companyId ?? invoice.siteCompanyId;
+      if (
+        (req.siteId > 0 && invoiceSiteId !== req.siteId)
+        || (ctx.ownerCompanyId != null && invoiceCompanyId !== ctx.ownerCompanyId)
+        || (ctx.ownerTenantId != null && invoice.tenantId !== ctx.ownerTenantId)
+      ) {
+        // Use 404 so callers cannot enumerate invoices outside their context.
         throw Object.assign(new Error("Invoice tidak ditemukan"), { status: 404 });
       }
       if (invoice.status === "cancelled") {
@@ -260,10 +292,22 @@ router.get("/payments", async (req, res) => {
   const dateTo = String(req.query.dateTo ?? "").trim() || null;
 
   try {
+    const ctx = req.appContext!;
+    if (req.siteId === 0 && !ctx.ownerCompanyId && !["owner", "admin"].includes(ctx.role)) {
+      res.status(403).json({ error: "Pilih company untuk melihat pembayaran semua site" });
+      return;
+    }
+
+    const linkedSiteId = sql<number>`coalesce(${tenantInvoicesTable.siteId}, ${tenantsTable.siteId}, ${tenantPaymentsTable.siteId})`;
+    const linkedCompanyId = sql<number>`coalesce(${tenantsTable.companyId}, ${mallSitesTable.companyId})`;
     const conditions = [
       eq(tenantPaymentsTable.invoiceId, invoiceId),
       eq(tenantPaymentsTable.isVoided, false),
-    ] as ReturnType<typeof eq>[];
+    ] as SQL[];
+
+    if (req.siteId > 0) conditions.push(eq(linkedSiteId, req.siteId));
+    if (ctx.ownerCompanyId != null) conditions.push(eq(linkedCompanyId, ctx.ownerCompanyId));
+    if (ctx.ownerTenantId != null) conditions.push(eq(tenantInvoicesTable.tenantId, ctx.ownerTenantId));
 
     if (sourceType) conditions.push(eq(tenantPaymentsTable.sourceType, sourceType));
     if (dateFrom) conditions.push(gte(tenantPaymentsTable.createdAt, new Date(dateFrom)));
@@ -278,6 +322,9 @@ router.get("/payments", async (req, res) => {
     const [countRow] = await db
       .select({ total: sql<number>`count(*)::int` })
       .from(tenantPaymentsTable)
+      .innerJoin(tenantInvoicesTable, eq(tenantPaymentsTable.invoiceId, tenantInvoicesTable.id))
+      .innerJoin(tenantsTable, eq(tenantInvoicesTable.tenantId, tenantsTable.id))
+      .leftJoin(mallSitesTable, eq(mallSitesTable.id, linkedSiteId))
       .where(whereClause);
 
     const rows = await db
@@ -301,6 +348,9 @@ router.get("/payments", async (req, res) => {
         kasirName: cashierShiftsTable.cashierName,
       })
       .from(tenantPaymentsTable)
+      .innerJoin(tenantInvoicesTable, eq(tenantPaymentsTable.invoiceId, tenantInvoicesTable.id))
+      .innerJoin(tenantsTable, eq(tenantInvoicesTable.tenantId, tenantsTable.id))
+      .leftJoin(mallSitesTable, eq(mallSitesTable.id, linkedSiteId))
       .leftJoin(cashierShiftsTable, eq(tenantPaymentsTable.shiftId, cashierShiftsTable.id))
       .where(whereClause)
       .orderBy(desc(tenantPaymentsTable.createdAt))
@@ -329,6 +379,19 @@ router.get("/payments/:id", async (req, res) => {
   if (isNaN(id)) { res.status(400).json({ error: "ID tidak valid" }); return; }
 
   try {
+    const ctx = req.appContext!;
+    if (req.siteId === 0 && !ctx.ownerCompanyId && !["owner", "admin"].includes(ctx.role)) {
+      res.status(403).json({ error: "Pilih company untuk melihat pembayaran semua site" });
+      return;
+    }
+
+    const linkedSiteId = sql<number>`coalesce(${tenantInvoicesTable.siteId}, ${tenantsTable.siteId}, ${tenantPaymentsTable.siteId})`;
+    const linkedCompanyId = sql<number>`coalesce(${tenantsTable.companyId}, ${mallSitesTable.companyId})`;
+    const conditions: SQL[] = [eq(tenantPaymentsTable.id, id)];
+    if (req.siteId > 0) conditions.push(eq(linkedSiteId, req.siteId));
+    if (ctx.ownerCompanyId != null) conditions.push(eq(linkedCompanyId, ctx.ownerCompanyId));
+    if (ctx.ownerTenantId != null) conditions.push(eq(tenantInvoicesTable.tenantId, ctx.ownerTenantId));
+
     const [payment] = await db
       .select({
         id: tenantPaymentsTable.id,
@@ -350,8 +413,10 @@ router.get("/payments/:id", async (req, res) => {
         ownerName: tenantsTable.ownerName,
       })
       .from(tenantPaymentsTable)
-      .leftJoin(tenantsTable, eq(tenantPaymentsTable.tenantId, tenantsTable.id))
-      .where(eq(tenantPaymentsTable.id, id));
+      .innerJoin(tenantInvoicesTable, eq(tenantPaymentsTable.invoiceId, tenantInvoicesTable.id))
+      .innerJoin(tenantsTable, eq(tenantInvoicesTable.tenantId, tenantsTable.id))
+      .leftJoin(mallSitesTable, eq(mallSitesTable.id, linkedSiteId))
+      .where(and(...conditions));
 
     if (!payment) {
       res.status(404).json({ error: "Pembayaran tidak ditemukan" });

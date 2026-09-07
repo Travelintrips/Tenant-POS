@@ -1,4 +1,4 @@
-import { Router, type IRouter } from "express";
+import { Router, type IRouter, type Request } from "express";
 import { db } from "@workspace/db";
 import {
   tenantsTable,
@@ -8,15 +8,76 @@ import {
 } from "@workspace/db/schema";
 import { eq, sql, desc, and, isNull, isNotNull } from "drizzle-orm";
 import { requireAnyRole } from "../middlewares/auth";
+import { appContextMiddleware } from "../middlewares/app-context";
 
 const router: IRouter = Router();
 
+router.use("/laporan", appContextMiddleware);
 router.use("/laporan", requireAnyRole("owner", "admin", "finance"));
 
 const BULAN_LABEL = ["Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Ags", "Sep", "Okt", "Nov", "Des"];
 
 // Helper: non-void condition
 const notVoided = sql`(${tenantPaymentsTable.isVoided} = false OR ${tenantPaymentsTable.isVoided} IS NULL)`;
+
+function companyTarget(req: Request) {
+  const companyId = req.appContext?.ownerCompanyId ?? null;
+  if (companyId) return sql`${companyId}`;
+  if (req.siteId > 0) {
+    return sql`(SELECT ms_scope.company_id FROM mall_sites ms_scope WHERE ms_scope.id = ${req.siteId})`;
+  }
+  return null;
+}
+
+function companyScope(req: Request, canonicalCompany: ReturnType<typeof sql>) {
+  const target = companyTarget(req);
+  return target ? sql`AND ${canonicalCompany} = ${target}` : sql``;
+}
+
+function paymentCompanyScope(req: Request, paymentAlias = "tenant_payments") {
+  const alias = sql.identifier(paymentAlias);
+  return companyScope(req, sql`COALESCE(
+    (SELECT t_inv.company_id
+       FROM tenant_invoices i_scope
+       JOIN tenants t_inv ON t_inv.id = i_scope.tenant_id
+      WHERE i_scope.id = ${alias}.invoice_id),
+    (SELECT t_scope.company_id FROM tenants t_scope WHERE t_scope.id = ${alias}.tenant_id),
+    ${alias}.company_id,
+    (SELECT ms_scope.company_id FROM mall_sites ms_scope WHERE ms_scope.id = ${alias}.site_id)
+  )`);
+}
+
+function invoiceCompanyScope(req: Request, invoiceAlias = "tenant_invoices") {
+  const alias = sql.identifier(invoiceAlias);
+  return companyScope(req, sql`COALESCE(
+    (SELECT t_scope.company_id FROM tenants t_scope WHERE t_scope.id = ${alias}.tenant_id),
+    (SELECT ms_scope.company_id FROM mall_sites ms_scope WHERE ms_scope.id = ${alias}.site_id)
+  )`);
+}
+
+function bookingCompanyScope(req: Request, bookingAlias = "tenant_bookings") {
+  const alias = sql.identifier(bookingAlias);
+  return companyScope(req, sql`COALESCE(
+    (SELECT t_scope.company_id FROM tenants t_scope WHERE t_scope.id = ${alias}.tenant_id),
+    (SELECT ms_scope.company_id FROM mall_sites ms_scope WHERE ms_scope.id = ${alias}.site_id)
+  )`);
+}
+
+function tenantCompanyScope(req: Request, tenantAlias = "tenants") {
+  const alias = sql.identifier(tenantAlias);
+  return companyScope(req, sql`COALESCE(
+    ${alias}.company_id,
+    (SELECT ms_scope.company_id FROM mall_sites ms_scope WHERE ms_scope.id = ${alias}.site_id)
+  )`);
+}
+
+function reportScope(req: Request) {
+  return {
+    siteId: req.siteId || null,
+    companyId: req.appContext?.ownerCompanyId ?? null,
+    aggregateAllCompanies: req.siteId === 0 && !req.appContext?.ownerCompanyId,
+  };
+}
 
 /**
  * GET /api/laporan/summary?tahun=2026
@@ -38,6 +99,8 @@ router.get("/laporan/summary", async (req, res) => {
   const bookingSiteClause = siteId > 0
     ? sql`AND ${tenantBookingsTable.siteId} = ${siteId}`
     : sql``;
+  const paymentCompanyClause = paymentCompanyScope(req);
+  const bookingCompanyClause = bookingCompanyScope(req);
 
   const rows = await db
     .select({
@@ -49,7 +112,7 @@ router.get("/laporan/summary", async (req, res) => {
     .where(
       sql`EXTRACT(YEAR FROM ${tenantPaymentsTable.paidAt}) = ${tahun}
         AND (${tenantPaymentsTable.isVoided} = false OR ${tenantPaymentsTable.isVoided} IS NULL)
-        ${paymentSiteClause}`
+        ${paymentSiteClause} ${paymentCompanyClause}`
     )
     .groupBy(sql`EXTRACT(MONTH FROM ${tenantPaymentsTable.paidAt})`)
     .orderBy(sql`EXTRACT(MONTH FROM ${tenantPaymentsTable.paidAt})`);
@@ -83,7 +146,7 @@ router.get("/laporan/summary", async (req, res) => {
     .from(tenantBookingsTable)
     .where(
       sql`UPPER(${tenantBookingsTable.paymentStatus}) IN ('UNPAID', 'PARTIAL', 'OVERDUE')
-        ${bookingSiteClause}`
+        ${bookingSiteClause} ${bookingCompanyClause}`
     );
 
   return res.json({
@@ -95,6 +158,7 @@ router.get("/laporan/summary", async (req, res) => {
       totalTunggakan: Number(tunggakanRows[0]?.totalTunggakan ?? 0),
       jumlahUnit: tunggakanRows[0]?.jumlahTunggakan ?? 0,
     },
+    scope: reportScope(req),
   });
 });
 
@@ -113,6 +177,8 @@ router.get("/laporan/kpi", async (req, res) => {
   const kpiInvSiteClause = kpiSiteId > 0
     ? sql`AND ${tenantInvoicesTable.siteId} = ${kpiSiteId}`
     : sql``;
+  const kpiPayCompanyClause = paymentCompanyScope(req);
+  const kpiInvCompanyClause = invoiceCompanyScope(req);
 
   // Revenue bulan ini (net of refunds, excluding void)
   const revenueThisMonth = await db
@@ -124,7 +190,7 @@ router.get("/laporan/kpi", async (req, res) => {
       sql`EXTRACT(YEAR FROM ${tenantPaymentsTable.paidAt}) = ${thisYear}
         AND EXTRACT(MONTH FROM ${tenantPaymentsTable.paidAt}) = ${thisMonth}
         AND (${tenantPaymentsTable.isVoided} = false OR ${tenantPaymentsTable.isVoided} IS NULL)
-        ${kpiPaySiteClause}`
+        ${kpiPaySiteClause} ${kpiPayCompanyClause}`
     );
 
   // Total paid bulan ini (gross)
@@ -137,7 +203,7 @@ router.get("/laporan/kpi", async (req, res) => {
       sql`EXTRACT(YEAR FROM ${tenantPaymentsTable.paidAt}) = ${thisYear}
         AND EXTRACT(MONTH FROM ${tenantPaymentsTable.paidAt}) = ${thisMonth}
         AND (${tenantPaymentsTable.isVoided} = false OR ${tenantPaymentsTable.isVoided} IS NULL)
-        ${kpiPaySiteClause}`
+        ${kpiPaySiteClause} ${kpiPayCompanyClause}`
     );
 
   // Total outstanding dari invoice
@@ -146,7 +212,7 @@ router.get("/laporan/kpi", async (req, res) => {
       total: sql<number>`COALESCE(SUM(${tenantInvoicesTable.outstandingAmount}), 0)::numeric`,
     })
     .from(tenantInvoicesTable)
-    .where(sql`${tenantInvoicesTable.status} NOT IN ('paid', 'cancelled') ${kpiInvSiteClause}`);
+    .where(sql`${tenantInvoicesTable.status} NOT IN ('paid', 'cancelled') ${kpiInvSiteClause} ${kpiInvCompanyClause}`);
 
   // Total overdue (invoice melewati due_date dan belum lunas)
   const overdueRow = await db
@@ -159,7 +225,7 @@ router.get("/laporan/kpi", async (req, res) => {
     .where(
       sql`${tenantInvoicesTable.status} NOT IN ('paid', 'cancelled')
         AND ${tenantInvoicesTable.dueDate} < CURRENT_DATE
-        ${kpiInvSiteClause}`
+        ${kpiInvSiteClause} ${kpiInvCompanyClause}`
     );
 
   // Collection rate: paid / (paid + outstanding) x 100
@@ -169,7 +235,7 @@ router.get("/laporan/kpi", async (req, res) => {
       totalPaid: sql<number>`COALESCE(SUM(${tenantInvoicesTable.paidAmount}), 0)::numeric`,
     })
     .from(tenantInvoicesTable)
-    .where(sql`${tenantInvoicesTable.status} != 'cancelled' ${kpiInvSiteClause}`);
+    .where(sql`${tenantInvoicesTable.status} != 'cancelled' ${kpiInvSiteClause} ${kpiInvCompanyClause}`);
 
   const totalBilledAmt = Number(totalBilled[0]?.totalAmount ?? 0);
   const totalPaidAmt = Number(totalBilled[0]?.totalPaid ?? 0);
@@ -183,6 +249,7 @@ router.get("/laporan/kpi", async (req, res) => {
     jumlahInvoiceOverdue: overdueRow[0]?.jumlahInvoice ?? 0,
     jumlahTenantOverdue: overdueRow[0]?.jumlahTenant ?? 0,
     collectionRate,
+    scope: reportScope(req),
   });
 });
 
@@ -210,6 +277,7 @@ router.get("/laporan/piutang", async (req, res) => {
   if (req.siteId > 0) {
     whereClause = sql`${whereClause} AND ti.site_id = ${req.siteId}`;
   }
+  whereClause = sql`${whereClause} ${invoiceCompanyScope(req, "ti")}`;
   if (tenant_id && !isNaN(parseInt(String(tenant_id), 10))) {
     whereClause = sql`${whereClause} AND ti.tenant_id = ${parseInt(String(tenant_id), 10)}`;
   }
@@ -292,6 +360,7 @@ router.get("/laporan/piutang", async (req, res) => {
       limit,
       offset,
     },
+    scope: reportScope(req),
   });
 });
 
@@ -300,7 +369,8 @@ router.get("/laporan/piutang", async (req, res) => {
  * Aging receivable buckets dari tenant_invoices
  */
 router.get("/laporan/aging", async (req, res) => {
-  const agingSiteClause = req.siteId > 0 ? sql`AND site_id = ${req.siteId}` : sql``;
+  const agingSiteClause = req.siteId > 0 ? sql`AND ti.site_id = ${req.siteId}` : sql``;
+  const agingCompanyClause = invoiceCompanyScope(req, "ti");
   const result = await db.execute(sql`
     SELECT
       SUM(CASE WHEN due_date >= CURRENT_DATE THEN outstanding_amount ELSE 0 END)::numeric AS belum_jatuh_tempo,
@@ -313,8 +383,8 @@ router.get("/laporan/aging", async (req, res) => {
       COUNT(CASE WHEN due_date < CURRENT_DATE AND (CURRENT_DATE - due_date) BETWEEN 31 AND 60 THEN 1 END)::int AS count_31_60,
       COUNT(CASE WHEN due_date < CURRENT_DATE AND (CURRENT_DATE - due_date) BETWEEN 61 AND 90 THEN 1 END)::int AS count_61_90,
       COUNT(CASE WHEN due_date < CURRENT_DATE AND (CURRENT_DATE - due_date) > 90 THEN 1 END)::int AS count_gt90
-    FROM tenant_invoices
-    WHERE status NOT IN ('paid', 'cancelled') ${agingSiteClause}
+    FROM tenant_invoices ti
+    WHERE ti.status NOT IN ('paid', 'cancelled') ${agingSiteClause} ${agingCompanyClause}
   `);
 
   const r = (((result as any).rows ?? result) as any[])[0] ?? {};
@@ -326,6 +396,7 @@ router.get("/laporan/aging", async (req, res) => {
       { label: "61–90 Hari", amount: Number(r.hari_61_90 ?? 0), count: Number(r.count_61_90 ?? 0) },
       { label: ">90 Hari", amount: Number(r.hari_gt90 ?? 0), count: Number(r.count_gt90 ?? 0) },
     ],
+    scope: reportScope(req),
   });
 });
 
@@ -343,6 +414,7 @@ router.get("/laporan/payment-methods", async (req, res) => {
   if (req.siteId > 0) {
     whereClause = sql`${whereClause} AND ${tenantPaymentsTable.siteId} = ${req.siteId}`;
   }
+  whereClause = sql`${whereClause} ${paymentCompanyScope(req)}`;
 
   if (dari && sampai) {
     whereClause = sql`${whereClause}
@@ -400,7 +472,7 @@ router.get("/laporan/payment-methods", async (req, res) => {
     }
   }
 
-  return res.json({ data });
+  return res.json({ data, scope: reportScope(req) });
 });
 
 /**
@@ -437,6 +509,7 @@ router.get("/laporan/rekap-payments", async (req, res) => {
   if (req.siteId > 0) {
     whereClause = sql`${whereClause} AND tp.site_id = ${req.siteId}`;
   }
+  whereClause = sql`${whereClause} ${paymentCompanyScope(req, "tp")}`;
 
   if (dari && sampai) {
     whereClause = sql`${whereClause}
@@ -488,11 +561,20 @@ router.get("/laporan/rekap-payments", async (req, res) => {
       te.area_name,
       te.category,
       ms.name AS site_name,
-      ms.company_name AS company_name
+      c.company_name AS company_name
     FROM tenant_payments tp
     LEFT JOIN tenant_bookings tb ON tb.id = tp.booking_id
     LEFT JOIN tenants te ON te.id = tp.tenant_id
     LEFT JOIN mall_sites ms ON ms.id = tp.site_id
+    LEFT JOIN companies c ON c.id = COALESCE(
+      (SELECT t_inv.company_id
+         FROM tenant_invoices i_scope
+         JOIN tenants t_inv ON t_inv.id = i_scope.tenant_id
+        WHERE i_scope.id = tp.invoice_id),
+      te.company_id,
+      tp.company_id,
+      ms.company_id
+    )
     WHERE ${whereClause}
     ORDER BY tp.paid_at DESC
     LIMIT ${limit} OFFSET ${offset}
@@ -546,6 +628,7 @@ router.get("/laporan/rekap-payments", async (req, res) => {
     },
     tahun,
     bulan: bulan ?? null,
+    scope: reportScope(req),
   });
 });
 
@@ -558,7 +641,7 @@ router.get("/laporan/tenants-list", async (req, res) => {
   const rows = await db
     .select({ id: tenantsTable.id, businessName: tenantsTable.businessName })
     .from(tenantsTable)
-    .where(siteFilter)
+    .where(sql`${siteFilter ?? sql`true`} ${tenantCompanyScope(req)}`)
     .orderBy(tenantsTable.businessName);
   return res.json(rows);
 });
@@ -569,9 +652,10 @@ router.get("/laporan/tenants-list", async (req, res) => {
  */
 router.get("/laporan/floors-list", async (req, res) => {
   const floorsSiteClause = req.siteId > 0 ? sql`AND site_id = ${req.siteId}` : sql``;
+  const floorsCompanyClause = bookingCompanyScope(req);
   const rows = await db.execute(sql`
     SELECT DISTINCT floor FROM tenant_bookings
-    WHERE floor IS NOT NULL AND floor != '' ${floorsSiteClause}
+    WHERE floor IS NOT NULL AND floor != '' ${floorsSiteClause} ${floorsCompanyClause}
     ORDER BY floor
   `);
   const floorsArr = ((rows as any).rows ?? rows) as any[];
@@ -603,6 +687,7 @@ router.get("/laporan/tren-bulanan", async (req, res) => {
       JOIN mall_sites s ON s.id = ti.site_id
       WHERE ti.period_start >= DATE_TRUNC('month', NOW()) - INTERVAL '11 months'
         ${siteId > 0 ? sql`AND ti.site_id = ${siteId}` : sql``}
+        ${invoiceCompanyScope(req, "ti")}
       GROUP BY DATE_TRUNC('month', ti.period_start), s.id, s.name, s.type
       ORDER BY DATE_TRUNC('month', ti.period_start), s.id
     `);
@@ -709,6 +794,7 @@ router.get("/laporan/rekap-tenant", async (req, res) => {
       ) pay ON true
       WHERE t.status NOT IN ('blacklisted')
         ${siteId > 0 ? sql`AND t.site_id = ${siteId}` : sql``}
+        ${tenantCompanyScope(req, "t")}
       ORDER BY s.id, t.business_name
     `);
 
@@ -774,6 +860,7 @@ router.get("/laporan/rekonsiliasi", async (req, res) => {
   }
 
   const siteClause = siteId > 0 ? sql`AND ti.site_id = ${siteId}` : sql``;
+  const reconciliationCompanyClause = invoiceCompanyScope(req, "ti");
 
   const truncExpr = groupBy === "harian"
     ? sql`DATE_TRUNC('day', ti.period_start)`
@@ -800,7 +887,7 @@ router.get("/laporan/rekonsiliasi", async (req, res) => {
       COUNT(*) FILTER (WHERE ti.status = 'overdue')::int                 AS total_overdue,
       COUNT(*) FILTER (WHERE ti.status IN ('unpaid','partial'))::int     AS total_belum_bayar
     FROM tenant_invoices ti
-    WHERE ${dateClause} ${siteClause}
+    WHERE ${dateClause} ${siteClause} ${reconciliationCompanyClause}
       AND ti.status != 'cancelled'
     GROUP BY ${truncExpr}, ${keyExpr}, ${fmtExpr}
     ORDER BY ${truncExpr}
@@ -848,6 +935,7 @@ router.get("/laporan/rekonsiliasi", async (req, res) => {
     dari: dari ? String(dari) : null,
     sampai: sampai ? String(sampai) : null,
     groupBy,
+    scope: reportScope(req),
   });
 });
 
@@ -871,6 +959,7 @@ router.get("/laporan/rekap-iuran-sampah", async (req, res) => {
   if (siteId > 0) {
     whereClause = sql`${whereClause} AND ti.site_id = ${siteId}`;
   }
+  whereClause = sql`${whereClause} ${invoiceCompanyScope(req, "ti")}`;
 
   if (dari && sampai) {
     whereClause = sql`${whereClause}
@@ -943,6 +1032,7 @@ router.get("/laporan/rekap-iuran-sampah", async (req, res) => {
       grand,
       tahun,
       bulan: bulan ?? null,
+      scope: reportScope(req),
     });
   } catch (err) {
     req.log.error(err, "Failed to get rekap iuran sampah");
