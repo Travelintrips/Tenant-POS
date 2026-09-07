@@ -29,21 +29,24 @@ export interface PostPosJournalOptions {
   companyId?: number | null;
 }
 
-async function resolveCompanyFromSite(siteId: number | null | undefined): Promise<number> {
-  if (!siteId) return 1;
-  try {
-    const row = await db.execute<{ company_id: number }>(sql`
-      SELECT c.id AS company_id
-      FROM mall_sites ms
-      JOIN companies c ON c.id = ms.company_id
-      WHERE ms.id = ${siteId}
-      LIMIT 1
-    `);
-    const id = (row as any).rows?.[0]?.company_id;
-    return id ? Number(id) : 1;
-  } catch {
-    return 1;
+async function resolveCanonicalCompany(opts: PostPosJournalOptions): Promise<number> {
+  const row = await db.execute<{ company_id: number }>(sql`
+    SELECT COALESCE(i.company_id, t.company_id, p.company_id, ms.company_id) AS company_id
+    FROM tenant_payments p
+    LEFT JOIN tenant_invoices i ON i.id = p.invoice_id
+    LEFT JOIN tenants t ON t.id = COALESCE(i.tenant_id, p.tenant_id)
+    LEFT JOIN mall_sites ms ON ms.id = COALESCE(i.site_id, t.site_id, p.site_id)
+    WHERE p.id = ${opts.paymentId}
+    LIMIT 1
+  `);
+  const canonicalId = Number((row as any).rows?.[0]?.company_id);
+  if (!Number.isInteger(canonicalId) || canonicalId <= 0) {
+    throw new Error(`Company canonical tidak ditemukan untuk payment_id=${opts.paymentId}`);
   }
+  if (opts.companyId != null && opts.companyId !== canonicalId) {
+    throw new Error(`Company ${opts.companyId} tidak sesuai owner canonical payment ${opts.paymentId}`);
+  }
+  return canonicalId;
 }
 
 export interface PostPosJournalResult {
@@ -73,7 +76,7 @@ export async function postPosPaymentJournal(
     return { journalId: correlationId, alreadyPosted: true, netAmount, taxAmount };
   }
 
-  const companyId = opts.companyId ?? await resolveCompanyFromSite(opts.siteId);
+  const companyId = await resolveCanonicalCompany(opts);
   const srcModule = opts.sourceModule ?? "pos_payment";
   const transactionDateStr = opts.transactionDate.toISOString().slice(0, 10);
 

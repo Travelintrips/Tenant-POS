@@ -13,6 +13,7 @@ import {
   tenantInvoicesTable,
   tenantBookingsTable,
   tenantsTable,
+  mallSitesTable,
   financePaymentEventsTable,
   systemSettingsTable,
 } from "@workspace/db/schema";
@@ -1028,8 +1029,22 @@ router.post("/bank-reconciliation/:mutationId/approve", async (req, res) => {
 
   const { matchId } = parsed.data;
   const ctx = appCtx(req);
+  const companyScope = companyReadScope(req, res);
+  if (!companyScope) return;
 
   try {
+  const mutationConditions: any[] = [eq(bankMutationsTable.id, mutationId)];
+  mutationConditions.push(...mutationTenantConds(ctx));
+  if (req.siteId > 0) mutationConditions.push(eq(bankMutationsTable.siteId, req.siteId));
+  if (!companyScope.allCompanies) {
+    mutationConditions.push(or(
+      eq(bankMutationsTable.companyId, companyScope.companyId!),
+      and(
+        isNull(bankMutationsTable.companyId),
+        eq(bankMutationsTable.ownerCompanyId, companyScope.companyId!),
+      ),
+    ));
+  }
   const [[match], [mutation]] = await Promise.all([
     db.select().from(bankReconciliationMatchesTable)
       .where(and(
@@ -1037,7 +1052,7 @@ router.post("/bank-reconciliation/:mutationId/approve", async (req, res) => {
         eq(bankReconciliationMatchesTable.mutationId, mutationId),
       )).limit(1),
     db.select().from(bankMutationsTable)
-      .where(eq(bankMutationsTable.id, mutationId)).limit(1),
+      .where(and(...mutationConditions)).limit(1),
   ]);
 
   if (!match) { res.status(404).json({ error: "Kandidat match tidak ditemukan" }); return; }
@@ -1045,6 +1060,60 @@ router.post("/bank-reconciliation/:mutationId/approve", async (req, res) => {
 
   if (!checkMutationOwnership(mutation, ctx)) {
     res.status(403).json({ error: "Akses ditolak. Mutasi ini milik tenant lain." });
+    return;
+  }
+
+  let candidateCompanyId: number | null = null;
+  let candidateTenantId: number | null = null;
+  if (match.candidateType === "invoice") {
+    const [candidate] = await db
+      .select({
+        companyId: sql<number | null>`COALESCE(${tenantInvoicesTable.companyId}, ${tenantsTable.companyId})`,
+        tenantId: tenantInvoicesTable.tenantId,
+      })
+      .from(tenantInvoicesTable)
+      .leftJoin(tenantsTable, eq(tenantsTable.id, tenantInvoicesTable.tenantId))
+      .where(eq(tenantInvoicesTable.id, match.candidateId))
+      .limit(1);
+    candidateCompanyId = candidate?.companyId ?? null;
+    candidateTenantId = candidate?.tenantId ?? null;
+  } else if (match.candidateType === "payment") {
+    const [candidate] = await db
+      .select({
+        companyId: sql<number | null>`COALESCE(${tenantInvoicesTable.companyId}, ${tenantsTable.companyId}, ${tenantPaymentsTable.companyId})`,
+        tenantId: sql<number | null>`COALESCE(${tenantInvoicesTable.tenantId}, ${tenantPaymentsTable.tenantId})`,
+      })
+      .from(tenantPaymentsTable)
+      .leftJoin(tenantInvoicesTable, eq(tenantInvoicesTable.id, tenantPaymentsTable.invoiceId))
+      .leftJoin(tenantsTable, eq(tenantsTable.id, tenantPaymentsTable.tenantId))
+      .where(eq(tenantPaymentsTable.id, match.candidateId))
+      .limit(1);
+    candidateCompanyId = candidate?.companyId ?? null;
+    candidateTenantId = candidate?.tenantId ?? null;
+  } else if (match.candidateType === "payment_event") {
+    const [candidate] = await db
+      .select({
+        companyId: sql<number | null>`COALESCE(${financePaymentEventsTable.ownerCompanyId}, ${tenantsTable.companyId}, ${mallSitesTable.companyId})`,
+        tenantId: sql<number | null>`COALESCE(${financePaymentEventsTable.ownerTenantId}, ${financePaymentEventsTable.tenantId})`,
+      })
+      .from(financePaymentEventsTable)
+      .leftJoin(tenantsTable, eq(tenantsTable.id, financePaymentEventsTable.tenantId))
+      .leftJoin(mallSitesTable, eq(mallSitesTable.id, financePaymentEventsTable.siteId))
+      .where(eq(financePaymentEventsTable.id, match.candidateId))
+      .limit(1);
+    candidateCompanyId = candidate?.companyId ?? null;
+    candidateTenantId = candidate?.tenantId ?? null;
+  }
+
+  if (
+    ["invoice", "payment", "payment_event"].includes(match.candidateType)
+    && (
+      candidateCompanyId == null
+      || (!companyScope.allCompanies && candidateCompanyId !== companyScope.companyId)
+      || (ctx.ownerTenantId != null && candidateTenantId != null && candidateTenantId !== ctx.ownerTenantId)
+    )
+  ) {
+    res.status(404).json({ error: "Kandidat match tidak ditemukan dalam company aktif" });
     return;
   }
 
@@ -1237,8 +1306,7 @@ router.post("/bank-reconciliation/:mutationId/approve", async (req, res) => {
       },
     });
 
-    // Accounting entry (accounting_entries + accounting_entry_lines) — fire-and-forget
-    void postTenantPaymentAccountingEntry({
+    await postTenantPaymentAccountingEntry({
       paymentId: newPaymentId,
       siteId: mutation.siteId ?? null,
       invoiceNumber: null,
@@ -1251,6 +1319,39 @@ router.post("/bank-reconciliation/:mutationId/approve", async (req, res) => {
     });
   }
 
+  if (match.candidateType === "payment") {
+    const [paymentInfo] = await db
+      .select({
+        amount: tenantPaymentsTable.amount,
+        paidAt: tenantPaymentsTable.paidAt,
+        paymentMethod: tenantPaymentsTable.paymentMethod,
+        receiptNumber: tenantPaymentsTable.receiptNumber,
+        siteId: tenantPaymentsTable.siteId,
+        invoiceNumber: tenantInvoicesTable.invoiceNumber,
+        businessName: tenantsTable.businessName,
+      })
+      .from(tenantPaymentsTable)
+      .leftJoin(tenantInvoicesTable, eq(tenantInvoicesTable.id, tenantPaymentsTable.invoiceId))
+      .leftJoin(tenantsTable, eq(tenantsTable.id, tenantPaymentsTable.tenantId))
+      .where(eq(tenantPaymentsTable.id, match.candidateId))
+      .limit(1);
+    if (!paymentInfo) {
+      res.status(409).json({ error: "Pembayaran kandidat tidak ditemukan setelah approval" });
+      return;
+    }
+    await postTenantPaymentAccountingEntry({
+      paymentId: match.candidateId,
+      siteId: paymentInfo.siteId,
+      invoiceNumber: paymentInfo.invoiceNumber,
+      businessName: paymentInfo.businessName,
+      amountPaid: Number(paymentInfo.amount),
+      paymentMethod: paymentInfo.paymentMethod ?? "transfer",
+      transactionDate: paymentInfo.paidAt ?? new Date(mutation.transactionDate),
+      receiptNumber: paymentInfo.receiptNumber ?? `REKON-PAY-${mutationId}`,
+      sourceModule: "bank_reconciliation",
+    });
+  }
+
   const approvedByRole = ctx.role;
   const approvedByApp  = ctx.ownerApp;
 
@@ -1258,7 +1359,15 @@ router.post("/bank-reconciliation/:mutationId/approve", async (req, res) => {
     .set({ approvedByApp, approvedByRole, updatedAt: now })
     .where(eq(bankMutationsTable.id, mutationId));
 
-  const { journalId, alreadyPosted } = await postAccountingJournal({
+  const tenantPaymentId =
+    match.candidateType === "invoice"
+      ? newPaymentId
+      : match.candidateType === "payment"
+        ? match.candidateId
+        : null;
+  const { journalId, alreadyPosted } = tenantPaymentId
+    ? { journalId: `tenant-payment-${tenantPaymentId}`, alreadyPosted: match.candidateType === "payment" }
+    : await postAccountingJournal({
     mutationId,
     transactionDate: mutation.transactionDate,
     description: mutation.description,
@@ -1279,7 +1388,7 @@ router.post("/bank-reconciliation/:mutationId/approve", async (req, res) => {
       approvedBy: req.user?.name ?? req.user?.email ?? "Admin",
       ownerTenantId: ctx.ownerTenantId,
     },
-  });
+      });
 
   logAudit(req, {
     action: "bank_mutation_approved",

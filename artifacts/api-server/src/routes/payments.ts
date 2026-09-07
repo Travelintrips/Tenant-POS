@@ -6,7 +6,6 @@ import { z } from "zod";
 import { logAudit } from "../lib/audit";
 import { LedgerError, recordPayment } from "../lib/payment-ledger";
 import { cashierShiftsTable } from "@workspace/db/schema";
-import { postPosPaymentJournal } from "../lib/pos-journal";
 import { writePaymentEvent, normalizePaymentMethod } from "../lib/payment-events";
 import { postTenantPaymentAccountingEntry } from "../lib/accounting-entry";
 import { notifyAdminGroup } from "../lib/whatsapp";
@@ -72,8 +71,9 @@ router.post("/payments", async (req, res) => {
           tenantId: tenantInvoicesTable.tenantId,
           bookingId: tenantInvoicesTable.bookingId,
           siteId: tenantInvoicesTable.siteId,
+          invoiceCompanyId: tenantInvoicesTable.companyId,
           tenantSiteId: tenantsTable.siteId,
-          companyId: tenantsTable.companyId,
+          tenantCompanyId: tenantsTable.companyId,
           siteCompanyId: mallSitesTable.companyId,
           status: tenantInvoicesTable.status,
         })
@@ -91,7 +91,7 @@ router.post("/payments", async (req, res) => {
       }
       const ctx = req.appContext!;
       const invoiceSiteId = invoice.siteId ?? invoice.tenantSiteId;
-      const invoiceCompanyId = invoice.companyId ?? invoice.siteCompanyId;
+      const invoiceCompanyId = invoice.invoiceCompanyId ?? invoice.tenantCompanyId ?? invoice.siteCompanyId;
       if (
         (req.siteId > 0 && invoiceSiteId !== req.siteId)
         || (ctx.ownerCompanyId != null && invoiceCompanyId !== ctx.ownerCompanyId)
@@ -187,25 +187,8 @@ router.post("/payments", async (req, res) => {
           waStatus: "skipped",
         }).onConflictDoNothing();
 
-        // 2. Accounting journal entry (idempotent via journalId PAY-YYYYMMDD-paymentId)
-        await postPosPaymentJournal({
-          paymentId: result.ledgerEntryId,
-          tenantId: inv?.tenantId ?? 0,
-          invoiceId,
-          invoiceNumber: inv?.invoiceNumber ?? null,
-          businessName: tenantRow?.businessName ?? null,
-          amountPaid: amount,
-          paymentMethod,
-          transactionDate: paidAt ? new Date(paidAt) : new Date(),
-          kasirName: req.user?.name ?? "Admin",
-          siteId: inv?.siteId ?? null,
-          receiptNumber: result.receiptNumber,
-          journalPrefix: "PAY",
-          sourceApp: "tenant_management",
-          sourceModule: "invoice_payment",
-        });
-
-        // 3. Accounting entry (accounting_entries + accounting_entry_lines)
+        // 2. Tenant invoice accounting entry. POS journals are reserved for the
+        // Sport Center POS domain and must not compete for this payment ID.
         await postTenantPaymentAccountingEntry({
           paymentId: result.ledgerEntryId,
           siteId: inv?.siteId ?? null,
@@ -218,7 +201,7 @@ router.post("/payments", async (req, res) => {
           sourceModule: "tenant_rent_payment",
         });
 
-        // 4. Finance payment event (idempotent)
+        // 3. Finance payment event (idempotent)
         await writePaymentEvent({
           sourceApp: "tenant_management",
           ownerApp: "tenant_management",
@@ -235,7 +218,7 @@ router.post("/payments", async (req, res) => {
           paymentStatus: "confirmed",
         });
 
-        // 5. Notifikasi ke WA Group admin
+        // 4. Notifikasi ke WA Group admin
         notifyAdminGroup({
           eventType: "pos_kasir",
           businessName: tenantRow?.businessName ?? "Tenant",

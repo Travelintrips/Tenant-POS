@@ -13,7 +13,6 @@ import { z } from "zod";
 import { logAudit } from "../lib/audit";
 import { sendConsolidatedInvoiceNotification, getSiteCompanyName, notifyAdminGroup } from "../lib/whatsapp";
 import { recordPayment, LedgerError } from "../lib/payment-ledger";
-import { postPosPaymentJournal } from "../lib/pos-journal";
 import { postTenantPaymentAccountingEntry } from "../lib/accounting-entry";
 
 const router = Router();
@@ -786,20 +785,15 @@ router.post("/consolidated-invoices/:id/record-payment", async (req, res) => {
             .where(eq(tenantInvoicesTable.id, p.invoiceId ?? 0))
             .then((r) => r[0]);
 
-          await postPosPaymentJournal({
+          await postTenantPaymentAccountingEntry({
             paymentId: p.id,
-            tenantId: p.tenantId ?? consolidated.tenantId,
-            invoiceId: p.invoiceId ?? null,
             invoiceNumber: inv?.invoiceNumber ?? null,
             businessName: tenantRow?.businessName ?? null,
             amountPaid: parseFloat(String(p.amount)),
             paymentMethod: p.paymentMethod ?? paymentMethod,
             transactionDate: p.paidAt ?? paidAtDate,
-            kasirName: req.user?.name ?? "Admin",
             siteId: p.siteId ?? siteId,
             receiptNumber: p.receiptNumber ?? `KONS-${p.id}`,
-            journalPrefix: "KONS",
-            sourceApp: "tenant_management",
             sourceModule: "consolidated_invoice_payment",
           });
         }

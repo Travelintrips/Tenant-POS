@@ -14,7 +14,6 @@ import { sendPaymentApproved, sendPaymentRejected, notifyAdminGroup } from "../l
 import { logAudit } from "../lib/audit";
 import { writePaymentEvent, normalizePaymentMethod } from "../lib/payment-events";
 import { approveExistingPayment, LedgerError } from "../lib/payment-ledger";
-import { postPosPaymentJournal } from "../lib/pos-journal";
 import { postTenantPaymentAccountingEntry } from "../lib/accounting-entry";
 import { logger } from "../lib/logger";
 import { isLikelyYearAmount } from "../lib/ocr-service";
@@ -272,25 +271,7 @@ router.post("/pending-payments/:id/approve", async (req, res) => {
           waStatus: "skipped",
         }).onConflictDoNothing();
 
-        // Accounting journal entry (idempotent via journalId OCR-YYYYMMDD-paymentId)
-        // companyId di-resolve otomatis dari siteId di dalam postPosPaymentJournal
-        await postPosPaymentJournal({
-          paymentId: p.id,
-          tenantId: p.tenantId ?? 0,
-          invoiceId: inv.id,
-          invoiceNumber: inv.invoiceNumber ?? null,
-          businessName: tenantRow?.businessName ?? null,
-          amountPaid: parseFloat(String(p.amount)),
-          paymentMethod: p.paymentMethod ?? "transfer",
-          transactionDate: p.paidAt ?? new Date(),
-          kasirName: req.user?.name ?? "Admin",
-          siteId: p.siteId ?? null,
-          receiptNumber: p.receiptNumber ?? `RCT-${p.id}`,
-          journalPrefix: "OCR",
-          sourceModule: "ocr_payment_approval",
-        });
-
-        // Double-entry accounting (accounting_entries + accounting_payments)
+        // Tenant invoice accounting only. Do not also create a POS-domain journal.
         await postTenantPaymentAccountingEntry({
           paymentId: p.id,
           siteId: p.siteId ?? null,
