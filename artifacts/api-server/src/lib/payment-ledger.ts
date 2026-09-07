@@ -19,13 +19,16 @@ type AnyDb = Parameters<Parameters<typeof db.transaction>[0]>[0] | typeof db;
 
 async function resolveInvoiceCompanyId(tx: AnyDb, invoiceId: number): Promise<number | null> {
   const [owner] = await tx
-    .select({ companyId: tenantsTable.companyId })
+    .select({
+      invoiceCompanyId: tenantInvoicesTable.companyId,
+      tenantCompanyId: tenantsTable.companyId,
+    })
     .from(tenantInvoicesTable)
     .leftJoin(tenantsTable, eq(tenantInvoicesTable.tenantId, tenantsTable.id))
     .where(eq(tenantInvoicesTable.id, invoiceId))
     .limit(1);
 
-  return owner?.companyId ?? null;
+  return owner?.invoiceCompanyId ?? owner?.tenantCompanyId ?? null;
 }
 
 export interface RecordPaymentParams {

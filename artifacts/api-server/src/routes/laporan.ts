@@ -37,12 +37,12 @@ function companyScope(req: Request, canonicalCompany: ReturnType<typeof sql>) {
 function paymentCompanyScope(req: Request, paymentAlias = "tenant_payments") {
   const alias = sql.identifier(paymentAlias);
   return companyScope(req, sql`COALESCE(
-    (SELECT t_inv.company_id
+    (SELECT COALESCE(i_scope.company_id, t_inv.company_id)
        FROM tenant_invoices i_scope
        JOIN tenants t_inv ON t_inv.id = i_scope.tenant_id
       WHERE i_scope.id = ${alias}.invoice_id),
-    (SELECT t_scope.company_id FROM tenants t_scope WHERE t_scope.id = ${alias}.tenant_id),
     ${alias}.company_id,
+    (SELECT t_scope.company_id FROM tenants t_scope WHERE t_scope.id = ${alias}.tenant_id),
     (SELECT ms_scope.company_id FROM mall_sites ms_scope WHERE ms_scope.id = ${alias}.site_id)
   )`);
 }
@@ -50,6 +50,7 @@ function paymentCompanyScope(req: Request, paymentAlias = "tenant_payments") {
 function invoiceCompanyScope(req: Request, invoiceAlias = "tenant_invoices") {
   const alias = sql.identifier(invoiceAlias);
   return companyScope(req, sql`COALESCE(
+    ${alias}.company_id,
     (SELECT t_scope.company_id FROM tenants t_scope WHERE t_scope.id = ${alias}.tenant_id),
     (SELECT ms_scope.company_id FROM mall_sites ms_scope WHERE ms_scope.id = ${alias}.site_id)
   )`);

@@ -23,6 +23,7 @@ function invoiceCompanyCondition(req: Request) {
 
   return target
     ? sql`COALESCE(
+        ${tenantInvoicesTable.companyId},
         ${tenantsTable.companyId},
         (SELECT ms_scope.company_id FROM mall_sites ms_scope WHERE ms_scope.id = ${tenantInvoicesTable.siteId})
       ) = ${target}`

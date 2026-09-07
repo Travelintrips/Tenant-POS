@@ -85,7 +85,8 @@ async function resolveBankJournalId(companyId: number): Promise<number> {
     sql`SELECT id FROM accounting_journals WHERE company_id = ${companyId} LIMIT 1`
   );
   const fId = (fallback as any).rows?.[0]?.id;
-  return fId ? Number(fId) : 1;
+  if (fId) return Number(fId);
+  throw new Error(`Jurnal bank tidak ditemukan untuk company_id=${companyId}`);
 }
 
 export async function postAccountingJournal(opts: PostJournalOptions): Promise<PostJournalResult> {
@@ -109,7 +110,10 @@ export async function postAccountingJournal(opts: PostJournalOptions): Promise<P
     .limit(1);
 
   if (!existingEntry) {
-    const companyId = opts.companyId ?? 1;
+    if (!opts.companyId) {
+      throw new Error(`Company canonical wajib diisi untuk mutasi bank ${opts.mutationId}`);
+    }
+    const companyId = opts.companyId;
     const journalDbId = await resolveBankJournalId(companyId);
     const taxAmount = opts.taxAmount ?? 0;
     const { debit, credit } = await resolveCoaForTransaction({

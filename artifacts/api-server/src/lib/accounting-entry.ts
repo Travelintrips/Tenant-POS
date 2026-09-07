@@ -62,19 +62,19 @@ export async function postTenantPaymentAccountingEntry(
     // One site can contain invoices owned by different companies. Resolving only
     // from mall_sites.company_id can therefore post a valid payment to the wrong
     // company's ledger.
-    let companyId = 1;
-    let companyCode = "CST";
+    let companyId: number | null = null;
+    let companyCode: string | null = null;
     let usePpn = false;
 
     const paymentOwnerRow = await db.execute(sql`
       SELECT
-        COALESCE(t.company_id, tp.company_id) AS company_id,
+        COALESCE(ti.company_id, t.company_id, tp.company_id) AS company_id,
         c.code AS company_code,
         COALESCE(ti.use_ppn, FALSE) AS use_ppn
       FROM tenant_payments tp
       LEFT JOIN tenant_invoices ti ON ti.id = tp.invoice_id
       LEFT JOIN tenants t ON t.id = ti.tenant_id
-      LEFT JOIN companies c ON c.id = COALESCE(t.company_id, tp.company_id)
+      LEFT JOIN companies c ON c.id = COALESCE(ti.company_id, t.company_id, tp.company_id)
       WHERE tp.id = ${paymentId}
       LIMIT 1
     `);
@@ -82,7 +82,7 @@ export async function postTenantPaymentAccountingEntry(
 
     if (paymentOwner?.company_id) {
       companyId = Number(paymentOwner.company_id);
-      companyCode = String(paymentOwner.company_code ?? "CST");
+      companyCode = String(paymentOwner.company_code);
       usePpn = Boolean(paymentOwner.use_ppn);
     } else if (siteId) {
       const siteOwnerRow = await db.execute(sql`
@@ -95,12 +95,19 @@ export async function postTenantPaymentAccountingEntry(
       const row = (siteOwnerRow as any).rows?.[0];
       if (row?.company_id) {
         companyId = Number(row.company_id);
-        companyCode = String(row.company_code ?? "CST");
+        companyCode = String(row.company_code);
       } else {
         logger.warn(
-          `[accounting_entry] mall_sites.id=${siteId} tidak punya company_id yang valid — fallback ke company default CST`
+          `[accounting_entry] mall_sites.id=${siteId} tidak punya company_id yang valid — posting dibatalkan`
         );
       }
+    }
+
+    if (!companyId || !companyCode) {
+      logger.error(
+        `[accounting_entry] Company canonical tidak ditemukan untuk payment_id=${paymentId} — posting dibatalkan`
+      );
+      return;
     }
 
     // --- Pembayaran sewa tenant SELALU ke jurnal Bank ---

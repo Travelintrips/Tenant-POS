@@ -3694,3 +3694,75 @@ BEGIN
 END$$;
   `.trim(),
 });
+
+MIGRATIONS.push({
+  name: "0089_bizportal_canonical_company_guards",
+  sql: `
+ALTER TABLE tenant_invoices
+  ADD COLUMN IF NOT EXISTS company_id integer REFERENCES companies(id);
+
+UPDATE tenant_invoices i
+SET company_id = t.company_id
+FROM tenants t
+WHERE t.id = i.tenant_id
+  AND i.company_id IS DISTINCT FROM t.company_id;
+
+CREATE OR REPLACE FUNCTION fn_sync_invoice_company_owner()
+RETURNS TRIGGER AS $$
+DECLARE
+  v_company_id integer;
+  v_site_id integer;
+BEGIN
+  SELECT company_id, site_id
+  INTO v_company_id, v_site_id
+  FROM tenants
+  WHERE id = NEW.tenant_id;
+
+  IF v_company_id IS NULL THEN
+    RAISE EXCEPTION 'Tenant % tidak memiliki company canonical', NEW.tenant_id;
+  END IF;
+
+  NEW.company_id := v_company_id;
+  NEW.site_id := v_site_id;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_sync_invoice_company_owner ON tenant_invoices;
+CREATE TRIGGER trg_sync_invoice_company_owner
+  BEFORE INSERT OR UPDATE OF tenant_id, company_id, site_id ON tenant_invoices
+  FOR EACH ROW EXECUTE FUNCTION fn_sync_invoice_company_owner();
+
+CREATE OR REPLACE FUNCTION fn_sync_payment_invoice_owner()
+RETURNS TRIGGER AS $$
+DECLARE
+  v_invoice tenant_invoices%ROWTYPE;
+BEGIN
+  IF NEW.invoice_id IS NULL THEN
+    RETURN NEW;
+  END IF;
+
+  SELECT * INTO v_invoice
+  FROM tenant_invoices
+  WHERE id = NEW.invoice_id;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Invoice % tidak ditemukan', NEW.invoice_id;
+  END IF;
+
+  NEW.company_id := v_invoice.company_id;
+  NEW.tenant_id := v_invoice.tenant_id;
+  NEW.site_id := v_invoice.site_id;
+  NEW.booking_id := v_invoice.booking_id;
+  NEW.tenant_booking_id := v_invoice.booking_id;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_sync_payment_invoice_owner ON tenant_payments;
+CREATE TRIGGER trg_sync_payment_invoice_owner
+  BEFORE INSERT OR UPDATE OF invoice_id, company_id, tenant_id, site_id, booking_id, tenant_booking_id
+  ON tenant_payments
+  FOR EACH ROW EXECUTE FUNCTION fn_sync_payment_invoice_owner();
+  `.trim(),
+});

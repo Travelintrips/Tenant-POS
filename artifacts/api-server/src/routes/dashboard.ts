@@ -37,6 +37,7 @@ function invoiceCompanyClause(req: Request) {
   const target = companyTarget(req);
   return target
     ? sql`COALESCE(
+        ${tenantInvoicesTable.companyId},
         (SELECT t_scope.company_id FROM tenants t_scope WHERE t_scope.id = ${tenantInvoicesTable.tenantId}),
         (SELECT ms_scope.company_id FROM mall_sites ms_scope WHERE ms_scope.id = ${tenantInvoicesTable.siteId})
       ) = ${target}`
@@ -47,7 +48,7 @@ function paymentCompanyClause(req: Request) {
   const target = companyTarget(req);
   return target
     ? sql`COALESCE(
-        (SELECT t_inv.company_id
+        (SELECT COALESCE(i_scope.company_id, t_inv.company_id)
            FROM tenant_invoices i_scope
            JOIN tenants t_inv ON t_inv.id = i_scope.tenant_id
           WHERE i_scope.id = ${tenantPaymentsTable.invoiceId}),
