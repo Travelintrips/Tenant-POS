@@ -53,3 +53,4 @@
 - [googleapis-lazy-import](googleapis-lazy.md) — googleapis is esbuild-external; top-level `import {google} from "googleapis"` → require at bundle startup; if pnpm symlink missing in production → silent crash, NO output, port never opens; fix: lazy-load via require() inside functions only
 - [cloud-run-node-env](cloud-run-node-env.md) — Cloud Run sets NODE_ENV=production automatically; [userenv.production] NODE_ENV=development is ignored; validateProductionEnv() must NOT call process.exit(1) when SUPABASE_PG_URL_PROD missing if SUPABASE_PG_URL fallback exists
 - [pos-receipt-journal-flow](pos-receipt-journal.md) — 
+- [Production journal corrections](production-journal-corrections.md) — create corrections as draft, add lines, then post; reversal refs must be unique, and payment company comes from its invoice rather than the site default.

@@ -14,6 +14,8 @@ interface AccountingEntryParams {
   sourceModule?: string;
 }
 
+const PPN_RATE = 0.11;
+
 /**
  * Posting pembayaran sewa tenant ke accounting_entries + accounting_entry_lines + accounting_payments.
  * Idempotent via correlation_id = "tenant_payment_{paymentId}" ATAU via unique index (source, source_id).
@@ -54,19 +56,40 @@ export async function postTenantPaymentAccountingEntry(
       return;
     }
 
-    // --- Lookup company via site ---
+    // --- Lookup company from the payment/invoice first ---
+    // One site can contain invoices owned by different companies. Resolving only
+    // from mall_sites.company_id can therefore post a valid payment to the wrong
+    // company's ledger.
     let companyId = 1;
     let companyCode = "CST";
+    let usePpn = false;
 
-    if (siteId) {
-      const siteRow = await db.execute(sql`
+    const paymentOwnerRow = await db.execute(sql`
+      SELECT
+        COALESCE(ti.company_id, tp.company_id) AS company_id,
+        c.code AS company_code,
+        COALESCE(ti.use_ppn, FALSE) AS use_ppn
+      FROM tenant_payments tp
+      LEFT JOIN tenant_invoices ti ON ti.id = tp.invoice_id
+      LEFT JOIN companies c ON c.id = COALESCE(ti.company_id, tp.company_id)
+      WHERE tp.id = ${paymentId}
+      LIMIT 1
+    `);
+    const paymentOwner = (paymentOwnerRow as any).rows?.[0];
+
+    if (paymentOwner?.company_id) {
+      companyId = Number(paymentOwner.company_id);
+      companyCode = String(paymentOwner.company_code ?? "CST");
+      usePpn = Boolean(paymentOwner.use_ppn);
+    } else if (siteId) {
+      const siteOwnerRow = await db.execute(sql`
         SELECT c.id AS company_id, c.code AS company_code
         FROM mall_sites ms
         JOIN companies c ON c.id = ms.company_id
         WHERE ms.id = ${siteId}
         LIMIT 1
       `);
-      const row = (siteRow as any).rows?.[0];
+      const row = (siteOwnerRow as any).rows?.[0];
       if (row?.company_id) {
         companyId = Number(row.company_id);
         companyCode = String(row.company_code ?? "CST");
@@ -112,6 +135,24 @@ export async function postTenantPaymentAccountingEntry(
       (coaRow as any).rows?.[0]?.id != null
         ? Number((coaRow as any).rows[0].id)
         : null;
+
+    const ppnRow = usePpn
+      ? await db.execute(sql`
+          SELECT id FROM chart_of_accounts
+          WHERE company_id = ${companyId} AND code LIKE '2-1020-%'
+          ORDER BY id
+          LIMIT 1
+        `)
+      : null;
+    const ppnAccountId: number | null =
+      (ppnRow as any)?.rows?.[0]?.id != null
+        ? Number((ppnRow as any).rows[0].id)
+        : null;
+    const taxAmount =
+      usePpn && ppnAccountId
+        ? Math.round((amountPaid * PPN_RATE) / (1 + PPN_RATE))
+        : 0;
+    const netAmount = amountPaid - taxAmount;
 
     if (!creditAccountId) {
       logger.warn(
@@ -192,9 +233,16 @@ export async function postTenantPaymentAccountingEntry(
            ${amountPaid}, 0),
           (${entryId}, ${creditAccountId},
            ${"Pendapatan Sewa Tenant — " + bizLabel},
-           0, ${amountPaid})
+            0, ${netAmount})
         ON CONFLICT DO NOTHING
       `);
+      if (ppnAccountId && taxAmount > 0) {
+        await db.execute(sql`
+          INSERT INTO accounting_entry_lines (entry_id, account_id, description, debit, credit)
+          VALUES (${entryId}, ${ppnAccountId}, ${"PPN Keluaran — " + bizLabel}, 0, ${taxAmount})
+          ON CONFLICT DO NOTHING
+        `);
+      }
     } catch {
       // Lines mungkin sudah ada jika entry di-recover dari conflict
     }
