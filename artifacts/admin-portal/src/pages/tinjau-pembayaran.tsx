@@ -136,6 +136,7 @@ export default function TinjauPembayaran() {
 
   const [activeTab, setActiveTab] = useState("pending_review");
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [previewError, setPreviewError] = useState(false);
   const [approveId, setApproveId] = useState<number | null>(null);
   const [rejectId, setRejectId] = useState<number | null>(null);
   const [rejectReason, setRejectReason] = useState("");
@@ -343,7 +344,10 @@ export default function TinjauPembayaran() {
                               variant="outline"
                               size="sm"
                               className="h-8 text-xs"
-                              onClick={() => setPreviewUrl(p.proofUrl)}
+                              onClick={() => {
+                                setPreviewError(false);
+                                setPreviewUrl(p.proofUrl);
+                              }}
                             >
                               <Eye className="h-3.5 w-3.5 mr-1" />
                               Lihat
@@ -414,12 +418,15 @@ export default function TinjauPembayaran() {
       </Card>
 
       {/* Dialog preview bukti */}
-      <Dialog open={!!previewUrl} onOpenChange={() => setPreviewUrl(null)}>
+      <Dialog open={!!previewUrl} onOpenChange={() => {
+        setPreviewUrl(null);
+        setPreviewError(false);
+      }}>
         <DialogContent className="max-w-2xl">
           <DialogHeader>
             <DialogTitle>Bukti Pembayaran</DialogTitle>
           </DialogHeader>
-          {previewUrl && (
+          {previewUrl && !previewError && (
             previewUrl.endsWith(".pdf") ? (
               <iframe src={previewUrl} className="w-full h-[500px] rounded border" title="Bukti" />
             ) : (
@@ -427,8 +434,14 @@ export default function TinjauPembayaran() {
                 src={previewUrl}
                 alt="Bukti pembayaran"
                 className="max-h-[500px] object-contain mx-auto rounded border"
+                onError={() => setPreviewError(true)}
               />
             )
+          )}
+          {previewError && (
+            <div className="rounded-md border border-destructive/30 bg-destructive/5 px-4 py-8 text-center text-sm text-destructive">
+              Bukti pembayaran gagal dimuat. Coba buka di tab baru atau muat ulang halaman.
+            </div>
           )}
           <DialogFooter>
             <Button variant="outline" onClick={() => setPreviewUrl(null)}>Tutup</Button>

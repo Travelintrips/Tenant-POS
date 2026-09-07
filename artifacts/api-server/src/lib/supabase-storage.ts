@@ -119,6 +119,25 @@ export async function deleteFromStorage(bucket: string, filePath: string): Promi
   await client.from(bucket).remove([filePath]);
 }
 
+export async function downloadFromStorage(
+  bucket: string,
+  filePath: string,
+): Promise<{ buffer: Buffer; contentType: string }> {
+  const client = await getClient();
+  const { data, error } = await client.from(bucket).download(filePath);
+
+  if (error || !data) {
+    throw new Error(
+      `Download dari Supabase Storage gagal: ${error?.message ?? "file tidak ditemukan"}`,
+    );
+  }
+
+  return {
+    buffer: Buffer.from(await data.arrayBuffer()),
+    contentType: data.type || "application/octet-stream",
+  };
+}
+
 export function getStoragePublicUrl(bucket: string, filePath: string): string {
   if (!_client) {
     return `${supabaseUrl}/storage/v1/object/public/${bucket}/${filePath}`;

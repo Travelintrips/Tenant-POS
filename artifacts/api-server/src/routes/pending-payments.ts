@@ -18,6 +18,7 @@ import { postPosPaymentJournal } from "../lib/pos-journal";
 import { postTenantPaymentAccountingEntry } from "../lib/accounting-entry";
 import { logger } from "../lib/logger";
 import { isLikelyYearAmount } from "../lib/ocr-service";
+import { downloadFromStorage } from "../lib/supabase-storage";
 
 const router: IRouter = Router();
 
@@ -32,6 +33,7 @@ const pendingPaymentSelect = {
   amount: tenantPaymentsTable.amount,
   paymentMethod: tenantPaymentsTable.paymentMethod,
   proofUrl: tenantPaymentsTable.proofUrl,
+  proofImageUrl: tenantPaymentsTable.proofImageUrl,
   referenceNumber: tenantPaymentsTable.referenceNumber,
   notes: tenantPaymentsTable.notes,
   createdAt: tenantPaymentsTable.createdAt,
@@ -50,6 +52,18 @@ const pendingPaymentSelect = {
   ocrExtractedAmount: tenantPaymentsTable.ocrExtractedAmount,
   ocrConfidence: tenantPaymentsTable.ocrConfidence,
 } as const;
+
+function getPaymentProofPath(proofUrl: string): string | null {
+  try {
+    const parsed = new URL(proofUrl);
+    const match = parsed.pathname.match(
+      /\/storage\/v1\/object\/(?:public|authenticated|sign)\/payment-proofs\/(.+)$/,
+    );
+    return match?.[1] ? decodeURIComponent(match[1]) : null;
+  } catch {
+    return null;
+  }
+}
 
 // ─── GET /api/pending-payments ────────────────────────────────────────────────
 router.get("/pending-payments", async (req, res) => {
@@ -81,9 +95,56 @@ router.get("/pending-payments", async (req, res) => {
       )
       .orderBy(desc(tenantPaymentsTable.createdAt));
 
-    res.json(rows);
+    res.json(rows.map(({ proofImageUrl, ...row }) => ({
+      ...row,
+      proofUrl: row.proofUrl || proofImageUrl
+        ? `/api/pending-payments/${row.id}/proof`
+        : null,
+    })));
   } catch (err) {
     res.status(500).json({ error: "Gagal mengambil data pembayaran" });
+  }
+});
+
+router.get("/pending-payments/:id/proof", async (req, res) => {
+  const paymentId = Number(req.params.id);
+  if (!Number.isInteger(paymentId) || paymentId <= 0) {
+    res.status(400).json({ error: "ID pembayaran tidak valid" });
+    return;
+  }
+
+  const [payment] = await db
+    .select({
+      proofUrl: tenantPaymentsTable.proofUrl,
+      proofImageUrl: tenantPaymentsTable.proofImageUrl,
+    })
+    .from(tenantPaymentsTable)
+    .where(eq(tenantPaymentsTable.id, paymentId))
+    .limit(1);
+
+  const storedUrl = payment?.proofUrl ?? payment?.proofImageUrl;
+  if (!storedUrl) {
+    res.status(404).json({ error: "Bukti pembayaran tidak tersedia" });
+    return;
+  }
+
+  const filePath = getPaymentProofPath(storedUrl);
+  if (!filePath) {
+    res.status(422).json({ error: "Lokasi bukti pembayaran tidak dikenali" });
+    return;
+  }
+
+  try {
+    const file = await downloadFromStorage("payment-proofs", filePath);
+    const safeFilename = (filePath.split("/").pop() ?? "bukti-bayar")
+      .replace(/[^a-zA-Z0-9._-]/g, "_");
+    res.setHeader("Content-Type", file.contentType);
+    res.setHeader("Content-Disposition", `inline; filename="${safeFilename}"`);
+    res.setHeader("Cache-Control", "private, max-age=300");
+    res.send(file.buffer);
+  } catch (err) {
+    logger.error({ err, paymentId, filePath }, "[pending-payments] gagal mengambil bukti pembayaran");
+    res.status(502).json({ error: "Bukti pembayaran gagal dimuat dari penyimpanan" });
   }
 });
 

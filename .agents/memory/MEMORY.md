@@ -17,6 +17,7 @@
 - [vitest4-singlefork](vitest4-singlefork.md) — Vitest 4 moved poolOptions to top-level; use `singleFork: true` directly in `test:{}`, not under `poolOptions.forks`
 - [vitest-globals-tsconfig](vitest-globals-tsconfig.md) — api-server tsconfig: use `types:["node"]` only + `exclude:["src/__tests__"]`; vitest NOT symlinked by pnpm to node_modules so path-based approach fails; keep vitest types only in vitest.config.ts globals setting
 - [payment-proof-flow](payment-proof-flow.md) — approval flow: pending_review → approved/rejected; approving updates invoice paidAmount via transaction; public route /bayar/:token is before requireAuth in routes/index.ts
+- [Private payment proofs](private-payment-proof-storage.md) — `payment-proofs` is private; serve proofs through an authenticated backend stream, never direct public Storage URLs.
 - [site-id-resolution](site-id-resolution.md) — Sport Center site_id=2 in local postgres (serial from migration 0011); dev-login dbId is UUID string — Number(UUID)=NaN so site-context access check is safely skipped
 - [wa-otp-dev-phones](wa-otp-dev-phones.md) — dev users have fixed phone numbers: owner=6281111111111, admin=6281111111112, finance=6281111111113, cashier=6281111111114; dev-login upserts phoneNumber on each call so phone is always set
 - [OTP login separation](otp-service-union-type.md) — Password login may be enabled in production, but only non-production runtimes may return `devOtp`; production OTP must go through WhatsApp.
