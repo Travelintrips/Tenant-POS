@@ -866,7 +866,11 @@ export default function TenantInvoices() {
   const [sendingPdfId, setSendingPdfId] = useState<number | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [bulkSendProgress, setBulkSendProgress] = useState<{ current: number; total: number; errors: number } | null>(null);
-  const [paymentLinkDialog, setPaymentLinkDialog] = useState<{ link: string; error?: string; mode: "manual" | "wa-failed" } | null>(null);
+  const [paymentLinkDialog, setPaymentLinkDialog] = useState<{
+    link: string;
+    message?: string;
+    mode: "manual" | "wa-failed" | "wa-pending";
+  } | null>(null);
   const [linkCopied, setLinkCopied] = useState(false);
 
   // ─── Laporan PPN state ───────────────────────────────────────────────────────
@@ -1157,22 +1161,26 @@ export default function TenantInvoices() {
       if (res.skipped) {
         if (res.paymentLink) {
           setLinkCopied(false);
-          setPaymentLinkDialog({ link: res.paymentLink, error: "WhatsApp belum dikonfigurasi (FONNTE_TOKEN kosong).", mode: "wa-failed" });
+          setPaymentLinkDialog({ link: res.paymentLink, message: "WhatsApp belum dikonfigurasi (FONNTE_TOKEN kosong).", mode: "wa-failed" });
         } else {
           toast({ title: "WA Tidak Terkirim", description: "FONNTE_TOKEN belum dikonfigurasi.", variant: "destructive" });
         }
       } else if (res.pending) {
-        const errMsg = "Perangkat Fonnte perlu di-reconnect. Buka dashboard.fonnte.com → pilih device → Disconnect lalu scan ulang QR code.";
+        const pendingMessage = waStatus?.connected === true
+          ? "Device WhatsApp terhubung, tetapi Fonnte masih menahan pesan ini di antrean. Tunggu beberapa saat lalu periksa riwayat pengiriman. Reconnect hanya diperlukan jika antrean tidak berkurang."
+          : waStatus?.connected === false
+            ? "Pesan diterima Fonnte tetapi belum diteruskan karena device sedang tidak terhubung. Reconnect device lalu periksa kembali antrean."
+            : "Pesan diterima Fonnte tetapi masih berada di antrean. Periksa status device dan riwayat pengiriman sebelum mencoba kembali.";
         if (res.paymentLink) {
           setLinkCopied(false);
-          setPaymentLinkDialog({ link: res.paymentLink, error: errMsg, mode: "wa-failed" });
+          setPaymentLinkDialog({ link: res.paymentLink, message: pendingMessage, mode: "wa-pending" });
         } else {
-          toast({ title: "⚠️ Masuk Antrian — WA Belum Terkirim", description: errMsg, variant: "destructive" });
+          toast({ title: "Masuk Antrian — Belum Terkirim", description: pendingMessage });
         }
       } else if (res.waFailed) {
         if (res.paymentLink) {
           setLinkCopied(false);
-          setPaymentLinkDialog({ link: res.paymentLink, error: res.error ?? "Gagal kirim WA", mode: "wa-failed" });
+          setPaymentLinkDialog({ link: res.paymentLink, message: res.error ?? "Gagal kirim WA", mode: "wa-failed" });
         } else {
           toast({ title: "Gagal Kirim WA", description: res.error, variant: "destructive" });
         }
@@ -3003,22 +3011,29 @@ export default function TenantInvoices() {
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              {paymentLinkDialog?.mode === "wa-failed"
-                ? <><WifiOff className="h-5 w-5 text-orange-500" />WhatsApp Tidak Terhubung</>
-                : <><Link2 className="h-5 w-5 text-blue-500" />Link Pembayaran Tenant</>
-              }
+              {paymentLinkDialog?.mode === "wa-pending" ? (
+                <><Clock className="h-5 w-5 text-amber-500" />Pesan Masuk Antrian Fonnte</>
+              ) : paymentLinkDialog?.mode === "wa-failed" ? (
+                waStatus?.connected === false
+                  ? <><WifiOff className="h-5 w-5 text-orange-500" />WhatsApp Tidak Terhubung</>
+                  : <><AlertTriangle className="h-5 w-5 text-orange-500" />WhatsApp Belum Terkirim</>
+              ) : (
+                <><Link2 className="h-5 w-5 text-blue-500" />Link Pembayaran Tenant</>
+              )}
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
-            {paymentLinkDialog?.mode === "wa-failed" && paymentLinkDialog.error && (
+            {paymentLinkDialog?.mode !== "manual" && paymentLinkDialog?.message && (
               <div className="rounded-md border border-orange-200 bg-orange-50 px-4 py-3 text-sm text-orange-800">
-                <p className="font-medium mb-1">Pengiriman WA gagal</p>
-                <p className="text-orange-700">{paymentLinkDialog.error}</p>
+                <p className="font-medium mb-1">
+                  {paymentLinkDialog.mode === "wa-pending" ? "Pengiriman belum selesai" : "Pengiriman WA gagal"}
+                </p>
+                <p className="text-orange-700">{paymentLinkDialog.message}</p>
               </div>
             )}
             <div>
               <p className="text-sm text-muted-foreground mb-2">
-                {paymentLinkDialog?.mode === "wa-failed"
+                {paymentLinkDialog?.mode !== "manual"
                   ? "Kirim link ini secara manual ke tenant (copy lalu kirim via WA, SMS, atau email):"
                   : "Salin link berikut dan kirimkan ke tenant melalui WA, SMS, atau media lain:"
                 }
