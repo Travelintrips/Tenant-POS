@@ -65,8 +65,11 @@ async function ensureBucket(
   bucket: string,
   isPublic = true,
 ): Promise<void> {
-  if (ensuredBuckets.has(bucket)) return;
-  const { data: existing } = await client.getBucket(bucket);
+  if (ensuredBuckets.has(bucket) && isPublic) return;
+  const { data: existing, error: getErr } = await client.getBucket(bucket);
+  if (getErr && !getErr.message.toLowerCase().includes("not found")) {
+    throw new Error(`Gagal memeriksa bucket "${bucket}": ${getErr.message}`);
+  }
   if (!existing) {
     const { error: createErr } = await client.createBucket(bucket, {
       public: isPublic,
@@ -74,6 +77,14 @@ async function ensureBucket(
     });
     if (createErr && !createErr.message.includes("already exists")) {
       throw new Error(`Gagal membuat bucket "${bucket}": ${createErr.message}`);
+    }
+  } else if (!isPublic && existing.public) {
+    const { error: updateErr } = await client.updateBucket(bucket, {
+      public: false,
+      fileSizeLimit: 10 * 1024 * 1024,
+    });
+    if (updateErr) {
+      throw new Error(`Gagal mengatur bucket "${bucket}" menjadi privat: ${updateErr.message}`);
     }
   }
   ensuredBuckets.add(bucket);
@@ -144,6 +155,29 @@ export function getStoragePublicUrl(bucket: string, filePath: string): string {
   }
   const { data } = _client.from(bucket).getPublicUrl(filePath);
   return data.publicUrl;
+}
+
+export function getPaymentProofBucket(): string {
+  const configuredBucket = process.env["SUPABASE_STORAGE_BUCKET"]?.trim();
+  return configuredBucket && !/^https?:\/\//i.test(configuredBucket)
+    ? configuredBucket
+    : "payment-proofs";
+}
+
+export function getStorageObjectPath(
+  storedUrl: string,
+  expectedBucket: string,
+): string | null {
+  try {
+    const parsed = new URL(storedUrl);
+    const match = parsed.pathname.match(
+      /\/storage\/v1\/object\/(?:public|authenticated|sign)\/([^/]+)\/(.+)$/,
+    );
+    if (!match || decodeURIComponent(match[1]) !== expectedBucket) return null;
+    return decodeURIComponent(match[2]);
+  } catch {
+    return null;
+  }
 }
 
 export { supabaseUrl };

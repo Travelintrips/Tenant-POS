@@ -9,7 +9,7 @@ import { z } from "zod";
 import { sseBroker } from "../lib/sse-broker";
 import { sendPaymentReceived, sendAdminPaymentAlert, notifyAdminGroup, getSiteCompanyName, getAdminNotifyPhones } from "../lib/whatsapp";
 import { uploadRateLimiter, publicReadRateLimiter } from "../middlewares/rate-limit";
-import { uploadToStorage } from "../lib/supabase-storage";
+import { getPaymentProofBucket, uploadToStorage } from "../lib/supabase-storage";
 import { getBaseUrl } from "../lib/app-url";
 import { extractAmountFromFile, isLikelyYearAmount } from "../lib/ocr-service";
 
@@ -227,6 +227,11 @@ router.post("/pay/:token/proof", uploadRateLimiter, async (req, res) => {
     return;
   }
 
+  if (!req.file) {
+    res.status(400).json({ error: "File bukti pembayaran wajib diupload." });
+    return;
+  }
+
   try {
     const [invoice] = await db
       .select({
@@ -289,18 +294,27 @@ router.post("/pay/:token/proof", uploadRateLimiter, async (req, res) => {
       return;
     }
 
-    let proofUrl: string | null = null;
-    if (req.file) {
-      const ext = path.extname(req.file.originalname).toLowerCase() || ".jpg";
-      const filename = `${crypto.randomUUID()}${ext}`;
-      const configuredBucket = process.env["SUPABASE_STORAGE_BUCKET"]?.trim();
-      // SUPABASE_STORAGE_BUCKET harus berupa nama bucket, bukan URL endpoint S3.
-      // Jika salah konfigurasi, gunakan bucket aplikasi yang sudah ditentukan.
-      const bucket =
-        configuredBucket && !/^https?:\/\//i.test(configuredBucket)
-          ? configuredBucket
-          : "payment-proofs";
-      proofUrl = await uploadToStorage(bucket, filename, req.file.buffer, req.file.mimetype);
+    const ext = path.extname(req.file.originalname).toLowerCase() || ".jpg";
+    const filename = `${crypto.randomUUID()}${ext}`;
+    const bucket = getPaymentProofBucket();
+    let proofUrl: string;
+    try {
+      // Bukti pembayaran selalu berada di bucket privat. Admin/tenant
+      // mengambilnya melalui endpoint backend yang sudah terautentikasi.
+      proofUrl = await uploadToStorage(
+        bucket,
+        filename,
+        req.file.buffer,
+        req.file.mimetype,
+        false,
+      );
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : "permission atau bucket tidak tersedia";
+      res.status(502).json({
+        error: `Bukti pembayaran gagal disimpan ke Supabase Storage: ${detail}`,
+        code: "STORAGE_UPLOAD_FAILED",
+      });
+      return;
     }
 
     const datePart = new Date().toISOString().slice(0, 10).replace(/-/g, "");
@@ -390,7 +404,6 @@ router.post("/pay/:token/proof", uploadRateLimiter, async (req, res) => {
               paymentId: payment.id,
               adminPhone: owner.phone,
               reviewLink,
-              proofUrl,
             }),
           ),
         );

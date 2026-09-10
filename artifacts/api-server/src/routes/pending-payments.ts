@@ -17,7 +17,11 @@ import { approveExistingPayment, LedgerError } from "../lib/payment-ledger";
 import { postTenantPaymentAccountingEntry } from "../lib/accounting-entry";
 import { logger } from "../lib/logger";
 import { isLikelyYearAmount } from "../lib/ocr-service";
-import { downloadFromStorage } from "../lib/supabase-storage";
+import {
+  downloadFromStorage,
+  getPaymentProofBucket,
+  getStorageObjectPath,
+} from "../lib/supabase-storage";
 
 const router: IRouter = Router();
 
@@ -51,18 +55,6 @@ const pendingPaymentSelect = {
   ocrExtractedAmount: tenantPaymentsTable.ocrExtractedAmount,
   ocrConfidence: tenantPaymentsTable.ocrConfidence,
 } as const;
-
-function getPaymentProofPath(proofUrl: string): string | null {
-  try {
-    const parsed = new URL(proofUrl);
-    const match = parsed.pathname.match(
-      /\/storage\/v1\/object\/(?:public|authenticated|sign)\/payment-proofs\/(.+)$/,
-    );
-    return match?.[1] ? decodeURIComponent(match[1]) : null;
-  } catch {
-    return null;
-  }
-}
 
 // ─── GET /api/pending-payments ────────────────────────────────────────────────
 router.get("/pending-payments", async (req, res) => {
@@ -127,14 +119,18 @@ router.get("/pending-payments/:id/proof", async (req, res) => {
     return;
   }
 
-  const filePath = getPaymentProofPath(storedUrl);
+  const bucket = getPaymentProofBucket();
+  const filePath = getStorageObjectPath(storedUrl, bucket);
   if (!filePath) {
-    res.status(422).json({ error: "Lokasi bukti pembayaran tidak dikenali" });
+    res.status(422).json({
+      error: `Lokasi bukti pembayaran tidak cocok dengan bucket "${bucket}"`,
+      code: "STORAGE_OBJECT_INVALID",
+    });
     return;
   }
 
   try {
-    const file = await downloadFromStorage("payment-proofs", filePath);
+    const file = await downloadFromStorage(bucket, filePath);
     const safeFilename = (filePath.split("/").pop() ?? "bukti-bayar")
       .replace(/[^a-zA-Z0-9._-]/g, "_");
     res.setHeader("Content-Type", file.contentType);
@@ -143,7 +139,10 @@ router.get("/pending-payments/:id/proof", async (req, res) => {
     res.send(file.buffer);
   } catch (err) {
     logger.error({ err, paymentId, filePath }, "[pending-payments] gagal mengambil bukti pembayaran");
-    res.status(502).json({ error: "Bukti pembayaran gagal dimuat dari penyimpanan" });
+    res.status(502).json({
+      error: `Bukti pembayaran gagal dimuat dari Supabase Storage bucket "${bucket}". Periksa bucket dan permission server.`,
+      code: "STORAGE_DOWNLOAD_FAILED",
+    });
   }
 });
 

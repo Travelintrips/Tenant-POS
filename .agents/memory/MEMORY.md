@@ -54,3 +54,4 @@
 - [cloud-run-node-env](cloud-run-node-env.md) — Cloud Run sets NODE_ENV=production automatically; [userenv.production] NODE_ENV=development is ignored; validateProductionEnv() must NOT call process.exit(1) when SUPABASE_PG_URL_PROD missing if SUPABASE_PG_URL fallback exists
 - [pos-receipt-journal-flow](pos-receipt-journal.md) — 
 - [Production journal corrections](production-journal-corrections.md) — create corrections as draft, add lines, then post; reversal refs must be unique, and payment company comes from its invoice rather than the site default.
+- [Supabase payment-proof storage](supabase-payment-proof-storage.md) — payment-proof bucket is private and may enforce allowed MIME types; verify with supported PNG/PDF through server-side routes.

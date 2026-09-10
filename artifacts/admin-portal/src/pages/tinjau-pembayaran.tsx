@@ -440,7 +440,7 @@ export default function TinjauPembayaran() {
           )}
           {previewError && (
             <div className="rounded-md border border-destructive/30 bg-destructive/5 px-4 py-8 text-center text-sm text-destructive">
-              Bukti pembayaran gagal dimuat. Coba buka di tab baru atau muat ulang halaman.
+              Bukti pembayaran gagal dimuat dari Supabase Storage. Periksa bucket atau permission server, lalu muat ulang halaman.
             </div>
           )}
           <DialogFooter>
