@@ -433,7 +433,13 @@ router.get("/payments/:id", async (req, res) => {
 });
 
 const editPaymentDateSchema = z.object({
-  paymentDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Tanggal pembayaran tidak valid"),
+  paymentDate: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, "Tanggal pembayaran tidak valid")
+    .refine((value) => {
+      const parsed = new Date(`${value}T00:00:00.000Z`);
+      return !Number.isNaN(parsed.valueOf()) && parsed.toISOString().startsWith(value);
+    }, "Tanggal pembayaran tidak valid"),
 });
 
 // ─── PUT /api/payments/:id/date ──────────────────────────────────────────────
@@ -460,7 +466,7 @@ router.put(
       const linkedSiteId = sql<number>`coalesce(${tenantPaymentsTable.siteId}, ${tenantInvoicesTable.siteId}, ${tenantsTable.siteId})`;
       const linkedCompanyId = sql<number>`coalesce(${tenantInvoicesTable.companyId}, ${tenantsTable.companyId}, ${tenantPaymentsTable.companyId}, ${mallSitesTable.companyId})`;
       const conditions: SQL[] = [eq(tenantPaymentsTable.id, id)];
-      if (req.siteId > 0) conditions.push(eq(tenantPaymentsTable.siteId, req.siteId));
+       if (req.siteId > 0) conditions.push(eq(linkedSiteId, req.siteId));
       if (ctx.ownerCompanyId != null) conditions.push(eq(linkedCompanyId, ctx.ownerCompanyId));
       if (ctx.ownerTenantId != null) conditions.push(eq(tenantPaymentsTable.tenantId, ctx.ownerTenantId));
 
@@ -489,7 +495,7 @@ router.put(
       const paidAt = new Date(`${parsed.data.paymentDate}T00:00:00.000Z`);
       const [updated] = await db
         .update(tenantPaymentsTable)
-        .set({ paidAt, updatedAt: new Date() })
+        .set({ paidAt })
         .where(eq(tenantPaymentsTable.id, id))
         .returning({ id: tenantPaymentsTable.id, paidAt: tenantPaymentsTable.paidAt });
 

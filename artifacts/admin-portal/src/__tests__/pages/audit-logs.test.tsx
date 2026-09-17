@@ -41,7 +41,14 @@ function setupAuditMocks(logs = mockAuditLogs) {
       return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(withUser()) } as Response);
     }
     if (urlStr.includes("/api/audit-logs")) {
-      return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(logs) } as Response);
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({
+          data: logs,
+          pagination: { total: logs.length, limit: 50, offset: 0 },
+        }),
+      } as Response);
     }
     return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve([]) } as Response);
   });
@@ -62,9 +69,9 @@ describe("Fase 7 — Halaman Audit Log (Frontend)", () => {
 
     await waitFor(() => {
       const hasContent =
-        screen.queryByText("create_tenant") !== null ||
-        screen.queryByText("owner@test.local") !== null ||
-        screen.queryByText("Test Owner") !== null;
+        screen.queryAllByText("create_tenant").length > 0 ||
+        screen.queryAllByText("owner@test.local").length > 0 ||
+        screen.queryAllByText("Test Owner").length > 0;
       expect(hasContent).toBe(true);
     }, { timeout: 5000 });
   });

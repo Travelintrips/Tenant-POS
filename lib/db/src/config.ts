@@ -13,7 +13,6 @@ function resolveDbUrl(): string {
       process.env["SUPABASE_POOLER_URL"] ??
       process.env["DATABASE_URL"]
     : process.env["SUPABASE_PG_URL_DEV"] ??
-      process.env["SUPABASE_PG_URL_PROD"] ??
       process.env["SUPABASE_POOLER_URL"] ??
       process.env["DATABASE_URL"];
   if (!url) throw new Error("SUPABASE_POOLER_URL atau SUPABASE_PG_URL_PROD harus diset di Secrets/Config");

@@ -3,6 +3,22 @@ import { describe, it, expect, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import { renderWithProviders, withUser } from "@/test/render-utils";
 
+vi.mock("@/contexts/site-context", () => ({
+  useSite: () => ({
+    activeSite: {
+      id: 1,
+      code: "TOD_M1_BANDARA",
+      name: "TOD M1 Bandara",
+      type: "mall_tenant",
+      status: "active",
+    },
+    activeSiteId: 1,
+    sites: [],
+    isLoading: false,
+    setActiveSite: vi.fn(),
+  }),
+}));
+
 const mockBookings = [
   {
     id: 1,

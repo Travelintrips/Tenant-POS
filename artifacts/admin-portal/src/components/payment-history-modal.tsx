@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
@@ -118,47 +118,34 @@ const LIMIT = 10;
 // ─── Edit Payment Dialog ──────────────────────────────────────────────────────
 
 type EditForm = {
-  amount: string;
-  paymentMethod: "tunai" | "transfer" | "qris" | "edc" | "other";
   paymentDate: string;
-  notes: string;
 };
 
 interface EditDialogProps {
   open: boolean;
   onClose: () => void;
   payment: LedgerRow | null;
-  invoiceId: number | undefined;
   onSuccess: () => void;
 }
 
-function EditPaymentDialog({ open, onClose, payment, invoiceId, onSuccess }: EditDialogProps) {
+function EditPaymentDialog({ open, onClose, payment, onSuccess }: EditDialogProps) {
   const { toast } = useToast();
   const [form, setForm] = useState<EditForm>({
-    amount: "",
-    paymentMethod: "tunai",
     paymentDate: "",
-    notes: "",
   });
 
-  // Populate form when payment changes
-  const prevPaymentId = payment?.id;
-  if (payment && payment.id !== prevPaymentId) {
-    setForm({
-      amount: String(Math.round(Number(payment.amount))),
-      paymentMethod: (payment.paymentMethod as EditForm["paymentMethod"]) ?? "tunai",
-      paymentDate: toDateInputValue(payment.paidAt),
-      notes: payment.notes ?? "",
-    });
-  }
+  useEffect(() => {
+    if (payment) {
+      setForm({
+        paymentDate: toDateInputValue(payment.paidAt),
+      });
+    }
+  }, [payment]);
 
   function handleOpen(isOpen: boolean) {
     if (isOpen && payment) {
       setForm({
-        amount: String(Math.round(Number(payment.amount))),
-        paymentMethod: (payment.paymentMethod as EditForm["paymentMethod"]) ?? "tunai",
         paymentDate: toDateInputValue(payment.paidAt),
-        notes: payment.notes ?? "",
       });
     }
     if (!isOpen) onClose();
@@ -167,25 +154,20 @@ function EditPaymentDialog({ open, onClose, payment, invoiceId, onSuccess }: Edi
   const editMutation = useMutation({
     mutationFn: async () => {
       if (!payment) throw new Error("Tidak ada pembayaran dipilih");
-      const res = await fetch(`${BASE}/api/tenant-invoices/payments/${payment.id}`, {
+      const res = await fetch(`${BASE}/api/payments/${payment.id}/date`, {
         method: "PUT",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          amount: Number(form.amount),
-          paymentMethod: form.paymentMethod,
-          paymentDate: form.paymentDate || null,
-          notes: form.notes || null,
-        }),
+        body: JSON.stringify({ paymentDate: form.paymentDate }),
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
-        throw new Error((body as { error?: string }).error ?? "Gagal menyimpan perubahan");
+        throw new Error((body as { error?: string }).error ?? "Gagal menyimpan tanggal pembayaran");
       }
       return res.json();
     },
     onSuccess: () => {
-      toast({ title: "Pembayaran diperbarui", description: "Data pembayaran berhasil disimpan." });
+      toast({ title: "Tanggal pembayaran diperbarui", description: "Tanggal pembayaran berhasil disimpan." });
       onSuccess();
       onClose();
     },
@@ -196,8 +178,8 @@ function EditPaymentDialog({ open, onClose, payment, invoiceId, onSuccess }: Edi
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!form.amount || Number(form.amount) <= 0) {
-      toast({ title: "Validasi gagal", description: "Jumlah bayar harus lebih dari 0.", variant: "destructive" });
+    if (!form.paymentDate) {
+      toast({ title: "Validasi gagal", description: "Tanggal pembayaran wajib diisi.", variant: "destructive" });
       return;
     }
     editMutation.mutate();
@@ -209,64 +191,30 @@ function EditPaymentDialog({ open, onClose, payment, invoiceId, onSuccess }: Edi
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Pencil className="h-4 w-4 text-primary" />
-            Edit Pembayaran #{payment?.id}
+            Edit Tanggal Pembayaran #{payment?.id}
           </DialogTitle>
         </DialogHeader>
 
         <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="space-y-1.5">
-            <Label htmlFor="ep-amount">Jumlah Bayar (Rp)</Label>
-            <Input
-              id="ep-amount"
-              type="number"
-              min={1}
-              step={1}
-              value={form.amount}
-              onChange={(e) => setForm((f) => ({ ...f, amount: e.target.value }))}
-              placeholder="3000000"
-              required
-            />
+          <div className="rounded-md border bg-muted/30 px-3 py-2 text-sm">
+            <div className="text-muted-foreground">Nominal</div>
+            <div className="font-semibold">{formatRupiah(payment?.amount)}</div>
           </div>
 
           <div className="space-y-1.5">
-            <Label htmlFor="ep-method">Metode Pembayaran</Label>
-            <Select
-              value={form.paymentMethod}
-              onValueChange={(v) => setForm((f) => ({ ...f, paymentMethod: v as EditForm["paymentMethod"] }))}
-            >
-              <SelectTrigger id="ep-method">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="tunai">Tunai</SelectItem>
-                <SelectItem value="transfer">Transfer</SelectItem>
-                <SelectItem value="qris">QRIS</SelectItem>
-                <SelectItem value="edc">EDC</SelectItem>
-                <SelectItem value="other">Lainnya</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="space-y-1.5">
-           <Label htmlFor="ep-date">{getPaymentDateLabel(payment?.sourceType)}</Label>
+            <Label htmlFor="ep-date">{getPaymentDateLabel(payment?.sourceType)}</Label>
             <Input
               id="ep-date"
               type="date"
               value={form.paymentDate}
-              onChange={(e) => setForm((f) => ({ ...f, paymentDate: e.target.value }))}
+              onChange={(e) => setForm({ paymentDate: e.target.value })}
+              required
             />
           </div>
 
-          <div className="space-y-1.5">
-            <Label htmlFor="ep-notes">Keterangan</Label>
-            <Textarea
-              id="ep-notes"
-              rows={3}
-              value={form.notes}
-              onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))}
-              placeholder="Contoh: TRSF E-BANKING CR ..."
-            />
-          </div>
+          <p className="text-xs text-muted-foreground">
+            Hanya tanggal pembayaran yang diubah. Nominal, status, invoice, dan pencatatan accounting tetap sama.
+          </p>
 
           <DialogFooter>
             <Button type="button" variant="outline" onClick={onClose} disabled={editMutation.isPending}>
@@ -274,7 +222,7 @@ function EditPaymentDialog({ open, onClose, payment, invoiceId, onSuccess }: Edi
             </Button>
             <Button type="submit" disabled={editMutation.isPending}>
               {editMutation.isPending && <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />}
-              Simpan Perubahan
+              Simpan Tanggal
             </Button>
           </DialogFooter>
         </form>
@@ -539,7 +487,7 @@ export function PaymentHistoryModal({ open, onClose, invoice }: Props) {
                               onClick={() => setProofPreview(row.proofUrl)}
                             >
                               <Eye className="h-3.5 w-3.5" />
-                              Lihat
+                               Lihat Bukti Pembayaran
                             </Button>
                           ) : (
                             <span className="text-xs text-muted-foreground">-</span>
@@ -627,7 +575,6 @@ export function PaymentHistoryModal({ open, onClose, invoice }: Props) {
         open={!!editTarget}
         onClose={() => setEditTarget(null)}
         payment={editTarget}
-        invoiceId={invoice?.id}
         onSuccess={handleEditSuccess}
       />
     </>
