@@ -1,4 +1,5 @@
 import { apiFetch } from "@/lib/api";
+import { getPaymentDateLabel } from "@/lib/payment-date-label";
 import React, { useState, useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
@@ -89,7 +90,7 @@ const AGING_COLORS = ["#10b981", "#f59e0b", "#ef4444", "#dc2626", "#991b1b"];
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 type Overview = { totalActiveTenants: number; unpaidCount: number; overdueCount: number; paidTodayAmount: number };
-type RecentPayment = { id: number; amount: number; discountAmount: number; penaltyAmount: number; paymentMethod: string; receiptNumber: string | null; notes: string | null; paidAt: string | null; businessName: string; boothNumber: string; areaName: string; periodLabel: string | null };
+type RecentPayment = { id: number; amount: number; discountAmount: number; penaltyAmount: number; paymentMethod: string; receiptNumber: string | null; notes: string | null; paidAt: string | null; sourceType: string | null; businessName: string; boothNumber: string; areaName: string; periodLabel: string | null };
 type SummaryData = { tahun: number; monthly: { bulan: string; bulanNum: number; totalAmount: number; jumlahTransaksi: number }[]; totalPendapatan: number; totalTransaksi: number; tunggakan: { totalTunggakan: number; jumlahUnit: number } };
 type KPIData = { revenueThisMonth: number; paidThisMonth: number; totalOutstanding: number; totalOverdue: number; jumlahInvoiceOverdue: number; jumlahTenantOverdue: number; collectionRate: number };
 type PiutangRow = { id: number; invoiceNumber: string; tenantId: number; businessName: string; ownerName: string; unitCode: string; floor: string; dueDate: string | null; periodStart: string | null; periodEnd: string | null; totalAmount: number; paidAmount: number; outstandingAmount: number; status: string; agingDays: number | null };
@@ -98,7 +99,7 @@ type AgingBucket = { label: string; amount: number; count: number };
 type AgingData = { buckets: AgingBucket[] };
 type PaymentMethodRow = { method: string; totalAmount: number; grossAmount: number; refundTotal: number; jumlahTransaksi: number };
 type PaymentMethodData = { data: PaymentMethodRow[] };
-type PaymentRecord = { id: number; receiptNumber: string; paymentDate: string; tenantId: number; bookingId: number; businessName: string; ownerName: string; boothNumber: string; areaName: string; floor: string; category: string; periodLabel: string; paymentMethod: string; amountPaid: number; discountAmount: number; penaltyAmount: number; refundAmount: number; netAmount: number; paymentStatus: string; notes: string; source: string; debitAccount: string; creditAccount: string; siteName?: string; companyName?: string };
+type PaymentRecord = { id: number; receiptNumber: string; paymentDate: string; sourceType: string | null; tenantId: number; bookingId: number; businessName: string; ownerName: string; boothNumber: string; areaName: string; floor: string; category: string; periodLabel: string; paymentMethod: string; amountPaid: number; discountAmount: number; penaltyAmount: number; refundAmount: number; netAmount: number; paymentStatus: string; notes: string; source: string; debitAccount: string; creditAccount: string; siteName?: string; companyName?: string };
 type RekapData = { data: PaymentRecord[]; pagination: { total: number; limit: number; offset: number }; tahun: number; bulan: number | null };
 type TenantItem = { id: number; businessName: string };
 type IuranSampahRow = { tenantId: number; businessName: string; ownerName: string; unitCode: string; jumlahInvoice: number; totalIuran: number; iuranTerbayar: number; iuranTertunggak: number; periodeAwal: string | null; periodeAkhir: string | null };
@@ -969,6 +970,7 @@ function RecentPaymentsTable() {
                 {payments.map((p) => (
                   <tr key={p.id} className="hover:bg-slate-50/60 transition-colors">
                     <td className="px-4 py-3 text-xs text-muted-foreground whitespace-nowrap">
+                      <div className="text-[10px] uppercase tracking-wide">{getPaymentDateLabel(p.sourceType)}</div>
                       <div>{p.paidAt ? fmtTglID(p.paidAt.slice(0, 10)) : "Tanggal tidak tersedia"}</div>
                       <div className="text-[10px] text-slate-400">{p.paidAt ? fmtJamPendek(p.paidAt) : "—"}</div>
                     </td>
@@ -1093,7 +1095,7 @@ function RekapTransaksiSection({ filter, tahun }: { filter: FilterState; tahun: 
                 <thead>
                   <tr className="bg-slate-50 border-b">
                     {[
-                      "Tanggal", "No. Receipt", "Lokasi / PT", "Nama Bisnis", "Pemilik", "Booth", "Lantai",
+                      "Tanggal sesuai sumber", "No. Receipt", "Lokasi / PT", "Nama Bisnis", "Pemilik", "Booth", "Lantai",
                       "Periode", "Metode", "Nominal", "Refund", "Bersih", "Status",
                       ...(showJurnal ? ["Jurnal"] : []),
                     ].map((h) => (
@@ -1105,6 +1107,7 @@ function RekapTransaksiSection({ filter, tahun }: { filter: FilterState; tahun: 
                   {rekap?.data.map((row) => (
                     <tr key={row.id} className="hover:bg-slate-50/60 transition-colors">
                       <td className="px-3 py-2.5 whitespace-nowrap">
+                        <div className="text-[10px] uppercase tracking-wide text-slate-400">{getPaymentDateLabel(row.sourceType)}</div>
                         <div className="text-slate-800 font-medium">{fmtTgl(row.paymentDate)}</div>
                         <div className="text-slate-400 text-xs">{fmtJam(row.paymentDate)}</div>
                       </td>

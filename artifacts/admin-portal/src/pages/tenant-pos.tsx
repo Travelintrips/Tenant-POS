@@ -126,6 +126,7 @@ type PaymentHistoryItem = {
 type ReceiptData = {
   receiptNumber: string;
   paymentDate: string;
+  sourceType: string | null;
   businessName: string;
   ownerName: string;
   boothNumber: string;
@@ -614,7 +615,7 @@ function VoidPaymentDialog({ payment, onClose }: {
                 <div className="rounded-lg border bg-red-50 px-3 py-2 text-sm space-y-1">
                   <div className="flex justify-between"><span className="text-muted-foreground">No. Kwitansi</span><span className="font-mono font-medium">{payment.receiptNumber ?? `#${payment.id}`}</span></div>
                   <div className="flex justify-between"><span className="text-muted-foreground">Nominal</span><span className="font-semibold text-red-700">{formatRupiah(payment.amountPaid)}</span></div>
-                  <div className="flex justify-between"><span className="text-muted-foreground">Tanggal</span><span className="font-medium">{formatTanggalID(payment.paymentDate?.slice(0, 10))}</span></div>
+                  <div className="flex justify-between"><span className="text-muted-foreground">{getPaymentDateLabel(payment.sourceType)}</span><span className="font-medium">{formatTanggalID(payment.paymentDate?.slice(0, 10))}</span></div>
                 </div>
               )}
               <p className="text-xs text-red-600 font-medium">⚠ Void akan membatalkan efek pembayaran ini pada booking/invoice. Tindakan tidak bisa dibatalkan.</p>
@@ -822,7 +823,7 @@ function ModalReceipt({ paymentId, onClose }: { paymentId: number; onClose: () =
                     </div>
                   )}
                   <div className="flex justify-between">
-                    <span className="text-slate-500 font-medium">Tanggal Bayar</span>
+                    <span className="text-slate-500 font-medium">{getPaymentDateLabel(data.sourceType)}</span>
                     <span className="font-semibold">{new Date(data.paymentDate).toLocaleDateString("id-ID", { day: "numeric", month: "long", year: "numeric" })}</span>
                   </div>
                   <div className="flex justify-between">
