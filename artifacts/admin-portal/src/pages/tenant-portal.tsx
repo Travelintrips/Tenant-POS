@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useAuth, useLogout } from "@/hooks/use-auth";
 import { apiFetchJson } from "@/lib/api";
+import { getPaymentDateLabel } from "@/lib/payment-date-label";
 import {
   Card, CardContent, CardHeader, CardTitle,
 } from "@/components/ui/card";
@@ -275,7 +276,7 @@ export default function TenantPortal() {
                           <TableHeader>
                             <TableRow>
                               <TableHead>No. Pembayaran</TableHead>
-                              <TableHead>Tanggal</TableHead>
+                              <TableHead>Tanggal sesuai sumber</TableHead>
                               <TableHead>Metode</TableHead>
                               <TableHead className="text-right">Jumlah</TableHead>
                               <TableHead>Status</TableHead>
@@ -286,7 +287,10 @@ export default function TenantPortal() {
                             {(payments as any[]).map((p) => (
                               <TableRow key={p.id}>
                                 <TableCell className="font-mono text-xs">{p.paymentNumber ?? p.receiptNumber ?? "—"}</TableCell>
-                                <TableCell className="text-xs">{formatDate(p.paidAt ?? p.createdAt)}</TableCell>
+                                <TableCell className="text-xs">
+                                  <div className="text-[10px] uppercase tracking-wide text-muted-foreground">{getPaymentDateLabel(p.sourceType)}</div>
+                                  <div>{formatDate(p.paidAt)}</div>
+                                </TableCell>
                                 <TableCell className="text-xs capitalize">{p.paymentMethod ?? p.method}</TableCell>
                                 <TableCell className="text-right text-xs">{formatCurrency(p.amount)}</TableCell>
                                 <TableCell><StatusBadge status={p.paymentStatus ?? p.status} /></TableCell>

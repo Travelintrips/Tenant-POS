@@ -31,6 +31,7 @@ import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import { cetakStrukPDF, buatNoStruk, formatTanggal, formatJam } from "@/lib/cetak-struk";
+import { getPaymentDateLabel } from "@/lib/payment-date-label";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -105,6 +106,7 @@ type PaymentHistoryItem = {
   paymentMethod: MetodeBayar;
   paymentStatus: string;
   paymentDate: string;
+  sourceType: string | null;
   notes: string | null;
   createdAt: string;
   isVoided: boolean;
@@ -1589,7 +1591,10 @@ function DetailPanel({ item, onClose, onProses, onBayarInvoice, currentShiftId }
                       </div>
                     </div>
                     <div className="grid grid-cols-2 gap-x-3 gap-y-0.5">
-                      <div><p className="text-muted-foreground">Tanggal</p><p className="font-medium">{new Date(p.paymentDate).toLocaleDateString("id-ID", { day: "numeric", month: "short", year: "numeric" })}</p></div>
+                       <div>
+                         <p className="text-muted-foreground">{getPaymentDateLabel(p.sourceType)}</p>
+                         <p className="font-medium">{new Date(p.paymentDate).toLocaleDateString("id-ID", { day: "numeric", month: "short", year: "numeric" })}</p>
+                       </div>
                       <div><p className="text-muted-foreground">Metode</p><p className="font-medium">{METODE_LABEL[p.paymentMethod] ?? p.paymentMethod}</p></div>
                       <div className="col-span-2"><p className="text-muted-foreground">Nominal</p><p className={cn("font-bold", isVoided ? "text-red-700 line-through" : "text-emerald-700")}>{formatRupiah(p.amountPaid)}</p></div>
                     </div>

@@ -41,6 +41,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { getPaymentDateLabel } from "@/lib/payment-date-label";
 
 function formatRupiah(val: number | string | null | undefined) {
   if (val == null || val === "") return "Rp 0";
@@ -312,7 +313,7 @@ export default function RiwayatPembayaran() {
                   <TableHead className="w-32">No. Penyewaan</TableHead>
                   <TableHead className="w-24">Metode</TableHead>
                   <TableHead className="w-24">Sumber</TableHead>
-                  <TableHead className="w-36">Tanggal Bayar</TableHead>
+                  <TableHead className="w-36">Tanggal sesuai sumber</TableHead>
                   <TableHead className="text-right w-32">Jumlah</TableHead>
                   <TableHead className="w-28">Status</TableHead>
                 </TableRow>
@@ -363,7 +364,8 @@ export default function RiwayatPembayaran() {
                         </span>
                       </TableCell>
                       <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
-                        {formatTanggal(p.paidAt)}
+                        <div className="text-[10px] uppercase tracking-wide">{getPaymentDateLabel(p.sourceType)}</div>
+                        <div>{formatTanggal(p.paidAt)}</div>
                       </TableCell>
                       <TableCell className="text-right font-semibold text-sm">
                         {formatRupiah(p.amount)}
@@ -451,7 +453,7 @@ export default function RiwayatPembayaran() {
                   <p>{METODE_LABELS[selectedPayment.paymentMethod] ?? selectedPayment.paymentMethod}</p>
                 </div>
                 <div>
-                  <p className="text-muted-foreground text-xs">Tanggal Bayar</p>
+                  <p className="text-muted-foreground text-xs">{getPaymentDateLabel(selectedPayment.sourceType)}</p>
                   <p>{formatTanggal(selectedPayment.paidAt)}</p>
                 </div>
                 <div>

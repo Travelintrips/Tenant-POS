@@ -14,6 +14,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
+import { getPaymentDateLabel } from "@/lib/payment-date-label";
 import {
   History, ChevronLeft, ChevronRight, ExternalLink, AlertCircle,
   CheckCircle2, Clock, Filter, ReceiptText, Pencil, Loader2,
@@ -247,7 +248,7 @@ function EditPaymentDialog({ open, onClose, payment, invoiceId, onSuccess }: Edi
           </div>
 
           <div className="space-y-1.5">
-            <Label htmlFor="ep-date">Tanggal Bayar</Label>
+           <Label htmlFor="ep-date">{getPaymentDateLabel(payment?.sourceType)}</Label>
             <Input
               id="ep-date"
               type="date"
@@ -455,7 +456,7 @@ export function PaymentHistoryModal({ open, onClose, invoice }: Props) {
                     <TableHead className="text-xs">Metode</TableHead>
                     <TableHead className="text-xs">Keterangan</TableHead>
                     <TableHead className="text-xs">Kasir</TableHead>
-                    <TableHead className="text-xs">Tanggal Bayar</TableHead>
+                    <TableHead className="text-xs">Tanggal sesuai sumber</TableHead>
                     <TableHead className="text-xs w-12"></TableHead>
                   </TableRow>
                 </TableHeader>
@@ -524,7 +525,8 @@ export function PaymentHistoryModal({ open, onClose, invoice }: Props) {
                         </TableCell>
                         <TableCell className="text-xs">{row.kasirName ?? "-"}</TableCell>
                         <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
-                          {formatDateTime(row.paidAt ?? row.createdAt)}
+                          <div className="text-[10px] uppercase tracking-wide">{getPaymentDateLabel(row.sourceType)}</div>
+                          <div>{formatDateTime(row.paidAt)}</div>
                         </TableCell>
                         <TableCell>
                           {!isVoided && (

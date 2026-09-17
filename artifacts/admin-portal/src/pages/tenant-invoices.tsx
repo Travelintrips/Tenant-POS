@@ -3,6 +3,7 @@ import { apiFetch as apiFetchBase } from "@/lib/api";
 import { useState, useMemo, useRef } from "react";
 import { useSite } from "@/contexts/site-context";
 import { PaymentHistoryModal } from "@/components/payment-history-modal";
+import { getPaymentDateLabel } from "@/lib/payment-date-label";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
@@ -85,6 +86,7 @@ type Payment = {
   id: number;
   amount: string;
   paymentMethod: string;
+  sourceType: string | null;
   receiptNumber: string | null;
   notes: string | null;
   paidAt: string | null;
@@ -2709,6 +2711,7 @@ export default function TenantInvoices() {
                           <div key={p.id} className="flex justify-between items-center text-sm bg-muted/30 rounded-md px-3 py-2">
                             <div>
                               <p className="font-medium">{formatRupiah(p.amount)}</p>
+                              <p className="text-[10px] text-muted-foreground uppercase tracking-wide">{getPaymentDateLabel(p.sourceType)}</p>
                               <p className="text-xs text-muted-foreground">{p.paymentMethod} · {formatDate(p.paidAt)}</p>
                             </div>
                             <p className="text-xs text-muted-foreground font-mono">{p.receiptNumber ?? "-"}</p>
