@@ -12,6 +12,11 @@ import { notifyAdminGroup } from "../lib/whatsapp";
 import { logger } from "../lib/logger";
 import { requireAnyRole } from "../middlewares/auth";
 import { appContextMiddleware } from "../middlewares/app-context";
+import {
+  downloadFromStorage,
+  getPaymentProofBucket,
+  getStorageObjectPath,
+} from "../lib/supabase-storage";
 
 const router: IRouter = Router();
 
@@ -327,6 +332,7 @@ router.get("/payments", async (req, res) => {
         isVoided: tenantPaymentsTable.isVoided,
         remainingBalanceAfter: tenantPaymentsTable.remainingBalanceAfter,
         proofUrl: tenantPaymentsTable.proofUrl,
+        proofImageUrl: tenantPaymentsTable.proofImageUrl,
         createdAt: tenantPaymentsTable.createdAt,
         kasirName: cashierShiftsTable.cashierName,
       })
@@ -342,7 +348,12 @@ router.get("/payments", async (req, res) => {
 
     res.json({
       success: true,
-      data: rows,
+      data: rows.map(({ proofImageUrl, ...row }) => ({
+        ...row,
+        proofUrl: row.proofUrl || proofImageUrl
+          ? `/api/payments/${row.id}/proof`
+          : null,
+      })),
       pagination: {
         total: countRow?.total ?? 0,
         limit,
@@ -390,6 +401,8 @@ router.get("/payments/:id", async (req, res) => {
         sourceType: tenantPaymentsTable.sourceType,
         notes: tenantPaymentsTable.notes,
         paidAt: tenantPaymentsTable.paidAt,
+        proofUrl: tenantPaymentsTable.proofUrl,
+        proofImageUrl: tenantPaymentsTable.proofImageUrl,
         isVoided: tenantPaymentsTable.isVoided,
         createdAt: tenantPaymentsTable.createdAt,
         businessName: tenantsTable.businessName,
@@ -406,11 +419,155 @@ router.get("/payments/:id", async (req, res) => {
       return;
     }
 
-    res.json(payment);
+    const { proofImageUrl, ...paymentData } = payment;
+    res.json({
+      ...paymentData,
+      proofUrl: payment.proofUrl || proofImageUrl
+        ? `/api/payments/${payment.id}/proof`
+        : null,
+    });
   } catch (err) {
     logger.error({ err }, "[GET /payments/:id]");
     res.status(500).json({ error: "Gagal mengambil data pembayaran" });
   }
 });
+
+const editPaymentDateSchema = z.object({
+  paymentDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Tanggal pembayaran tidak valid"),
+});
+
+// ─── PUT /api/payments/:id/date ──────────────────────────────────────────────
+// Mengubah tanggal tampil/payment date saja. Tidak mengubah nominal, status,
+// invoice paid amount, atau lifecycle pembayaran.
+router.put(
+  "/payments/:id/date",
+  requireAnyRole("owner", "admin", "finance"),
+  async (req, res) => {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id <= 0) {
+      res.status(400).json({ error: "ID pembayaran tidak valid" });
+      return;
+    }
+
+    const parsed = editPaymentDateSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: parsed.error.issues[0]?.message ?? "Tanggal pembayaran tidak valid" });
+      return;
+    }
+
+    try {
+      const ctx = req.appContext!;
+      const linkedSiteId = sql<number>`coalesce(${tenantPaymentsTable.siteId}, ${tenantInvoicesTable.siteId}, ${tenantsTable.siteId})`;
+      const linkedCompanyId = sql<number>`coalesce(${tenantInvoicesTable.companyId}, ${tenantsTable.companyId}, ${tenantPaymentsTable.companyId}, ${mallSitesTable.companyId})`;
+      const conditions: SQL[] = [eq(tenantPaymentsTable.id, id)];
+      if (req.siteId > 0) conditions.push(eq(tenantPaymentsTable.siteId, req.siteId));
+      if (ctx.ownerCompanyId != null) conditions.push(eq(linkedCompanyId, ctx.ownerCompanyId));
+      if (ctx.ownerTenantId != null) conditions.push(eq(tenantPaymentsTable.tenantId, ctx.ownerTenantId));
+
+      const [payment] = await db
+        .select({
+          id: tenantPaymentsTable.id,
+          paidAt: tenantPaymentsTable.paidAt,
+          isVoided: tenantPaymentsTable.isVoided,
+          invoiceId: tenantPaymentsTable.invoiceId,
+        })
+        .from(tenantPaymentsTable)
+        .leftJoin(tenantInvoicesTable, eq(tenantPaymentsTable.invoiceId, tenantInvoicesTable.id))
+        .leftJoin(tenantsTable, eq(tenantPaymentsTable.tenantId, tenantsTable.id))
+        .leftJoin(mallSitesTable, eq(mallSitesTable.id, linkedSiteId))
+        .where(and(...conditions));
+
+      if (!payment) {
+        res.status(404).json({ error: "Pembayaran tidak ditemukan" });
+        return;
+      }
+      if (payment.isVoided) {
+        res.status(409).json({ error: "Pembayaran sudah dibatalkan, tanggal tidak dapat diedit" });
+        return;
+      }
+
+      const paidAt = new Date(`${parsed.data.paymentDate}T00:00:00.000Z`);
+      const [updated] = await db
+        .update(tenantPaymentsTable)
+        .set({ paidAt, updatedAt: new Date() })
+        .where(eq(tenantPaymentsTable.id, id))
+        .returning({ id: tenantPaymentsTable.id, paidAt: tenantPaymentsTable.paidAt });
+
+      logAudit(req, {
+        action: "edit_payment_date",
+        entityType: "payment",
+        entityId: id,
+        beforeData: { paidAt: payment.paidAt },
+        afterData: { paidAt, invoiceId: payment.invoiceId },
+      });
+
+      res.json({ success: true, payment: updated });
+    } catch (err) {
+      logger.error({ err }, "[PUT /payments/:id/date]");
+      res.status(500).json({ error: "Gagal mengubah tanggal pembayaran" });
+    }
+  },
+);
+
+// ─── GET /api/payments/:id/proof ─────────────────────────────────────────────
+// Bukti pembayaran berada di bucket private; browser hanya menerima stream
+// setelah authorization dan scope payment lolos.
+router.get(
+  "/payments/:id/proof",
+  requireAnyRole("owner", "admin", "finance", "cashier"),
+  async (req, res) => {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id <= 0) {
+      res.status(400).json({ error: "ID pembayaran tidak valid" });
+      return;
+    }
+
+    try {
+      const ctx = req.appContext!;
+      const linkedSiteId = sql<number>`coalesce(${tenantPaymentsTable.siteId}, ${tenantInvoicesTable.siteId}, ${tenantsTable.siteId})`;
+      const linkedCompanyId = sql<number>`coalesce(${tenantInvoicesTable.companyId}, ${tenantsTable.companyId}, ${tenantPaymentsTable.companyId}, ${mallSitesTable.companyId})`;
+      const conditions: SQL[] = [eq(tenantPaymentsTable.id, id)];
+      if (req.siteId > 0) conditions.push(eq(tenantPaymentsTable.siteId, req.siteId));
+      if (ctx.ownerCompanyId != null) conditions.push(eq(linkedCompanyId, ctx.ownerCompanyId));
+      if (ctx.ownerTenantId != null) conditions.push(eq(tenantPaymentsTable.tenantId, ctx.ownerTenantId));
+
+      const [payment] = await db
+        .select({
+          id: tenantPaymentsTable.id,
+          proofUrl: tenantPaymentsTable.proofUrl,
+          proofImageUrl: tenantPaymentsTable.proofImageUrl,
+        })
+        .from(tenantPaymentsTable)
+        .leftJoin(tenantInvoicesTable, eq(tenantPaymentsTable.invoiceId, tenantInvoicesTable.id))
+        .leftJoin(tenantsTable, eq(tenantPaymentsTable.tenantId, tenantsTable.id))
+        .leftJoin(mallSitesTable, eq(mallSitesTable.id, linkedSiteId))
+        .where(and(...conditions));
+
+      const storedUrl = payment?.proofUrl ?? payment?.proofImageUrl;
+      if (!payment || !storedUrl) {
+        res.status(404).json({ error: "Bukti pembayaran tidak tersedia" });
+        return;
+      }
+
+      const bucket = getPaymentProofBucket();
+      const filePath = getStorageObjectPath(storedUrl, bucket);
+      if (!filePath) {
+        res.status(422).json({ error: "Lokasi bukti pembayaran tidak valid", code: "STORAGE_OBJECT_INVALID" });
+        return;
+      }
+
+      const file = await downloadFromStorage(bucket, filePath);
+      const safeFilename = (filePath.split("/").pop() ?? "bukti-bayar")
+        .replace(/[^a-zA-Z0-9._-]/g, "_");
+      res.setHeader("Content-Type", file.contentType);
+      res.setHeader("Content-Disposition", `inline; filename="${safeFilename}"`);
+      res.setHeader("Cache-Control", "private, max-age=300");
+      res.send(file.buffer);
+    } catch (err) {
+      logger.error({ err, paymentId: id }, "[GET /payments/:id/proof]");
+      res.status(502).json({ error: "Bukti pembayaran gagal dimuat dari storage", code: "STORAGE_DOWNLOAD_FAILED" });
+    }
+  },
+);
 
 export default router;

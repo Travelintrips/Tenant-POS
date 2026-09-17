@@ -479,6 +479,8 @@ router.get("/tenant-pos/payments-history", async (req, res) => {
         voidedBy: tenantPaymentsTable.voidedBy,
         paidAt: tenantPaymentsTable.paidAt,
         sourceType: tenantPaymentsTable.sourceType,
+        proofUrl: tenantPaymentsTable.proofUrl,
+        proofImageUrl: tenantPaymentsTable.proofImageUrl,
         notes: tenantPaymentsTable.notes,
         referenceNumber: tenantPaymentsTable.referenceNumber,
         invoiceId: tenantPaymentsTable.invoiceId,
@@ -499,8 +501,11 @@ router.get("/tenant-pos/payments-history", async (req, res) => {
       .offset(offset);
 
     res.json({
-      data: rows.map((r) => ({
+      data: rows.map(({ proofUrl, proofImageUrl, ...r }) => ({
         ...r,
+        proofUrl: proofUrl || proofImageUrl
+          ? `/api/payments/${r.id}/proof`
+          : null,
         amount: Number(r.amount),
         discountAmount: Number(r.discountAmount ?? 0),
         penaltyAmount: Number(r.penaltyAmount ?? 0),

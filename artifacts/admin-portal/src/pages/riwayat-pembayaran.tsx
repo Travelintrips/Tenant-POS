@@ -6,6 +6,9 @@ import {
   Receipt,
   Download,
   Filter,
+  Eye,
+  Pencil,
+  Loader2,
   CheckCircle2,
   XCircle,
   AlertCircle,
@@ -38,10 +41,12 @@ import {
 import {
   Dialog,
   DialogContent,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
 import { getPaymentDateLabel } from "@/lib/payment-date-label";
+import { useToast } from "@/hooks/use-toast";
 
 function formatRupiah(val: number | string | null | undefined) {
   if (val == null || val === "") return "Rp 0";
@@ -62,6 +67,10 @@ function formatTanggal(val: string | null | undefined) {
     hour: "2-digit",
     minute: "2-digit",
   });
+}
+
+function toDateInputValue(val: string | null | undefined) {
+  return val ? new Date(val).toISOString().slice(0, 10) : "";
 }
 
 const METODE_LABELS: Record<string, string> = {
@@ -93,6 +102,7 @@ type Payment = {
   sourceType: string | null;
   notes: string | null;
   referenceNumber: string | null;
+  proofUrl: string | null;
   invoiceId: number | null;
   bookingId: number | null;
   tenantName: string | null;
@@ -125,6 +135,11 @@ export default function RiwayatPembayaran() {
   const [dateTo, setDateTo] = useState("");
   const [page, setPage] = useState(1);
   const [selectedPayment, setSelectedPayment] = useState<DetailPayment | null>(null);
+  const [proofPreview, setProofPreview] = useState<string | null>(null);
+  const [dateDraft, setDateDraft] = useState("");
+  const [dateEditing, setDateEditing] = useState(false);
+  const [dateSaving, setDateSaving] = useState(false);
+  const { toast } = useToast();
   const pageSize = 20;
 
   const params = new URLSearchParams();
@@ -159,6 +174,41 @@ export default function RiwayatPembayaran() {
     setDateFrom("");
     setDateTo("");
     setPage(1);
+  }
+
+  function selectPayment(payment: Payment) {
+    setSelectedPayment(payment as DetailPayment);
+    setDateDraft(toDateInputValue(payment.paidAt));
+    setDateEditing(false);
+  }
+
+  async function savePaymentDate() {
+    if (!selectedPayment || !dateDraft) return;
+    setDateSaving(true);
+    try {
+      const res = await fetch(`/api/payments/${selectedPayment.id}/date`, {
+        method: "PUT",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ paymentDate: dateDraft }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.error ?? "Gagal mengubah tanggal pembayaran");
+
+      const paidAt = body.payment?.paidAt ?? `${dateDraft}T00:00:00.000Z`;
+      setSelectedPayment((current) => current ? { ...current, paidAt } : current);
+      setDateEditing(false);
+      await refetch();
+      toast({ title: "Tanggal pembayaran diperbarui", description: "Tanggal bayar berhasil disimpan." });
+    } catch (err) {
+      toast({
+        title: "Gagal mengubah tanggal",
+        description: err instanceof Error ? err.message : "Silakan coba lagi.",
+        variant: "destructive",
+      });
+    } finally {
+      setDateSaving(false);
+    }
   }
 
   function statusBadge(p: Payment) {
@@ -314,6 +364,7 @@ export default function RiwayatPembayaran() {
                   <TableHead className="w-24">Metode</TableHead>
                   <TableHead className="w-24">Sumber</TableHead>
                   <TableHead className="w-36">Tanggal sesuai sumber</TableHead>
+                  <TableHead className="w-24">Bukti</TableHead>
                   <TableHead className="text-right w-32">Jumlah</TableHead>
                   <TableHead className="w-28">Status</TableHead>
                 </TableRow>
@@ -321,14 +372,14 @@ export default function RiwayatPembayaran() {
               <TableBody>
                 {isLoading ? (
                   <TableRow>
-                    <TableCell colSpan={8} className="text-center py-10 text-muted-foreground">
+                    <TableCell colSpan={9} className="text-center py-10 text-muted-foreground">
                       <RefreshCw className="h-5 w-5 animate-spin mx-auto mb-2" />
                       Memuat data...
                     </TableCell>
                   </TableRow>
                 ) : payments.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={8} className="text-center py-10 text-muted-foreground">
+                    <TableCell colSpan={9} className="text-center py-10 text-muted-foreground">
                       Tidak ada data pembayaran
                     </TableCell>
                   </TableRow>
@@ -337,7 +388,7 @@ export default function RiwayatPembayaran() {
                     <TableRow
                       key={p.id}
                       className="cursor-pointer hover:bg-muted/40"
-                      onClick={() => setSelectedPayment(p as DetailPayment)}
+                      onClick={() => selectPayment(p)}
                     >
                       <TableCell className="font-mono text-xs">
                         {p.paymentNumber ?? p.receiptNumber ?? (
@@ -366,6 +417,24 @@ export default function RiwayatPembayaran() {
                       <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
                         <div className="text-[10px] uppercase tracking-wide">{getPaymentDateLabel(p.sourceType)}</div>
                         <div>{formatTanggal(p.paidAt)}</div>
+                      </TableCell>
+                      <TableCell>
+                        {p.proofUrl ? (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-7 px-2 text-xs gap-1"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              setProofPreview(p.proofUrl);
+                            }}
+                          >
+                            <Eye className="h-3.5 w-3.5" />
+                            Lihat
+                          </Button>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">-</span>
+                        )}
                       </TableCell>
                       <TableCell className="text-right font-semibold text-sm">
                         {formatRupiah(p.amount)}
@@ -454,8 +523,56 @@ export default function RiwayatPembayaran() {
                 </div>
                 <div>
                   <p className="text-muted-foreground text-xs">{getPaymentDateLabel(selectedPayment.sourceType)}</p>
-                  <p>{formatTanggal(selectedPayment.paidAt)}</p>
+                  {dateEditing ? (
+                    <div className="flex items-center gap-1.5 mt-1">
+                      <Input
+                        type="date"
+                        value={dateDraft}
+                        onChange={(event) => setDateDraft(event.target.value)}
+                        className="h-8 text-xs"
+                        disabled={dateSaving}
+                      />
+                      <Button
+                        size="sm"
+                        className="h-8 px-2 text-xs"
+                        onClick={savePaymentDate}
+                        disabled={!dateDraft || dateSaving}
+                      >
+                        {dateSaving && <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />}
+                        Simpan
+                      </Button>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2">
+                      <p>{formatTanggal(selectedPayment.paidAt)}</p>
+                      {!selectedPayment.isVoided && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7"
+                          title="Edit tanggal pembayaran"
+                          onClick={() => setDateEditing(true)}
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                        </Button>
+                      )}
+                    </div>
+                  )}
                 </div>
+                {selectedPayment.proofUrl && (
+                  <div>
+                    <p className="text-muted-foreground text-xs">Bukti Pembayaran</p>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="mt-1 h-8 text-xs gap-1"
+                      onClick={() => setProofPreview(selectedPayment.proofUrl)}
+                    >
+                      <Eye className="h-3.5 w-3.5" />
+                      Lihat bukti pembayaran
+                    </Button>
+                  </div>
+                )}
                 <div>
                   <p className="text-muted-foreground text-xs">Jumlah</p>
                   <p className="font-bold text-base">{formatRupiah(selectedPayment.amount)}</p>
@@ -494,6 +611,31 @@ export default function RiwayatPembayaran() {
               )}
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!proofPreview} onOpenChange={(open) => { if (!open) setProofPreview(null); }}>
+        <DialogContent className="max-w-3xl">
+          <DialogHeader>
+            <DialogTitle>Bukti Pembayaran</DialogTitle>
+          </DialogHeader>
+          {proofPreview && (
+            <iframe
+              src={proofPreview}
+              title="Bukti pembayaran tenant"
+              className="w-full h-[70vh] rounded border bg-muted"
+            />
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setProofPreview(null)}>Tutup</Button>
+            {proofPreview && (
+              <Button asChild>
+                <a href={proofPreview} target="_blank" rel="noopener noreferrer">
+                  Buka di Tab Baru
+                </a>
+              </Button>
+            )}
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>
