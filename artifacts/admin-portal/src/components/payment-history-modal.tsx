@@ -16,7 +16,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { getPaymentDateLabel } from "@/lib/payment-date-label";
 import {
-  History, ChevronLeft, ChevronRight, ExternalLink, AlertCircle,
+  History, ChevronLeft, ChevronRight, ExternalLink, Eye, AlertCircle,
   CheckCircle2, Clock, Filter, ReceiptText, Pencil, Loader2,
 } from "lucide-react";
 
@@ -297,6 +297,7 @@ export function PaymentHistoryModal({ open, onClose, invoice }: Props) {
   const [sourceType, setSourceType] = useState("all");
   const [offset, setOffset] = useState(0);
   const [editTarget, setEditTarget] = useState<LedgerRow | null>(null);
+  const [proofPreview, setProofPreview] = useState<string | null>(null);
   const queryClient = useQueryClient();
 
   const params = new URLSearchParams({
@@ -457,6 +458,7 @@ export function PaymentHistoryModal({ open, onClose, invoice }: Props) {
                     <TableHead className="text-xs">Keterangan</TableHead>
                     <TableHead className="text-xs">Kasir</TableHead>
                     <TableHead className="text-xs">Tanggal sesuai sumber</TableHead>
+                    <TableHead className="text-xs">Bukti</TableHead>
                     <TableHead className="text-xs w-12"></TableHead>
                   </TableRow>
                 </TableHeader>
@@ -529,6 +531,21 @@ export function PaymentHistoryModal({ open, onClose, invoice }: Props) {
                           <div>{formatDateTime(row.paidAt)}</div>
                         </TableCell>
                         <TableCell>
+                          {row.proofUrl ? (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="h-7 px-2 text-xs gap-1"
+                              onClick={() => setProofPreview(row.proofUrl)}
+                            >
+                              <Eye className="h-3.5 w-3.5" />
+                              Lihat
+                            </Button>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">-</span>
+                          )}
+                        </TableCell>
+                        <TableCell>
                           {!isVoided && (
                             <Button
                               variant="ghost"
@@ -578,6 +595,31 @@ export function PaymentHistoryModal({ open, onClose, invoice }: Props) {
               </div>
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!proofPreview} onOpenChange={(o) => { if (!o) setProofPreview(null); }}>
+        <DialogContent className="max-w-3xl">
+          <DialogHeader>
+            <DialogTitle>Bukti Pembayaran</DialogTitle>
+          </DialogHeader>
+          {proofPreview && (
+            <iframe
+              src={proofPreview}
+              title="Bukti pembayaran tenant"
+              className="w-full h-[70vh] rounded border bg-muted"
+            />
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setProofPreview(null)}>Tutup</Button>
+            {proofPreview && (
+              <Button asChild>
+                <a href={proofPreview} target="_blank" rel="noopener noreferrer">
+                  Buka di Tab Baru
+                </a>
+              </Button>
+            )}
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 
