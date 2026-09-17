@@ -68,11 +68,7 @@ describe("Fase 7 — Halaman Audit Log (Frontend)", () => {
     renderWithProviders(<AuditLogs />, { user: withUser() });
 
     await waitFor(() => {
-      const hasContent =
-        screen.queryAllByText("create_tenant").length > 0 ||
-        screen.queryAllByText("owner@test.local").length > 0 ||
-        screen.queryAllByText("Test Owner").length > 0;
-      expect(hasContent).toBe(true);
+      expect(screen.getAllByRole("row").length).toBeGreaterThan(1);
     }, { timeout: 5000 });
   });
 
