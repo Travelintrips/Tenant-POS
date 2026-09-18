@@ -126,6 +126,27 @@ type DetailPayment = Payment & {
   refundReason?: string | null;
 };
 
+type DuplicatePayment = {
+  id: number;
+  paymentNumber: string | null;
+  receiptNumber: string | null;
+  invoiceId: number | null;
+  invoiceNumber: string | null;
+  amount: number | string;
+  paymentMethod: string;
+  paymentStatus: string | null;
+  approvalStatus: string;
+  paidAt: string | null;
+  proofUrl: string | null;
+  businessName: string | null;
+};
+
+function getDuplicatePaymentId(reason: string | null | undefined): number | null {
+  if (!reason) return null;
+  const match = reason.match(/\b(?:payment|pembayaran)\s*#?\s*(\d+)\b/i);
+  return match ? Number(match[1]) : null;
+}
+
 export default function RiwayatPembayaran() {
   const [search, setSearch] = useState("");
   const [metode, setMetode] = useState("semua");
@@ -165,6 +186,16 @@ export default function RiwayatPembayaran() {
   const payments = data?.data ?? [];
   const total = data?.total ?? 0;
   const totalPages = Math.ceil(total / pageSize);
+  const duplicatePaymentId = getDuplicatePaymentId(selectedPayment?.voidReason);
+  const { data: duplicatePayment, isLoading: isDuplicateLoading } = useQuery<DuplicatePayment>({
+    queryKey: ["duplicate-payment", duplicatePaymentId],
+    queryFn: async () => {
+      const res = await fetch(`/api/payments/${duplicatePaymentId}`, { credentials: "include" });
+      if (!res.ok) throw new Error("Gagal mengambil pembayaran yang menjadi duplikat");
+      return res.json();
+    },
+    enabled: Boolean(selectedPayment?.isVoided && duplicatePaymentId),
+  });
 
   function resetFilter() {
     setSearch("");
@@ -604,6 +635,57 @@ export default function RiwayatPembayaran() {
                 <div className="bg-red-50 border border-red-100 rounded p-3">
                   <p className="text-red-700 text-xs font-medium">Alasan Pembatalan</p>
                   <p className="text-red-600 text-xs mt-1">{selectedPayment.voidReason}</p>
+                  {duplicatePaymentId && (
+                    <div className="mt-3 border-t border-red-200 pt-3">
+                      <p className="text-red-700 text-xs font-medium">Pembayaran yang dianggap duplikat</p>
+                      {isDuplicateLoading ? (
+                        <p className="text-red-500 text-xs mt-1">Memuat detail pembayaran #{duplicatePaymentId}...</p>
+                      ) : duplicatePayment ? (
+                        <div className="mt-1.5 rounded border border-red-200 bg-white/70 p-2.5 text-xs">
+                          <div className="grid grid-cols-2 gap-x-3 gap-y-1">
+                            <div>
+                              <span className="text-muted-foreground">ID Pembayaran</span>
+                              <p className="font-mono font-medium">#{duplicatePayment.id}</p>
+                            </div>
+                            <div>
+                              <span className="text-muted-foreground">Invoice</span>
+                              <p className="font-mono">{duplicatePayment.invoiceNumber ?? duplicatePayment.invoiceId ?? "-"}</p>
+                            </div>
+                            <div>
+                              <span className="text-muted-foreground">Tenant</span>
+                              <p className="font-medium">{duplicatePayment.businessName ?? "-"}</p>
+                            </div>
+                            <div>
+                              <span className="text-muted-foreground">Jumlah</span>
+                              <p className="font-semibold">{formatRupiah(duplicatePayment.amount)}</p>
+                            </div>
+                          </div>
+                          <div className="mt-2 flex items-center gap-2">
+                            {duplicatePayment.proofUrl ? (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="h-7 px-2 text-xs gap-1"
+                                onClick={() => setProofPreview(duplicatePayment.proofUrl)}
+                              >
+                                <Eye className="h-3.5 w-3.5" />
+                                Tampilkan bukti bayar
+                              </Button>
+                            ) : (
+                              <span className="text-red-500">Bukti bayar tidak tersedia</span>
+                            )}
+                            <span className="text-muted-foreground">
+                              {formatTanggal(duplicatePayment.paidAt)}
+                            </span>
+                          </div>
+                        </div>
+                      ) : (
+                        <p className="text-red-500 text-xs mt-1">
+                          Pembayaran #{duplicatePaymentId} tidak ditemukan atau tidak dapat diakses.
+                        </p>
+                      )}
+                    </div>
+                  )}
                   {selectedPayment.voidedAt && (
                     <p className="text-red-400 text-[10px] mt-1">{formatTanggal(selectedPayment.voidedAt)} oleh {selectedPayment.voidedBy ?? "-"}</p>
                   )}

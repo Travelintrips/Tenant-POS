@@ -391,6 +391,7 @@ router.get("/payments/:id", async (req, res) => {
         id: tenantPaymentsTable.id,
         invoiceId: tenantPaymentsTable.invoiceId,
         tenantId: tenantPaymentsTable.tenantId,
+        paymentNumber: tenantPaymentsTable.paymentNumber,
         amount: tenantPaymentsTable.amount,
         paymentMethod: tenantPaymentsTable.paymentMethod,
         paymentStatus: tenantPaymentsTable.paymentStatus,
@@ -405,6 +406,7 @@ router.get("/payments/:id", async (req, res) => {
         proofImageUrl: tenantPaymentsTable.proofImageUrl,
         isVoided: tenantPaymentsTable.isVoided,
         createdAt: tenantPaymentsTable.createdAt,
+        invoiceNumber: tenantInvoicesTable.invoiceNumber,
         businessName: tenantsTable.businessName,
         ownerName: tenantsTable.ownerName,
       })
@@ -533,7 +535,7 @@ router.get(
       const linkedSiteId = sql<number>`coalesce(${tenantPaymentsTable.siteId}, ${tenantInvoicesTable.siteId}, ${tenantsTable.siteId})`;
       const linkedCompanyId = sql<number>`coalesce(${tenantInvoicesTable.companyId}, ${tenantsTable.companyId}, ${tenantPaymentsTable.companyId}, ${mallSitesTable.companyId})`;
       const conditions: SQL[] = [eq(tenantPaymentsTable.id, id)];
-      if (req.siteId > 0) conditions.push(eq(tenantPaymentsTable.siteId, req.siteId));
+       if (req.siteId > 0) conditions.push(eq(linkedSiteId, req.siteId));
       if (ctx.ownerCompanyId != null) conditions.push(eq(linkedCompanyId, ctx.ownerCompanyId));
       if (ctx.ownerTenantId != null) conditions.push(eq(tenantPaymentsTable.tenantId, ctx.ownerTenantId));
 
