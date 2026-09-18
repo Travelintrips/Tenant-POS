@@ -10,8 +10,10 @@ let _started = false;
 
 // Jam eksekusi scheduler (dalam WIB = UTC+7, diperhitungkan sbg UTC)
 // Cek dilakukan 2x sehari:
-//   01 UTC = 08:00 WIB  → blast tagihan awal bulan + reminder + overdue (utama)
-//   11 UTC = 18:00 WIB  → pengecekan sore (reminder + overdue saja, invoice sudah terkirim pagi)
+//   01 UTC = 08:00 WIB  → blast tagihan + reminder + overdue harian
+//   11 UTC = 18:00 WIB  → pengecekan sore untuk tagihan/reminder biasa saja
+// Pengingat overdue sengaja hanya berjalan pukul 08:00 WIB agar tenant tidak
+// menerima lebih dari satu pesan overdue pada hari yang sama.
 const SCHEDULE_HOURS_UTC = [1, 11]; // 01 UTC = 08:00 WIB, 11 UTC = 18:00 WIB
 
 let _lastRunDateKey = ""; // format: "YYYY-MM-DD-HH"
@@ -98,7 +100,7 @@ async function releaseOverdueReminderClaim(invoiceId: number, claimedAt: Date): 
     );
 }
 
-async function runAllChecks(label: string): Promise<void> {
+async function runAllChecks(label: string, includeOverdue = true): Promise<void> {
   if (_blastStatus.isRunning) {
     logger.info("[scheduler] Pengecekan sedang berjalan, dilewati");
     return;
@@ -123,10 +125,12 @@ async function runAllChecks(label: string): Promise<void> {
         logger.warn({ err }, "[scheduler] Cek pengingat harian gagal");
         return { h7: 0, h3: 0, h1: 0 };
       }),
-      runOverdueCheck().catch((err) => {
-        logger.warn({ err }, "[scheduler] Cek overdue gagal");
-        return 0;
-      }),
+      includeOverdue
+        ? runOverdueCheck().catch((err) => {
+            logger.warn({ err }, "[scheduler] Cek overdue gagal");
+            return 0;
+          })
+        : Promise.resolve(0),
     ]);
 
 
@@ -198,13 +202,15 @@ export function startOverdueScheduler(): void {
     // Hanya eksekusi jika jam-nya sesuai jadwal DAN belum dijalankan di jam ini
     if (SCHEDULE_HOURS_UTC.includes(hourUtc) && dateKey !== _lastRunDateKey) {
       _lastRunDateKey = dateKey;
-      runAllChecks(`cron ${hourUtc}:00 UTC`).catch(() => {});
+      // Overdue hanya dikirim pada 08:00 WIB (01 UTC). Pengiriman invoice
+      // biasa/reminder tetap dapat berjalan pada kedua jadwal.
+      runAllChecks(`cron ${hourUtc}:00 UTC`, hourUtc === 1).catch(() => {});
     }
   }, 5 * 60 * 1000); // setiap 5 menit
 
   logger.info(
     "[scheduler] Scheduler aktif — cron 08:00 WIB (01 UTC) dan 18:00 WIB (11 UTC). " +
-    "Startup hanya generate invoice, notifikasi WA hanya di jam terjadwal.",
+    "Overdue harian hanya dikirim pukul 08:00 WIB; startup hanya generate invoice.",
   );
 }
 
@@ -634,9 +640,14 @@ async function runOverdueCheck(): Promise<number> {
     .innerJoin(tenantsTable, eq(tenantInvoicesTable.tenantId, tenantsTable.id))
     .where(
       and(
+        sql`${tenantsTable.status} IN ('aktif', 'active')`,
         inArray(tenantInvoicesTable.status, ["unpaid", "partial", "overdue"]),
-        isNull(tenantInvoicesTable.lastOverdueReminderAt),
-        sql`"due_date" < CURRENT_DATE`,
+        sql`"due_date" < (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Jakarta')::date`,
+        sql`(
+          last_overdue_reminder_at IS NULL
+          OR DATE(last_overdue_reminder_at AT TIME ZONE 'Asia/Jakarta')
+             < (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Jakarta')::date
+        )`,
       ),
     );
 
@@ -664,8 +675,14 @@ async function runOverdueCheck(): Promise<number> {
       .where(
         and(
           eq(tenantInvoicesTable.id, invoice.id),
+          sql`${tenantsTable.status} IN ('aktif', 'active')`,
           inArray(tenantInvoicesTable.status, ["unpaid", "partial", "overdue"]),
-          isNull(tenantInvoicesTable.lastOverdueReminderAt),
+          sql`${tenantInvoicesTable.dueDate} < (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Jakarta')::date`,
+          sql`(
+            last_overdue_reminder_at IS NULL
+            OR DATE(last_overdue_reminder_at AT TIME ZONE 'Asia/Jakarta')
+               < (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Jakarta')::date
+          )`,
         ),
       )
       .returning({ id: tenantInvoicesTable.id });
