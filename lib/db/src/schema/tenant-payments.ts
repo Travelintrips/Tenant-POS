@@ -30,6 +30,7 @@ export const tenantPaymentsTable = pgTable("tenant_payments", {
   voidedAt: timestamp("voided_at", { withTimezone: true }),
   voidReason: text("void_reason"),
   voidedBy: text("voided_by"),
+  duplicateOfPaymentId: integer("duplicate_of_payment_id"),
   referenceNumber: text("reference_number"),
   proofUrl: text("proof_url"),
   shiftId: integer("shift_id"),

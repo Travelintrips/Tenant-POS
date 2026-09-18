@@ -1,6 +1,6 @@
 import { apiFetch } from "@/lib/api";
 import { useSite, ALL_SITES_SENTINEL } from "@/contexts/site-context";
-import React, { useState, useMemo, useRef, useCallback } from "react";
+import React, { useState, useMemo, useRef, useCallback, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Building2, Receipt, X, CheckCircle2, AlertCircle, CircleDashed,
@@ -113,6 +113,7 @@ type PaymentHistoryItem = {
   voidReason: string | null;
   voidedAt: string | null;
   voidedBy: string | null;
+  duplicateOfPaymentId: number | null;
   referenceNumber: string | null;
   invoiceId: number | null;
   bookingId: number | null;
@@ -573,6 +574,14 @@ function VoidPaymentDialog({ payment, onClose }: {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [reason, setReason] = useState("");
+  const [duplicateOfPaymentId, setDuplicateOfPaymentId] = useState("");
+
+  useEffect(() => {
+    if (payment) {
+      setReason("");
+      setDuplicateOfPaymentId("");
+    }
+  }, [payment?.id]);
 
   const mutation = useMutation({
     mutationFn: async () => {
@@ -581,7 +590,10 @@ function VoidPaymentDialog({ payment, onClose }: {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ voidReason: reason }),
+        body: JSON.stringify({
+          voidReason: reason,
+          duplicateOfPaymentId: duplicateOfPaymentId.trim() ? Number(duplicateOfPaymentId) : null,
+        }),
       });
       const d = await r.json();
       if (!r.ok) throw new Error(d.error ?? "Gagal void");
@@ -628,6 +640,21 @@ function VoidPaymentDialog({ payment, onClose }: {
                   disabled={mutation.isPending}
                   autoFocus
                 />
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <Label>ID Pembayaran Asli <span className="text-muted-foreground font-normal">(opsional, jika duplikat)</span></Label>
+                <Input
+                  type="number"
+                  min={1}
+                  step={1}
+                  placeholder="Contoh: 105"
+                  value={duplicateOfPaymentId}
+                  onChange={(e) => setDuplicateOfPaymentId(e.target.value)}
+                  disabled={mutation.isPending}
+                />
+                <p className="text-[11px] text-muted-foreground">
+                  Isi untuk menautkan pembayaran ini ke pembayaran asli. Data lama tetap dapat dibaca dari alasan void.
+                </p>
               </div>
             </div>
           </AlertDialogDescription>

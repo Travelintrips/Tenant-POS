@@ -350,6 +350,7 @@ router.get("/tenant-pos/bookings/:bookingId/payments", async (req, res) => {
         createdAt: p.createdAt,
         isVoided: p.isVoided,
         voidReason: p.voidReason,
+        duplicateOfPaymentId: p.duplicateOfPaymentId,
         voidedAt: p.voidedAt,
         voidedBy: p.voidedBy,
         referenceNumber: p.referenceNumber,
@@ -396,6 +397,7 @@ router.get("/tenant-pos/tenants/:tenantId/payments", async (req, res) => {
         createdAt: p.createdAt,
         isVoided: p.isVoided,
         voidReason: p.voidReason,
+        duplicateOfPaymentId: p.duplicateOfPaymentId,
         voidedAt: p.voidedAt,
         voidedBy: p.voidedBy,
         referenceNumber: p.referenceNumber,
@@ -479,6 +481,7 @@ router.get("/tenant-pos/payments-history", async (req, res) => {
         voidReason: tenantPaymentsTable.voidReason,
         voidedAt: tenantPaymentsTable.voidedAt,
         voidedBy: tenantPaymentsTable.voidedBy,
+        duplicateOfPaymentId: tenantPaymentsTable.duplicateOfPaymentId,
         paidAt: tenantPaymentsTable.paidAt,
         sourceType: tenantPaymentsTable.sourceType,
         proofUrl: tenantPaymentsTable.proofUrl,
@@ -1399,6 +1402,7 @@ router.get("/tenant-pos/receipts", async (req, res) => {
 // ─── POST /api/tenant-pos/payments/:id/void ──────────────────────────────────
 const voidBodySchema = z.object({
   voidReason: z.string().min(3, "Alasan void wajib diisi (min 3 karakter)"),
+  duplicateOfPaymentId: z.number().int().positive().optional().nullable(),
 });
 
 router.post("/tenant-pos/payments/:id/void", paymentRateLimiter, async (req, res) => {
@@ -1428,6 +1432,28 @@ router.post("/tenant-pos/payments/:id/void", paymentRateLimiter, async (req, res
       if (!payment) throw Object.assign(new Error("Data pembayaran tidak ditemukan"), { status: 404 });
       if (payment.isVoided) throw Object.assign(new Error("Pembayaran ini sudah di-void"), { status: 409 });
 
+      const duplicateOfPaymentId = parsed.data.duplicateOfPaymentId ?? null;
+      if (duplicateOfPaymentId !== null) {
+        if (duplicateOfPaymentId === paymentId) {
+          throw Object.assign(new Error("Pembayaran asli tidak boleh sama dengan pembayaran yang di-void"), { status: 400 });
+        }
+
+        const [originalPayment] = await tx
+          .select({
+            id: tenantPaymentsTable.id,
+            isVoided: tenantPaymentsTable.isVoided,
+          })
+          .from(tenantPaymentsTable)
+          .where(eq(tenantPaymentsTable.id, duplicateOfPaymentId));
+
+        if (!originalPayment) {
+          throw Object.assign(new Error("Pembayaran asli tidak ditemukan"), { status: 400 });
+        }
+        if (originalPayment.isVoided) {
+          throw Object.assign(new Error("Pembayaran asli sudah di-void"), { status: 400 });
+        }
+      }
+
       await tx
         .update(tenantPaymentsTable)
         .set({
@@ -1435,6 +1461,7 @@ router.post("/tenant-pos/payments/:id/void", paymentRateLimiter, async (req, res
           voidedAt: new Date(),
           voidReason: parsed.data.voidReason,
           voidedBy: currentUser.name,
+          duplicateOfPaymentId,
           updatedAt: new Date(),
         })
         .where(eq(tenantPaymentsTable.id, paymentId));
@@ -1504,10 +1531,21 @@ router.post("/tenant-pos/payments/:id/void", paymentRateLimiter, async (req, res
       entityType: "payment",
       entityId: result.id,
       beforeData: { id: result.id, isVoided: false, amount: result.amount },
-      afterData: { id: result.id, isVoided: true, voidReason: parsed.data.voidReason },
+      afterData: {
+        id: result.id,
+        isVoided: true,
+        voidReason: parsed.data.voidReason,
+        duplicateOfPaymentId: parsed.data.duplicateOfPaymentId ?? null,
+      },
     });
     sseBroker.publish("payment_voided", { paymentId: result.id });
-    res.json({ success: true, message: "Pembayaran berhasil di-void", paymentId: result.id, isVoided: true });
+    res.json({
+      success: true,
+      message: "Pembayaran berhasil di-void",
+      paymentId: result.id,
+      isVoided: true,
+      duplicateOfPaymentId: parsed.data.duplicateOfPaymentId ?? null,
+    });
   } catch (err) {
     const e = err as Error & { status?: number };
     if (e.status) res.status(e.status).json({ error: e.message });

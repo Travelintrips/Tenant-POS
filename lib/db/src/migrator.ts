@@ -3766,3 +3766,15 @@ CREATE TRIGGER trg_sync_payment_invoice_owner
   FOR EACH ROW EXECUTE FUNCTION fn_sync_payment_invoice_owner();
   `.trim(),
 });
+
+MIGRATIONS.push({
+  name: "0090_tenant_payment_duplicate_link",
+  sql: `
+ALTER TABLE tenant_payments
+  ADD COLUMN IF NOT EXISTS duplicate_of_payment_id integer;
+
+CREATE INDEX IF NOT EXISTS idx_tenant_payments_duplicate_of_payment_id
+  ON tenant_payments (duplicate_of_payment_id)
+  WHERE duplicate_of_payment_id IS NOT NULL;
+  `.trim(),
+});

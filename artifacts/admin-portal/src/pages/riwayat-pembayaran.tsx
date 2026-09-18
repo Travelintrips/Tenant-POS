@@ -98,6 +98,7 @@ type Payment = {
   paymentMethod: string;
   approvalStatus: string;
   isVoided: boolean;
+  duplicateOfPaymentId?: number | null;
   paidAt: string | null;
   sourceType: string | null;
   notes: string | null;
@@ -142,7 +143,10 @@ type DuplicatePayment = {
   businessName: string | null;
 };
 
-function getDuplicatePaymentId(reason: string | null | undefined): number | null {
+function getDuplicatePaymentId(payment: DetailPayment | null): number | null {
+  if (!payment?.isVoided) return null;
+  if (payment.duplicateOfPaymentId != null) return payment.duplicateOfPaymentId;
+  const reason = payment.voidReason;
   if (!reason) return null;
   const match = reason.match(/\b(?:payment|pembayaran)\s*#?\s*(\d+)\b/i);
   return match ? Number(match[1]) : null;
@@ -187,7 +191,7 @@ export default function RiwayatPembayaran() {
   const payments = data?.data ?? [];
   const total = data?.total ?? 0;
   const totalPages = Math.ceil(total / pageSize);
-  const duplicatePaymentId = getDuplicatePaymentId(selectedPayment?.voidReason);
+  const duplicatePaymentId = getDuplicatePaymentId(selectedPayment);
   const { data: duplicatePayment, isLoading: isDuplicateLoading } = useQuery<DuplicatePayment>({
     queryKey: ["duplicate-payment", duplicatePaymentId],
     queryFn: async () => {
@@ -641,10 +645,14 @@ export default function RiwayatPembayaran() {
                   <p className="bg-muted rounded px-2 py-1.5 text-xs mt-1">{selectedPayment.notes}</p>
                 </div>
               )}
-              {selectedPayment.isVoided && selectedPayment.voidReason && (
+              {selectedPayment.isVoided && (selectedPayment.voidReason || duplicatePaymentId) && (
                 <div className="bg-red-50 border border-red-100 rounded p-3">
-                  <p className="text-red-700 text-xs font-medium">Alasan Pembatalan</p>
-                  <p className="text-red-600 text-xs mt-1">{selectedPayment.voidReason}</p>
+                  {selectedPayment.voidReason && (
+                    <>
+                      <p className="text-red-700 text-xs font-medium">Alasan Pembatalan</p>
+                      <p className="text-red-600 text-xs mt-1">{selectedPayment.voidReason}</p>
+                    </>
+                  )}
                   {duplicatePaymentId && (
                     <div className="mt-3 border-t border-red-200 pt-3">
                       <p className="text-red-700 text-xs font-medium">Pembayaran asli yang sudah disetujui</p>

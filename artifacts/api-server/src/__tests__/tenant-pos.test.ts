@@ -148,6 +148,56 @@ describe("Fase 4 — POS Pembayaran", () => {
       expect(voidRes.body.isVoided).toBe(true);
     });
 
+    it("menyimpan ID pembayaran asli secara terstruktur untuk pembayaran duplikat", async () => {
+      const originalRes = await owner.post("/api/tenant-pos/payments").send({
+        tenantId: testTenant.id,
+        bookingId: testBooking.id,
+        amountPaid: 120000,
+        paymentMethod: "transfer",
+        shiftId: testShift.id,
+      });
+      expect(originalRes.status).toBe(201);
+      const originalPaymentId = originalRes.body.payment.id;
+      track("payments", originalPaymentId);
+
+      const duplicateRes = await owner.post("/api/tenant-pos/payments").send({
+        tenantId: testTenant.id,
+        bookingId: testBooking.id,
+        amountPaid: 120000,
+        paymentMethod: "transfer",
+        shiftId: testShift.id,
+      });
+      expect(duplicateRes.status).toBe(201);
+      const duplicatePaymentId = duplicateRes.body.payment.id;
+      track("payments", duplicatePaymentId);
+
+      const voidRes = await owner
+        .post(`/api/tenant-pos/payments/${duplicatePaymentId}/void`)
+        .send({
+          voidReason: "Transaksi terdeteksi ganda",
+          duplicateOfPaymentId: originalPaymentId,
+        });
+      expect(voidRes.status).toBe(200);
+      expect(voidRes.body.duplicateOfPaymentId).toBe(originalPaymentId);
+
+      const historyRes = await owner.get("/api/tenant-pos/payments-history?status=voided&pageSize=100");
+      expect(historyRes.status).toBe(200);
+      expect(
+        historyRes.body.data.find((payment: { id: number }) => payment.id === duplicatePaymentId)
+          ?.duplicateOfPaymentId,
+      ).toBe(originalPaymentId);
+
+      const detailRes = await owner.get(`/api/payments/${duplicatePaymentId}`);
+      expect(detailRes.status).toBe(200);
+      expect(detailRes.body.duplicateOfPaymentId).toBe(originalPaymentId);
+
+      const [storedPayment] = await db
+        .select({ duplicateOfPaymentId: tenantPaymentsTable.duplicateOfPaymentId })
+        .from(tenantPaymentsTable)
+        .where(eq(tenantPaymentsTable.id, duplicatePaymentId));
+      expect(storedPayment?.duplicateOfPaymentId).toBe(originalPaymentId);
+    });
+
     it("cashier tidak bisa void payment (403)", async () => {
       const payRes = await owner.post("/api/tenant-pos/payments").send({
         tenantId: testTenant.id,

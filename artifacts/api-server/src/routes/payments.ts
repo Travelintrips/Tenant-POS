@@ -310,8 +310,8 @@ router.get("/payments", async (req, res) => {
     const [countRow] = await db
       .select({ total: sql<number>`count(*)::int` })
       .from(tenantPaymentsTable)
-      .innerJoin(tenantInvoicesTable, eq(tenantPaymentsTable.invoiceId, tenantInvoicesTable.id))
-      .innerJoin(tenantsTable, eq(tenantInvoicesTable.tenantId, tenantsTable.id))
+        .leftJoin(tenantInvoicesTable, eq(tenantPaymentsTable.invoiceId, tenantInvoicesTable.id))
+        .leftJoin(tenantsTable, eq(tenantPaymentsTable.tenantId, tenantsTable.id))
       .leftJoin(mallSitesTable, eq(mallSitesTable.id, linkedSiteId))
       .where(whereClause);
 
@@ -320,6 +320,7 @@ router.get("/payments", async (req, res) => {
         id: tenantPaymentsTable.id,
         invoiceId: tenantPaymentsTable.invoiceId,
         tenantId: tenantPaymentsTable.tenantId,
+        duplicateOfPaymentId: tenantPaymentsTable.duplicateOfPaymentId,
         amount: tenantPaymentsTable.amount,
         paymentMethod: tenantPaymentsTable.paymentMethod,
         sourceType: tenantPaymentsTable.sourceType,
@@ -337,8 +338,8 @@ router.get("/payments", async (req, res) => {
         kasirName: cashierShiftsTable.cashierName,
       })
       .from(tenantPaymentsTable)
-      .innerJoin(tenantInvoicesTable, eq(tenantPaymentsTable.invoiceId, tenantInvoicesTable.id))
-      .innerJoin(tenantsTable, eq(tenantInvoicesTable.tenantId, tenantsTable.id))
+      .leftJoin(tenantInvoicesTable, eq(tenantPaymentsTable.invoiceId, tenantInvoicesTable.id))
+      .leftJoin(tenantsTable, eq(tenantPaymentsTable.tenantId, tenantsTable.id))
       .leftJoin(mallSitesTable, eq(mallSitesTable.id, linkedSiteId))
       .leftJoin(cashierShiftsTable, eq(tenantPaymentsTable.shiftId, cashierShiftsTable.id))
       .where(whereClause)
@@ -384,7 +385,7 @@ router.get("/payments/:id", async (req, res) => {
     const conditions: SQL[] = [eq(tenantPaymentsTable.id, id)];
     if (req.siteId > 0) conditions.push(eq(linkedSiteId, req.siteId));
     if (ctx.ownerCompanyId != null) conditions.push(eq(linkedCompanyId, ctx.ownerCompanyId));
-    if (ctx.ownerTenantId != null) conditions.push(eq(tenantInvoicesTable.tenantId, ctx.ownerTenantId));
+    if (ctx.ownerTenantId != null) conditions.push(eq(tenantPaymentsTable.tenantId, ctx.ownerTenantId));
 
     const [payment] = await db
       .select({
@@ -405,14 +406,15 @@ router.get("/payments/:id", async (req, res) => {
         proofUrl: tenantPaymentsTable.proofUrl,
         proofImageUrl: tenantPaymentsTable.proofImageUrl,
         isVoided: tenantPaymentsTable.isVoided,
+        duplicateOfPaymentId: tenantPaymentsTable.duplicateOfPaymentId,
         createdAt: tenantPaymentsTable.createdAt,
         invoiceNumber: tenantInvoicesTable.invoiceNumber,
         businessName: tenantsTable.businessName,
         ownerName: tenantsTable.ownerName,
       })
       .from(tenantPaymentsTable)
-      .innerJoin(tenantInvoicesTable, eq(tenantPaymentsTable.invoiceId, tenantInvoicesTable.id))
-      .innerJoin(tenantsTable, eq(tenantInvoicesTable.tenantId, tenantsTable.id))
+        .leftJoin(tenantInvoicesTable, eq(tenantPaymentsTable.invoiceId, tenantInvoicesTable.id))
+        .leftJoin(tenantsTable, eq(tenantPaymentsTable.tenantId, tenantsTable.id))
       .leftJoin(mallSitesTable, eq(mallSitesTable.id, linkedSiteId))
       .where(and(...conditions));
 
@@ -472,7 +474,7 @@ router.put(
       if (ctx.ownerCompanyId != null) conditions.push(eq(linkedCompanyId, ctx.ownerCompanyId));
       if (ctx.ownerTenantId != null) conditions.push(eq(tenantPaymentsTable.tenantId, ctx.ownerTenantId));
 
-      const [payment] = await db
+    const [payment] = await db
         .select({
           id: tenantPaymentsTable.id,
           paidAt: tenantPaymentsTable.paidAt,
@@ -480,8 +482,8 @@ router.put(
           invoiceId: tenantPaymentsTable.invoiceId,
         })
         .from(tenantPaymentsTable)
-        .leftJoin(tenantInvoicesTable, eq(tenantPaymentsTable.invoiceId, tenantInvoicesTable.id))
-        .leftJoin(tenantsTable, eq(tenantPaymentsTable.tenantId, tenantsTable.id))
+      .leftJoin(tenantInvoicesTable, eq(tenantPaymentsTable.invoiceId, tenantInvoicesTable.id))
+      .leftJoin(tenantsTable, eq(tenantPaymentsTable.tenantId, tenantsTable.id))
         .leftJoin(mallSitesTable, eq(mallSitesTable.id, linkedSiteId))
         .where(and(...conditions));
 
