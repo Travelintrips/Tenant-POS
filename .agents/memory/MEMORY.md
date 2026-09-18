@@ -19,6 +19,7 @@
 - [payment-proof-flow](payment-proof-flow.md) — approval flow: pending_review → approved/rejected; approving updates invoice paidAmount via transaction; public route /bayar/:token is before requireAuth in routes/index.ts
 - [Private payment proofs](private-payment-proof-storage.md) — `payment-proofs` is private; serve proofs through an authenticated backend stream, never direct public Storage URLs.
 - [site-id-resolution](site-id-resolution.md) — Sport Center site_id=2 in local postgres (serial from migration 0011); dev-login dbId is UUID string — Number(UUID)=NaN so site-context access check is safely skipped
+- [Payment history site scope](payment-history-site-scope.md) — resolve site from invoice or tenant before payment row; legacy duplicate POS rows can retain an old site ID and hide the approved payment
 - [wa-otp-dev-phones](wa-otp-dev-phones.md) — dev users have fixed phone numbers: owner=6281111111111, admin=6281111111112, finance=6281111111113, cashier=6281111111114; dev-login upserts phoneNumber on each call so phone is always set
 - [OTP login separation](otp-service-union-type.md) — Password login may be enabled in production, but only non-production runtimes may return `devOtp`; production OTP must go through WhatsApp.
 - [audit-log-tenant-id](audit-log-userid.md) — auditLogsTable has tenant_id column (migration 0030); userId is integer — logAudit must coerce UUID dbId to number or null; booking orderNumber has unique constraint

@@ -426,9 +426,10 @@ router.get("/tenant-pos/payments-history", async (req, res) => {
     const page = Math.max(1, Number(req.query.page ?? 1));
     const pageSize = Math.min(100, Math.max(1, Number(req.query.pageSize ?? 20)));
     const offset = (page - 1) * pageSize;
+    const linkedSiteId = sql<number>`coalesce(${tenantInvoicesTable.siteId}, ${tenantsTable.siteId}, ${tenantPaymentsTable.siteId})`;
 
     const conditions = [];
-    if (req.siteId > 0) conditions.push(eq(tenantPaymentsTable.siteId, req.siteId));
+    if (req.siteId > 0) conditions.push(eq(linkedSiteId, req.siteId));
     if (method) conditions.push(eq(tenantPaymentsTable.paymentMethod, method));
     if (sourceFilter) conditions.push(eq(tenantPaymentsTable.sourceType, sourceFilter));
     if (fromDate) conditions.push(gte(tenantPaymentsTable.paidAt, new Date(fromDate)));
@@ -461,6 +462,7 @@ router.get("/tenant-pos/payments-history", async (req, res) => {
       .from(tenantPaymentsTable)
       .leftJoin(tenantBookingsTable, eq(tenantPaymentsTable.bookingId, tenantBookingsTable.id))
       .leftJoin(tenantsTable, eq(tenantPaymentsTable.tenantId, tenantsTable.id))
+      .leftJoin(tenantInvoicesTable, eq(tenantPaymentsTable.invoiceId, tenantInvoicesTable.id))
       .where(where);
 
     const rows = await db
@@ -491,10 +493,12 @@ router.get("/tenant-pos/payments-history", async (req, res) => {
         boothNumber: tenantsTable.boothNumber,
         orderNumber: tenantBookingsTable.orderNumber,
         periodLabel: tenantBookingsTable.periodLabel,
+        invoiceNumber: tenantInvoicesTable.invoiceNumber,
       })
       .from(tenantPaymentsTable)
       .leftJoin(tenantBookingsTable, eq(tenantPaymentsTable.bookingId, tenantBookingsTable.id))
       .leftJoin(tenantsTable, eq(tenantPaymentsTable.tenantId, tenantsTable.id))
+      .leftJoin(tenantInvoicesTable, eq(tenantPaymentsTable.invoiceId, tenantInvoicesTable.id))
       .where(where)
       .orderBy(desc(tenantPaymentsTable.paidAt))
       .limit(pageSize)

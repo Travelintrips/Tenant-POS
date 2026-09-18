@@ -103,6 +103,7 @@ type Payment = {
   notes: string | null;
   referenceNumber: string | null;
   proofUrl: string | null;
+  voidReason?: string | null;
   invoiceId: number | null;
   bookingId: number | null;
   tenantName: string | null;
@@ -475,7 +476,16 @@ export default function RiwayatPembayaran() {
                           </div>
                         )}
                       </TableCell>
-                      <TableCell>{statusBadge(p)}</TableCell>
+                      <TableCell>
+                        <div className="flex flex-col items-start gap-1">
+                          {statusBadge(p)}
+                          {p.isVoided && getDuplicatePaymentId(p.voidReason) && (
+                            <span className="text-[10px] text-muted-foreground">
+                              Duplikat dari payment #{getDuplicatePaymentId(p.voidReason)}
+                            </span>
+                          )}
+                        </div>
+                      </TableCell>
                     </TableRow>
                   ))
                 )}
@@ -637,12 +647,18 @@ export default function RiwayatPembayaran() {
                   <p className="text-red-600 text-xs mt-1">{selectedPayment.voidReason}</p>
                   {duplicatePaymentId && (
                     <div className="mt-3 border-t border-red-200 pt-3">
-                      <p className="text-red-700 text-xs font-medium">Pembayaran yang dianggap duplikat</p>
+                      <p className="text-red-700 text-xs font-medium">Pembayaran asli yang sudah disetujui</p>
                       {isDuplicateLoading ? (
                         <p className="text-red-500 text-xs mt-1">Memuat detail pembayaran #{duplicatePaymentId}...</p>
                       ) : duplicatePayment ? (
                         <div className="mt-1.5 rounded border border-red-200 bg-white/70 p-2.5 text-xs">
                           <div className="grid grid-cols-2 gap-x-3 gap-y-1">
+                            <div>
+                              <span className="text-muted-foreground">No. Pembayaran</span>
+                              <p className="font-mono font-medium">
+                                {duplicatePayment.paymentNumber ?? duplicatePayment.receiptNumber ?? `#${duplicatePayment.id}`}
+                              </p>
+                            </div>
                             <div>
                               <span className="text-muted-foreground">ID Pembayaran</span>
                               <p className="font-mono font-medium">#{duplicatePayment.id}</p>
@@ -658,6 +674,14 @@ export default function RiwayatPembayaran() {
                             <div>
                               <span className="text-muted-foreground">Jumlah</span>
                               <p className="font-semibold">{formatRupiah(duplicatePayment.amount)}</p>
+                            </div>
+                            <div>
+                              <span className="text-muted-foreground">Status</span>
+                              <p className="mt-0.5">
+                                <Badge className="bg-green-100 text-green-800 border-green-200 text-[10px]">
+                                  {duplicatePayment.approvalStatus === "approved" ? "Disetujui" : duplicatePayment.approvalStatus}
+                                </Badge>
+                              </p>
                             </div>
                           </div>
                           <div className="mt-2 flex items-center gap-2">
