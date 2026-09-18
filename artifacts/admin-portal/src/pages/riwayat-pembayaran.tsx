@@ -47,6 +47,8 @@ import {
 } from "@/components/ui/dialog";
 import { getPaymentDateLabel } from "@/lib/payment-date-label";
 import { useToast } from "@/hooks/use-toast";
+import { useSite } from "@/contexts/site-context";
+import { apiFetch } from "@/lib/api";
 
 function formatRupiah(val: number | string | null | undefined) {
   if (val == null || val === "") return "Rp 0";
@@ -143,13 +145,16 @@ type DuplicatePayment = {
   businessName: string | null;
 };
 
-function getDuplicatePaymentId(payment: DetailPayment | null): number | null {
-  if (!payment?.isVoided) return null;
-  if (payment.duplicateOfPaymentId != null) return payment.duplicateOfPaymentId;
-  const reason = payment.voidReason;
+function parseDuplicatePaymentId(reason: string | null | undefined): number | null {
   if (!reason) return null;
   const match = reason.match(/\b(?:payment|pembayaran)\s*#?\s*(\d+)\b/i);
   return match ? Number(match[1]) : null;
+}
+
+function getDuplicatePaymentId(payment: DetailPayment | null): number | null {
+  if (!payment?.isVoided) return null;
+  if (payment.duplicateOfPaymentId != null) return payment.duplicateOfPaymentId;
+  return parseDuplicatePaymentId(payment.voidReason);
 }
 
 export default function RiwayatPembayaran() {
@@ -166,6 +171,7 @@ export default function RiwayatPembayaran() {
   const [dateEditing, setDateEditing] = useState(false);
   const [dateSaving, setDateSaving] = useState(false);
   const { toast } = useToast();
+  const { activeSiteId } = useSite();
   const pageSize = 20;
 
   const params = new URLSearchParams();
@@ -179,13 +185,14 @@ export default function RiwayatPembayaran() {
   params.set("pageSize", String(pageSize));
 
   const { data, isLoading, refetch, isFetching } = useQuery<PaymentsResponse>({
-    queryKey: ["riwayat-pembayaran", search, metode, status, source, dateFrom, dateTo, page],
+    queryKey: ["riwayat-pembayaran", activeSiteId, search, metode, status, source, dateFrom, dateTo, page],
     queryFn: async () => {
-      const res = await fetch(`/api/tenant-pos/payments-history?${params}`);
+      const res = await apiFetch(`/api/tenant-pos/payments-history?${params}`);
       if (!res.ok) throw new Error("Gagal mengambil data");
       return res.json();
     },
     placeholderData: (prev) => prev,
+    enabled: activeSiteId !== null,
   });
 
   const payments = data?.data ?? [];
@@ -195,7 +202,7 @@ export default function RiwayatPembayaran() {
   const { data: duplicatePayment, isLoading: isDuplicateLoading } = useQuery<DuplicatePayment>({
     queryKey: ["duplicate-payment", duplicatePaymentId],
     queryFn: async () => {
-      const res = await fetch(`/api/payments/${duplicatePaymentId}`, { credentials: "include" });
+      const res = await apiFetch(`/api/payments/${duplicatePaymentId}`);
       if (!res.ok) throw new Error("Gagal mengambil pembayaran yang menjadi duplikat");
       return res.json();
     },
@@ -222,9 +229,8 @@ export default function RiwayatPembayaran() {
     if (!selectedPayment || !dateDraft) return;
     setDateSaving(true);
     try {
-      const res = await fetch(`/api/payments/${selectedPayment.id}/date`, {
+      const res = await apiFetch(`/api/payments/${selectedPayment.id}/date`, {
         method: "PUT",
-        credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ paymentDate: dateDraft }),
       });
@@ -483,9 +489,9 @@ export default function RiwayatPembayaran() {
                       <TableCell>
                         <div className="flex flex-col items-start gap-1">
                           {statusBadge(p)}
-                          {p.isVoided && getDuplicatePaymentId(p.voidReason) && (
+                          {p.isVoided && parseDuplicatePaymentId(p.voidReason) && (
                             <span className="text-[10px] text-muted-foreground">
-                              Duplikat dari payment #{getDuplicatePaymentId(p.voidReason)}
+                              Duplikat dari payment #{parseDuplicatePaymentId(p.voidReason)}
                             </span>
                           )}
                         </div>
