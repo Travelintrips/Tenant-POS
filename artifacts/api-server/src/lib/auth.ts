@@ -125,11 +125,18 @@ export async function buildSessionUser(dbUser: {
 
 const clientID = process.env.GOOGLE_CLIENT_ID;
 const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
-const domain = process.env.REPLIT_DEV_DOMAIN ?? process.env.REPLIT_DOMAINS?.split(",")[0];
+const configuredCallbackUrl = process.env.GOOGLE_CALLBACK_URL?.trim();
+const configuredAppUrl = process.env.APP_URL?.trim();
+const fallbackDomain = process.env.REPLIT_DEV_DOMAIN ?? process.env.REPLIT_DOMAINS?.split(",")[0];
+const callbackURL =
+  configuredCallbackUrl ||
+  (configuredAppUrl
+    ? `${configuredAppUrl.replace(/\/+$/, "")}/api/auth/google/callback`
+    : fallbackDomain
+      ? `https://${fallbackDomain}/api/auth/google/callback`
+      : undefined);
 
-if (clientID && clientSecret && domain) {
-  const callbackURL = `https://${domain}/api/auth/google/callback`;
-
+if (clientID && clientSecret && callbackURL) {
   passport.use(
     new GoogleStrategy(
       { clientID, clientSecret, callbackURL },
