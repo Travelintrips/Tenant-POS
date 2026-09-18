@@ -70,8 +70,14 @@ export function SiteProvider({ children }: { children: React.ReactNode }) {
     const storedId = Number(stored);
     const found = storedId ? sites.find((s) => s.id === storedId) : null;
     const defaultSite = sites.find((s) => s.code === DEFAULT_SITE_CODE) ?? sites[0];
+    const resolvedSite = found ?? defaultSite;
 
-    setActiveSiteState(found ?? defaultSite);
+    // Persist the resolved default too. Without this, the UI can show Sport
+    // Center while apiFetch sends no x-site-id and the API falls back to TOD M1.
+    if (resolvedSite) {
+      localStorage.setItem(LS_KEY, String(resolvedSite.id));
+    }
+    setActiveSiteState(resolvedSite);
   }, [sites]);
 
   const setActiveSite = useCallback(
