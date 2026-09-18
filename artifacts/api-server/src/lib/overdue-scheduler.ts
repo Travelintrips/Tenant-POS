@@ -62,6 +62,42 @@ export function getBlastHistory(): BlastRun[] {
   return [..._blastHistory];
 }
 
+async function releaseInvoiceNotificationClaim(invoiceId: number, claimedAt: Date): Promise<void> {
+  await db
+    .update(tenantInvoicesTable)
+    .set({ invoiceNotifiedAt: null, updatedAt: new Date() })
+    .where(
+      and(
+        eq(tenantInvoicesTable.id, invoiceId),
+        eq(tenantInvoicesTable.invoiceNotifiedAt, claimedAt),
+      ),
+    );
+}
+
+async function releasePaymentReminderClaim(invoiceId: number, claimedAt: Date): Promise<void> {
+  await db
+    .update(tenantInvoicesTable)
+    .set({ lastPaymentReminderAt: null, updatedAt: new Date() })
+    .where(
+      and(
+        eq(tenantInvoicesTable.id, invoiceId),
+        eq(tenantInvoicesTable.lastPaymentReminderAt, claimedAt),
+      ),
+    );
+}
+
+async function releaseOverdueReminderClaim(invoiceId: number, claimedAt: Date): Promise<void> {
+  await db
+    .update(tenantInvoicesTable)
+    .set({ lastOverdueReminderAt: null, updatedAt: new Date() })
+    .where(
+      and(
+        eq(tenantInvoicesTable.id, invoiceId),
+        eq(tenantInvoicesTable.lastOverdueReminderAt, claimedAt),
+      ),
+    );
+}
+
 async function runAllChecks(label: string): Promise<void> {
   if (_blastStatus.isRunning) {
     logger.info("[scheduler] Pengecekan sedang berjalan, dilewati");
@@ -343,18 +379,26 @@ export async function runInvoiceNotificationCheck(): Promise<number> {
       continue;
     }
 
-    if (invoice.phone) {
-      const dueStr = invoice.dueDate
-        ? new Date(invoice.dueDate).toLocaleDateString("id-ID", {
-            day: "numeric",
-            month: "long",
-            year: "numeric",
-          })
-        : "-";
+    if (!invoice.phone) {
+      // Tidak ada tujuan pengiriman. Lepaskan claim supaya invoice dapat
+      // diproses setelah nomor tenant dilengkapi.
+      await releaseInvoiceNotificationClaim(invoice.id, now);
+      logger.warn({ invoiceId: invoice.id }, "[scheduler] Invoice tidak punya nomor WA tenant");
+      continue;
+    }
 
-      const companyName = await getSiteCompanyName(invoice.siteId);
-      const paymentLink = await buildPaymentLink(invoice.paymentToken);
+    const dueStr = invoice.dueDate
+      ? new Date(invoice.dueDate).toLocaleDateString("id-ID", {
+          day: "numeric",
+          month: "long",
+          year: "numeric",
+        })
+      : "-";
 
+    const companyName = await getSiteCompanyName(invoice.siteId);
+    const paymentLink = await buildPaymentLink(invoice.paymentToken);
+
+    try {
       const result = await sendInvoiceNotification({
         ownerName: invoice.ownerName,
         businessName: invoice.businessName,
@@ -368,6 +412,7 @@ export async function runInvoiceNotificationCheck(): Promise<number> {
       });
 
       if (result.ok && !result.skipped) {
+        // Claim tetap tersimpan hanya setelah Fonnte menerima pesan.
         sent++;
         void notifyAdminGroup({
           eventType: "invoice_sent",
@@ -380,7 +425,16 @@ export async function runInvoiceNotificationCheck(): Promise<number> {
           siteName: companyName,
           paymentLink,
         }).catch(() => {});
+      } else {
+        await releaseInvoiceNotificationClaim(invoice.id, now);
+        logger.warn(
+          { invoiceId: invoice.id, skipped: result.skipped, error: result.error },
+          "[scheduler] Pengiriman invoice gagal/dilewati — akan dicoba lagi",
+        );
       }
+    } catch (err) {
+      await releaseInvoiceNotificationClaim(invoice.id, now).catch(() => {});
+      logger.warn({ err, invoiceId: invoice.id }, "[scheduler] Pengiriman invoice error — akan dicoba lagi");
     }
   }
 
@@ -482,7 +536,11 @@ async function runMonthlyDailyReminderCheck(): Promise<{ h7: number; h3: number;
 
     if (claimed.length === 0) continue;
 
-    if (!invoice.phone) continue;
+    if (!invoice.phone) {
+      await releasePaymentReminderClaim(invoice.id, now);
+      logger.warn({ invoiceId: invoice.id }, "[scheduler] Reminder tidak punya nomor WA tenant");
+      continue;
+    }
 
     const dueDate  = invoice.dueDate ? new Date(invoice.dueDate + "T00:00:00Z") : null;
     const todayDate = new Date(todayWibStr + "T00:00:00Z");
@@ -497,62 +555,56 @@ async function runMonthlyDailyReminderCheck(): Promise<{ h7: number; h3: number;
     const companyName = await getSiteCompanyName(invoice.siteId ?? 0);
     const paymentLink = await buildPaymentLink(invoice.paymentToken);
 
-    if (daysUntilDue >= 0) {
-      // Belum jatuh tempo → kirim pengingat jatuh tempo
-      const result = await sendDueReminder({
-        ownerName: invoice.ownerName,
-        businessName: invoice.businessName,
-        invoiceNumber: invoice.invoiceNumber,
-        periodLabel: formatPeriodLabel(invoice.periodStart, invoice.periodEnd),
-        totalAmount: invoice.totalAmount,
-        outstandingAmount: invoice.outstandingAmount,
-        dueDate: dueStr,
-        daysUntilDue,
-        phone: invoice.phone,
-        paymentLink,
-      });
+    try {
+      const result = daysUntilDue >= 0
+        ? await sendDueReminder({
+            ownerName: invoice.ownerName,
+            businessName: invoice.businessName,
+            invoiceNumber: invoice.invoiceNumber,
+            periodLabel: formatPeriodLabel(invoice.periodStart, invoice.periodEnd),
+            totalAmount: invoice.totalAmount,
+            outstandingAmount: invoice.outstandingAmount,
+            dueDate: dueStr,
+            daysUntilDue,
+            phone: invoice.phone,
+            paymentLink,
+          })
+        : await sendOverdueReminder({
+            ownerName: invoice.ownerName,
+            businessName: invoice.businessName,
+            invoiceNumber: invoice.invoiceNumber,
+            totalAmount: invoice.totalAmount,
+            outstandingAmount: invoice.outstandingAmount ?? invoice.totalAmount,
+            daysOverdue: Math.abs(daysUntilDue),
+            phone: invoice.phone,
+            paymentLink,
+          });
 
       if (result.ok && !result.skipped) {
         sent++;
         void notifyAdminGroup({
-          eventType: "reminder",
+          eventType: daysUntilDue >= 0 ? "reminder" : "overdue",
           businessName: invoice.businessName,
           ownerName: invoice.ownerName,
           invoiceNumber: invoice.invoiceNumber,
           amount: invoice.outstandingAmount ?? invoice.totalAmount,
-          daysUntilDue,
+          ...(daysUntilDue >= 0
+            ? { daysUntilDue }
+            : { daysOverdue: Math.abs(daysUntilDue) }),
           dueDate: dueStr,
           siteName: companyName,
           paymentLink,
         }).catch(() => {});
+      } else {
+        await releasePaymentReminderClaim(invoice.id, now);
+        logger.warn(
+          { invoiceId: invoice.id, skipped: result.skipped, error: result.error },
+          "[scheduler] Pengingat gagal/dilewati — akan dicoba lagi",
+        );
       }
-    } else {
-      // Sudah jatuh tempo → kirim pengingat overdue
-      const daysOverdue = Math.abs(daysUntilDue);
-      const result = await sendOverdueReminder({
-        ownerName: invoice.ownerName,
-        businessName: invoice.businessName,
-        invoiceNumber: invoice.invoiceNumber,
-        totalAmount: invoice.totalAmount,
-        outstandingAmount: invoice.outstandingAmount ?? invoice.totalAmount,
-        daysOverdue,
-        phone: invoice.phone,
-        paymentLink,
-      });
-
-      if (result.ok && !result.skipped) {
-        sent++;
-        void notifyAdminGroup({
-          eventType: "overdue",
-          businessName: invoice.businessName,
-          ownerName: invoice.ownerName,
-          invoiceNumber: invoice.invoiceNumber,
-          amount: invoice.outstandingAmount ?? invoice.totalAmount,
-          daysOverdue,
-          siteName: companyName,
-          paymentLink,
-        }).catch(() => {});
-      }
+    } catch (err) {
+      await releasePaymentReminderClaim(invoice.id, now).catch(() => {});
+      logger.warn({ err, invoiceId: invoice.id }, "[scheduler] Pengiriman reminder error — akan dicoba lagi");
     }
   }
 
@@ -582,7 +634,7 @@ async function runOverdueCheck(): Promise<number> {
     .innerJoin(tenantsTable, eq(tenantInvoicesTable.tenantId, tenantsTable.id))
     .where(
       and(
-        inArray(tenantInvoicesTable.status, ["unpaid", "partial"]),
+        inArray(tenantInvoicesTable.status, ["unpaid", "partial", "overdue"]),
         isNull(tenantInvoicesTable.lastOverdueReminderAt),
         sql`"due_date" < CURRENT_DATE`,
       ),
@@ -601,21 +653,38 @@ async function runOverdueCheck(): Promise<number> {
   let sent = 0;
 
   for (const invoice of overdueInvoices) {
-    await db
+    const claimedAt = new Date();
+    const claimed = await db
       .update(tenantInvoicesTable)
       .set({
         status: "overdue",
-        lastOverdueReminderAt: new Date(),
-        updatedAt: new Date(),
+        lastOverdueReminderAt: claimedAt,
+        updatedAt: claimedAt,
       })
-      .where(eq(tenantInvoicesTable.id, invoice.id));
+      .where(
+        and(
+          eq(tenantInvoicesTable.id, invoice.id),
+          inArray(tenantInvoicesTable.status, ["unpaid", "partial", "overdue"]),
+          isNull(tenantInvoicesTable.lastOverdueReminderAt),
+        ),
+      )
+      .returning({ id: tenantInvoicesTable.id });
 
-    if (invoice.phone) {
-      const dueDate = invoice.dueDate ? new Date(invoice.dueDate) : null;
-      const daysOverdue = dueDate
-        ? Math.max(0, Math.floor((Date.now() - dueDate.getTime()) / 86400000))
-        : 0;
+    if (claimed.length === 0) continue;
 
+    if (!invoice.phone) {
+      await releaseOverdueReminderClaim(invoice.id, claimedAt);
+      logger.warn({ invoiceId: invoice.id }, "[scheduler] Overdue tidak punya nomor WA tenant");
+      continue;
+    }
+
+    const dueDate = invoice.dueDate ? new Date(invoice.dueDate) : null;
+    const daysOverdue = dueDate
+      ? Math.max(0, Math.floor((Date.now() - dueDate.getTime()) / 86400000))
+      : 0;
+    const paymentLink = await buildPaymentLink(invoice.paymentToken);
+
+    try {
       const result = await sendOverdueReminder({
         ownerName: invoice.ownerName,
         businessName: invoice.businessName,
@@ -624,21 +693,30 @@ async function runOverdueCheck(): Promise<number> {
         outstandingAmount: invoice.outstandingAmount ?? invoice.totalAmount,
         daysOverdue,
         phone: invoice.phone,
-        paymentLink: await buildPaymentLink(invoice.paymentToken),
+        paymentLink,
       });
 
       if (result.ok && !result.skipped) {
         sent++;
         void notifyAdminGroup({
           eventType: "overdue",
-          businessName: invoice.businessName,
           ownerName: invoice.ownerName,
+          businessName: invoice.businessName,
           invoiceNumber: invoice.invoiceNumber,
           amount: invoice.outstandingAmount ?? invoice.totalAmount,
           daysOverdue,
-          paymentLink: await buildPaymentLink(invoice.paymentToken),
+          paymentLink,
         }).catch(() => {});
+      } else {
+        await releaseOverdueReminderClaim(invoice.id, claimedAt);
+        logger.warn(
+          { invoiceId: invoice.id, skipped: result.skipped, error: result.error },
+          "[scheduler] Pengiriman overdue gagal/dilewati — akan dicoba lagi",
+        );
       }
+    } catch (err) {
+      await releaseOverdueReminderClaim(invoice.id, claimedAt).catch(() => {});
+      logger.warn({ err, invoiceId: invoice.id }, "[scheduler] Pengiriman overdue error — akan dicoba lagi");
     }
   }
 
