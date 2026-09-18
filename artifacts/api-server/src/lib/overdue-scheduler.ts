@@ -15,6 +15,7 @@ let _started = false;
 // Pengingat overdue sengaja hanya berjalan pukul 08:00 WIB agar tenant tidak
 // menerima lebih dari satu pesan overdue pada hari yang sama.
 const SCHEDULE_HOURS_UTC = [1, 11]; // 01 UTC = 08:00 WIB, 11 UTC = 18:00 WIB
+const OVERDUE_REMINDER_START_DATE = "2026-09-01";
 
 let _lastRunDateKey = ""; // format: "YYYY-MM-DD-HH"
 
@@ -193,7 +194,7 @@ export function startOverdueScheduler(): void {
   // Cron sederhana: cek setiap 5 menit, eksekusi jika jam-nya tepat.
   // Hanya 2 jam terjadwal:
   //   01 UTC = 08:00 WIB → blast tagihan + reminder + overdue (utama)
-  //   11 UTC = 18:00 WIB → reminder + overdue sore
+  //   11 UTC = 18:00 WIB → reminder biasa saja
   setInterval(() => {
     const now = new Date();
     const hourUtc = now.getUTCHours();
@@ -621,7 +622,7 @@ async function runMonthlyDailyReminderCheck(): Promise<{ h7: number; h3: number;
 
 // ─── Overdue Reminder (sudah melewati jatuh tempo) ───────────────────────────
 
-async function runOverdueCheck(): Promise<number> {
+export async function runOverdueCheck(): Promise<number> {
   logger.info("[scheduler] Menjalankan cek invoice jatuh tempo...");
 
   const overdueInvoices = await db
@@ -642,7 +643,9 @@ async function runOverdueCheck(): Promise<number> {
       and(
         sql`${tenantsTable.status} IN ('aktif', 'active')`,
         inArray(tenantInvoicesTable.status, ["unpaid", "partial", "overdue"]),
+        sql`${tenantInvoicesTable.dueDate} >= ${OVERDUE_REMINDER_START_DATE}::date`,
         sql`"due_date" < (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Jakarta')::date`,
+        sql`COALESCE(${tenantInvoicesTable.outstandingAmount}, 0)::numeric > 0`,
         sql`(
           last_overdue_reminder_at IS NULL
           OR DATE(last_overdue_reminder_at AT TIME ZONE 'Asia/Jakarta')
@@ -675,9 +678,16 @@ async function runOverdueCheck(): Promise<number> {
       .where(
         and(
           eq(tenantInvoicesTable.id, invoice.id),
-          sql`${tenantsTable.status} IN ('aktif', 'active')`,
+          sql`EXISTS (
+            SELECT 1
+            FROM tenants AS active_tenant
+            WHERE active_tenant.id = ${tenantInvoicesTable.tenantId}
+              AND active_tenant.status IN ('aktif', 'active')
+          )`,
           inArray(tenantInvoicesTable.status, ["unpaid", "partial", "overdue"]),
+          sql`${tenantInvoicesTable.dueDate} >= ${OVERDUE_REMINDER_START_DATE}::date`,
           sql`${tenantInvoicesTable.dueDate} < (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Jakarta')::date`,
+          sql`COALESCE(${tenantInvoicesTable.outstandingAmount}, 0)::numeric > 0`,
           sql`(
             last_overdue_reminder_at IS NULL
             OR DATE(last_overdue_reminder_at AT TIME ZONE 'Asia/Jakarta')
