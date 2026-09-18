@@ -1442,6 +1442,7 @@ router.post("/tenant-pos/payments/:id/void", paymentRateLimiter, async (req, res
           .select({
             id: tenantPaymentsTable.id,
             isVoided: tenantPaymentsTable.isVoided,
+            tenantId: tenantPaymentsTable.tenantId,
           })
           .from(tenantPaymentsTable)
           .where(eq(tenantPaymentsTable.id, duplicateOfPaymentId));
@@ -1451,6 +1452,9 @@ router.post("/tenant-pos/payments/:id/void", paymentRateLimiter, async (req, res
         }
         if (originalPayment.isVoided) {
           throw Object.assign(new Error("Pembayaran asli sudah di-void"), { status: 400 });
+        }
+        if (originalPayment.tenantId !== payment.tenantId) {
+          throw Object.assign(new Error("Pembayaran asli harus berasal dari tenant yang sama"), { status: 400 });
         }
       }
 

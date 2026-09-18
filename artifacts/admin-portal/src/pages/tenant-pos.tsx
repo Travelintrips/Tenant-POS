@@ -567,21 +567,38 @@ function ShiftCloseDialog({ open, onClose, shift }: { open: boolean; onClose: ()
 
 // ─── Void Payment Dialog ──────────────────────────────────────────────────────
 
-function VoidPaymentDialog({ payment, onClose }: {
+function VoidPaymentDialog({ payment, candidatePayments, onClose }: {
   payment: PaymentHistoryItem | null;
+  candidatePayments: PaymentHistoryItem[];
   onClose: (voided: boolean) => void;
 }) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [reason, setReason] = useState("");
   const [duplicateOfPaymentId, setDuplicateOfPaymentId] = useState("");
+  const [candidateSearch, setCandidateSearch] = useState("");
 
   useEffect(() => {
     if (payment) {
       setReason("");
       setDuplicateOfPaymentId("");
+      setCandidateSearch("");
     }
   }, [payment?.id]);
+
+  const originalPaymentCandidates = useMemo(() => {
+    const query = candidateSearch.trim().toLowerCase();
+    return candidatePayments
+      .filter((candidate) => candidate.id !== payment?.id && !candidate.isVoided)
+      .filter((candidate) => {
+        if (!query) return true;
+        return [
+          candidate.receiptNumber,
+          candidate.referenceNumber,
+          String(candidate.id),
+        ].some((value) => value?.toLowerCase().includes(query));
+      });
+  }, [candidatePayments, candidateSearch, payment?.id]);
 
   const mutation = useMutation({
     mutationFn: async () => {
@@ -642,18 +659,37 @@ function VoidPaymentDialog({ payment, onClose }: {
                 />
               </div>
               <div className="flex flex-col gap-1.5">
-                <Label>ID Pembayaran Asli <span className="text-muted-foreground font-normal">(opsional, jika duplikat)</span></Label>
+                <Label>Pembayaran Asli <span className="text-muted-foreground font-normal">(opsional, jika duplikat)</span></Label>
                 <Input
-                  type="number"
-                  min={1}
-                  step={1}
-                  placeholder="Contoh: 105"
-                  value={duplicateOfPaymentId}
-                  onChange={(e) => setDuplicateOfPaymentId(e.target.value)}
+                  placeholder="Cari nomor kwitansi atau ID..."
+                  value={candidateSearch}
+                  onChange={(e) => setCandidateSearch(e.target.value)}
                   disabled={mutation.isPending}
                 />
+                <Select
+                  value={duplicateOfPaymentId || "none"}
+                  onValueChange={(value) => setDuplicateOfPaymentId(value === "none" ? "" : value)}
+                  disabled={mutation.isPending}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Pilih pembayaran asli..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">Tidak ditautkan</SelectItem>
+                    {originalPaymentCandidates.map((candidate) => (
+                      <SelectItem key={candidate.id} value={String(candidate.id)}>
+                        {candidate.receiptNumber ?? `#${candidate.id}`} · {formatRupiah(candidate.amountPaid)} · {formatTanggalID(candidate.paymentDate?.slice(0, 10))}
+                      </SelectItem>
+                    ))}
+                    {originalPaymentCandidates.length === 0 && (
+                      <SelectItem value="no-results" disabled>
+                        Tidak ada pembayaran aktif yang cocok
+                      </SelectItem>
+                    )}
+                  </SelectContent>
+                </Select>
                 <p className="text-[11px] text-muted-foreground">
-                  Isi untuk menautkan pembayaran ini ke pembayaran asli. Data lama tetap dapat dibaca dari alasan void.
+                  Pilih pembayaran aktif tenant ini untuk menautkan transaksi duplikat. ID pembayaran tetap dikirim otomatis.
                 </p>
               </div>
             </div>
@@ -1288,7 +1324,7 @@ function DetailPanel({ item, onClose, onProses, onBayarInvoice, currentShiftId }
       {receiptPaymentId !== null && (
         <ModalReceipt paymentId={receiptPaymentId} onClose={() => setReceiptPaymentId(null)} />
       )}
-      <VoidPaymentDialog payment={voidTarget} onClose={(voided) => {
+      <VoidPaymentDialog payment={voidTarget} candidatePayments={paymentHistory.data ?? []} onClose={(voided) => {
         setVoidTarget(null);
         if (voided) {
           void queryClient.invalidateQueries({ queryKey: ["payment-history", item.bookingId] });
