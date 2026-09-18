@@ -467,7 +467,7 @@ router.put(
 
     try {
       const ctx = req.appContext!;
-      const linkedSiteId = sql<number>`coalesce(${tenantPaymentsTable.siteId}, ${tenantInvoicesTable.siteId}, ${tenantsTable.siteId})`;
+      const linkedSiteId = sql<number>`coalesce(${tenantInvoicesTable.siteId}, ${tenantsTable.siteId}, ${tenantPaymentsTable.siteId})`;
       const linkedCompanyId = sql<number>`coalesce(${tenantInvoicesTable.companyId}, ${tenantsTable.companyId}, ${tenantPaymentsTable.companyId}, ${mallSitesTable.companyId})`;
       const conditions: SQL[] = [eq(tenantPaymentsTable.id, id)];
        if (req.siteId > 0) conditions.push(eq(linkedSiteId, req.siteId));
@@ -534,7 +534,7 @@ router.get(
 
     try {
       const ctx = req.appContext!;
-      const linkedSiteId = sql<number>`coalesce(${tenantPaymentsTable.siteId}, ${tenantInvoicesTable.siteId}, ${tenantsTable.siteId})`;
+      const linkedSiteId = sql<number>`coalesce(${tenantInvoicesTable.siteId}, ${tenantsTable.siteId}, ${tenantPaymentsTable.siteId})`;
       const linkedCompanyId = sql<number>`coalesce(${tenantInvoicesTable.companyId}, ${tenantsTable.companyId}, ${tenantPaymentsTable.companyId}, ${mallSitesTable.companyId})`;
       const conditions: SQL[] = [eq(tenantPaymentsTable.id, id)];
        if (req.siteId > 0) conditions.push(eq(linkedSiteId, req.siteId));
