@@ -198,6 +198,57 @@ describe("Fase 4 — POS Pembayaran", () => {
       expect(storedPayment?.duplicateOfPaymentId).toBe(originalPaymentId);
     });
 
+    it("menolak duplicateOfPaymentId lintas-tenant tanpa mengubah payment yang di-void", async () => {
+      const originalTenant = await createTestTenant();
+      const originalBooking = await createTestBooking(originalTenant.id);
+      const duplicateTenant = await createTestTenant();
+      const duplicateBooking = await createTestBooking(duplicateTenant.id);
+
+      const originalRes = await owner.post("/api/tenant-pos/payments").send({
+        tenantId: originalTenant.id,
+        bookingId: originalBooking.id,
+        amountPaid: 110000,
+        paymentMethod: "transfer",
+        shiftId: testShift.id,
+      });
+      expect(originalRes.status).toBe(201);
+      const originalPaymentId = originalRes.body.payment.id;
+      track("payments", originalPaymentId);
+
+      const duplicateRes = await owner.post("/api/tenant-pos/payments").send({
+        tenantId: duplicateTenant.id,
+        bookingId: duplicateBooking.id,
+        amountPaid: 110000,
+        paymentMethod: "transfer",
+        shiftId: testShift.id,
+      });
+      expect(duplicateRes.status).toBe(201);
+      const duplicatePaymentId = duplicateRes.body.payment.id;
+      track("payments", duplicatePaymentId);
+
+      const [paymentBeforeVoid] = await db
+        .select()
+        .from(tenantPaymentsTable)
+        .where(eq(tenantPaymentsTable.id, duplicatePaymentId));
+      expect(paymentBeforeVoid).toBeTruthy();
+      expect(paymentBeforeVoid?.tenantId).toBe(duplicateTenant.id);
+      expect(paymentBeforeVoid?.isVoided).toBe(false);
+
+      const voidRes = await owner
+        .post(`/api/tenant-pos/payments/${duplicatePaymentId}/void`)
+        .send({
+          voidReason: "Pembayaran asli berasal dari tenant lain",
+          duplicateOfPaymentId: originalPaymentId,
+        });
+      expect(voidRes.status).toBe(400);
+
+      const [paymentAfterRejectedVoid] = await db
+        .select()
+        .from(tenantPaymentsTable)
+        .where(eq(tenantPaymentsTable.id, duplicatePaymentId));
+      expect(paymentAfterRejectedVoid).toEqual(paymentBeforeVoid);
+    });
+
     it("cashier tidak bisa void payment (403)", async () => {
       const payRes = await owner.post("/api/tenant-pos/payments").send({
         tenantId: testTenant.id,
