@@ -83,7 +83,7 @@ router.get("/tenants", async (req, res) => {
         contractEndDate: activeBooking?.endDate ?? t.contractEndDate ?? null,
         totalOutstanding: outstandingMap.get(t.id) ?? 0,
       };
-    })););
+    }));
   } catch (err) {
     req.log.error(err, "Failed to list tenants");
     res.status(500).json({ error: "Gagal mengambil data tenant" });
