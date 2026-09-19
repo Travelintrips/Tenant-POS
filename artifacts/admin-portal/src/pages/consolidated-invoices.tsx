@@ -147,6 +147,7 @@ function DetailModal({ id, onClose }: { id: number; onClose: () => void }) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [historicalProof, setHistoricalProof] = useState<File | null>(null);
 
   const { data, isLoading } = useQuery<ConsolidatedInvoiceDetail>({
     queryKey: ["consolidated-invoice-detail", id],
@@ -154,6 +155,26 @@ function DetailModal({ id, onClose }: { id: number; onClose: () => void }) {
       const r = await fetch(`${BASE}/api/consolidated-invoices/${id}`, { credentials: "include" });
       return r.json();
     },
+  });
+
+  const proofMutation = useMutation({
+    mutationFn: async () => {
+      if (!historicalProof) throw new Error("Pilih file bukti pembayaran");
+      const form = new FormData();
+      form.append("proof", historicalProof);
+      const r = await fetch(`${BASE}/api/consolidated-invoices/${id}/proof`, { method: "POST", credentials: "include", body: form });
+      const json = await r.json() as { ok?: boolean; error?: string; updatedPayments?: number };
+      if (!r.ok) throw new Error(json.error ?? "Gagal menyimpan bukti pembayaran");
+      return json;
+    },
+    onSuccess: (data) => {
+      toast({ title: "Bukti Pembayaran Tersimpan", description: `Bukti dihubungkan ke ${data.updatedPayments ?? 0} transaksi invoice konsolidasi.` });
+      setHistoricalProof(null);
+      void queryClient.invalidateQueries({ queryKey: ["consolidated-invoice-detail", id] });
+      void queryClient.invalidateQueries({ queryKey: ["consolidated-invoices"] });
+      void queryClient.invalidateQueries({ queryKey: ["payment-history"] });
+    },
+    onError: (e: Error) => toast({ title: "Gagal", description: e.message, variant: "destructive" }),
   });
 
   const sendWaMutation = useMutation<{ ok: boolean; pending?: boolean }, Error, void>({
@@ -264,6 +285,18 @@ function DetailModal({ id, onClose }: { id: number; onClose: () => void }) {
                 <p className="font-bold text-base text-amber-700">{formatRupiah(data.outstandingAmount)}</p>
               </div>
             </div>
+            {data.status === "paid" && (
+              <div className="border rounded-lg p-3 space-y-2 bg-blue-50/40">
+                <Label>Tambahkan / Perbaiki Bukti Pembayaran Konsolidasi</Label>
+                <div className="flex gap-2 items-center">
+                  <Input type="file" accept="image/jpeg,image/png,image/webp,application/pdf" onChange={(e) => setHistoricalProof(e.target.files?.[0] ?? null)} />
+                  <Button type="button" disabled={!historicalProof || proofMutation.isPending} onClick={() => proofMutation.mutate()}>
+                    {proofMutation.isPending ? "Mengunggah..." : "Simpan Bukti"}
+                  </Button>
+                </div>
+                <p className="text-xs text-muted-foreground">Satu bukti akan dihubungkan ke seluruh pembayaran child dari invoice konsolidasi ini.</p>
+              </div>
+            )}
             {data.notes && (
               <div className="text-xs text-muted-foreground bg-slate-50 rounded p-3">
                 <span className="font-medium">Catatan:</span> {data.notes}
