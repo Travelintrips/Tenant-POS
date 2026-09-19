@@ -28,21 +28,26 @@ router.get("/tenants", async (req, res) => {
 
     const tenantIds = rows.map((t) => t.id);
 
-    // Fetch booking end dates dan outstanding invoices secara paralel
-    const [bookingDates, outstandingRows] = await Promise.all([
+    // Booking aktif terbaru adalah source of truth untuk masa kontrak.
+    // Ambil start/end dari BARIS booking yang sama (bukan MIN/MAX terpisah),
+    // agar aman jika satu tenant pernah memiliki lebih dari satu booking aktif.
+    const [activeBookingRows, outstandingRows] = await Promise.all([
       db
         .select({
           tenantId: tenantBookingsTable.tenantId,
-          contractEndDate: sql<string>`MAX(${tenantBookingsTable.endDate})`.as("contract_end_date"),
+          bookingId: tenantBookingsTable.id,
+          contractStartDate: tenantBookingsTable.startDate,
+          contractEndDate: tenantBookingsTable.endDate,
         })
         .from(tenantBookingsTable)
         .where(
           and(
             inArray(tenantBookingsTable.tenantId, tenantIds),
-            inArray(tenantBookingsTable.contractStatus, ["active", "expiring_soon"]),
+            inArray(tenantBookingsTable.contractStatus, ["active", "aktif", "expiring_soon"]),
+            inArray(tenantBookingsTable.bookingStatus, ["aktif", "active", "confirmed"]),
           ),
         )
-        .groupBy(tenantBookingsTable.tenantId),
+        .orderBy(asc(tenantBookingsTable.tenantId), desc(tenantBookingsTable.id)),
       db
         .select({
           tenantId: tenantInvoicesTable.tenantId,
@@ -58,27 +63,27 @@ router.get("/tenants", async (req, res) => {
         .groupBy(tenantInvoicesTable.tenantId),
     ]);
 
-    const bookingEndDateMap = new Map(bookingDates.map((b) => [b.tenantId, b.contractEndDate]));
-    const bookingStartDateMap = new Map<number, string>();
-    if (tenantIds.length > 0) {
-      const activeStarts = await db
-        .select({ tenantId: tenantBookingsTable.tenantId, contractStartDate: sql<string>\`MIN(\${tenantBookingsTable.startDate})\`.as("contract_start_date") })
-        .from(tenantBookingsTable)
-        .where(and(inArray(tenantBookingsTable.tenantId, tenantIds), inArray(tenantBookingsTable.contractStatus, ["active", "expiring_soon"])))
-        .groupBy(tenantBookingsTable.tenantId);
-      for (const b of activeStarts) bookingStartDateMap.set(b.tenantId, b.contractStartDate);
+    const activeBookingMap = new Map<number, { startDate: string; endDate: string }>();
+    for (const b of activeBookingRows) {
+      // orderBy id DESC: baris pertama per tenant = booking aktif terbaru.
+      if (!activeBookingMap.has(b.tenantId)) {
+        activeBookingMap.set(b.tenantId, {
+          startDate: b.contractStartDate,
+          endDate: b.contractEndDate,
+        });
+      }
     }
     const outstandingMap = new Map(outstandingRows.map((o) => [o.tenantId, Number(o.totalOutstanding ?? 0)]));
 
-    res.json(rows.map((t) => ({
-      ...t,
-      // Booking/kontrak aktif adalah source of truth. Field tenant hanya fallback
-      // untuk tenant yang belum memiliki booking aktif. Ini hanya proyeksi/read;
-      // tidak membuat atau mengubah invoice.
-      contractStartDate: bookingStartDateMap.get(t.id) ?? t.contractStartDate ?? null,
-      contractEndDate: bookingEndDateMap.get(t.id) ?? t.contractEndDate ?? null,
-      totalOutstanding: outstandingMap.get(t.id) ?? 0,
-    })));
+    res.json(rows.map((t) => {
+      const activeBooking = activeBookingMap.get(t.id);
+      return {
+        ...t,
+        contractStartDate: activeBooking?.startDate ?? t.contractStartDate ?? null,
+        contractEndDate: activeBooking?.endDate ?? t.contractEndDate ?? null,
+        totalOutstanding: outstandingMap.get(t.id) ?? 0,
+      };
+    })););
   } catch (err) {
     req.log.error(err, "Failed to list tenants");
     res.status(500).json({ error: "Gagal mengambil data tenant" });
