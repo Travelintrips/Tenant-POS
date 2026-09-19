@@ -12,6 +12,7 @@ let _started = false;
 // Eksekusi sekali sehari pukul 08:00 WIB (01:00 UTC).
 // Semua invoice baru, reminder yang relevan, dan overdue diproses pada window ini.
 const OVERDUE_REMINDER_START_DATE = "2026-09-01";
+const SCHEDULE_HOURS_UTC = [1];
 
 let _lastRunDateKey = ""; // format: "YYYY-MM-DD-HH"
 
