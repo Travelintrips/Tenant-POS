@@ -168,15 +168,36 @@ export function getStorageObjectPath(
   storedUrl: string,
   expectedBucket: string,
 ): string | null {
+  const value = storedUrl.trim();
+  if (!value) return null;
+
+  // Historical rows may contain either a full Supabase URL or only the
+  // object path. Accept both, but never allow a path to escape the bucket.
+  const normalizePath = (raw: string): string | null => {
+    let decoded: string;
+    try {
+      decoded = decodeURIComponent(raw);
+    } catch {
+      return null;
+    }
+    decoded = decoded.replace(/^\/+/, "");
+    if (!decoded || decoded.includes("..")) return null;
+    return decoded;
+  };
+
   try {
-    const parsed = new URL(storedUrl);
+    const parsed = new URL(value);
     const match = parsed.pathname.match(
       /\/storage\/v1\/object\/(?:public|authenticated|sign)\/([^/]+)\/(.+)$/,
     );
     if (!match || decodeURIComponent(match[1]) !== expectedBucket) return null;
-    return decodeURIComponent(match[2]);
+    return normalizePath(match[2]);
   } catch {
-    return null;
+    const bucketPrefix = `${expectedBucket}/`;
+    const rawPath = value.startsWith(bucketPrefix)
+      ? value.slice(bucketPrefix.length)
+      : value;
+    return normalizePath(rawPath);
   }
 }
 
