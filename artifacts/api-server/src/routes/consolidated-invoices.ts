@@ -651,7 +651,7 @@ router.post("/consolidated-invoices/:id/proof", consolidatedProofUpload.single("
 
   const updated = await db.update(tenantPaymentsTable)
     .set({ proofUrl, proofImageUrl: proofUrl, updatedAt: new Date() })
-    .where(sql`${tenantPaymentsTable.notes} like ${`%[Kons: ${invoice.invoiceNumber}]%`}`)
+    .where(sql`(${tenantPaymentsTable.notes} like ${`%[Kons: ${invoice.invoiceNumber}]%`} OR ${tenantPaymentsTable.notes} like ${`%Invoice Konsolidasi ${invoice.invoiceNumber}%`})`)
     .returning({ id: tenantPaymentsTable.id });
 
   if (updated.length === 0) {
