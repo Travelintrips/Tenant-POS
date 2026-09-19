@@ -150,12 +150,17 @@ async function insertOneInvoice(opts: {
           ${taxAmount}, ${subtotal}, ${totalAmount},
           '0', ${outstandingAmount}, ${status}
         )
+        ON CONFLICT (booking_id, period_start) WHERE booking_id IS NOT NULL DO NOTHING
         RETURNING id
       `);
       const id = (insertResult as unknown as { rows: { id: number }[] }).rows[0]?.id ?? null;
-      logger.info(
-        `[auto-invoice] Invoice ${invoiceNumber} (${periodStartStr}) dibuat (bookingId=${bookingId}, total=${totalAmount})`,
-      );
+      if (id) {
+        logger.info(
+          `[auto-invoice] Invoice ${invoiceNumber} (${periodStartStr}) dibuat (bookingId=${bookingId}, total=${totalAmount})`,
+        );
+      } else {
+        logger.debug(`[auto-invoice] Invoice ${periodStartStr} sudah ada secara concurrent, dilewati (bookingId=${bookingId})`);
+      }
       return id;
     } catch (err: unknown) {
       const code = (err as { cause?: { code?: string } })?.cause?.code;
