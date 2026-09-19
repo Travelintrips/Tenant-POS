@@ -559,9 +559,14 @@ router.get(
         .leftJoin(mallSitesTable, eq(mallSitesTable.id, linkedSiteId))
         .where(and(...conditions));
 
-      const storedUrl = payment?.proofUrl || payment?.proofImageUrl;
-      if (!payment || !storedUrl) {
-        res.status(404).json({ error: "Bukti pembayaran tidak tersedia" });
+      if (!payment) {
+        res.status(404).json({ error: "Pembayaran tidak ditemukan pada konteks akses ini" });
+        return;
+      }
+
+      const storedUrl = payment.proofUrl || payment.proofImageUrl;
+      if (!storedUrl) {
+        res.status(404).json({ error: "Referensi bukti pembayaran kosong" });
         return;
       }
 
