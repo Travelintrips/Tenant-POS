@@ -537,9 +537,15 @@ router.get(
       const linkedSiteId = sql<number>`coalesce(${tenantInvoicesTable.siteId}, ${tenantsTable.siteId}, ${tenantPaymentsTable.siteId})`;
       const linkedCompanyId = sql<number>`coalesce(${tenantInvoicesTable.companyId}, ${tenantsTable.companyId}, ${tenantPaymentsTable.companyId}, ${mallSitesTable.companyId})`;
       const conditions: SQL[] = [eq(tenantPaymentsTable.id, id)];
-       if (req.siteId > 0) conditions.push(eq(linkedSiteId, req.siteId));
-      if (ctx.ownerCompanyId != null) conditions.push(eq(linkedCompanyId, ctx.ownerCompanyId));
-      if (ctx.ownerTenantId != null) conditions.push(eq(tenantPaymentsTable.tenantId, ctx.ownerTenantId));
+      // Owner is explicitly full-access in AppContext. Do not re-scope the
+      // proof lookup to the currently selected site/company: the history row
+      // has already been returned to the owner and a stale/mixed site header
+      // must not turn an existing proof into a false 404.
+      if (!ctx.isFullAccess) {
+        if (req.siteId > 0) conditions.push(eq(linkedSiteId, req.siteId));
+        if (ctx.ownerCompanyId != null) conditions.push(eq(linkedCompanyId, ctx.ownerCompanyId));
+        if (ctx.ownerTenantId != null) conditions.push(eq(tenantPaymentsTable.tenantId, ctx.ownerTenantId));
+      }
 
       const [payment] = await db
         .select({
