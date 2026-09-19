@@ -84,7 +84,7 @@ function toDateStr(d: Date): string {
  * Contoh: base=15 Juli + 1 bulan → 15 Agustus.
  * Jika hari melebihi akhir bulan tujuan (misal 31 Jan + 1 bln), pakai hari terakhir bulan itu.
  */
-function addMonths(base: Date, months: number): Date {
+export function addMonths(base: Date, months: number): Date {
   const targetMonth = base.getMonth() + months;
   const year = base.getFullYear() + Math.floor(targetMonth / 12);
   const month = ((targetMonth % 12) + 12) % 12;
@@ -98,7 +98,7 @@ function addMonths(base: Date, months: number): Date {
  * Akhir periode = 1 hari sebelum periode berikutnya dimulai.
  * Contoh: start=15 Juli → end=14 Agustus.
  */
-function calcPeriodEnd(periodStart: Date): Date {
+export function calcPeriodEnd(periodStart: Date): Date {
   const nextStart = addMonths(periodStart, 1);
   return new Date(nextStart.getFullYear(), nextStart.getMonth(), nextStart.getDate() - 1);
 }
