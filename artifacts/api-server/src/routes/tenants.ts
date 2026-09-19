@@ -43,7 +43,7 @@ router.get("/tenants", async (req, res) => {
         .where(
           and(
             inArray(tenantBookingsTable.tenantId, tenantIds),
-            inArray(tenantBookingsTable.contractStatus, ["active", "aktif", "expiring_soon"]),
+            inArray(tenantBookingsTable.contractStatus, ["active", "expiring_soon"]),
             inArray(tenantBookingsTable.bookingStatus, ["aktif", "active", "confirmed"]),
           ),
         )
