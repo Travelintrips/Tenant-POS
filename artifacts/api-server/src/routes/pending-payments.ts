@@ -113,7 +113,7 @@ router.get("/pending-payments/:id/proof", async (req, res) => {
     .where(eq(tenantPaymentsTable.id, paymentId))
     .limit(1);
 
-  const storedUrl = payment?.proofUrl ?? payment?.proofImageUrl;
+  const storedUrl = payment?.proofUrl || payment?.proofImageUrl;
   if (!storedUrl) {
     res.status(404).json({ error: "Bukti pembayaran tidak tersedia" });
     return;
