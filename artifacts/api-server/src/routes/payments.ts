@@ -553,7 +553,7 @@ router.get(
         .leftJoin(mallSitesTable, eq(mallSitesTable.id, linkedSiteId))
         .where(and(...conditions));
 
-      const storedUrl = payment?.proofUrl ?? payment?.proofImageUrl;
+      const storedUrl = payment?.proofUrl || payment?.proofImageUrl;
       if (!payment || !storedUrl) {
         res.status(404).json({ error: "Bukti pembayaran tidak tersedia" });
         return;
