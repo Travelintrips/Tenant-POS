@@ -9,7 +9,11 @@ import {
   track,
 } from "./helpers/factory";
 import { db } from "@workspace/db";
-import { tenantPaymentsTable } from "@workspace/db/schema";
+import {
+  tenantBookingsTable,
+  tenantInvoicesTable,
+  tenantPaymentsTable,
+} from "@workspace/db/schema";
 import { eq } from "drizzle-orm";
 
 let owner: any;
@@ -247,6 +251,133 @@ describe("Fase 4 — POS Pembayaran", () => {
         .from(tenantPaymentsTable)
         .where(eq(tenantPaymentsTable.id, duplicatePaymentId));
       expect(paymentAfterRejectedVoid).toEqual(paymentBeforeVoid);
+    });
+
+    it("menolak void lintas-tenant tanpa mengubah saldo atau status booking", async () => {
+      const originalTenant = await createTestTenant();
+      const originalBooking = await createTestBooking(originalTenant.id);
+      const targetTenant = await createTestTenant();
+      const targetBooking = await createTestBooking(targetTenant.id);
+
+      const originalRes = await owner.post("/api/tenant-pos/payments").send({
+        tenantId: originalTenant.id,
+        bookingId: originalBooking.id,
+        amountPaid: 110000,
+        paymentMethod: "transfer",
+        shiftId: testShift.id,
+      });
+      expect(originalRes.status).toBe(201);
+      const originalPaymentId = originalRes.body.payment.id;
+      track("payments", originalPaymentId);
+
+      const targetRes = await owner.post("/api/tenant-pos/payments").send({
+        tenantId: targetTenant.id,
+        bookingId: targetBooking.id,
+        amountPaid: 275000,
+        paymentMethod: "transfer",
+        shiftId: testShift.id,
+      });
+      expect(targetRes.status).toBe(201);
+      const targetPaymentId = targetRes.body.payment.id;
+      track("payments", targetPaymentId);
+
+      const [bookingBeforeVoid] = await db
+        .select({
+          paidAmount: tenantBookingsTable.paidAmount,
+          remainingAmount: tenantBookingsTable.remainingAmount,
+          paymentStatus: tenantBookingsTable.paymentStatus,
+        })
+        .from(tenantBookingsTable)
+        .where(eq(tenantBookingsTable.id, targetBooking.id));
+      expect(bookingBeforeVoid).toEqual({
+        paidAmount: "275000",
+        remainingAmount: "4725000",
+        paymentStatus: "PARTIAL",
+      });
+
+      const voidRes = await owner
+        .post(`/api/tenant-pos/payments/${targetPaymentId}/void`)
+        .send({
+          voidReason: "Pembayaran asli berasal dari tenant lain",
+          duplicateOfPaymentId: originalPaymentId,
+        });
+      expect(voidRes.status).toBe(400);
+
+      const [bookingAfterRejectedVoid] = await db
+        .select({
+          paidAmount: tenantBookingsTable.paidAmount,
+          remainingAmount: tenantBookingsTable.remainingAmount,
+          paymentStatus: tenantBookingsTable.paymentStatus,
+        })
+        .from(tenantBookingsTable)
+        .where(eq(tenantBookingsTable.id, targetBooking.id));
+      expect(bookingAfterRejectedVoid).toEqual(bookingBeforeVoid);
+    });
+
+    it("menolak void lintas-tenant tanpa mengubah saldo atau status invoice", async () => {
+      const originalTenant = await createTestTenant();
+      const originalBooking = await createTestBooking(originalTenant.id);
+      const targetTenant = await createTestTenant();
+      const targetInvoice = await createTestInvoice(targetTenant.id, undefined, {
+        totalAmount: "2400000",
+        paidAmount: "0",
+        outstandingAmount: "2400000",
+        status: "unpaid",
+      });
+
+      const originalRes = await owner.post("/api/tenant-pos/payments").send({
+        tenantId: originalTenant.id,
+        bookingId: originalBooking.id,
+        amountPaid: 110000,
+        paymentMethod: "transfer",
+        shiftId: testShift.id,
+      });
+      expect(originalRes.status).toBe(201);
+      const originalPaymentId = originalRes.body.payment.id;
+      track("payments", originalPaymentId);
+
+      const targetRes = await owner.post("/api/tenant-pos/payments").send({
+        tenantId: targetTenant.id,
+        invoiceId: targetInvoice.id,
+        amountPaid: 325000,
+        paymentMethod: "transfer",
+        shiftId: testShift.id,
+      });
+      expect(targetRes.status).toBe(201);
+      const targetPaymentId = targetRes.body.payment.id;
+      track("payments", targetPaymentId);
+
+      const [invoiceBeforeVoid] = await db
+        .select({
+          paidAmount: tenantInvoicesTable.paidAmount,
+          outstandingAmount: tenantInvoicesTable.outstandingAmount,
+          status: tenantInvoicesTable.status,
+        })
+        .from(tenantInvoicesTable)
+        .where(eq(tenantInvoicesTable.id, targetInvoice.id));
+      expect(invoiceBeforeVoid).toEqual({
+        paidAmount: "325000",
+        outstandingAmount: "2075000",
+        status: "partial",
+      });
+
+      const voidRes = await owner
+        .post(`/api/tenant-pos/payments/${targetPaymentId}/void`)
+        .send({
+          voidReason: "Pembayaran asli berasal dari tenant lain",
+          duplicateOfPaymentId: originalPaymentId,
+        });
+      expect(voidRes.status).toBe(400);
+
+      const [invoiceAfterRejectedVoid] = await db
+        .select({
+          paidAmount: tenantInvoicesTable.paidAmount,
+          outstandingAmount: tenantInvoicesTable.outstandingAmount,
+          status: tenantInvoicesTable.status,
+        })
+        .from(tenantInvoicesTable)
+        .where(eq(tenantInvoicesTable.id, targetInvoice.id));
+      expect(invoiceAfterRejectedVoid).toEqual(invoiceBeforeVoid);
     });
 
     it("cashier tidak bisa void payment (403)", async () => {
