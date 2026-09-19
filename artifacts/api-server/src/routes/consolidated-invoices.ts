@@ -14,6 +14,10 @@ import { logAudit } from "../lib/audit";
 import { sendConsolidatedInvoiceNotification, getSiteCompanyName, notifyAdminGroup } from "../lib/whatsapp";
 import { recordPayment, LedgerError } from "../lib/payment-ledger";
 import { postTenantPaymentAccountingEntry } from "../lib/accounting-entry";
+import multer from "multer";
+import path from "path";
+import crypto from "crypto";
+import { getPaymentProofBucket, uploadToStorage } from "../lib/supabase-storage";
 
 const router = Router();
 
@@ -616,6 +620,8 @@ router.post("/consolidated-invoices/:id/send-wa", async (req, res) => {
 
 // ── POST /consolidated-invoices/:id/record-payment ──────────────────────────
 // Admin catat pembayaran → distribusikan ke invoice individual (FIFO by due_date)
+const consolidatedProofUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 }, fileFilter: (_req, file, cb) => cb(null, ["image/jpeg","image/jpg","image/png","image/webp","application/pdf"].includes(file.mimetype)) });
+
 const recordPaymentSchema = z.object({
   amount: z.union([z.string(), z.number()]).transform((v) => Number(v)),
   paymentMethod: z.enum(["tunai", "transfer", "qris", "edc", "other"]).default("transfer"),
@@ -624,7 +630,7 @@ const recordPaymentSchema = z.object({
   paidAt: z.string().optional().nullable(),
 });
 
-router.post("/consolidated-invoices/:id/record-payment", async (req, res) => {
+router.post("/consolidated-invoices/:id/record-payment", consolidatedProofUpload.single("proof"), async (req, res) => {
   const id = Number(req.params.id);
   if (isNaN(id)) { res.status(400).json({ error: "ID tidak valid" }); return; }
 
@@ -635,6 +641,11 @@ router.post("/consolidated-invoices/:id/record-payment", async (req, res) => {
   }
 
   const { amount, paymentMethod, referenceNumber, notes, paidAt } = parsed.data;
+
+  if ((paymentMethod === "transfer" || paymentMethod === "qris") && !req.file) {
+    res.status(400).json({ error: "Bukti pembayaran wajib diunggah untuk Transfer Bank/QRIS" });
+    return;
+  }
 
   if (amount <= 0) {
     res.status(400).json({ error: "Jumlah pembayaran harus lebih dari 0" });
@@ -715,7 +726,21 @@ router.post("/consolidated-invoices/:id/record-payment", async (req, res) => {
     const baseSeq = ((cntRow?.count ?? 0) + 1).toString().padStart(4, "0");
     const baseReceipt = `${receiptPrefix}${baseSeq}`;
 
-    // 6. Eksekusi semua pembayaran dalam satu transaksi
+    // 6. Simpan satu bukti konsolidasi di Supabase; referensi yang sama dipakai semua child payment.
+    let proofUrl: string | null = null;
+    if (req.file) {
+      const ext = path.extname(req.file.originalname).toLowerCase() || ".jpg";
+      const filename = `consolidated-${id}-${crypto.randomUUID()}${ext}`;
+      try {
+        proofUrl = await uploadToStorage(getPaymentProofBucket(), filename, req.file.buffer, req.file.mimetype, false);
+      } catch (err) {
+        const detail = err instanceof Error ? err.message : "storage tidak tersedia";
+        res.status(502).json({ error: `Bukti pembayaran gagal disimpan ke Supabase Storage: ${detail}`, code: "STORAGE_UPLOAD_FAILED" });
+        return;
+      }
+    }
+
+    // 7. Eksekusi semua pembayaran dalam satu transaksi
     const paidAtDate = paidAt ? new Date(paidAt) : new Date();
 
     await db.transaction(async (tx) => {
@@ -735,14 +760,15 @@ router.post("/consolidated-invoices/:id/record-payment", async (req, res) => {
           siteId,
           tenantId: consolidated.tenantId,
           bookingId: dist.bookingId,
+          proofUrl,
         });
       }
 
-      // 7. Sync status consolidated setelah semua pembayaran
+      // 8. Sync status consolidated setelah semua pembayaran
       await syncConsolidatedStatus(tx, id);
     });
 
-    // 8. Ambil data terbaru untuk respons
+    // 9. Ambil data terbaru untuk respons
     const [updated] = await db
       .select({
         id: consolidatedInvoicesTable.id,
@@ -755,7 +781,7 @@ router.post("/consolidated-invoices/:id/record-payment", async (req, res) => {
       .from(consolidatedInvoicesTable)
       .where(eq(consolidatedInvoicesTable.id, id));
 
-    // 9. Post accounting journal untuk setiap pembayaran yang dibuat (fire-and-forget)
+    // 10. Post accounting journal untuk setiap pembayaran yang dibuat (fire-and-forget)
     void (async () => {
       try {
         const newPayments = await db
