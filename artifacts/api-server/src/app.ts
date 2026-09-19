@@ -154,7 +154,11 @@ app.use(passport.initialize());
 app.use(passport.session());
 
 app.get("/api/healthz", (_req, res) => {
-  res.json({ ok: true });
+  res.json({
+    ok: true,
+    release: process.env.REPLIT_DEPLOYMENT_ID ?? process.env.REPL_ID ?? "unknown",
+    paymentProofRevision: "proof-stream-v3",
+  });
 });
 
 app.use("/api", router);
