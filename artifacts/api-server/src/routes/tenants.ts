@@ -59,6 +59,15 @@ router.get("/tenants", async (req, res) => {
     ]);
 
     const bookingEndDateMap = new Map(bookingDates.map((b) => [b.tenantId, b.contractEndDate]));
+    const bookingStartDateMap = new Map<number, string>();
+    if (tenantIds.length > 0) {
+      const activeStarts = await db
+        .select({ tenantId: tenantBookingsTable.tenantId, contractStartDate: sql<string>\`MIN(\${tenantBookingsTable.startDate})\`.as("contract_start_date") })
+        .from(tenantBookingsTable)
+        .where(and(inArray(tenantBookingsTable.tenantId, tenantIds), inArray(tenantBookingsTable.contractStatus, ["active", "expiring_soon"])))
+        .groupBy(tenantBookingsTable.tenantId);
+      for (const b of activeStarts) bookingStartDateMap.set(b.tenantId, b.contractStartDate);
+    }
     const outstandingMap = new Map(outstandingRows.map((o) => [o.tenantId, Number(o.totalOutstanding ?? 0)]));
 
     res.json(rows.map((t) => ({
@@ -66,6 +75,7 @@ router.get("/tenants", async (req, res) => {
       // Booking/kontrak aktif adalah source of truth. Field tenant hanya fallback
       // untuk tenant yang belum memiliki booking aktif. Ini hanya proyeksi/read;
       // tidak membuat atau mengubah invoice.
+      contractStartDate: bookingStartDateMap.get(t.id) ?? t.contractStartDate ?? null,
       contractEndDate: bookingEndDateMap.get(t.id) ?? t.contractEndDate ?? null,
       totalOutstanding: outstandingMap.get(t.id) ?? 0,
     })));
