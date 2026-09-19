@@ -9,12 +9,8 @@ import { getBaseUrl } from "./app-url";
 let _started = false;
 
 // Jam eksekusi scheduler (dalam WIB = UTC+7, diperhitungkan sbg UTC)
-// Cek dilakukan 2x sehari:
-//   01 UTC = 08:00 WIB  → blast tagihan + reminder + overdue harian
-//   11 UTC = 18:00 WIB  → pengecekan sore untuk tagihan/reminder biasa saja
-// Pengingat overdue sengaja hanya berjalan pukul 08:00 WIB agar tenant tidak
-// menerima lebih dari satu pesan overdue pada hari yang sama.
-const SCHEDULE_HOURS_UTC = [1, 11]; // 01 UTC = 08:00 WIB, 11 UTC = 18:00 WIB
+// Eksekusi sekali sehari pukul 08:00 WIB (01:00 UTC).
+// Semua invoice baru, reminder yang relevan, dan overdue diproses pada window ini.
 const OVERDUE_REMINDER_START_DATE = "2026-09-01";
 
 let _lastRunDateKey = ""; // format: "YYYY-MM-DD-HH"
@@ -192,9 +188,7 @@ export function startOverdueScheduler(): void {
   }, 30_000);
 
   // Cron sederhana: cek setiap 5 menit, eksekusi jika jam-nya tepat.
-  // Hanya 2 jam terjadwal:
-  //   01 UTC = 08:00 WIB → blast tagihan + reminder + overdue (utama)
-  //   11 UTC = 18:00 WIB → reminder biasa saja
+  // Satu window terjadwal: 01 UTC = 08:00 WIB.
   setInterval(() => {
     const now = new Date();
     const hourUtc = now.getUTCHours();
@@ -203,15 +197,13 @@ export function startOverdueScheduler(): void {
     // Hanya eksekusi jika jam-nya sesuai jadwal DAN belum dijalankan di jam ini
     if (SCHEDULE_HOURS_UTC.includes(hourUtc) && dateKey !== _lastRunDateKey) {
       _lastRunDateKey = dateKey;
-      // Overdue hanya dikirim pada 08:00 WIB (01 UTC). Pengiriman invoice
-      // biasa/reminder tetap dapat berjalan pada kedua jadwal.
-      runAllChecks(`cron ${hourUtc}:00 UTC`, hourUtc === 1).catch(() => {});
+      runAllChecks(`cron ${hourUtc}:00 UTC`, true).catch(() => {});
     }
   }, 5 * 60 * 1000); // setiap 5 menit
 
   logger.info(
-    "[scheduler] Scheduler aktif — cron 08:00 WIB (01 UTC) dan 18:00 WIB (11 UTC). " +
-    "Overdue harian hanya dikirim pukul 08:00 WIB; startup hanya generate invoice.",
+    "[scheduler] Scheduler aktif — cron harian 08:00 WIB (01 UTC). " +
+    "Invoice, reminder, dan overdue dikirim pada window ini; startup hanya generate invoice.",
   );
 }
 
