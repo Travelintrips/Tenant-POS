@@ -331,6 +331,7 @@ function RecordPaymentModal({
   const [referenceNumber, setReferenceNumber] = useState("");
   const [notes, setNotes] = useState("");
   const [paidAt, setPaidAt] = useState(new Date().toISOString().slice(0, 10));
+  const [proof, setProof] = useState<File | null>(null);
 
   const distributions = useMemo(() => {
     let remaining = Number(amount) || 0;
@@ -354,17 +355,17 @@ function RecordPaymentModal({
 
   const mutation = useMutation({
     mutationFn: async () => {
+      const form = new FormData();
+      form.append("amount", String(Number(amount)));
+      form.append("paymentMethod", paymentMethod);
+      if (referenceNumber) form.append("referenceNumber", referenceNumber);
+      if (notes) form.append("notes", notes);
+      if (paidAt) form.append("paidAt", paidAt);
+      if (proof) form.append("proof", proof);
       const r = await fetch(`${BASE}/api/consolidated-invoices/${invoice.id}/record-payment`, {
         method: "POST",
         credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          amount: Number(amount),
-          paymentMethod,
-          referenceNumber: referenceNumber || null,
-          notes: notes || null,
-          paidAt: paidAt || null,
-        }),
+        body: form,
       });
       const data = await r.json() as { ok?: boolean; error?: string; distributedCount?: number };
       if (!r.ok) throw new Error(data.error ?? "Gagal mencatat pembayaran");
@@ -383,7 +384,8 @@ function RecordPaymentModal({
   const outstanding = Number(invoice.outstandingAmount);
   const inputAmount = Number(amount) || 0;
   const isOverpay = inputAmount > outstanding * 1.001;
-  const isValid = inputAmount > 0 && !isOverpay && distributions.length > 0;
+  const proofRequired = paymentMethod === "transfer" || paymentMethod === "qris";
+  const isValid = inputAmount > 0 && !isOverpay && distributions.length > 0 && (!proofRequired || !!proof);
 
   return (
     <Dialog open onOpenChange={onClose}>
@@ -430,6 +432,15 @@ function RecordPaymentModal({
             <div className="space-y-1.5">
               <Label>Tanggal Bayar</Label>
               <Input type="date" value={paidAt} onChange={(e) => setPaidAt(e.target.value)} />
+            </div>
+            <div className="col-span-2 space-y-1.5">
+              <Label>Bukti Pembayaran {proofRequired ? <span className="text-red-500">*</span> : <span className="text-muted-foreground">(opsional)</span>}</Label>
+              <Input
+                type="file"
+                accept="image/jpeg,image/png,image/webp,application/pdf"
+                onChange={(e) => setProof(e.target.files?.[0] ?? null)}
+              />
+              <p className="text-xs text-muted-foreground">Disimpan di Supabase Storage dan dipakai sebagai bukti yang sama untuk seluruh invoice dalam pembayaran konsolidasi ini.</p>
             </div>
             <div className="col-span-2 space-y-1.5">
               <Label>No. Referensi / Kode Transfer <span className="text-muted-foreground">(opsional)</span></Label>
