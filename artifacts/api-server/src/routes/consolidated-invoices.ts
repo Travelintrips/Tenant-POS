@@ -630,6 +630,36 @@ const recordPaymentSchema = z.object({
   paidAt: z.string().optional().nullable(),
 });
 
+router.post("/consolidated-invoices/:id/proof", consolidatedProofUpload.single("proof"), async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: "ID invoice tidak valid" });
+  if (!req.file) return res.status(400).json({ error: "Bukti pembayaran wajib diunggah" });
+
+  const [invoice] = await db.select({ id: consolidatedInvoicesTable.id, invoiceNumber: consolidatedInvoicesTable.invoiceNumber })
+    .from(consolidatedInvoicesTable).where(eq(consolidatedInvoicesTable.id, id)).limit(1);
+  if (!invoice) return res.status(404).json({ error: "Invoice konsolidasi tidak ditemukan" });
+
+  const ext = path.extname(req.file.originalname).toLowerCase() || ".jpg";
+  const filename = `consolidated-${id}-${crypto.randomUUID()}${ext}`;
+  let proofUrl: string;
+  try {
+    proofUrl = await uploadToStorage(getPaymentProofBucket(), filename, req.file.buffer, req.file.mimetype, false);
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : "storage tidak tersedia";
+    return res.status(502).json({ error: `Bukti pembayaran gagal disimpan ke Supabase Storage: ${detail}`, code: "STORAGE_UPLOAD_FAILED" });
+  }
+
+  const updated = await db.update(tenantPaymentsTable)
+    .set({ proofUrl, proofImageUrl: proofUrl, updatedAt: new Date() })
+    .where(sql`${tenantPaymentsTable.notes} like ${`%[Kons: ${invoice.invoiceNumber}]%`}`)
+    .returning({ id: tenantPaymentsTable.id });
+
+  if (updated.length === 0) {
+    return res.status(409).json({ error: "Tidak ada payment konsolidasi yang dapat dihubungkan ke bukti" });
+  }
+  return res.json({ ok: true, proofUrl, updatedPayments: updated.length });
+});
+
 router.post("/consolidated-invoices/:id/record-payment", consolidatedProofUpload.single("proof"), async (req, res) => {
   const id = Number(req.params.id);
   if (isNaN(id)) { res.status(400).json({ error: "ID tidak valid" }); return; }
