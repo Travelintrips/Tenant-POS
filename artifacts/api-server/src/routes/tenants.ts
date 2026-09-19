@@ -63,7 +63,10 @@ router.get("/tenants", async (req, res) => {
 
     res.json(rows.map((t) => ({
       ...t,
-      contractEndDate: t.contractEndDate ?? bookingEndDateMap.get(t.id) ?? null,
+      // Booking/kontrak aktif adalah source of truth. Field tenant hanya fallback
+      // untuk tenant yang belum memiliki booking aktif. Ini hanya proyeksi/read;
+      // tidak membuat atau mengubah invoice.
+      contractEndDate: bookingEndDateMap.get(t.id) ?? t.contractEndDate ?? null,
       totalOutstanding: outstandingMap.get(t.id) ?? 0,
     })));
   } catch (err) {
