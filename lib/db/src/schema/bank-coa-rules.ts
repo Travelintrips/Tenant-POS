@@ -5,7 +5,7 @@ export const bankCoaRulesTable = pgTable("bank_coa_rules", {
   providerName: text("provider_name"),
   direction: text("direction").notNull().default("ALL"),
   descriptionPattern: text("description_pattern"),
-  coaCode: text("coa_code").notNull(),
+  coaCode: text("coa_code").notNull().unique("bank_coa_rules_coa_code_key"),
   coaName: text("coa_name").notNull(),
   accountType: text("account_type").notNull().default("other"),
   description: text("description"),

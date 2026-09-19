@@ -23,5 +23,9 @@ pool.on("connect", (client) => {
 export const db = drizzle(pool, { schema });
 
 export * from "./schema";
-export { runMigrations, runUsersIdTextMigration } from "./migrator";
+export {
+  BANK_COA_RULE_SEED_SQL,
+  runMigrations,
+  runUsersIdTextMigration,
+} from "./migrator";
 export { dbConfig } from "./config";

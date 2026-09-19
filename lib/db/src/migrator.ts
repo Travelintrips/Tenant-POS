@@ -1,6 +1,23 @@
 import pg from "pg";
 import { dbConfig } from "./config";
 
+export const BANK_COA_RULE_SEED_SQL = `
+INSERT INTO bank_coa_rules (coa_code, coa_name, account_type, direction, description, is_active) VALUES
+  ('1-1001', 'Kas dan Bank',              'kas',        'ALL', 'Akun utama kas masuk dan keluar',                   true),
+  ('1-1002', 'Piutang Sewa',              'piutang',    'IN',  'Piutang atas tagihan sewa tenant',                  true),
+  ('4-1001', 'Pendapatan Sewa',           'pendapatan', 'IN',  'Pendapatan dari sewa unit tenant',                  true),
+  ('4-1002', 'Pendapatan Service Charge', 'pendapatan', 'IN',  'Pendapatan service charge / biaya layanan',         true),
+  ('4-1003', 'Pendapatan Denda',          'pendapatan', 'IN',  'Pendapatan dari denda dan penalti keterlambatan',   true),
+  ('4-1004', 'Pendapatan Lainnya',        'pendapatan', 'IN',  'Pendapatan lain-lain di luar kategori utama',       true),
+  ('2-1001', 'Hutang PPN Keluaran',       'ppn',        'IN',  'PPN 11% atas pendapatan sewa (PPN Keluaran)',       true),
+  ('2-1002', 'Hutang PPh Pasal 4 ayat 2', 'pph',       'IN',  'PPh Final 10% atas sewa tanah/bangunan komersial',  true),
+  ('5-1001', 'Biaya Operasional',         'biaya',      'OUT', 'Biaya operasional umum (administrasi, dll)',        true),
+  ('5-1002', 'Biaya Utilitas',            'biaya',      'OUT', 'Biaya listrik, air, dan gas',                      true),
+  ('5-1003', 'Biaya Perawatan Gedung',    'biaya',      'OUT', 'Biaya perawatan dan perbaikan fasilitas gedung',    true),
+  ('5-1004', 'Biaya Bank & Administrasi', 'biaya',      'OUT', 'Biaya transfer bank, admin, dan biaya keuangan',   true)
+ON CONFLICT (coa_code) DO NOTHING;
+`.trim();
+
 const MIGRATIONS: { name: string; sql: string }[] = [
   {
     name: "0002_users_table",
@@ -1830,23 +1847,7 @@ DO $$ BEGIN
   END IF;
 END $$;
 
-INSERT INTO bank_coa_rules (coa_code, coa_name, account_type, direction, description, is_active) VALUES
-  ('1-1001', 'Kas dan Bank',              'kas',        'ALL', 'Akun utama kas masuk dan keluar',                   true),
-  ('1-1002', 'Piutang Sewa',              'piutang',    'IN',  'Piutang atas tagihan sewa tenant',                  true),
-  ('4-1001', 'Pendapatan Sewa',           'pendapatan', 'IN',  'Pendapatan dari sewa unit tenant',                  true),
-  ('4-1002', 'Pendapatan Service Charge', 'pendapatan', 'IN',  'Pendapatan service charge / biaya layanan',         true),
-  ('4-1003', 'Pendapatan Denda',          'pendapatan', 'IN',  'Pendapatan dari denda dan penalti keterlambatan',   true),
-  ('4-1004', 'Pendapatan Lainnya',        'pendapatan', 'IN',  'Pendapatan lain-lain di luar kategori utama',       true),
-  ('2-1001', 'Hutang PPN Keluaran',       'ppn',        'IN',  'PPN 11% atas pendapatan sewa (PPN Keluaran)',       true),
-  ('2-1002', 'Hutang PPh Pasal 4 ayat 2', 'pph',       'IN',  'PPh Final 10% atas sewa tanah/bangunan komersial',  true),
-  ('5-1001', 'Biaya Operasional',         'biaya',      'OUT', 'Biaya operasional umum (administrasi, dll)',        true),
-  ('5-1002', 'Biaya Utilitas',            'biaya',      'OUT', 'Biaya listrik, air, dan gas',                      true),
-  ('5-1003', 'Biaya Perawatan Gedung',    'biaya',      'OUT', 'Biaya perawatan dan perbaikan fasilitas gedung',    true),
-  ('5-1004', 'Biaya Bank & Administrasi', 'biaya',      'OUT', 'Biaya transfer bank, admin, dan biaya keuangan',   true)
-ON CONFLICT (coa_code) DO UPDATE SET
-  coa_name     = EXCLUDED.coa_name,
-  account_type = EXCLUDED.account_type,
-  description  = EXCLUDED.description;
+${BANK_COA_RULE_SEED_SQL}
     `.trim(),
   },
   {
@@ -3780,7 +3781,7 @@ CREATE INDEX IF NOT EXISTS idx_tenant_payments_duplicate_of_payment_id
 });
 
 MIGRATIONS.push({
-  name: "0091_seed_bank_coa_rules_if_missing",
+  name: "0091_seed_bank_coa_rules",
   sql: `
 CREATE TABLE IF NOT EXISTS bank_coa_rules (
   id serial PRIMARY KEY NOT NULL,
@@ -3796,22 +3797,17 @@ CREATE TABLE IF NOT EXISTS bank_coa_rules (
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
-CREATE UNIQUE INDEX IF NOT EXISTS bank_coa_rules_coa_code_unique
-  ON bank_coa_rules (coa_code);
+ALTER TABLE bank_coa_rules
+  ADD COLUMN IF NOT EXISTS account_type text DEFAULT 'other';
 
-INSERT INTO bank_coa_rules (coa_code, coa_name, account_type, direction, description, is_active) VALUES
-  ('1-1001', 'Kas dan Bank',              'kas',        'ALL', 'Akun utama kas masuk dan keluar',                   true),
-  ('1-1002', 'Piutang Sewa',              'piutang',    'IN',  'Piutang atas tagihan sewa tenant',                  true),
-  ('4-1001', 'Pendapatan Sewa',           'pendapatan', 'IN',  'Pendapatan dari sewa unit tenant',                  true),
-  ('4-1002', 'Pendapatan Service Charge', 'pendapatan', 'IN',  'Pendapatan service charge / biaya layanan',         true),
-  ('4-1003', 'Pendapatan Denda',          'pendapatan', 'IN',  'Pendapatan dari denda dan penalti keterlambatan',   true),
-  ('4-1004', 'Pendapatan Lainnya',        'pendapatan', 'IN',  'Pendapatan lain-lain di luar kategori utama',       true),
-  ('2-1001', 'Hutang PPN Keluaran',       'ppn',        'IN',  'PPN 11% atas pendapatan sewa (PPN Keluaran)',       true),
-  ('2-1002', 'Hutang PPh Pasal 4 ayat 2', 'pph',         'IN',  'PPh Final 10% atas sewa tanah/bangunan komersial',  true),
-  ('5-1001', 'Biaya Operasional',         'biaya',      'OUT', 'Biaya operasional umum (administrasi, dll)',        true),
-  ('5-1002', 'Biaya Utilitas',            'biaya',      'OUT', 'Biaya listrik, air, dan gas',                      true),
-  ('5-1003', 'Biaya Perawatan Gedung',    'biaya',      'OUT', 'Biaya perawatan dan perbaikan fasilitas gedung',    true),
-  ('5-1004', 'Biaya Bank & Administrasi', 'biaya',      'OUT', 'Biaya transfer bank, admin, dan biaya keuangan',   true)
-ON CONFLICT (coa_code) DO NOTHING;
+DO $$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'bank_coa_rules_coa_code_key'
+  ) THEN
+    ALTER TABLE bank_coa_rules ADD CONSTRAINT bank_coa_rules_coa_code_key UNIQUE (coa_code);
+  END IF;
+END $$;
+
+${BANK_COA_RULE_SEED_SQL}
   `.trim(),
 });
