@@ -21,8 +21,8 @@ jobs:
       NODE_ENV: test
       APP_ENV: development
       NODE_OPTIONS: --max-old-space-size=4096
-      SUPABASE_DATABASE_URL_DEV: postgresql://ci:ci@127.0.0.1:65432/ci
-      SUPABASE_PG_URL: postgresql://ci:ci@127.0.0.1:65432/ci
+      SUPABASE_PG_URL_DEV: postgresql://ci:ci@127.0.0.1:65432/ci
+      DATABASE_URL: postgresql://ci:ci@127.0.0.1:65432/ci
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
