@@ -125,12 +125,16 @@ describe("overdue scheduler daily window guard", () => {
     });
 
     vi.resetModules();
-    vi.doMock("@workspace/db", () => ({
-      db: {
-        execute,
-        select,
-      },
-    }));
+    vi.doMock("@workspace/db", async () => {
+      const actual = await vi.importActual<typeof import("@workspace/db")>("@workspace/db");
+      return {
+        ...actual,
+        db: {
+          execute,
+          select,
+        },
+      };
+    });
 
     const scheduler = await import("../lib/overdue-scheduler");
     scheduler.startOverdueScheduler();
