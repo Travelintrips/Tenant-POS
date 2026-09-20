@@ -1041,7 +1041,7 @@ ON CONFLICT (site_id, unit_code) DO NOTHING;
   {
     name: "0021_sport_center_reseed",
     sql: `
-DO $ DECLARE
+DO $sport_center$ DECLARE
   sc_id int;
   t1 int; t2 int; t3 int; t4 int; t5 int; t6 int; t7 int; t8 int;
 BEGIN
@@ -1127,7 +1127,7 @@ BEGIN
       (t7,'SC-07','1','2025-03-01','2027-02-28',2500000, 5000000,'aktif','active','active','lunas',sc_id,'Mar 2025 - Feb 2027','sewa','bulanan','SC-ORD-2025-002','SC-KTR-2025-002'),
       (t8,'SC-08','1','2025-05-01','2027-04-30',2500000, 5000000,'aktif','active','active','lunas',sc_id,'Mei 2025 - Apr 2027','sewa','bulanan','SC-ORD-2025-003','SC-KTR-2025-003');
   END IF;
-END $$;
+END $sport_center$;
     `.trim(),
   },
   {
