@@ -501,8 +501,7 @@ router.get("/tenant-pos/payments-history", async (req, res) => {
           select 1
             from public.bank_reconciliation_matches brm
             join public.bank_mutations bm on bm.id = brm.mutation_id
-           where brm.candidate_type = 'tenant_invoice'
-             and brm.candidate_source = 'public.tenant_payments'
+           where brm.candidate_type = 'payment'
              and brm.candidate_id = ${tenantPaymentsTable.id}
              and bm.status in ('approved_pending_posting', 'approved', 'posted')
         )`,
