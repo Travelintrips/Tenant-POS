@@ -13,8 +13,10 @@ import {
   tenantBookingsTable,
   tenantInvoicesTable,
   tenantPaymentsTable,
+  bankMutationsTable,
+  bankReconciliationMatchesTable,
 } from "@workspace/db/schema";
-import { eq } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 
 let owner: any;
 let cashier: any;
@@ -23,6 +25,7 @@ let testTenant: any;
 let testBooking: any;
 let testInvoice: any;
 let testShift: any;
+const reconciliationMutationIds: number[] = [];
 
 beforeAll(async () => {
   [owner, cashier, finance] = await Promise.all([
@@ -41,7 +44,15 @@ beforeAll(async () => {
   testShift = await createTestShift();
 });
 
-afterAll(cleanupAll);
+afterAll(async () => {
+  if (reconciliationMutationIds.length > 0) {
+    await db.delete(bankReconciliationMatchesTable)
+      .where(inArray(bankReconciliationMatchesTable.mutationId, reconciliationMutationIds));
+    await db.delete(bankMutationsTable)
+      .where(inArray(bankMutationsTable.id, reconciliationMutationIds));
+  }
+  await cleanupAll();
+});
 
 describe("Fase 4 — POS Pembayaran", () => {
   describe("GET /api/tenant-pos/overview", () => {
@@ -200,6 +211,101 @@ describe("Fase 4 — POS Pembayaran", () => {
         .from(tenantPaymentsTable)
         .where(eq(tenantPaymentsTable.id, duplicatePaymentId));
       expect(storedPayment?.duplicateOfPaymentId).toBe(originalPaymentId);
+    });
+
+    it("menandai payment sebagai Rekon untuk match canonical BizPortal tenant_invoice", async () => {
+      const [payment] = await db.insert(tenantPaymentsTable).values({
+        tenantId: testTenant.id,
+        bookingId: testBooking.id,
+        invoiceId: testInvoice.id,
+        amount: "333001",
+        method: "transfer",
+        paymentMethod: "transfer",
+        status: "PAID",
+        paymentStatus: "PAID",
+        approvalStatus: "approved",
+        paidAt: new Date("2026-09-20T01:00:00Z"),
+        paymentNumber: `TEST-REKON-${Date.now()}`,
+      }).returning({ id: tenantPaymentsTable.id });
+      track("payments", payment.id);
+
+      const [mutation] = await db.insert(bankMutationsTable).values({
+        transactionDate: "2026-09-20",
+        description: "test tenant canonical reconciliation",
+        amount: "333001",
+        creditAmount: "333001",
+        debitAmount: "0",
+        direction: "IN",
+        mutationKey: `test-rekon-${Date.now()}`,
+        status: "posted",
+      }).returning({ id: bankMutationsTable.id });
+      reconciliationMutationIds.push(mutation.id);
+
+      await db.insert(bankReconciliationMatchesTable).values({
+        mutationId: mutation.id,
+        candidateType: "tenant_invoice",
+        candidateId: payment.id,
+        matchScore: 100,
+        status: "posted",
+      });
+
+      const historyRes = await owner.get("/api/tenant-pos/payments-history?pageSize=100");
+      expect(historyRes.status).toBe(200);
+      const row = historyRes.body.data.find((item: { id: number }) => item.id === payment.id);
+      expect(row?.reconciled).toBe(true);
+      expect(row?.bankMatchedByRule).toBe(false);
+    });
+
+    it("menandai kasus historis Rule AI sebagai Cocok Bank, bukan Rekon canonical", async () => {
+      const [payment] = await db.insert(tenantPaymentsTable).values({
+        tenantId: testTenant.id,
+        bookingId: testBooking.id,
+        invoiceId: testInvoice.id,
+        amount: "333002",
+        method: "transfer",
+        paymentMethod: "transfer",
+        status: "PAID",
+        paymentStatus: "PAID",
+        approvalStatus: "approved",
+        paidAt: new Date("2026-09-20T02:00:00Z"),
+        paymentNumber: `TEST-RULE-MATCH-${Date.now()}`,
+      }).returning({ id: tenantPaymentsTable.id });
+      track("payments", payment.id);
+
+      const [mutation] = await db.insert(bankMutationsTable).values({
+        transactionDate: "2026-09-20",
+        description: "test historical rule reconciliation",
+        amount: "333002",
+        creditAmount: "333002",
+        debitAmount: "0",
+        direction: "IN",
+        mutationKey: `test-rule-match-${Date.now()}`,
+        status: "posted",
+      }).returning({ id: bankMutationsTable.id });
+      reconciliationMutationIds.push(mutation.id);
+
+      await db.insert(bankReconciliationMatchesTable).values([
+        {
+          mutationId: mutation.id,
+          candidateType: "tenant_invoice",
+          candidateId: payment.id,
+          matchScore: 93,
+          status: "superseded",
+        },
+        {
+          mutationId: mutation.id,
+          candidateType: "recon_rule",
+          candidateId: 63,
+          matchScore: 100,
+          status: "approved",
+        },
+      ]);
+
+      const historyRes = await owner.get("/api/tenant-pos/payments-history?pageSize=100");
+      expect(historyRes.status).toBe(200);
+      const row = historyRes.body.data.find((item: { id: number }) => item.id === payment.id);
+      expect(row?.reconciled).toBe(false);
+      expect(row?.bankMatchedByRule).toBe(true);
     });
 
     it("menolak duplicateOfPaymentId lintas-tenant tanpa mengubah payment yang di-void", async () => {

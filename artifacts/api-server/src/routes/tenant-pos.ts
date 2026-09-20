@@ -499,11 +499,34 @@ router.get("/tenant-pos/payments-history", async (req, res) => {
         invoiceNumber: tenantInvoicesTable.invoiceNumber,
         reconciled: sql<boolean>`exists (
           select 1
-            from public.bank_reconciliation_matches brm
-            join public.bank_mutations bm on bm.id = brm.mutation_id
-           where brm.candidate_type = 'payment'
-             and brm.candidate_id = ${tenantPaymentsTable.id}
-             and bm.status in ('approved_pending_posting', 'approved', 'posted')
+            from public.bank_mutations bm
+            left join public.bank_reconciliation_matches brm
+              on brm.mutation_id = bm.id
+           where bm.status in ('approved_pending_posting', 'approved', 'posted')
+             and (
+               bm.matched_payment_id = ${tenantPaymentsTable.id}
+               or (
+                 brm.candidate_id = ${tenantPaymentsTable.id}
+                 and brm.candidate_type in ('payment', 'tenant_invoice')
+                 and brm.status in ('approved', 'posted')
+               )
+             )
+        )`,
+        bankMatchedByRule: sql<boolean>`exists (
+          select 1
+            from public.bank_reconciliation_matches tenant_match
+            join public.bank_mutations bm on bm.id = tenant_match.mutation_id
+           where tenant_match.candidate_type = 'tenant_invoice'
+             and tenant_match.candidate_id = ${tenantPaymentsTable.id}
+             and tenant_match.status = 'superseded'
+             and bm.status = 'posted'
+             and exists (
+               select 1
+                 from public.bank_reconciliation_matches winner
+                where winner.mutation_id = bm.id
+                  and winner.candidate_type = 'recon_rule'
+                  and winner.status in ('approved', 'posted')
+             )
         )`,
       })
       .from(tenantPaymentsTable)
