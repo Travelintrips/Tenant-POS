@@ -17,7 +17,7 @@ export const operationalExpensesTable = pgTable("operational_expenses", {
   amount: numeric("amount").notNull(),
   paymentMethod: text("payment_method").notNull().default("cash"),
   paidAt: timestamp("paid_at", { withTimezone: true }).notNull().defaultNow(),
-  createdBy: integer("created_by").references(() => usersTable.id),
+  createdBy: text("created_by").references(() => usersTable.id),
   receiptUrl: text("receipt_url"),
   notes: text("notes"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
