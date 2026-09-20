@@ -497,6 +497,16 @@ router.get("/tenant-pos/payments-history", async (req, res) => {
         orderNumber: tenantBookingsTable.orderNumber,
         periodLabel: tenantBookingsTable.periodLabel,
         invoiceNumber: tenantInvoicesTable.invoiceNumber,
+        reconciled: sql<boolean>`exists (
+          select 1
+            from public.bank_reconciliation_matches brm
+            join public.bank_mutations bm on bm.id = brm.mutation_id
+           where brm.candidate_type = 'tenant_invoice'
+             and brm.candidate_source = 'public.tenant_payments'
+             and brm.candidate_id = ${tenantPaymentsTable.id}
+             and brm.status in ('approved', 'posted')
+             and bm.status in ('approved_pending_posting', 'approved', 'posted')
+        )`,
       })
       .from(tenantPaymentsTable)
       .leftJoin(tenantBookingsTable, eq(tenantPaymentsTable.bookingId, tenantBookingsTable.id))
