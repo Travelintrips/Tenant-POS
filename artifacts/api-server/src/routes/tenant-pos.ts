@@ -504,7 +504,6 @@ router.get("/tenant-pos/payments-history", async (req, res) => {
            where brm.candidate_type = 'tenant_invoice'
              and brm.candidate_source = 'public.tenant_payments'
              and brm.candidate_id = ${tenantPaymentsTable.id}
-             and brm.status in ('approved', 'posted')
              and bm.status in ('approved_pending_posting', 'approved', 'posted')
         )`,
       })
