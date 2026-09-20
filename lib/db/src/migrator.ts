@@ -1858,7 +1858,7 @@ DO $$ BEGIN
   END IF;
 END $$;
 
-${BANK_COA_RULE_SEED_SQL}
+\${BANK_COA_RULE_SEED_SQL}
     `.trim(),
   },
   {
@@ -3819,6 +3819,6 @@ DO $$ BEGIN
   END IF;
 END $$;
 
-${BANK_COA_RULE_SEED_SQL}
+\${BANK_COA_RULE_SEED_SQL}
   `.trim(),
 });
