@@ -190,15 +190,21 @@ export function startOverdueScheduler(): void {
 
   // Cron sederhana: cek setiap 5 menit, eksekusi jika jam-nya tepat.
   // Satu window terjadwal: 01 UTC = 08:00 WIB.
-  setInterval(() => {
+  setInterval(async () => {
     const now = new Date();
     const hourUtc = now.getUTCHours();
     const dateKey = `${now.toISOString().slice(0, 10)}-${hourUtc}`;
 
-    // Hanya eksekusi jika jam-nya sesuai jadwal DAN belum dijalankan di jam ini
+    // Hanya eksekusi jika jam-nya sesuai jadwal DAN belum dijalankan di jam ini.
+    // Date key diklaim sebelum await supaya dua tick dalam window yang sama
+    // tidak bisa memulai blast kedua saat blast pertama masih berjalan.
     if (SCHEDULE_HOURS_UTC.includes(hourUtc) && dateKey !== _lastRunDateKey) {
       _lastRunDateKey = dateKey;
-      runAllChecks(`cron ${hourUtc}:00 UTC`, true).catch(() => {});
+      try {
+        await runAllChecks(`cron ${hourUtc}:00 UTC`, true);
+      } catch (err) {
+        logger.warn({ err }, "[scheduler] Cron blast gagal");
+      }
     }
   }, 5 * 60 * 1000); // setiap 5 menit
 

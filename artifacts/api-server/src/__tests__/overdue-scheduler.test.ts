@@ -4,14 +4,14 @@ import { tenantInvoicesTable } from "@workspace/db/schema";
 import { eq } from "drizzle-orm";
 import { createTenant, createTestInvoice, cleanupTestData } from "./helpers/factory";
 
-vi.mock("../lib/whatsapp", async () => {
-  const actual = await vi.importActual<typeof import("../lib/whatsapp")>("../lib/whatsapp");
-  return {
-    ...actual,
-    sendOverdueReminder: vi.fn().mockResolvedValue({ ok: true, skipped: false }),
-    notifyAdminGroup: vi.fn().mockResolvedValue({ ok: true, skipped: true }),
-  };
-});
+vi.mock("../lib/whatsapp", () => ({
+  sendInvoiceNotification: vi.fn().mockResolvedValue({ ok: true, skipped: false }),
+  sendOverdueReminder: vi.fn().mockResolvedValue({ ok: true, skipped: false }),
+  sendDueReminder: vi.fn().mockResolvedValue({ ok: true, skipped: false }),
+  getAdminNotifyPhones: vi.fn().mockResolvedValue([]),
+  getSiteCompanyName: vi.fn().mockResolvedValue("Test Company"),
+  notifyAdminGroup: vi.fn().mockResolvedValue({ ok: true, skipped: true }),
+}));
 
 import { runOverdueCheck } from "../lib/overdue-scheduler";
 import { sendOverdueReminder } from "../lib/whatsapp";
@@ -100,5 +100,58 @@ describe("overdue invoice scheduler", () => {
 
     await runOverdueCheck();
     expect(eligibleCalls()).toHaveLength(1);
+  });
+});
+
+describe("overdue scheduler daily window guard", () => {
+  afterEach(() => {
+    vi.clearAllTimers();
+    vi.useRealTimers();
+    vi.doUnmock("@workspace/db");
+    vi.resetModules();
+  });
+
+  it("hanya menjalankan satu blast pada window UTC yang sama dan boleh jalan lagi pada window berikutnya", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-20T01:00:00.000Z"));
+
+    const execute = vi.fn().mockResolvedValue({ rows: [] });
+    const select = vi.fn(() => {
+      const chain: any = {};
+      chain.from = vi.fn(() => chain);
+      chain.innerJoin = vi.fn(() => chain);
+      chain.where = vi.fn().mockResolvedValue([]);
+      return chain;
+    });
+
+    vi.resetModules();
+    vi.doMock("@workspace/db", () => ({
+      db: {
+        execute,
+        select,
+      },
+    }));
+
+    const scheduler = await import("../lib/overdue-scheduler");
+    scheduler.startOverdueScheduler();
+
+    // Tick pertama di 01:05 UTC memulai blast untuk window 2026-09-20-01.
+    await vi.advanceTimersByTimeAsync(5 * 60 * 1000);
+    expect(
+      scheduler.getBlastHistory().filter((run) => run.label === "cron 1:00 UTC"),
+    ).toHaveLength(1);
+
+    // Tick kedua masih pada jam UTC yang sama; tidak boleh blast lagi.
+    await vi.advanceTimersByTimeAsync(5 * 60 * 1000);
+    expect(
+      scheduler.getBlastHistory().filter((run) => run.label === "cron 1:00 UTC"),
+    ).toHaveLength(1);
+
+    // Pindah ke window hari berikutnya pada jam UTC yang sama.
+    vi.setSystemTime(new Date("2026-09-21T01:00:00.000Z"));
+    await vi.advanceTimersByTimeAsync(5 * 60 * 1000);
+    expect(
+      scheduler.getBlastHistory().filter((run) => run.label === "cron 1:00 UTC"),
+    ).toHaveLength(2);
   });
 });

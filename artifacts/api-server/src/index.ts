@@ -82,7 +82,7 @@ function validateProductionEnv(): void {
   logger.info("[startup] ✅ Validasi environment production berhasil.");
 }
 
-async function runMigrationsAndScheduler() {
+export async function runMigrationsAndScheduler(): Promise<void> {
   try {
     const { runMigrations, runUsersIdTextMigration } = await import("@workspace/db");
     await runUsersIdTextMigration();
@@ -95,7 +95,7 @@ async function runMigrationsAndScheduler() {
   startSheetSyncScheduler();
 }
 
-async function start() {
+export async function start(): Promise<void> {
   validateProductionEnv();
 
   app.listen(config.port, (err) => {
@@ -124,4 +124,6 @@ process.on("uncaughtException", (err) => {
   logger.error({ err }, "[process] uncaughtException — server tetap jalan");
 });
 
-start();
+if (process.env["NODE_ENV"] !== "test") {
+  void start();
+}
