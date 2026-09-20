@@ -17,6 +17,20 @@ jobs:
     name: Test, typecheck, build
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: ci
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: ci
+        ports:
+          - 65432:5432
+        options: >-
+          --health-cmd="pg_isready -U ci -d ci"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=10
     env:
       NODE_ENV: test
       APP_ENV: development
@@ -35,6 +49,8 @@ jobs:
           cache: pnpm
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+      - name: Prepare test database
+        run: pnpm --filter @workspace/db push-force
       - name: API tests
         run: pnpm --filter @workspace/api-server test
       - name: Admin Portal tests
