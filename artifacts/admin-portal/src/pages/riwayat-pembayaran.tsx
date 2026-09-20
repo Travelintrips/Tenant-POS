@@ -113,6 +113,7 @@ type Payment = {
   boothNumber: string | null;
   orderNumber: string | null;
   periodLabel: string | null;
+  reconciled: boolean;
 };
 
 type PaymentsResponse = {
@@ -409,19 +410,20 @@ export default function RiwayatPembayaran() {
                   <TableHead className="w-24">Bukti</TableHead>
                   <TableHead className="text-right w-32">Jumlah</TableHead>
                   <TableHead className="w-28">Status</TableHead>
+                  <TableHead className="w-20">Rekon</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {isLoading ? (
                   <TableRow>
-                    <TableCell colSpan={9} className="text-center py-10 text-muted-foreground">
+                    <TableCell colSpan={10} className="text-center py-10 text-muted-foreground">
                       <RefreshCw className="h-5 w-5 animate-spin mx-auto mb-2" />
                       Memuat data...
                     </TableCell>
                   </TableRow>
                 ) : payments.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={9} className="text-center py-10 text-muted-foreground">
+                    <TableCell colSpan={10} className="text-center py-10 text-muted-foreground">
                       Tidak ada data pembayaran
                     </TableCell>
                   </TableRow>
@@ -495,6 +497,16 @@ export default function RiwayatPembayaran() {
                             </span>
                           )}
                         </div>
+                      </TableCell>
+                      <TableCell>
+                        {p.reconciled ? (
+                          <Badge className="bg-emerald-100 text-emerald-800 border-emerald-200 text-[10px]">
+                            <CheckCircle2 className="h-3 w-3 mr-1" />
+                            Rekon
+                          </Badge>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">-</span>
+                        )}
                       </TableCell>
                     </TableRow>
                   ))
