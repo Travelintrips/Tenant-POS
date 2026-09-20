@@ -63,7 +63,7 @@ router.get("/tenants", async (req, res) => {
         .groupBy(tenantInvoicesTable.tenantId),
     ]);
 
-    const activeBookingMap = new Map<number, { startDate: string; endDate: string }>();
+    const activeBookingMap = new Map<number, { startDate: string | null; endDate: string | null }>();
     for (const b of activeBookingRows) {
       // orderBy id DESC: baris pertama per tenant = booking aktif terbaru.
       if (!activeBookingMap.has(b.tenantId)) {

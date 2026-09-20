@@ -363,7 +363,7 @@ router.post("/operational-expenses", requireAnyRole("owner", "admin", "finance")
 
   const ctxSiteId = (req as unknown as { siteId?: number }).siteId;
   const rawUserId = (req as unknown as { user?: { id?: unknown } }).user?.id;
-  const userId = rawUserId && !isNaN(Number(rawUserId)) ? Number(rawUserId) : null;
+  const userId = rawUserId == null ? null : String(rawUserId);
   const data = parsed.data;
 
   const effectiveSiteId = ctxSiteId ?? data.siteId ?? null;
