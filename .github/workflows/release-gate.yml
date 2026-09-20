@@ -50,7 +50,9 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
       - name: Prepare test database
-        run: pnpm --filter @workspace/db push-force
+        run: |
+          pnpm --filter @workspace/db push-force
+          pnpm --filter @workspace/db migrate
       - name: API tests
         run: pnpm --filter @workspace/api-server test
       - name: Admin Portal tests
