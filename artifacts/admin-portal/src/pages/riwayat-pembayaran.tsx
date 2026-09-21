@@ -410,7 +410,7 @@ export default function RiwayatPembayaran() {
                   <TableHead className="w-36">Tanggal sesuai sumber</TableHead>
                   <TableHead className="w-24">Bukti</TableHead>
                   <TableHead className="text-right w-32">Jumlah</TableHead>
-                  <TableHead className="w-32">Status / Rekon</TableHead>
+                  <TableHead className="w-32">Status Pembayaran</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -491,20 +491,6 @@ export default function RiwayatPembayaran() {
                       <TableCell>
                         <div className="flex flex-col items-start gap-1">
                           {statusBadge(p)}
-                          {p.reconciled ? (
-                            <Badge className="bg-emerald-100 text-emerald-800 border-emerald-200 text-[10px]">
-                              <CheckCircle2 className="h-3 w-3 mr-1" />
-                              Rekon
-                            </Badge>
-                          ) : p.bankMatchedByRule ? (
-                            <Badge
-                              variant="outline"
-                              className="bg-amber-50 text-amber-800 border-amber-200 text-[10px]"
-                              title="Mutasi bank sudah diposting oleh Rule AI, tetapi kandidat payment tenant tidak menjadi match canonical."
-                            >
-                              Cocok Bank
-                            </Badge>
-                          ) : null}
                           {p.isVoided && parseDuplicatePaymentId(p.voidReason) && (
                             <span className="text-[10px] text-muted-foreground">
                               Duplikat dari payment #{parseDuplicatePaymentId(p.voidReason)}
