@@ -11,7 +11,6 @@ let _started = false;
 // Jam eksekusi scheduler (dalam WIB = UTC+7, diperhitungkan sbg UTC)
 // Eksekusi sekali sehari pukul 08:00 WIB (01:00 UTC).
 // Semua invoice baru, reminder yang relevan, dan overdue diproses pada window ini.
-const OVERDUE_REMINDER_START_DATE = "2026-09-01";
 const SCHEDULE_HOURS_UTC = [1];
 
 let _lastRunDateKey = ""; // format: "YYYY-MM-DD-HH"
@@ -174,17 +173,25 @@ export function startOverdueScheduler(): void {
   if (_started) return;
   _started = true;
 
-  // Startup catch-up: hanya BUAT invoice (idempoten), TIDAK kirim notifikasi WA.
-  // Ini penting agar server restart kapan saja (termasuk jam 04:00 pagi) tidak
-  // langsung mengirim blast ke seluruh tenant di luar jam terjadwal.
-  // Notifikasi WA hanya dikirim oleh cron di jam 01 UTC (08:00 WIB).
+  // Startup catch-up: bila proses baru hidup setelah window 08:00 WIB,
+  // jalankan seluruh pengecekan satu kali. Idempotency per invoice/tanggal
+  // mencegah pengiriman reminder overdue ganda pada hari yang sama.
   setTimeout(async () => {
     try {
-      logger.info("[scheduler] Startup: membuat invoice bulanan (tanpa kirim WA)...");
-      const created = await runMonthlyInvoiceGeneration();
-      logger.info({ created }, "[scheduler] Startup selesai — invoice generation only");
+      const now = new Date();
+      const wibMs = 7 * 60 * 60 * 1000;
+      const nowWib = new Date(now.getTime() + wibMs);
+      const hourWib = nowWib.getUTCHours();
+      if (hourWib >= 8) {
+        logger.info("[scheduler] Startup catch-up setelah 08:00 WIB — menjalankan blast harian...");
+        await runAllChecks("startup catch-up after 08:00 WIB", true);
+      } else {
+        logger.info("[scheduler] Startup sebelum 08:00 WIB — invoice generation only...");
+        const created = await runMonthlyInvoiceGeneration();
+        logger.info({ created }, "[scheduler] Startup invoice generation selesai");
+      }
     } catch (err) {
-      logger.warn({ err }, "[scheduler] Startup invoice generation gagal");
+      logger.warn({ err }, "[scheduler] Startup catch-up gagal");
     }
   }, 30_000);
 
@@ -210,7 +217,7 @@ export function startOverdueScheduler(): void {
 
   logger.info(
     "[scheduler] Scheduler aktif — cron harian 08:00 WIB (01 UTC). " +
-    "Invoice, reminder, dan overdue dikirim pada window ini; startup hanya generate invoice.",
+    "Invoice, reminder, dan overdue dikirim pada window ini; startup setelah 08:00 WIB melakukan catch-up harian.",
   );
 }
 
@@ -642,7 +649,6 @@ export async function runOverdueCheck(): Promise<number> {
       and(
         sql`${tenantsTable.status} IN ('aktif', 'active')`,
         inArray(tenantInvoicesTable.status, ["unpaid", "partial", "overdue"]),
-        sql`${tenantInvoicesTable.dueDate} >= ${OVERDUE_REMINDER_START_DATE}::date`,
         sql`"due_date" < (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Jakarta')::date`,
         sql`COALESCE(${tenantInvoicesTable.outstandingAmount}, 0)::numeric > 0`,
         sql`(
@@ -684,7 +690,6 @@ export async function runOverdueCheck(): Promise<number> {
               AND active_tenant.status IN ('aktif', 'active')
           )`,
           inArray(tenantInvoicesTable.status, ["unpaid", "partial", "overdue"]),
-          sql`${tenantInvoicesTable.dueDate} >= ${OVERDUE_REMINDER_START_DATE}::date`,
           sql`${tenantInvoicesTable.dueDate} < (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Jakarta')::date`,
           sql`COALESCE(${tenantInvoicesTable.outstandingAmount}, 0)::numeric > 0`,
           sql`(
