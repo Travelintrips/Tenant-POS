@@ -106,8 +106,11 @@ router.get("/dashboard/summary", async (req, res) => {
       }).from(tenantPaymentsTable).where(and(
         payClause,
         paymentCompany,
-        sql`EXTRACT(YEAR  FROM ${tenantPaymentsTable.paidAt}) = ${thisYear}`,
-        sql`EXTRACT(MONTH FROM ${tenantPaymentsTable.paidAt}) = ${thisMonth}`,
+        sql`${tenantPaymentsTable.invoiceId} IS NOT NULL`,
+        eq(tenantPaymentsTable.approvalStatus, "approved"),
+        sql`UPPER(COALESCE(${tenantPaymentsTable.paymentStatus}, ${tenantPaymentsTable.status}, '')) = 'PAID'`,
+        sql`EXTRACT(YEAR  FROM COALESCE(${tenantPaymentsTable.paidAt}, ${tenantPaymentsTable.approvedAt}, ${tenantPaymentsTable.createdAt})) = ${thisYear}`,
+        sql`EXTRACT(MONTH FROM COALESCE(${tenantPaymentsTable.paidAt}, ${tenantPaymentsTable.approvedAt}, ${tenantPaymentsTable.createdAt})) = ${thisMonth}`,
         sql`(${tenantPaymentsTable.isVoided} = false OR ${tenantPaymentsTable.isVoided} IS NULL)`,
       )),
 
@@ -168,30 +171,29 @@ router.get("/dashboard/paid-trend", async (req, res) => {
     const companyClause = invoiceCompanyClause(req);
 
     // Ambil data 6 bulan terakhir (inklusif bulan ini)
+    const payClause = siteId > 0 ? eq(tenantPaymentsTable.siteId, siteId) : undefined;
+    const companyClause = paymentCompanyClause(req);
+
     const rows = await db
       .select({
-        year:   sql<number>`EXTRACT(YEAR  FROM ${tenantInvoicesTable.updatedAt})::int`,
-        month:  sql<number>`EXTRACT(MONTH FROM ${tenantInvoicesTable.updatedAt})::int`,
-        count:  sql<number>`COUNT(*)::int`,
-        amount: sql<number>`COALESCE(SUM(${tenantInvoicesTable.paidAmount}), 0)::numeric`,
-      })
-      .from(tenantInvoicesTable)
-      .where(
-        and(
-          invClause,
-          companyClause,
-          eq(tenantInvoicesTable.status, "paid"),
-          sql`${tenantInvoicesTable.updatedAt} >= NOW() - INTERVAL '5 months'`,
-          sql`${tenantInvoicesTable.updatedAt} < DATE_TRUNC('month', NOW()) + INTERVAL '1 month'`,
-        ),
-      )
-      .groupBy(
-        sql`EXTRACT(YEAR FROM ${tenantInvoicesTable.updatedAt})`,
-        sql`EXTRACT(MONTH FROM ${tenantInvoicesTable.updatedAt})`,
-      )
-      .orderBy(
-        sql`EXTRACT(YEAR FROM ${tenantInvoicesTable.updatedAt})`,
-        sql`EXTRACT(MONTH FROM ${tenantInvoicesTable.updatedAt})`,
+        year: sql<number>`EXTRACT(YEAR FROM COALESCE(${tenantPaymentsTable.paidAt}, ${tenantPaymentsTable.approvedAt}, ${tenantPaymentsTable.createdAt}))::int`,
+        month: sql<number>`EXTRACT(MONTH FROM COALESCE(${tenantPaymentsTable.paidAt}, ${tenantPaymentsTable.approvedAt}, ${tenantPaymentsTable.createdAt}))::int`,
+        count: sql<number>`COUNT(DISTINCT ${tenantPaymentsTable.invoiceId})::int`,
+        amount: sql<number>`COALESCE(SUM(${tenantPaymentsTable.amount} - COALESCE(${tenantPaymentsTable.refundAmount}, 0)), 0)::numeric`,
+      }).from(tenantPaymentsTable).where(and(
+        payClause, companyClause,
+        sql`${tenantPaymentsTable.invoiceId} IS NOT NULL`,
+        eq(tenantPaymentsTable.approvalStatus, "approved"),
+        sql`UPPER(COALESCE(${tenantPaymentsTable.paymentStatus}, ${tenantPaymentsTable.status}, '')) = 'PAID'`,
+        sql`(${tenantPaymentsTable.isVoided} = false OR ${tenantPaymentsTable.isVoided} IS NULL)`,
+        sql`COALESCE(${tenantPaymentsTable.paidAt}, ${tenantPaymentsTable.approvedAt}, ${tenantPaymentsTable.createdAt}) >= DATE_TRUNC('month', NOW()) - INTERVAL '5 months'`,
+        sql`COALESCE(${tenantPaymentsTable.paidAt}, ${tenantPaymentsTable.approvedAt}, ${tenantPaymentsTable.createdAt}) < DATE_TRUNC('month', NOW()) + INTERVAL '1 month'`
+      )).groupBy(
+        sql`EXTRACT(YEAR FROM COALESCE(${tenantPaymentsTable.paidAt}, ${tenantPaymentsTable.approvedAt}, ${tenantPaymentsTable.createdAt}))`,
+        sql`EXTRACT(MONTH FROM COALESCE(${tenantPaymentsTable.paidAt}, ${tenantPaymentsTable.approvedAt}, ${tenantPaymentsTable.createdAt}))`
+      ).orderBy(
+        sql`EXTRACT(YEAR FROM COALESCE(${tenantPaymentsTable.paidAt}, ${tenantPaymentsTable.approvedAt}, ${tenantPaymentsTable.createdAt}))`,
+        sql`EXTRACT(MONTH FROM COALESCE(${tenantPaymentsTable.paidAt}, ${tenantPaymentsTable.approvedAt}, ${tenantPaymentsTable.createdAt}))`
       );
 
     // Lengkapi dengan bulan kosong agar selalu 6 titik
