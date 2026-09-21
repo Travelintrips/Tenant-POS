@@ -167,10 +167,7 @@ router.get("/dashboard/summary", async (req, res) => {
 router.get("/dashboard/paid-trend", async (req, res) => {
   try {
     const siteId = req.siteId;
-    const invClause = siteId > 0 ? eq(tenantInvoicesTable.siteId, siteId) : undefined;
-    const companyClause = invoiceCompanyClause(req);
-
-    // Ambil data 6 bulan terakhir (inklusif bulan ini)
+    // Ambil data 6 bulan terakhir (inklusif bulan ini) dari payment canonical.
     const payClause = siteId > 0 ? eq(tenantPaymentsTable.siteId, siteId) : undefined;
     const companyClause = paymentCompanyClause(req);
 
