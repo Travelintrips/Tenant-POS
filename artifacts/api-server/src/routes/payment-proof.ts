@@ -134,6 +134,8 @@ router.get("/pay/:token", publicReadRateLimiter, async (req, res) => {
   const { token } = req.params;
   if (!token) { res.status(400).json({ error: "Token tidak valid" }); return; }
 
+  const proofSha256 = crypto.createHash("sha256").update(req.file.buffer).digest("hex");
+
   try {
     const [invoice] = await db
       .select({
@@ -222,7 +224,7 @@ router.post("/pay/:token/proof", uploadRateLimiter, async (req, res) => {
 
   const { amount, paymentMethod, referenceNumber, notes, ocrExtractedAmount, ocrRawText, ocrConfidence } = parsed.data;
 
-  if (amount <= 0) {
+  if (!Number.isFinite(amount) || amount <= 0) {
     res.status(400).json({ error: "Jumlah pembayaran harus lebih dari 0" });
     return;
   }
@@ -275,6 +277,27 @@ router.post("/pay/:token/proof", uploadRateLimiter, async (req, res) => {
           `Nominal Rp ${amount.toLocaleString("id-ID")} terlihat seperti angka tahun. ` +
           "Periksa kembali bukti transfer dan masukkan nominal pembayaran yang sebenarnya.",
         code: "OCR_AMOUNT_SUSPICIOUS",
+      });
+      return;
+    }
+
+    // Idempotency guard: proof yang identik untuk invoice yang sama tidak boleh
+    // membuat payment kedua, termasuk retry setelah request timeout.
+    const [duplicateProof] = await db
+      .select({ id: tenantPaymentsTable.id, approvalStatus: tenantPaymentsTable.approvalStatus })
+      .from(tenantPaymentsTable)
+      .where(and(
+        eq(tenantPaymentsTable.invoiceId, invoice.id),
+        sql`COALESCE(${tenantPaymentsTable.notes}, '') LIKE ${`%[proof-sha256:${proofSha256}]%`}`,
+        sql`(${tenantPaymentsTable.isVoided} = false OR ${tenantPaymentsTable.isVoided} IS NULL)`,
+      ))
+      .limit(1);
+
+    if (duplicateProof) {
+      res.status(409).json({
+        error: "Bukti pembayaran yang sama sudah pernah dikirim untuk invoice ini.",
+        code: "DUPLICATE_PAYMENT_PROOF",
+        paymentId: duplicateProof.id,
       });
       return;
     }
@@ -345,7 +368,7 @@ router.post("/pay/:token/proof", uploadRateLimiter, async (req, res) => {
         referenceNumber: referenceNumber ?? null,
         proofUrl,
         proofImageUrl: proofUrl,
-        notes: notes ?? null,
+        notes: `${notes ? `${notes}\n` : ""}[proof-sha256:${proofSha256}]`,
         approvalStatus: "pending_review",
         sourceType: "ocr",
         ...(ocrExtractedAmount != null ? { ocrExtractedAmount: String(ocrExtractedAmount) } : {}),
