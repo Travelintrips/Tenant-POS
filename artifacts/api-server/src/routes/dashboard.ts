@@ -115,17 +115,21 @@ router.get("/dashboard/summary", async (req, res) => {
         .from(tenantPaymentsTable)
         .where(and(payClause, paymentCompany, sql`${tenantPaymentsTable.approvalStatus} = 'pending_review'`)),
 
-      // Invoice lunas — bulan yang dipilih (default: bulan ini)
-      // Menggunakan WHERE biasa (bukan FILTER) agar Drizzle parameterisasi bekerja benar
+      // Pembayaran real bulan yang dipilih: hanya payment canonical yang terhubung
+      // ke invoice, approved + PAID, dan bukan void. Ini mencegah legacy TPSC/manual
+      // projection atau duplicate proof ikut dihitung sebagai penerimaan kedua.
       db.select({
-        count:  sql<number>`COUNT(*)::int`,
-        amount: sql<number>`COALESCE(SUM(${tenantInvoicesTable.paidAmount}), 0)::numeric`,
-      }).from(tenantInvoicesTable).where(and(
-        invClause,
-        invoiceCompany,
-        eq(tenantInvoicesTable.status, "paid"),
-        sql`EXTRACT(YEAR  FROM ${tenantInvoicesTable.updatedAt}) = ${paidYear}`,
-        sql`EXTRACT(MONTH FROM ${tenantInvoicesTable.updatedAt}) = ${paidMonth}`,
+        count: sql<number>`COUNT(DISTINCT ${tenantPaymentsTable.invoiceId})::int`,
+        amount: sql<number>`COALESCE(SUM(${tenantPaymentsTable.amount} - COALESCE(${tenantPaymentsTable.refundAmount}, 0)), 0)::numeric`,
+      }).from(tenantPaymentsTable).where(and(
+        payClause,
+        paymentCompany,
+        sql`${tenantPaymentsTable.invoiceId} IS NOT NULL`,
+        eq(tenantPaymentsTable.approvalStatus, "approved"),
+        sql`UPPER(COALESCE(${tenantPaymentsTable.paymentStatus}, ${tenantPaymentsTable.status}, '')) = 'PAID'`,
+        sql`(${tenantPaymentsTable.isVoided} = false OR ${tenantPaymentsTable.isVoided} IS NULL)`,
+        sql`EXTRACT(YEAR  FROM COALESCE(${tenantPaymentsTable.paidAt}, ${tenantPaymentsTable.approvedAt}, ${tenantPaymentsTable.createdAt})) = ${paidYear}`,
+        sql`EXTRACT(MONTH FROM COALESCE(${tenantPaymentsTable.paidAt}, ${tenantPaymentsTable.approvedAt}, ${tenantPaymentsTable.createdAt})) = ${paidMonth}`,
       )),
     ]);
 
