@@ -649,6 +649,10 @@ export async function runOverdueCheck(): Promise<number> {
       and(
         sql`${tenantsTable.status} IN ('aktif', 'active')`,
         inArray(tenantInvoicesTable.status, ["unpaid", "partial", "overdue"]),
+        // Overdue blast hanya untuk periode tagihan bulan berjalan. Invoice
+        // tunggakan bulan sebelumnya tetap tercatat overdue, tetapi tidak ikut
+        // diblast bersama tagihan bulan ini.
+        sql`DATE_TRUNC('month', ${tenantInvoicesTable.periodStart}::date) = DATE_TRUNC('month', (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Jakarta')::date)`,
         sql`"due_date" < (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Jakarta')::date`,
         sql`COALESCE(${tenantInvoicesTable.outstandingAmount}, 0)::numeric > 0`,
         sql`(
@@ -690,6 +694,7 @@ export async function runOverdueCheck(): Promise<number> {
               AND active_tenant.status IN ('aktif', 'active')
           )`,
           inArray(tenantInvoicesTable.status, ["unpaid", "partial", "overdue"]),
+          sql`DATE_TRUNC('month', ${tenantInvoicesTable.periodStart}::date) = DATE_TRUNC('month', (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Jakarta')::date)`,
           sql`${tenantInvoicesTable.dueDate} < (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Jakarta')::date`,
           sql`COALESCE(${tenantInvoicesTable.outstandingAmount}, 0)::numeric > 0`,
           sql`(
