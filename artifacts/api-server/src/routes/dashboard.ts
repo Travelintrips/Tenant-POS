@@ -266,25 +266,33 @@ router.get("/dashboard/export-monthly-pdf", async (req, res) => {
     }
 
 
-    // Query invoice lunas bulan ini dengan detail tenant
+    // Query pembayaran canonical bulan ini dengan detail invoice/tenant.
+    // Sumber tanggal dan nominal harus sama dengan Dashboard: payment real,
+    // approved + PAID + invoice-linked + non-void. Jangan gunakan invoice.updated_at.
     const invoiceRows = await db.execute(sql`
       SELECT
         ti.invoice_number,
-        ti.paid_amount,
+        SUM(tp.amount - COALESCE(tp.refund_amount, 0))::numeric AS paid_amount,
         ti.period_start,
         ti.period_end,
-        ti.updated_at AS paid_at,
+        MAX(COALESCE(tp.paid_at, tp.approved_at, tp.created_at)) AS paid_at,
         t.business_name,
         ti.unit_code
-      FROM tenant_invoices ti
+      FROM tenant_payments tp
+      JOIN tenant_invoices ti ON ti.id = tp.invoice_id
       LEFT JOIN tenants t ON t.id = ti.tenant_id
       LEFT JOIN mall_sites ms_inv ON ms_inv.id = ti.site_id
-      WHERE ti.status = 'paid'
-        AND EXTRACT(YEAR  FROM ti.updated_at) = ${year}
-        AND EXTRACT(MONTH FROM ti.updated_at) = ${month}
-        ${siteId > 0 ? sql`AND ti.site_id = ${siteId}` : sql``}
+      WHERE tp.invoice_id IS NOT NULL
+        AND tp.approval_status = 'approved'
+        AND UPPER(COALESCE(tp.payment_status, tp.status, '')) = 'PAID'
+        AND COALESCE(tp.is_voided, false) = false
+        AND EXTRACT(YEAR FROM COALESCE(tp.paid_at, tp.approved_at, tp.created_at)) = ${year}
+        AND EXTRACT(MONTH FROM COALESCE(tp.paid_at, tp.approved_at, tp.created_at)) = ${month}
+        ${siteId > 0 ? sql`AND tp.site_id = ${siteId}` : sql``}
         ${invoiceCompanySql}
-      ORDER BY ti.updated_at DESC
+      GROUP BY ti.id, ti.invoice_number, ti.period_start, ti.period_end,
+               t.business_name, ti.unit_code
+      ORDER BY MAX(COALESCE(tp.paid_at, tp.approved_at, tp.created_at)) DESC
     `);
 
     // Query pengeluaran operasional bulan ini
