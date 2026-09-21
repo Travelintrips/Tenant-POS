@@ -30,21 +30,21 @@ export function parseAmountFromText(text: string): { amount: number | null; conf
   let m: RegExpExecArray | null;
   while ((m = prefixRe.exec(scrubbed)) !== null) {
     const n = normaliseNumber(m[1]);
-    if (n !== null) candidates.push({ val: n, fromPrefix: true });
+    if (n !== null && !isLikelyYearAmount(n) && !isDateLike(n)) candidates.push({ val: n, fromPrefix: true });
   }
 
   // 3) Dot-thousands: 1.000.000
   const dotThousands = /\b(\d{1,3}(?:\.\d{3})+)\b/g;
   while ((m = dotThousands.exec(scrubbed)) !== null) {
     const n = parseInt(m[1].replace(/\./g, ""), 10);
-    if (isReasonable(n)) candidates.push({ val: n, fromPrefix: false });
+    if (isReasonable(n) && !isLikelyYearAmount(n) && !isDateLike(n)) candidates.push({ val: n, fromPrefix: false });
   }
 
   // 4) Comma-thousands: 1,000,000
   const commaThousands = /\b(\d{1,3}(?:,\d{3})+)\b/g;
   while ((m = commaThousands.exec(scrubbed)) !== null) {
     const n = parseInt(m[1].replace(/,/g, ""), 10);
-    if (isReasonable(n)) candidates.push({ val: n, fromPrefix: false });
+    if (isReasonable(n) && !isLikelyYearAmount(n) && !isDateLike(n)) candidates.push({ val: n, fromPrefix: false });
   }
 
   // 5) Plain 4-10 digit (fallback, hanya jika tidak ada kandidat Rp)
@@ -93,7 +93,7 @@ function normaliseNumber(s: string): number | null {
   // Remove trailing decimals (cents) if pattern is like 1.000.000,00
   const trimmed = s.replace(/[,.](\d{1,2})$/, "").replace(/[.,]/g, "");
   const n = parseInt(trimmed, 10);
-  return isReasonable(n) ? n : null;
+  return isReasonable(n) && !isLikelyYearAmount(n) && !isDateLike(n) ? n : null;
 }
 
 function isReasonable(n: number): boolean {
