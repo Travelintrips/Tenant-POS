@@ -2,6 +2,7 @@ import { Router, type Request, type Response, type IRouter } from "express";
 import multer from "multer";
 import path from "path";
 import crypto from "crypto";
+import { createHash } from "node:crypto";
 import { db } from "@workspace/db";
 import { tenantInvoicesTable, tenantPaymentsTable, tenantsTable, systemSettingsTable, waLogsTable } from "@workspace/db/schema";
 import { eq, sql, and } from "drizzle-orm";
@@ -134,8 +135,6 @@ router.get("/pay/:token", publicReadRateLimiter, async (req, res) => {
   const { token } = req.params;
   if (!token) { res.status(400).json({ error: "Token tidak valid" }); return; }
 
-  const proofSha256 = crypto.createHash("sha256").update(req.file.buffer).digest("hex");
-
   try {
     const [invoice] = await db
       .select({
@@ -233,6 +232,10 @@ router.post("/pay/:token/proof", uploadRateLimiter, async (req, res) => {
     res.status(400).json({ error: "File bukti pembayaran wajib diupload." });
     return;
   }
+
+  const proofSha256 = createHash("sha256")
+    .update(req.file.buffer)
+    .digest("hex");
 
   try {
     const [invoice] = await db
