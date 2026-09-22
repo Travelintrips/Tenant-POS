@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Building2, FlaskConical, MessageCircle, Loader2 } from "lucide-react";
+import { FlaskConical, MessageCircle, Loader2, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
@@ -156,8 +156,8 @@ export default function Login() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-muted/30">
-      <Card className="w-full max-w-sm shadow-lg">
+    <div className="min-h-screen flex items-center justify-center bg-muted/30 px-4">
+      <Card className="w-full max-w-md shadow-lg">
         <CardHeader className="text-center pb-2">
           <div className="flex justify-center mb-3">
             <img src="/logo-cst.png" alt="Logo CST" className="h-16 w-16 object-contain" />
