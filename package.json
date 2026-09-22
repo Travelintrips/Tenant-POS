@@ -3,13 +3,16 @@
   "version": "0.0.0",
   "license": "MIT",
   "scripts": {
-    "preinstall": "sh -c 'rm -f package-lock.json yarn.lock; case \"$npm_config_user_agent\" in pnpm/*) ;; *) echo \"Use pnpm instead\" >&2; exit 1 ;; esac'",
-    "build": "pnpm run typecheck && pnpm -r --if-present run build",
+    "preinstall": "sh -c 'rm -f package-lock.json yarn.lock; case \"$npm_config_user_agent\" in pnpm/*|npm/*) ;; *) echo \"Use pnpm, or npm only as the Hostinger bootstrap package manager\" >&2; exit 1 ;; esac'",
+    "build": "node ./scripts/hostinger-build.mjs",
     "typecheck:libs": "tsc --build",
     "typecheck": "pnpm run typecheck:libs && pnpm -r --filter \"./artifacts/**\" --filter \"./scripts\" --if-present run typecheck",
     "db:seed": "pnpm --filter @workspace/scripts run seed:demo",
     "test": "pnpm run test:backend",
-    "test:backend": "pnpm --filter @workspace/api-server run test"
+    "test:backend": "pnpm --filter @workspace/api-server run test",
+    "build:workspace": "pnpm run typecheck && pnpm -r --if-present run build",
+    "start": "node ./scripts/hostinger-start.mjs",
+    "hostinger:build": "npm run build"
   },
   "private": true,
   "devDependencies": {
@@ -27,5 +30,8 @@
     "passport-google-oauth20": "^2.0.0",
     "pino": "^9.14.0",
     "pino-http": "^10.5.0"
+  },
+  "engines": {
+    "node": "22.x"
   }
 }
