@@ -1,8 +1,13 @@
+import type { Server } from "node:http";
 import app from "./app";
 import { config } from "./lib/config";
 import { logger } from "./lib/logger";
 import { startOverdueScheduler } from "./lib/overdue-scheduler";
 import { startSheetSyncScheduler } from "./lib/sheet-sync-scheduler";
+
+let httpServer: Server | null = null;
+let startupStarted = false;
+let shutdownStarted = false;
 
 function validateProductionEnv(): void {
   const isProduction = process.env["NODE_ENV"] === "production";
@@ -76,7 +81,7 @@ function validateProductionEnv(): void {
       "[startup] Server TIDAK dijalankan karena konfigurasi production tidak lengkap. " +
       "Perbaiki environment variables di atas dan coba lagi."
     );
-    process.exit(1);
+    throw new Error("Production environment validation failed");
   }
 
   logger.info("[startup] ✅ Validasi environment production berhasil.");
@@ -95,18 +100,98 @@ export async function runMigrationsAndScheduler(): Promise<void> {
   startSheetSyncScheduler();
 }
 
-export async function start(): Promise<void> {
-  validateProductionEnv();
+function getListenPort(): number {
+  const rawPort = process.env["PORT"] ?? String(config.port);
+  const port = Number(rawPort);
+  if (!Number.isInteger(port) || port <= 0 || port > 65535) {
+    throw new Error(`Invalid PORT value: ${rawPort}`);
+  }
+  return port;
+}
 
-  app.listen(config.port, (err) => {
+function shutdown(reason: string, exitCode = 0): void {
+  if (shutdownStarted) return;
+  shutdownStarted = true;
+  process.exitCode = exitCode;
+
+  const server = httpServer;
+  if (!server) {
+    process.exit(exitCode);
+    return;
+  }
+
+  logger.info({ reason }, "[shutdown] Menutup HTTP server...");
+  const forceExitTimer = setTimeout(() => {
+    logger.warn("[shutdown] HTTP server belum tertutup, memutus koneksi dan keluar paksa");
+    server.closeAllConnections();
+    process.exit(exitCode);
+  }, 10_000);
+  forceExitTimer.unref();
+
+  server.close((err) => {
+    clearTimeout(forceExitTimer);
+    httpServer = null;
     if (err) {
-      logger.error({ err }, "Error listening on port");
-      process.exit(1);
+      const message = err instanceof Error ? err.message : String(err);
+      logger.error({ err, message }, "[shutdown] Gagal menutup HTTP server");
+    } else {
+      logger.info("[shutdown] HTTP server tertutup");
+    }
+    process.exit(exitCode);
+  });
+}
+
+export function start(): void {
+  if (startupStarted) {
+    logger.warn("[startup] Start sudah dipanggil, inisialisasi kedua dilewati");
+    return;
+  }
+  startupStarted = true;
+
+  let port: number;
+  try {
+    port = getListenPort();
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    logger.error({ err, message }, "[startup] PORT tidak valid");
+    process.exit(1);
+    return;
+  }
+
+  // Bind listener terlebih dahulu. Jangan menunggu database, migration, atau
+  // scheduler sebelum Hostinger menerima health check.
+  try {
+    httpServer = app.listen(port, "0.0.0.0");
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    logger.error({ err, message, port }, `[startup] Error listening on port ${port}`);
+    process.exit(1);
+    return;
+  }
+
+  const server = httpServer;
+  server.once("error", (err) => {
+    const message = err instanceof Error ? err.message : String(err);
+    logger.error({ err, message, port }, `[startup] Error listening on port ${port}`);
+    httpServer = null;
+    process.exit(1);
+  });
+
+  server.once("listening", () => {
+    logger.info(`Server listening on PORT ${port}`);
+
+    try {
+      validateProductionEnv();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      logger.error({ err, message }, "[startup] Validasi environment gagal");
+      shutdown("startup validation failed", 1);
+      return;
     }
 
-    logger.info({ port: config.port }, "Server listening — running migrations in background");
-
-    runMigrationsAndScheduler().catch((err) => {
+    // Semua pekerjaan startup yang berpotensi menunggu dilakukan setelah
+    // listener siap menerima request.
+    void runMigrationsAndScheduler().catch((err) => {
       logger.error({ err }, "Migration/scheduler error");
     });
   });
@@ -124,6 +209,9 @@ process.on("uncaughtException", (err) => {
   logger.error({ err }, "[process] uncaughtException — server tetap jalan");
 });
 
+process.once("SIGTERM", () => shutdown("SIGTERM"));
+process.once("SIGINT", () => shutdown("SIGINT"));
+
 if (process.env["NODE_ENV"] !== "test") {
-  void start();
+  start();
 }
