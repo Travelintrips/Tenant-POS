@@ -102,7 +102,7 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 // ─── SESSION_SECRET ────────────────────────────────────────────────────────
-// Di production, SESSION_SECRET wajib diset di Replit Secrets.
+// Di production, SESSION_SECRET wajib diset di environment/secrets production.
 // Di development, auto-generate secret acak jika tidak diset agar server
 // tidak pernah gagal start hanya karena secret belum dikonfigurasi.
 // CATATAN: auto-generated secret bersifat ephemeral — sesi akan invalid
@@ -114,7 +114,7 @@ if (!sessionSecret) {
   if (isProduction) {
     // Di production, SESSION_SECRET WAJIB diset. Fail-fast agar tidak ada
     // sesi tidak aman yang lolos ke production.
-    throw new Error("SESSION_SECRET wajib diset di production. Tambahkan ke Replit Secrets.");
+    throw new Error("SESSION_SECRET wajib diset di production. Tambahkan ke environment/secrets hosting.");
   } else {
     logger.info("SESSION_SECRET tidak diset — menggunakan secret acak untuk development. Tambahkan SESSION_SECRET ke Secrets untuk sesi yang persisten.");
     sessionSecret = crypto.randomBytes(32).toString("hex");
