@@ -2,7 +2,7 @@ import { Router, type IRouter } from "express";
 import passport from "../lib/auth";
 import { db } from "@workspace/db";
 import { usersTable, USER_ROLES, USER_STATUSES, type UserRole, tenantUserAccessTable, mallSitesTable, tenantsTable } from "@workspace/db/schema";
-import { eq, asc, and, ne } from "drizzle-orm";
+import { eq, asc, and, ne, inArray } from "drizzle-orm";
 import { findOrCreateUser, buildSessionUser, getTenantAccess } from "../lib/auth";
 import { requireAnyRole, requireAuth, invalidateUserStatusCache } from "../middlewares/auth";
 import { logAudit } from "../lib/audit";
@@ -18,112 +18,112 @@ const DEV_LOGIN_ENABLED =
   process.env.ENABLE_DEV_LOGIN === "true" ||
   Boolean(process.env.DEV_LOGIN_SECRET);
 
-const DEV_ROLE_EMAILS: Record<string, { email: string; name: string; phoneNumber?: string }> = {
-  owner:   { email: "owner@mall.local",   name: "Dev Owner",   phoneNumber: "6281111111111" },
-  admin:   { email: "admin@mall.local",   name: "Dev Admin",   phoneNumber: "6281111111112" },
-  finance: { email: "finance@mall.local", name: "Dev Finance", phoneNumber: "6281111111113" },
-  cashier: { email: "cashier@mall.local", name: "Dev Kasir",   phoneNumber: "6281111111114" },
+const DEV_PHONE_NUMBERS = [
+ "6282299997227",
+ "6287808785098"
+]
+
+const DEV_ROLE_NAMES: Record<string, string> = {
+  owner: "Dev Owner",
+  admin: "Dev Admin",
+  finance: "Dev Finance",
+  cashier: "Dev Kasir",
+  tenant_user: "Dev Tenant User",
 };
 
 if (DEV_LOGIN_ENABLED) {
   router.post("/auth/dev-login", devLoginRateLimiter, async (req, res) => {
-    // Jika DEV_LOGIN_SECRET diset, wajib disertakan di body request
     const devLoginSecret = process.env.DEV_LOGIN_SECRET;
+
     if (devLoginSecret) {
       const provided = (req.body as any).devSecret as string | undefined;
+
       if (!provided || provided !== devLoginSecret) {
         res.status(401).json({ error: "Password dev tidak valid" });
         return;
       }
     }
 
-    const { role } = req.body as { role?: string; email?: string; name?: string };
+    const { role } = req.body as { role?: string };
 
-    const effectiveRole: UserRole = (USER_ROLES.includes(role as UserRole) ? role : "admin") as UserRole;
+    const effectiveRole: UserRole =
+      USER_ROLES.includes(role as UserRole)
+        ? role as UserRole
+        : "admin";
 
-    if (effectiveRole === "tenant_user") {
-      const phoneNumber = (req.body as any).phoneNumber as string | undefined;
-      const normalized = normalizePhoneNumber(phoneNumber ?? "628000000001");
-      const name = (req.body as any).name ?? "Dev Tenant User";
+    const phoneNumbers = DEV_PHONE_NUMBERS.map(normalizePhoneNumber);
 
-      let [existing] = await db
-        .select()
-        .from(usersTable)
-        .where(eq(usersTable.phoneNumber, normalized));
+    const requestedPhoneNumber = normalizePhoneNumber(
+    (req.body as any).phoneNumber ?? phoneNumbers[0]
+    );
 
-      if (!existing) {
-        const [created] = await db
-          .insert(usersTable)
-          .values({ id: randomUUID(), name, phoneNumber: normalized, role: "tenant_user", status: "active" })
-          .returning();
-        existing = created;
-
-        const [site] = await db.select().from(mallSitesTable).limit(1);
-        const [tenant] = await db.select().from(tenantsTable).limit(1);
-        if (site && tenant) {
-          await db
-            .insert(tenantUserAccessTable)
-            .values({ userId: existing.id, tenantId: tenant.id, siteId: site.id, accessLevel: "viewer", status: "active" })
-            .onConflictDoNothing();
-        }
-      }
-
-      const sessionUser = await buildSessionUser({ ...existing, phoneNumber: existing.phoneNumber ?? null });
-      req.login(sessionUser, (err) => {
-        if (err) { res.status(500).json({ error: "Login gagal" }); return; }
-        res.json(sessionUser);
-      });
-      return;
-    }
-
-    const preset = DEV_ROLE_EMAILS[effectiveRole] ?? {
-      email: req.body.email ?? `dev-${effectiveRole}@mall.local`,
-      name: req.body.name ?? `Dev ${effectiveRole}`,
-    };
-
-    logger.info({ role: effectiveRole, email: preset.email }, "[dev-login] dipanggil");
+    logger.info(
+    { role: effectiveRole, phoneNumber: requestedPhoneNumber },
+    "[dev-login] dipanggil"
+    );
 
     try {
-      const dbUser = await findOrCreateUser({
-        email: preset.email,
-        name: preset.name,
-        avatar: null,
-      });
+      let [dbUser] = await db
+        .select()
+        .from(usersTable)
+        .where(inArray(usersTable.phoneNumber, phoneNumbers));
 
-      const needsUpdate: Partial<{ role: string; phoneNumber: string; updatedAt: Date }> = {};
-      if (dbUser.role !== effectiveRole) needsUpdate.role = effectiveRole;
-      if (preset.phoneNumber && dbUser.phoneNumber !== preset.phoneNumber) {
-        needsUpdate.phoneNumber = preset.phoneNumber;
-      }
-      if (Object.keys(needsUpdate).length > 0) {
-        needsUpdate.updatedAt = new Date();
-        await db.update(usersTable).set(needsUpdate).where(eq(usersTable.id, dbUser.id));
+      if (!dbUser) {
+        const [created] = await db
+          .insert(usersTable)
+          .values({
+            id: randomUUID(),
+            name: DEV_ROLE_NAMES[effectiveRole] ?? "Dev User",
+            phoneNumber: requestedPhoneNumber,
+            role: effectiveRole,
+            status: "active",
+          })
+          .returning();
+
+        dbUser = created;
+      } else {
+        await db
+          .update(usersTable)
+          .set({
+            role: effectiveRole,
+            updatedAt: new Date(),
+          })
+          .where(eq(usersTable.id, dbUser.id));
+
         dbUser.role = effectiveRole;
-        if (preset.phoneNumber) dbUser.phoneNumber = preset.phoneNumber;
       }
 
-      const sessionUser = await buildSessionUser(dbUser, `dev:${preset.email}`);
-
-      logger.info({ role: sessionUser.role, email: sessionUser.email }, "[dev-login] user siap, memanggil req.login");
+      const sessionUser = await buildSessionUser({
+        ...dbUser,
+        phoneNumber: requestedPhoneNumber,
+      });
 
       req.login(sessionUser, (err) => {
         if (err) {
           logger.error({ err }, "[dev-login] req.login gagal");
-          res.status(500).json({ error: "Login gagal" });
+          res.status(500).json({
+            error: "Login gagal",
+          });
           return;
         }
-        logger.info({ role: sessionUser.role }, "[dev-login] req.login berhasil");
-        logAudit(req, {
-          action: "dev_login",
-          entityType: "user",
-          entityId: dbUser.id,
-          afterData: { email: sessionUser.email, role: sessionUser.role, method: "dev-login" },
-        });
+
+        logger.info(
+          {
+            role: sessionUser.role,
+            phoneNumber: requestedPhoneNumber,
+          },
+          "[dev-login] berhasil"
+        );
+
         res.json(sessionUser);
       });
+
     } catch (err) {
       logger.error({ err }, "[dev-login] Error membuat user");
-      res.status(500).json({ error: "Gagal membuat sesi dev login" });
+
+      res.status(500).json({
+        error: "Gagal membuat sesi dev login",
+      });
     }
   });
 }
