@@ -70,22 +70,22 @@ if (DEV_LOGIN_ENABLED) {
     );
 
     try {
-      let [dbUser] = await db
-        .select({
-          id: usersTable.id,
-          email: usersTable.email,
-          name: usersTable.name,
-          avatarUrl: usersTable.avatarUrl,
-          role: usersTable.role,
-          phoneNumber: usersTable.phoneNumber,
-        })
-        .from(usersTable)
-        .where(eq(usersTable.phoneNumber, requestedPhoneNumber));
+     let [dbUser] = await db
+  .select({
+    id: usersTable.id,
+    email: usersTable.email,
+    name: usersTable.name,
+    avatarUrl: usersTable.avatarUrl,
+    role: usersTable.role,
+    phoneNumber: usersTable.phoneNumber,
+  })
+  .from(usersTable)
+  .where(eq(usersTable.phoneNumber, requestedPhoneNumber));
 
-    if (!dbUser) {
-      const [created] = await db
-        .insert(usersTable)
-        .values({
+if (!dbUser) {
+  const [created] = await db
+    .insert(usersTable)
+    .values({
       id: randomUUID(),
       email: `${requestedPhoneNumber}@dev.local`,
       name: DEV_ROLE_NAMES[effectiveRole] ?? "Dev User",
@@ -105,16 +105,24 @@ if (DEV_LOGIN_ENABLED) {
 
   dbUser = created;
 } else {
-  await db
+  const [updated] = await db
     .update(usersTable)
     .set({
       role: effectiveRole,
       updatedAt: new Date(),
     })
-    .where(eq(usersTable.id, dbUser.id));
+    .where(eq(usersTable.id, dbUser.id))
+    .returning({
+      id: usersTable.id,
+      email: usersTable.email,
+      name: usersTable.name,
+      avatarUrl: usersTable.avatarUrl,
+      role: usersTable.role,
+      phoneNumber: usersTable.phoneNumber,
+    });
 
-  dbUser.role = effectiveRole;
-}  
+  dbUser = updated;
+}
       const sessionUser = await buildSessionUser({
         ...dbUser,
         phoneNumber: requestedPhoneNumber,
