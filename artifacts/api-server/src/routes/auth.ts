@@ -60,7 +60,10 @@ if (DEV_LOGIN_ENABLED) {
 
     const phoneNumbers = DEV_PHONE_NUMBERS.map(normalizePhoneNumber);
 
-    const requestedPhoneNumber = phoneNumbers[0];
+    const requestedPhoneNumber =
+  normalizePhoneNumber(
+    (req.body as any).phoneNumber || phoneNumbers[0]
+  );
 
     logger.info(
     { role: effectiveRole, phoneNumber: requestedPhoneNumber },
@@ -71,7 +74,7 @@ if (DEV_LOGIN_ENABLED) {
      let [dbUser] = await db
   .select()
   .from(usersTable)
-  .where(eq(usersTable.phoneNumber, requestedPhoneNumber));
+  .where(inArray(usersTable.phoneNumber, phoneNumbers));
 if (!dbUser) {
   const [created] = await db
     .insert(usersTable)
@@ -80,7 +83,7 @@ if (!dbUser) {
       email: `${requestedPhoneNumber}@dev.local`,
       name: DEV_ROLE_NAMES[effectiveRole] ?? "Dev User",
       avatarUrl: null,
-      phoneNumber: requestedPhoneNumber,
+      phoneNumber: dbUser.phoneNumber,
       role: effectiveRole,
       status: "active",
     })
