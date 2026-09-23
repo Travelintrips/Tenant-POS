@@ -88,13 +88,19 @@ if (!dbUser) {
       status: "active",
     })
     .returning({
-      id: usersTable.id,
-      email: usersTable.email,
-      name: usersTable.name,
-      avatarUrl: usersTable.avatarUrl,
-      role: usersTable.role,
-      phoneNumber: usersTable.phoneNumber,
-    });
+  id: usersTable.id,
+  email: usersTable.email,
+  name: usersTable.name,
+  avatarUrl: usersTable.avatarUrl,
+  role: usersTable.role,
+  phoneNumber: usersTable.phoneNumber,
+  phoneVerifiedAt: usersTable.phoneVerifiedAt,
+  status: usersTable.status,
+  lastLoginAt: usersTable.lastLoginAt,
+  forceLogoutAt: usersTable.forceLogoutAt,
+  createdAt: usersTable.createdAt,
+  updatedAt: usersTable.updatedAt,
+});
 
   dbUser = created;
 } else {
@@ -106,13 +112,19 @@ if (!dbUser) {
     })
     .where(eq(usersTable.id, dbUser.id))
     .returning({
-      id: usersTable.id,
-      email: usersTable.email,
-      name: usersTable.name,
-      avatarUrl: usersTable.avatarUrl,
-      role: usersTable.role,
-      phoneNumber: usersTable.phoneNumber,
-    });
+  id: usersTable.id,
+  email: usersTable.email,
+  name: usersTable.name,
+  avatarUrl: usersTable.avatarUrl,
+  role: usersTable.role,
+  phoneNumber: usersTable.phoneNumber,
+  phoneVerifiedAt: usersTable.phoneVerifiedAt,
+  status: usersTable.status,
+  lastLoginAt: usersTable.lastLoginAt,
+  forceLogoutAt: usersTable.forceLogoutAt,
+  createdAt: usersTable.createdAt,
+  updatedAt: usersTable.updatedAt,
+});
 
   dbUser = updated;
 }
