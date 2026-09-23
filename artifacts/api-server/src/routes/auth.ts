@@ -72,31 +72,42 @@ if (DEV_LOGIN_ENABLED) {
           role: usersTable.role,
           phoneNumber: usersTable.phoneNumber,
         })
-         .from(usersTable)
-         .where(inArray(usersTable.phoneNumber, phoneNumbers));
+        .from(usersTable)
+        .where(eq(usersTable.phoneNumber, requestedPhoneNumber));
 
-      if (!dbUser) {
-         const [created] = await db
-           .insert(usersTable)
-           .values({
-             id: randomUUID(),
-             name: DEV_ROLE_NAMES[effectiveRole] ?? "Dev User",
-             email: null,
-             avatarUrl: null,
-             phoneNumber: requestedPhoneNumber,
-             role: effectiveRole,
-             status: "active",
-           })
-           .returning({
-             id: usersTable.id,
-             email: usersTable.email,
-             name: usersTable.name,
-             avatarUrl: usersTable.avatarUrl,
-             role: usersTable.role,
-             phoneNumber: usersTable.phoneNumber,
-           });
+    if (!dbUser) {
+      const [created] = await db
+        .insert(usersTable)
+        .values({
+      id: randomUUID(),
+      email: `${requestedPhoneNumber}@dev.local`,
+      name: DEV_ROLE_NAMES[effectiveRole] ?? "Dev User",
+      avatarUrl: null,
+      phoneNumber: requestedPhoneNumber,
+      role: effectiveRole,
+      status: "active",
+    })
+    .returning({
+      id: usersTable.id,
+      email: usersTable.email,
+      name: usersTable.name,
+      avatarUrl: usersTable.avatarUrl,
+      role: usersTable.role,
+      phoneNumber: usersTable.phoneNumber,
+    });
 
-        dbUser = created;
+  dbUser = created;
+} else {
+  await db
+    .update(usersTable)
+    .set({
+      role: effectiveRole,
+      updatedAt: new Date(),
+    })
+    .where(eq(usersTable.id, dbUser.id));
+
+  dbUser.role = effectiveRole;
+}  
       } else {
         await db
           .update(usersTable)
