@@ -66,27 +66,38 @@ if (DEV_LOGIN_ENABLED) {
       let [dbUser] = await db
         .select({
           id: usersTable.id,
+          email: usersTable.email,
           name: usersTable.name,
+          avatarUrl: usersTable.avatarUrl,
           role: usersTable.role,
           phoneNumber: usersTable.phoneNumber,
-          status: usersTable.status,
         })
          .from(usersTable)
          .where(inArray(usersTable.phoneNumber, phoneNumbers));
 
       if (!dbUser) {
-        const [created] = await db
-          .insert(usersTable)
-          .values({
-            id: randomUUID(),
-            name: DEV_ROLE_NAMES[effectiveRole] ?? "Dev User",
-            phoneNumber: requestedPhoneNumber,
-            role: effectiveRole,
-            status: "active",
-          })
-          .returning();
+         const [created] = await db
+           .insert(usersTable)
+           .values({
+             id: randomUUID(),
+             name: DEV_ROLE_NAMES[effectiveRole] ?? "Dev User",
+             email: null,
+             avatarUrl: null,
+             phoneNumber: requestedPhoneNumber,
+             role: effectiveRole,
+             status: "active",
+           })
+           .returning({
+             id: usersTable.id,
+             email: usersTable.email,
+             name: usersTable.name,
+             avatarUrl: usersTable.avatarUrl,
+             role: usersTable.role,
+             phoneNumber: usersTable.phoneNumber,
+           });
 
         dbUser = created;
+      }
       } else {
         await db
           .update(usersTable)
