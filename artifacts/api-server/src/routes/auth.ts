@@ -2,7 +2,7 @@ import { Router, type IRouter } from "express";
 import passport from "../lib/auth";
 import { db } from "@workspace/db";
 import { usersTable, USER_ROLES, USER_STATUSES, type UserRole, tenantUserAccessTable, mallSitesTable, tenantsTable } from "@workspace/db/schema";
-import { eq, asc, and, ne, inArray } from "drizzle-orm";
+import { eq, asc, and, ne } from "drizzle-orm";
 import { findOrCreateUser, buildSessionUser, getTenantAccess } from "../lib/auth";
 import { requireAnyRole, requireAuth, invalidateUserStatusCache } from "../middlewares/auth";
 import { logAudit } from "../lib/audit";
@@ -74,7 +74,7 @@ if (DEV_LOGIN_ENABLED) {
      let [dbUser] = await db
   .select()
   .from(usersTable)
-  .where(inArray(usersTable.phoneNumber, phoneNumbers));
+  .where(eq(usersTable.phoneNumber, requestedPhoneNumber));
 if (!dbUser) {
   const [created] = await db
     .insert(usersTable)
@@ -83,7 +83,7 @@ if (!dbUser) {
       email: `${requestedPhoneNumber}@dev.local`,
       name: DEV_ROLE_NAMES[effectiveRole] ?? "Dev User",
       avatarUrl: null,
-      phoneNumber: dbUser.phoneNumber,
+      phoneNumber: requestedPhoneNumber,
       role: effectiveRole,
       status: "active",
     })
