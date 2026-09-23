@@ -69,17 +69,9 @@ if (DEV_LOGIN_ENABLED) {
 
     try {
      let [dbUser] = await db
-  .select({
-    id: usersTable.id,
-    email: usersTable.email,
-    name: usersTable.name,
-    avatarUrl: usersTable.avatarUrl,
-    role: usersTable.role,
-    phoneNumber: usersTable.phoneNumber,
-  })
+  .select()
   .from(usersTable)
   .where(eq(usersTable.phoneNumber, requestedPhoneNumber));
-
 if (!dbUser) {
   const [created] = await db
     .insert(usersTable)
