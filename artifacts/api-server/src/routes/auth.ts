@@ -64,9 +64,15 @@ if (DEV_LOGIN_ENABLED) {
 
     try {
       let [dbUser] = await db
-        .select()
-        .from(usersTable)
-        .where(inArray(usersTable.phoneNumber, phoneNumbers));
+        .select({
+          id: usersTable.id,
+          name: usersTable.name,
+          role: usersTable.role,
+          phoneNumber: usersTable.phoneNumber,
+          status: usersTable.status,
+        })
+         .from(usersTable)
+         .where(inArray(usersTable.phoneNumber, phoneNumbers));
 
       if (!dbUser) {
         const [created] = await db
