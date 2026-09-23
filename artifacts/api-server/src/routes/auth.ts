@@ -60,9 +60,7 @@ if (DEV_LOGIN_ENABLED) {
 
     const phoneNumbers = DEV_PHONE_NUMBERS.map(normalizePhoneNumber);
 
-    const requestedPhoneNumber = normalizePhoneNumber(
-    (req.body as any).phoneNumber ?? phoneNumbers[0]
-    );
+    const requestedPhoneNumber = phoneNumbers[0];
 
     logger.info(
     { role: effectiveRole, phoneNumber: requestedPhoneNumber },
