@@ -58,3 +58,4 @@
 - [Production journal corrections](production-journal-corrections.md) — create corrections as draft, add lines, then post; reversal refs must be unique, and payment company comes from its invoice rather than the site default.
 - [Supabase payment-proof storage](supabase-payment-proof-storage.md) — payment-proof bucket is private and may enforce allowed MIME types; verify with supported PNG/PDF through server-side routes.
 - [Frontend site filter headers](frontend-site-filter-headers.md) — pages that use site-scoped APIs must use the shared apiFetch wrapper; plain fetch falls back to the default TOD site.
+- [Live domain deployment boundary](hostinger-production-deployment.md) — tenant.travelintrips.co.id is Hostinger-served; Replit build/publish does not update it without an external Hostinger redeploy.

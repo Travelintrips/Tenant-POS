@@ -15,7 +15,11 @@ function resolveDbUrl(): string {
     : process.env["SUPABASE_PG_URL_DEV"] ??
       process.env["SUPABASE_POOLER_URL"] ??
       process.env["DATABASE_URL"];
-  if (!url) throw new Error("SUPABASE_POOLER_URL atau SUPABASE_PG_URL_PROD harus diset di Secrets/Config");
+  if (!url) {
+    throw new Error(
+      "SUPABASE_PG_URL, SUPABASE_PG_URL_PROD, SUPABASE_POOLER_URL, atau DATABASE_URL harus diset di Secrets/Config",
+    );
+  }
   return url;
 }
 
