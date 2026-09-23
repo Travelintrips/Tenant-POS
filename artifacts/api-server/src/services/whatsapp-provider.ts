@@ -6,8 +6,8 @@ export interface SendOtpResult {
 }
 
 async function sendViaFonnte(phoneNumber: string, otp: string): Promise<SendOtpResult> {
-  const apiKey = process.env.FONNTE_API_KEY ?? process.env.FONNTE_TOKEN;
-  const sender = process.env.FONNTE_SENDER ?? "";
+  const apiKey = (process.env.FONNTE_API_KEY ?? process.env.FONNTE_TOKEN)?.trim();
+  const sender = process.env.FONNTE_SENDER?.trim() ?? "";
 
   if (!apiKey) {
     return { sent: false, error: "FONNTE_API_KEY atau FONNTE_TOKEN tidak dikonfigurasi" };
@@ -66,10 +66,17 @@ export async function sendOtpWhatsapp(
     return { sent: false, error: "OTP tidak boleh kosong" };
   }
 
-  const hasToken = !!(process.env.FONNTE_API_KEY ?? process.env.FONNTE_TOKEN);
+  const hasToken = Boolean(
+    (process.env.FONNTE_API_KEY ?? process.env.FONNTE_TOKEN)?.trim(),
+  );
 
   if (!hasToken) {
-    // Tidak ada token → skip (dev tanpa Fonnte)
+    if (process.env.NODE_ENV === "production") {
+      logger.error("[whatsapp-provider] FONNTE token belum dikonfigurasi di production");
+      return { sent: false, error: "FONNTE_API_KEY atau FONNTE_TOKEN belum dikonfigurasi" };
+    }
+
+    // Development boleh berjalan tanpa perangkat Fonnte.
     logger.info({ phoneNumber }, "[whatsapp-provider] Tidak ada FONNTE token — OTP tidak dikirim via WA");
     return { sent: true };
   }

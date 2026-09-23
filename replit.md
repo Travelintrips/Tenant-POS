@@ -115,7 +115,8 @@ file yang hasil WebP-nya tidak lebih kecil.
 | Secret | Keterangan |
 |--------|-----------|
 | `APP_URL` | Base URL aplikasi (contoh: `https://nama-repl.replit.app`). Dipakai untuk generate link pembayaran WA. |
-| `ENABLE_DEV_LOGIN` | Set `true` untuk mengaktifkan tombol login cepat (Pemilik/Admin/Kasir) di halaman login — **hanya untuk development**. |
+| `ENABLE_DEV_LOGIN` | Set `true` untuk menampilkan login password alternatif. Di production wajib dipakai bersama `DEV_LOGIN_SECRET`. |
+| `DEV_LOGIN_SECRET` | Password login alternatif/dev. Wajib diisi di environment production jika `ENABLE_DEV_LOGIN=true`; jangan commit nilainya. |
 | `NODE_ENV` | `development` atau `production`. Biasanya di-set otomatis oleh Replit. |
 
 ### OTP Provider Lanjutan (Opsional)

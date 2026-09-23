@@ -17,6 +17,7 @@ const DEV_LOGIN_ENABLED =
   process.env.NODE_ENV !== "production" ||
   process.env.ENABLE_DEV_LOGIN === "true" ||
   Boolean(process.env.DEV_LOGIN_SECRET);
+const IS_PRODUCTION = process.env.NODE_ENV === "production";
 
 const DEV_PHONE_NUMBERS = [
  "6282299997227",
@@ -33,7 +34,13 @@ const DEV_ROLE_NAMES: Record<string, string> = {
 
 if (DEV_LOGIN_ENABLED) {
   router.post("/auth/dev-login", devLoginRateLimiter, async (req, res) => {
-    const devLoginSecret = process.env.DEV_LOGIN_SECRET;
+    const devLoginSecret = process.env.DEV_LOGIN_SECRET?.trim();
+
+    if (IS_PRODUCTION && !devLoginSecret) {
+      logger.error("[dev-login] DEV_LOGIN_SECRET belum dikonfigurasi di production");
+      res.status(503).json({ error: "Login password belum dikonfigurasi di server" });
+      return;
+    }
 
     if (devLoginSecret) {
       const provided = (req.body as any).devSecret as string | undefined;

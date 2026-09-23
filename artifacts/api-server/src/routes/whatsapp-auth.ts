@@ -23,49 +23,54 @@ router.post(
   otpRequestIpRateLimiter,
   otpRequestRateLimiter,
   async (req, res) => {
-    const parsed = requestOtpSchema.safeParse(req.body);
-    if (!parsed.success) {
-      res.status(400).json({ error: "Format nomor WhatsApp tidak valid" });
-      return;
-    }
+    try {
+      const parsed = requestOtpSchema.safeParse(req.body);
+      if (!parsed.success) {
+        res.status(400).json({ error: "Format nomor WhatsApp tidak valid" });
+        return;
+      }
 
-    const normalized = normalizePhoneNumber(parsed.data.phoneNumber);
+      const normalized = normalizePhoneNumber(parsed.data.phoneNumber);
 
-    const user = await findOrCreateUserByPhone({ phoneNumber: normalized });
+      const user = await findOrCreateUserByPhone({ phoneNumber: normalized });
 
-    const GENERIC_MESSAGE = "Jika nomor terdaftar, kode OTP akan dikirim.";
+      const GENERIC_MESSAGE = "Jika nomor terdaftar, kode OTP akan dikirim.";
 
-    if (!user) {
-      logger.info({ phoneNumber: normalized }, "[wa-otp] nomor tidak ditemukan");
+      if (!user) {
+        logger.info({ phoneNumber: normalized }, "[wa-otp] nomor tidak ditemukan");
+        res.json({ message: GENERIC_MESSAGE });
+        return;
+      }
+
+      const result = await createOtp(normalized);
+
+      logAudit(req, {
+        action: "whatsapp_otp_requested",
+        entityType: "user",
+        entityId: user.id,
+        afterData: { phoneNumber: normalized },
+      });
+
+      // Dev mode: kembalikan OTP langsung di response (tidak kirim WA)
+      if (result.devOtp) {
+        res.json({ message: GENERIC_MESSAGE, devOtp: result.devOtp });
+        return;
+      }
+
+      // Production mode: kirim via WhatsApp provider
+      // result.plainOtp hanya ada di production path
+      const sent = await sendOtpWhatsapp(normalized, result.plainOtp ?? "");
+      if (!sent.sent) {
+        logger.error({ error: sent.error }, "[wa-otp] gagal kirim OTP");
+        res.status(502).json({ error: "Gagal mengirim OTP melalui WhatsApp. Silakan coba lagi." });
+        return;
+      }
+
       res.json({ message: GENERIC_MESSAGE });
-      return;
+    } catch (err) {
+      logger.error({ err }, "[wa-otp] gagal membuat atau mengirim OTP");
+      res.status(500).json({ error: "Login OTP belum tersedia. Silakan coba lagi." });
     }
-
-    const result = await createOtp(normalized);
-
-    logAudit(req, {
-      action: "whatsapp_otp_requested",
-      entityType: "user",
-      entityId: user.id,
-      afterData: { phoneNumber: normalized },
-    });
-
-    // Dev mode: kembalikan OTP langsung di response (tidak kirim WA)
-    if (result.devOtp) {
-      res.json({ message: GENERIC_MESSAGE, devOtp: result.devOtp });
-      return;
-    }
-
-    // Production mode: kirim via WhatsApp provider
-    // result.plainOtp hanya ada di production path
-    const sent = await sendOtpWhatsapp(normalized, result.plainOtp ?? "");
-    if (!sent.sent) {
-      logger.error({ error: sent.error }, "[wa-otp] gagal kirim OTP");
-      res.status(500).json({ error: "Gagal mengirim OTP. Silakan coba lagi." });
-      return;
-    }
-
-    res.json({ message: GENERIC_MESSAGE });
   },
 );
 
@@ -73,57 +78,62 @@ router.post(
   "/auth/whatsapp/verify-otp",
   otpVerifyRateLimiter,
   async (req, res) => {
-    const parsed = verifyOtpSchema.safeParse(req.body);
-    if (!parsed.success) {
-      res.status(400).json({ error: "Data tidak valid" });
-      return;
-    }
-
-    const { phoneNumber, otp } = parsed.data;
-    const normalized = normalizePhoneNumber(phoneNumber);
-
-    const verifyResult = await verifyOtp(normalized, otp);
-
-    if (!verifyResult.ok) {
-      const messages: Record<string, string> = {
-        invalid: "Kode OTP tidak valid",
-        expired: "Kode OTP sudah kedaluwarsa",
-        max_attempts: "Terlalu banyak percobaan. Minta kode OTP baru.",
-        already_used: "Kode OTP sudah digunakan",
-      };
-      logAudit(req, {
-        action: "whatsapp_login_failed",
-        entityType: "user",
-        afterData: { phoneNumber: normalized, reason: verifyResult.reason },
-      });
-      res.status(401).json({ error: messages[verifyResult.reason] ?? "OTP tidak valid" });
-      return;
-    }
-
-    const dbUser = await findOrCreateUserByPhone({ phoneNumber: normalized });
-    if (!dbUser) {
-      res.status(401).json({ error: "Akun tidak ditemukan atau tidak aktif" });
-      return;
-    }
-
-    const sessionUser = await buildSessionUser(dbUser);
-
-    req.login(sessionUser, async (err) => {
-      if (err) {
-        logger.error({ err }, "[wa-otp] req.login gagal");
-        res.status(500).json({ error: "Login gagal" });
+    try {
+      const parsed = verifyOtpSchema.safeParse(req.body);
+      if (!parsed.success) {
+        res.status(400).json({ error: "Data tidak valid" });
         return;
       }
 
-      logAudit(req, {
-        action: "whatsapp_login_success",
-        entityType: "user",
-        entityId: dbUser.id,
-        afterData: { phoneNumber: normalized, role: dbUser.role },
-      });
+      const { phoneNumber, otp } = parsed.data;
+      const normalized = normalizePhoneNumber(phoneNumber);
 
-      res.json(sessionUser);
-    });
+      const verifyResult = await verifyOtp(normalized, otp);
+
+      if (!verifyResult.ok) {
+        const messages: Record<string, string> = {
+          invalid: "Kode OTP tidak valid",
+          expired: "Kode OTP sudah kedaluwarsa",
+          max_attempts: "Terlalu banyak percobaan. Minta kode OTP baru.",
+          already_used: "Kode OTP sudah digunakan",
+        };
+        logAudit(req, {
+          action: "whatsapp_login_failed",
+          entityType: "user",
+          afterData: { phoneNumber: normalized, reason: verifyResult.reason },
+        });
+        res.status(401).json({ error: messages[verifyResult.reason] ?? "OTP tidak valid" });
+        return;
+      }
+
+      const dbUser = await findOrCreateUserByPhone({ phoneNumber: normalized });
+      if (!dbUser) {
+        res.status(401).json({ error: "Akun tidak ditemukan atau tidak aktif" });
+        return;
+      }
+
+      const sessionUser = await buildSessionUser(dbUser);
+
+      req.login(sessionUser, async (err) => {
+        if (err) {
+          logger.error({ err }, "[wa-otp] req.login gagal");
+          res.status(500).json({ error: "Login gagal" });
+          return;
+        }
+
+        logAudit(req, {
+          action: "whatsapp_login_success",
+          entityType: "user",
+          entityId: dbUser.id,
+          afterData: { phoneNumber: normalized, role: dbUser.role },
+        });
+
+        res.json(sessionUser);
+      });
+    } catch (err) {
+      logger.error({ err }, "[wa-otp] gagal memverifikasi OTP");
+      res.status(500).json({ error: "Login OTP belum tersedia. Silakan coba lagi." });
+    }
   },
 );
 
