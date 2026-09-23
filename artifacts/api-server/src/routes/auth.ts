@@ -97,7 +97,6 @@ if (DEV_LOGIN_ENABLED) {
            });
 
         dbUser = created;
-      }
       } else {
         await db
           .update(usersTable)
