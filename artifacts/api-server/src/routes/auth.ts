@@ -119,7 +119,13 @@ if (DEV_LOGIN_ENABLED) {
       });
 
     } catch (err) {
-      logger.error({ err }, "[dev-login] Error membuat user");
+      logger.error(
+        {
+        message: err instanceof Error ? err.message : String(err),
+        stack: err instanceof Error ? err.stack : undefined,
+        },
+  "[dev-login] Error membuat user"
+);
 
       res.status(500).json({
         error: "Gagal membuat sesi dev login",
