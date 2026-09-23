@@ -4,7 +4,7 @@
 - [api-zod duplicate exports](api-zod-exports.md) — only export from `./generated/api`, not `./generated/types` (same names clash)
 - [scripts workspace resolution](scripts-workspace-resolution.md) — scripts pkg needs `paths` in tsconfig to resolve `@workspace/*` libs; symlinks not created by pnpm for scripts
 - [invalid hook call fix](invalid-hook-call.md) — avoid generated lib hooks (useListTenants etc); use `useQuery` directly in admin-portal pages
-- [DB active connection](db-connection-priority.md) — dev: SUPABASE_PG_URL_DEV → DATABASE_URL; prod: SUPABASE_PG_URL_PROD → SUPABASE_PG_URL → DATABASE_URL; config.ts selalu pakai resolveDbUrl() function style
+- [DB active connection](db-connection-priority.md) — production-scoped SUPABASE_PG_URL must precede shared SUPABASE_PG_URL_PROD; keep db and session store on the same resolved URL
 - [Supabase search path](supabase-search-path.md) — set `search_path` after connecting; do not send it as a PostgreSQL startup option because some Supabase endpoints reject it.
 - [config-ts-keep-function-style](config-ts-merge-conflict.md) — lib/db/src/config.ts rentan kena duplicate `return (` dari repeated edits; ALWAYS overwrite penuh dengan WriteFile tool, gunakan `if (!url) throw` style (bukan nested ternary/return chain)
 - [schema-column-fix](schema-column-fix.md) — 3 tables needed ALTER TABLE to add missing columns; sync old data booking_id from tenant_booking_id after adding new column

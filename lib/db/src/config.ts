@@ -4,12 +4,12 @@ import { supabaseRootCa } from "./supabase-root-ca";
 const isProduction = (process.env["NODE_ENV"] ?? "development") === "production";
 
 function resolveDbUrl(): string {
-  // Development dan production memakai project Supabase yang berbeda. Jangan
-  // memakai kredensial production saat workflow development berjalan karena
-  // keduanya bisa memiliki password atau project yang berbeda.
+  // Environment-specific Replit config takes precedence over shared secrets.
+  // A stale shared SUPABASE_PG_URL_PROD must not override the production
+  // connection configured in [userenv.production].
   const url = isProduction
-    ? process.env["SUPABASE_PG_URL_PROD"] ??
-      process.env["SUPABASE_PG_URL"] ??
+    ? process.env["SUPABASE_PG_URL"] ??
+      process.env["SUPABASE_PG_URL_PROD"] ??
       process.env["SUPABASE_POOLER_URL"] ??
       process.env["DATABASE_URL"]
     : process.env["SUPABASE_PG_URL_DEV"] ??

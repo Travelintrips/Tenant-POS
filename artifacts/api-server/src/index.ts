@@ -16,7 +16,8 @@ function validateProductionEnv(): void {
   const errors: string[] = [];
   const warnings: string[] = [];
 
-  // lib/db/src/config.ts pakai prioritas: SUPABASE_PG_URL_PROD → SUPABASE_PG_URL
+  // lib/db/src/config.ts production memakai prioritas:
+  // SUPABASE_PG_URL (production-scoped) → SUPABASE_PG_URL_PROD (shared fallback)
   // → SUPABASE_POOLER_URL → DATABASE_URL. Validasi harus sama agar startup
   // tidak memberikan diagnosa yang berbeda dengan koneksi yang dipakai aplikasi.
   // Validasi harus konsisten dengan urutan prioritas itu.
@@ -41,7 +42,7 @@ function validateProductionEnv(): void {
     );
   } else if (!pgUrlProd && pgUrl) {
     warnings.push(
-      "SUPABASE_PG_URL_PROD tidak diset, menggunakan SUPABASE_PG_URL sebagai fallback. " +
+      "SUPABASE_PG_URL_PROD tidak diset, menggunakan SUPABASE_PG_URL production-scoped. " +
       "Pastikan SUPABASE_PG_URL mengarah ke database production yang benar."
     );
     if (pgUrl.trimEnd() !== pgUrl) {
@@ -52,6 +53,14 @@ function validateProductionEnv(): void {
       "Production menggunakan SUPABASE_POOLER_URL sebagai fallback. " +
       "Pastikan kredensial pooler masih valid."
     );
+  } else if (pgUrlProd && pgUrl) {
+    warnings.push(
+      "SUPABASE_PG_URL production-scoped dipakai lebih dulu daripada SUPABASE_PG_URL_PROD shared. " +
+      "Pastikan keduanya mengarah ke database production yang sama."
+    );
+    if (pgUrl.trimEnd() !== pgUrl) {
+      warnings.push("SUPABASE_PG_URL memiliki trailing whitespace — bisa menyebabkan koneksi gagal.");
+    }
   } else if (pgUrlProd) {
     if (pgUrlProd.trimEnd() !== pgUrlProd) {
       warnings.push("SUPABASE_PG_URL_PROD memiliki trailing whitespace — bisa menyebabkan koneksi gagal.");

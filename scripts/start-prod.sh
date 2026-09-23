@@ -2,6 +2,7 @@
 set -e
 # Script production: jalankan API server yang sudah di-build dengan node langsung.
 # Tidak membutuhkan pnpm — hanya node yang diperlukan di container production.
+export NODE_ENV=production
 
 # Cari root project relatif terhadap lokasi script ini
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
