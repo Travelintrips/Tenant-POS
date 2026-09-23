@@ -108,18 +108,6 @@ if (DEV_LOGIN_ENABLED) {
 
   dbUser.role = effectiveRole;
 }  
-      } else {
-        await db
-          .update(usersTable)
-          .set({
-            role: effectiveRole,
-            updatedAt: new Date(),
-          })
-          .where(eq(usersTable.id, dbUser.id));
-
-        dbUser.role = effectiveRole;
-      }
-
       const sessionUser = await buildSessionUser({
         ...dbUser,
         phoneNumber: requestedPhoneNumber,
