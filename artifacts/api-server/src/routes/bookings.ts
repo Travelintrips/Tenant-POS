@@ -464,7 +464,7 @@ router.put("/bookings/:id", async (req, res) => {
       .leftJoin(tenantsTable, eq(tenantBookingsTable.tenantId, tenantsTable.id))
       .where(eq(tenantBookingsTable.id, id));
 
-    logAudit(req, {
+    await logAudit(req, {
       action: "update_booking",
       entityType: "booking",
       entityId: id,
