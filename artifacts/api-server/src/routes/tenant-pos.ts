@@ -796,21 +796,31 @@ router.post("/tenant-pos/payments", paymentRateLimiter, async (req, res) => {
         payment = inserted as typeof payment;
       }
 
-      // Update booking hanya jika bookingId tersedia
-      // Update booking hanya jika ada bookingId
+      // Invoice payment sudah disinkronkan oleh PaymentLedgerService ke seluruh
+      // invoice dalam booking. Jangan overwrite hasil canonical itu dengan
+      // perhitungan payment satu invoice. Direct booking-only payment tetap
+      // memakai agregat booking legacy karena tidak mempunyai invoice.
       let updatedBooking: typeof tenantBookingsTable.$inferSelect | undefined;
       if (bookingId) {
-        const [ub] = await tx
-          .update(tenantBookingsTable)
-          .set({
-            paidAmount: String(newPaidAmount),
-            remainingAmount: String(remainingAmount),
-            paymentStatus,
-            updatedAt: new Date(),
-          })
-          .where(eq(tenantBookingsTable.id, bookingId))
-          .returning();
-        updatedBooking = ub;
+        if (invoiceId) {
+          const [ub] = await tx
+            .select()
+            .from(tenantBookingsTable)
+            .where(eq(tenantBookingsTable.id, bookingId));
+          updatedBooking = ub;
+        } else {
+          const [ub] = await tx
+            .update(tenantBookingsTable)
+            .set({
+              paidAmount: String(newPaidAmount),
+              remainingAmount: String(remainingAmount),
+              paymentStatus,
+              updatedAt: new Date(),
+            })
+            .where(eq(tenantBookingsTable.id, bookingId))
+            .returning();
+          updatedBooking = ub;
+        }
       }
 
       if (shiftId && paymentMethod === "tunai") {
@@ -829,13 +839,17 @@ router.post("/tenant-pos/payments", paymentRateLimiter, async (req, res) => {
         }
       }
 
-      // Untuk invoice-only (tanpa booking), gunakan nilai dari invoice untuk response
-      const responsePaidAmount = preInsertInvoice && !booking
-        ? Number(preInsertInvoice.paidAmount) + appliedAmount
-        : newPaidAmount;
-      const responseRemainingAmount = preInsertInvoice && !booking
-        ? Math.max(Number(preInsertInvoice.outstandingAmount) - appliedAmount, 0)
-        : remainingAmount;
+      // Response booking harus mengikuti state canonical setelah ledger sync.
+      const responsePaidAmount = updatedBooking
+        ? Number(updatedBooking.paidAmount ?? 0)
+        : preInsertInvoice && !booking
+          ? Number(preInsertInvoice.paidAmount) + appliedAmount
+          : newPaidAmount;
+      const responseRemainingAmount = updatedBooking
+        ? Number(updatedBooking.remainingAmount ?? 0)
+        : preInsertInvoice && !booking
+          ? Math.max(Number(preInsertInvoice.outstandingAmount) - appliedAmount, 0)
+          : remainingAmount;
 
       return {
         payment,
@@ -872,6 +886,8 @@ router.post("/tenant-pos/payments", paymentRateLimiter, async (req, res) => {
     });
     sseBroker.publish("payment_created", { paymentId: result.payment.id });
 
+    const financialAmount = Number((result.payment as { amount?: string | number }).amount ?? amountPaid);
+
     writePaymentEvent({
       sourceApp: "tenant_pos",
       ownerApp: "tenant_management",
@@ -882,7 +898,7 @@ router.post("/tenant-pos/payments", paymentRateLimiter, async (req, res) => {
       tenantId: tenantId ?? null,
       siteId: (result.payment.siteId as number | null) ?? null,
       invoiceId: (result.payment.invoiceId as number | null) ?? null,
-      amount: amountPaid,
+      amount: financialAmount,
       direction: "IN",
       paymentMethod: normalizePaymentMethod(paymentMethod),
       paymentReference: referenceNumber ?? null,
@@ -913,7 +929,7 @@ router.post("/tenant-pos/payments", paymentRateLimiter, async (req, res) => {
           invoiceId: invoiceId ?? null,
           invoiceNumber,
           businessName: result.tenantData?.businessName ?? null,
-          amountPaid,
+          amountPaid: financialAmount,
           paymentMethod,
           transactionDate: new Date(paidAt),
           kasirName,
@@ -937,7 +953,7 @@ router.post("/tenant-pos/payments", paymentRateLimiter, async (req, res) => {
             ownerName: result.tenantData?.ownerName ?? "",
             unitCode: result.tenantData?.boothNumber ?? null,
             periodLabel: result.tenantData?.periodLabel ?? null,
-            amountPaid,
+            amountPaid: financialAmount,
             netAmount: journalResult.netAmount,
             taxAmount: journalResult.taxAmount,
             discountAmount,
@@ -969,7 +985,7 @@ router.post("/tenant-pos/payments", paymentRateLimiter, async (req, res) => {
             businessName: result.tenantData?.businessName ?? null,
             ownerName: result.tenantData?.ownerName ?? null,
             unitCode: result.tenantData?.boothNumber ?? null,
-            amountPaid: String(amountPaid),
+            amountPaid: String(financialAmount),
             taxAmount: String(journalResult.taxAmount),
             netAmount: String(journalResult.netAmount),
             paymentMethod,
@@ -992,7 +1008,7 @@ router.post("/tenant-pos/payments", paymentRateLimiter, async (req, res) => {
               ownerName: result.tenantData?.ownerName ?? "Tenant",
               businessName: result.tenantData?.businessName ?? "Tenant",
               invoiceNumber,
-              amountPaid,
+              amountPaid: financialAmount,
               paymentMethod,
               receiptNumber: result.receiptNumber,
               receiptUrl: fullReceiptUrl,
@@ -1034,7 +1050,7 @@ router.post("/tenant-pos/payments", paymentRateLimiter, async (req, res) => {
                 ownerName: result.tenantData?.ownerName ?? "-",
                 receiptNumber: result.receiptNumber,
                 invoiceNumber,
-                amountPaid,
+                amountPaid: financialAmount,
                 paymentMethod,
                 kasirName,
                 siteName: posCompanyName ?? null,
@@ -1048,7 +1064,7 @@ router.post("/tenant-pos/payments", paymentRateLimiter, async (req, res) => {
             ownerName: result.tenantData?.ownerName ?? "-",
             receiptNumber: result.receiptNumber,
             invoiceNumber,
-            amount: amountPaid,
+            amount: amountPaid: financialAmount,
             paymentMethod,
             kasirName,
             siteName: posCompanyName ?? null,
