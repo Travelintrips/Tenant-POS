@@ -202,14 +202,14 @@ const fallbackDomain = process.env.REPLIT_DEV_DOMAIN ?? process.env.REPLIT_DOMAI
 const isProduction = process.env.NODE_ENV === "production";
 const productionCallbackURL = "https://tenant.travelintrips.co.id/api/auth/google/callback";
 const callbackURL =
-  configuredCallbackUrl ||
-  (isProduction
+  isProduction
     ? productionCallbackURL
-    : configuredAppUrl
-      ? `${configuredAppUrl.replace(/\/+$/, "")}/api/auth/google/callback`
-      : fallbackDomain
-        ? `https://${fallbackDomain}/api/auth/google/callback`
-        : undefined);
+    : configuredCallbackUrl ||
+      (configuredAppUrl
+        ? `${configuredAppUrl.replace(/\/+$/, "")}/api/auth/google/callback`
+        : fallbackDomain
+          ? `https://${fallbackDomain}/api/auth/google/callback`
+          : undefined);
 
 export const googleAuthEnabled = Boolean(clientID && clientSecret && callbackURL);
 export const googleCallbackURL = callbackURL ?? null;
