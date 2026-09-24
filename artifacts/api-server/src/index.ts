@@ -39,37 +39,28 @@ function validateProductionEnv(): void {
       "sebagai fallback — pastikan ini adalah database production yang benar (bukan DB lokal/dev Replit). " +
       "Jika token pembayaran tidak ditemukan, set SUPABASE_PG_URL_PROD ke connection string Supabase production."
     );
-  } else if (!pgUrlProd && pgUrl) {
+  } else if (pgUrl) {
     warnings.push(
-      "SUPABASE_PG_URL_PROD tidak diset, menggunakan SUPABASE_PG_URL production-scoped. " +
-      "Pastikan SUPABASE_PG_URL mengarah ke database production yang benar."
+      pgUrlProd
+        ? "SUPABASE_PG_URL dipakai sebagai koneksi utama production; SUPABASE_PG_URL_PROD hanya fallback."
+        : "Production menggunakan SUPABASE_PG_URL sebagai koneksi utama."
     );
     if (pgUrl.trimEnd() !== pgUrl) {
-      warnings.push("SUPABASE_PG_URL memiliki trailing whitespace — bisa menyebabkan koneksi gagal.");
+      warnings.push("SUPABASE_PG_URL memiliki trailing whitespace — akan di-trim sebelum dipakai.");
     }
-  } else if (!pgUrlProd && !pgUrl && poolerUrl) {
+  } else if (poolerUrl) {
     warnings.push(
-      "Production menggunakan SUPABASE_POOLER_URL sebagai fallback. " +
-      "Pastikan kredensial pooler masih valid."
+      "SUPABASE_PG_URL tidak diset; production menggunakan SUPABASE_POOLER_URL sebagai fallback."
     );
   } else if (pgUrlProd) {
-    if (pgUrl) {
-      warnings.push(
-        "SUPABASE_PG_URL_PROD dipakai sebagai koneksi utama production; SUPABASE_PG_URL diabaikan."
-      );
-    }
-    if (pgUrlProd.trimEnd() !== pgUrlProd) {
-      warnings.push("SUPABASE_PG_URL_PROD memiliki trailing whitespace — bisa menyebabkan koneksi gagal.");
-    }
+    warnings.push(
+      "SUPABASE_PG_URL tidak diset; production terpaksa memakai SUPABASE_PG_URL_PROD. " +
+      "Pastikan password-nya masih valid."
+    );
   }
 
   logger.info(
-    {
-      dbSource: dbConfig.source,
-      dbPoolMode: dbConfig.poolMode,
-      dbProjectRef: dbConfig.projectRef,
-    },
-    "[startup] Database connection selected",
+    `[startup] Database connection selected: source=${dbConfig.source}, mode=${dbConfig.poolMode}, project=${dbConfig.projectRef ?? "unknown"}`
   );
 
   if (dbConfig.poolMode === "session") {
