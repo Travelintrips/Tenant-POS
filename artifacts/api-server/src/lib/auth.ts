@@ -25,26 +25,37 @@ declare global {
 }
 
 const DEFAULT_GOOGLE_OWNER_EMAILS = ["admcst001@gmail.com"];
+const DEFAULT_GOOGLE_ADMIN_EMAILS = ["almanosetiawan@gmail.com"];
 
 function normalizeEmail(value: string): string {
   return value.trim().toLowerCase();
 }
 
-function getGoogleOwnerEmails(): Set<string> {
-  const configured = process.env.GOOGLE_OWNER_EMAILS
+function parseConfiguredEmails(value: string | undefined): string[] {
+  return value
     ?.split(",")
     .map((email) => normalizeEmail(email))
     .filter(Boolean) ?? [];
-
-  return new Set(
-    (configured.length > 0 ? configured : DEFAULT_GOOGLE_OWNER_EMAILS).map(normalizeEmail),
-  );
 }
 
-const GOOGLE_OWNER_EMAILS = getGoogleOwnerEmails();
+const GOOGLE_OWNER_EMAILS = new Set(
+  [...DEFAULT_GOOGLE_OWNER_EMAILS, ...parseConfiguredEmails(process.env.GOOGLE_OWNER_EMAILS)]
+    .map(normalizeEmail),
+);
+const GOOGLE_ADMIN_EMAILS = new Set(
+  [...DEFAULT_GOOGLE_ADMIN_EMAILS, ...parseConfiguredEmails(process.env.GOOGLE_ADMIN_EMAILS)]
+    .map(normalizeEmail),
+);
 
-function isGoogleOwnerEmail(email: string): boolean {
-  return GOOGLE_OWNER_EMAILS.has(normalizeEmail(email));
+function getGoogleRole(email: string): "owner" | "admin" | null {
+  const normalized = normalizeEmail(email);
+  if (GOOGLE_OWNER_EMAILS.has(normalized)) return "owner";
+  if (GOOGLE_ADMIN_EMAILS.has(normalized)) return "admin";
+  return null;
+}
+
+function isGoogleAllowedEmail(email: string): boolean {
+  return getGoogleRole(email) !== null;
 }
 
 async function getTenantAccess(userId: string) {
@@ -66,7 +77,8 @@ export async function findOrCreateUser(opts: {
   avatar: string | null;
 }): Promise<{ id: string; email: string | null; name: string; avatarUrl: string | null; role: string; phoneNumber: string | null }> {
   const email = normalizeEmail(opts.email);
-  if (!email || !isGoogleOwnerEmail(email)) {
+  const googleRole = getGoogleRole(email);
+  if (!email || !googleRole) {
     throw new Error("GOOGLE_EMAIL_NOT_ALLOWED");
   }
 
@@ -91,7 +103,7 @@ export async function findOrCreateUser(opts: {
           .set({
             name: opts.name,
             avatarUrl: opts.avatar,
-            role: "owner",
+            role: googleRole,
             status: "active",
             lastLoginAt: new Date(),
             updatedAt: new Date(),
@@ -114,7 +126,7 @@ export async function findOrCreateUser(opts: {
           email,
           name: opts.name,
           avatarUrl: opts.avatar,
-          role: "owner",
+          role: googleRole,
           status: "active",
           lastLoginAt: new Date(),
         })
@@ -123,7 +135,7 @@ export async function findOrCreateUser(opts: {
           set: {
             name: opts.name,
             avatarUrl: opts.avatar,
-            role: "owner",
+            role: googleRole,
             status: "active",
             lastLoginAt: new Date(),
             updatedAt: new Date(),
@@ -375,7 +387,7 @@ export async function verifyGoogleIdToken(idToken: string): Promise<GoogleIdToke
   }
 
   const email = normalizeEmail(claims.email ?? "");
-  if (!claims.email_verified || !email || !isGoogleOwnerEmail(email)) {
+  if (!claims.email_verified || !email || !isGoogleAllowedEmail(email)) {
     throw new Error("GOOGLE_EMAIL_NOT_ALLOWED");
   }
   if (!claims.sub) throw new Error("GOOGLE_ID_TOKEN_SUB_MISSING");
@@ -422,7 +434,7 @@ export function ensureGoogleStrategy(): {
             const name = profile.displayName;
             const avatar = profile.photos?.[0]?.value ?? null;
 
-            if (!emailVerified || !isGoogleOwnerEmail(email)) {
+            if (!emailVerified || !isGoogleAllowedEmail(email)) {
               done(new Error("GOOGLE_EMAIL_NOT_ALLOWED"));
               return;
             }
