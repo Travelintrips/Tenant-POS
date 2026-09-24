@@ -1,7 +1,7 @@
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 import { db } from "@workspace/db";
-import { tenantInvoicesTable } from "@workspace/db/schema";
-import { eq } from "drizzle-orm";
+import { tenantInvoicesTable, waLogsTable } from "@workspace/db/schema";
+import { eq, inArray } from "drizzle-orm";
 import { createTenant, createTestInvoice, cleanupTestData } from "./helpers/factory";
 
 vi.mock("../lib/whatsapp", () => ({
@@ -25,6 +25,9 @@ describe("overdue invoice scheduler", () => {
   });
 
   afterEach(async () => {
+    if (tenantIds.length > 0) {
+      await db.delete(waLogsTable).where(inArray(waLogsTable.tenantId, tenantIds)).catch(() => {});
+    }
     await cleanupTestData(tenantIds);
   });
 
@@ -84,6 +87,16 @@ describe("overdue invoice scheduler", () => {
     expect(sendMock.mock.calls.some(([params]) => params.invoiceNumber?.includes("AUGUST"))).toBe(false);
     expect(sendMock.mock.calls.some(([params]) => params.invoiceNumber?.includes("PAID"))).toBe(false);
     expect(sendMock.mock.calls.some(([params]) => params.invoiceNumber?.includes("ZERO"))).toBe(false);
+
+    const deliveryLogs = await db
+      .select()
+      .from(waLogsTable)
+      .where(eq(waLogsTable.invoiceId, eligible.id));
+    expect(
+      deliveryLogs.some(
+        (row) => row.messageType === "overdue_reminder" && row.status === "accepted",
+      ),
+    ).toBe(true);
 
     // Menjalankan scheduler lagi pada hari yang sama tidak boleh mengirim invoice target dua kali.
     await runOverdueCheck();
