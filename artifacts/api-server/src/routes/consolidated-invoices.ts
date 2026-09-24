@@ -746,15 +746,11 @@ router.post("/consolidated-invoices/:id/record-payment", consolidatedProofUpload
       return;
     }
 
-    // 5. Generate nomor kwitansi dasar
+    // 5. Prefix nomor kwitansi. Sequence final dialokasikan di dalam
+    // transaksi dengan advisory lock agar dua pembayaran paralel tidak
+    // mendapatkan nomor yang sama.
     const datePart = new Date().toISOString().slice(0, 10).replace(/-/g, "");
     const receiptPrefix = `KONS-PAY-${datePart}-`;
-    const [cntRow] = await db
-      .select({ count: sql<number>`count(*)::int` })
-      .from(tenantPaymentsTable)
-      .where(sql`receipt_number LIKE ${receiptPrefix + "%"}`);
-    const baseSeq = ((cntRow?.count ?? 0) + 1).toString().padStart(4, "0");
-    const baseReceipt = `${receiptPrefix}${baseSeq}`;
 
     // 6. Simpan satu bukti konsolidasi di Supabase; referensi yang sama dipakai semua child payment.
     let proofUrl: string | null = null;
@@ -773,10 +769,21 @@ router.post("/consolidated-invoices/:id/record-payment", consolidatedProofUpload
     // 7. Eksekusi semua pembayaran dalam satu transaksi
     const paidAtDate = paidAt ? new Date(paidAt) : new Date();
 
-    await db.transaction(async (tx) => {
+    const { baseReceipt, paymentIds } = await db.transaction(async (tx) => {
+      // Serialisasi alokasi sequence untuk prefix tanggal ini.
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${receiptPrefix}))`);
+
+      const [cntRow] = await tx
+        .select({ count: sql<number>`count(*)::int` })
+        .from(tenantPaymentsTable)
+        .where(sql`receipt_number LIKE ${receiptPrefix + "%"}`);
+      const baseSeq = ((cntRow?.count ?? 0) + 1).toString().padStart(4, "0");
+      const baseReceipt = `${receiptPrefix}${baseSeq}`;
+      const paymentIds: number[] = [];
+
       for (let i = 0; i < distributions.length; i++) {
         const dist = distributions[i];
-        await recordPayment(tx, {
+        const ledger = await recordPayment(tx, {
           invoiceId: dist.invoiceId,
           amount: dist.amount,
           paymentMethod,
@@ -792,10 +799,12 @@ router.post("/consolidated-invoices/:id/record-payment", consolidatedProofUpload
           bookingId: dist.bookingId,
           proofUrl,
         });
+        paymentIds.push(ledger.ledgerEntryId);
       }
 
       // 8. Sync status consolidated setelah semua pembayaran
       await syncConsolidatedStatus(tx, id);
+      return { baseReceipt, paymentIds };
     });
 
     // 9. Ambil data terbaru untuk respons
@@ -814,19 +823,21 @@ router.post("/consolidated-invoices/:id/record-payment", consolidatedProofUpload
     // 10. Post accounting journal untuk setiap pembayaran yang dibuat (fire-and-forget)
     void (async () => {
       try {
-        const newPayments = await db
-          .select({
-            id: tenantPaymentsTable.id,
-            amount: tenantPaymentsTable.amount,
-            invoiceId: tenantPaymentsTable.invoiceId,
-            tenantId: tenantPaymentsTable.tenantId,
-            siteId: tenantPaymentsTable.siteId,
-            receiptNumber: tenantPaymentsTable.receiptNumber,
-            paymentMethod: tenantPaymentsTable.paymentMethod,
-            paidAt: tenantPaymentsTable.paidAt,
-          })
-          .from(tenantPaymentsTable)
-          .where(sql`receipt_number LIKE ${receiptPrefix + "%"} AND created_at >= NOW() - INTERVAL '1 minute'`);
+        const newPayments = paymentIds.length > 0
+          ? await db
+              .select({
+                id: tenantPaymentsTable.id,
+                amount: tenantPaymentsTable.amount,
+                invoiceId: tenantPaymentsTable.invoiceId,
+                tenantId: tenantPaymentsTable.tenantId,
+                siteId: tenantPaymentsTable.siteId,
+                receiptNumber: tenantPaymentsTable.receiptNumber,
+                paymentMethod: tenantPaymentsTable.paymentMethod,
+                paidAt: tenantPaymentsTable.paidAt,
+              })
+              .from(tenantPaymentsTable)
+              .where(inArray(tenantPaymentsTable.id, paymentIds))
+          : [];
 
         const tenantRow = await db
           .select({ businessName: tenantsTable.businessName })
@@ -890,49 +901,7 @@ router.post("/consolidated-invoices/:id/record-payment", consolidatedProofUpload
       distributedCount: distributions.length,
     });
 
-    // ── Fire-and-forget: Accounting journal + double-entry per distribusi ──────
-    void (async () => {
-      // Ambil businessName tenant
-      const [tenantRow] = consolidated.tenantId
-        ? await db
-            .select({ businessName: tenantsTable.businessName })
-            .from(tenantsTable)
-            .where(eq(tenantsTable.id, consolidated.tenantId))
-        : [];
 
-      // Posting accounting untuk setiap sub-payment yang sudah dibuat
-      for (let i = 0; i < distributions.length; i++) {
-        const dist = distributions[i];
-        const receiptNum = `${baseReceipt}-${String(i + 1).padStart(2, "0")}`;
-
-        // Cari payment ID yang baru dibuat (by receiptNumber)
-        const [payRow] = await db
-          .select({ id: tenantPaymentsTable.id, paidAt: tenantPaymentsTable.paidAt })
-          .from(tenantPaymentsTable)
-          .where(eq(tenantPaymentsTable.receiptNumber, receiptNum))
-          .limit(1);
-        if (!payRow) continue;
-
-        const txDate = payRow.paidAt ?? paidAtDate;
-
-        try {
-          await postTenantPaymentAccountingEntry({
-            paymentId: payRow.id,
-            siteId: siteId ?? null,
-            invoiceNumber: consolidated.invoiceNumber,
-            businessName: tenantRow?.businessName ?? null,
-            amountPaid: dist.amount,
-            paymentMethod,
-            transactionDate: txDate,
-            receiptNumber: receiptNum,
-            sourceModule: "consolidated_invoice_payment",
-          });
-        } catch (e) {
-          const { logger } = await import("../lib/logger");
-          logger.error({ err: e }, `[kons-pay] postTenantPaymentAccountingEntry gagal untuk ${receiptNum}`);
-        }
-      }
-    })();
   } catch (err) {
     if (err instanceof LedgerError) {
       res.status(400).json({ error: err.message });
