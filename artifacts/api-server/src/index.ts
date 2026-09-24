@@ -32,10 +32,26 @@ function validateProductionEnv(): void {
     );
   }
 
-  if (dbConfig.source !== "SUPABASE_POOLER_URL") {
-    warnings.push(
-      `Production memakai ${dbConfig.source}. SUPABASE_POOLER_URL transaction pooler lebih diutamakan bila tersedia.`,
-    );
+  if (dbConfig.source !== "SUPABASE_POOLER_URL" && poolerUrl) {
+    try {
+      const parsedPooler = new URL(poolerUrl);
+      const nativeTransactionPooler =
+        parsedPooler.hostname.includes("pooler.supabase.com") &&
+        parsedPooler.port === "6543";
+      if (nativeTransactionPooler) {
+        warnings.push(
+          `Production memakai ${dbConfig.source} walaupun native SUPABASE_POOLER_URL tersedia.`,
+        );
+      } else {
+        warnings.push(
+          "SUPABASE_POOLER_URL terdeteksi legacy/malformed dan sengaja tidak diprioritaskan; credential database canonical dipakai lebih dulu.",
+        );
+      }
+    } catch {
+      warnings.push(
+        "SUPABASE_POOLER_URL tidak valid dan sengaja tidak diprioritaskan; credential database canonical dipakai lebih dulu.",
+      );
+    }
   }
 
   logger.info(
