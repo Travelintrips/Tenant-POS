@@ -5,12 +5,30 @@ import { dbConfig } from "./config";
 
 const { Pool } = pg;
 
+function positiveIntEnv(name: string, fallback: number): number {
+  const raw = process.env[name];
+  if (!raw) return fallback;
+  const parsed = Number(raw);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+// Supabase session pooler membatasi backend session secara ketat. Gunakan pool
+// aplikasi kecil jika transaction pooler (6543) tidak tersedia, sehingga satu
+// instance Tenant-POS tidak dapat menghabiskan seluruh slot koneksi project.
+export const dbPoolMax = positiveIntEnv(
+  "DB_POOL_MAX",
+  dbConfig.poolMode === "transaction" ? 6 : 3,
+);
+
 export const pool = new Pool({
   ...dbConfig.parsed,
   ssl: dbConfig.ssl,
-  max: 20,
-  idleTimeoutMillis: 30_000,
-  connectionTimeoutMillis: 5_000,
+  max: dbPoolMax,
+  idleTimeoutMillis: 10_000,
+  connectionTimeoutMillis: 8_000,
+  keepAlive: true,
+  keepAliveInitialDelayMillis: 10_000,
+  application_name: "tenant-pos-api",
 });
 
 // PgBouncer transaction mode (port 6543) bisa menghapus search_path session.
