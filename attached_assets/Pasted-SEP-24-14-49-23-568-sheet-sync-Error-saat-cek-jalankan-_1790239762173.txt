@@ -1,0 +1,322 @@
+SEP 24,14:49:23.568
+[sheet-sync] Error saat cek/jalankan sinkronisasi
+SEP 24,14:49:23.571
+[sheet-sync] Error saat cek/jalankan sinkronisasi
+SEP 24,14:50:23.913
+[sheet-sync] Error saat cek/jalankan sinkronisasi
+SEP 24,14:50:23.913
+[sheet-sync] Error saat cek/jalankan sinkronisasi
+SEP 24,14:51:24.260
+[sheet-sync] Error saat cek/jalankan sinkronisasi
+SEP 24,14:51:24.261
+[sheet-sync] Error saat cek/jalankan sinkronisasi
+SEP 24,14:52:24.632
+[sheet-sync] Error saat cek/jalankan sinkronisasi
+SEP 24,14:52:24.635
+[sheet-sync] Error saat cek/jalankan sinkronisasi
+SEP 24,14:53:26.488
+[sheet-sync] Error saat cek/jalankan sinkronisasi
+SEP 24,14:53:26.488
+[sheet-sync] Error saat cek/jalankan sinkronisasi
+SEP 24,14:54:26.834
+[sheet-sync] Error saat cek/jalankan sinkronisasi
+SEP 24,14:54:26.840
+[sheet-sync] Error saat cek/jalankan sinkronisasi
+SEP 24,14:55:27.187
+[sheet-sync] Error saat cek/jalankan sinkronisasi
+SEP 24,14:55:27.188
+[sheet-sync] Error saat cek/jalankan sinkronisasi
+SEP 24,14:56:27.533
+[sheet-sync] Error saat cek/jalankan sinkronisasi
+SEP 24,14:56:27.534
+[sheet-sync] Error saat cek/jalankan sinkronisasi
+SEP 24,14:57:27.880
+[sheet-sync] Error saat cek/jalankan sinkronisasi
+SEP 24,14:57:27.890
+[sheet-sync] Error saat cek/jalankan sinkronisasi
+SEP 24,14:58:28.238
+[sheet-sync] Error saat cek/jalankan sinkronisasi
+SEP 24,14:58:28.241
+[sheet-sync] Error saat cek/jalankan sinkronisasi
+SEP 24,14:59:28.580
+[sheet-sync] Error saat cek/jalankan sinkronisasi
+SEP 24,14:59:28.582
+[sheet-sync] Error saat cek/jalankan sinkronisasi
+SEP 24,15:00:28.949
+[sheet-sync] Error saat cek/jalankan sinkronisasi
+SEP 24,15:00:28.949
+[sheet-sync] Error saat cek/jalankan sinkronisasi
+SEP 24,15:01:30.795
+[sheet-sync] Error saat cek/jalankan sinkronisasi
+SEP 24,15:01:30.806
+[sheet-sync] Error saat cek/jalankan sinkronisasi
+SEP 24,15:02:31.143
+[sheet-sync] Error saat cek/jalankan sinkronisasi
+SEP 24,15:02:31.150
+[sheet-sync] Error saat cek/jalankan sinkronisasi
+SEP 24,15:03:31.497
+[sheet-sync] Error saat cek/jalankan sinkronisasi
+SEP 24,15:03:31.498
+[sheet-sync] Error saat cek/jalankan sinkronisasi
+SEP 24,15:04:31.113
+[auth/me] dipanggil
+SEP 24,15:04:31.114
+request completed
+SEP 24,15:04:31.841
+[sheet-sync] Error saat cek/jalankan sinkronisasi
+SEP 24,15:04:31.848
+[sheet-sync] Error saat cek/jalankan sinkronisasi
+SEP 24,15:05:32.186
+[sheet-sync] Error saat cek/jalankan sinkronisasi
+SEP 24,15:05:32.190
+[sheet-sync] Error saat cek/jalankan sinkronisasi
+SEP 24,15:06:32.533
+[sheet-sync] Error saat cek/jalankan sinkronisasi
+SEP 24,15:06:32.540
+[sheet-sync] Error saat cek/jalankan sinkronisasi
+SEP 24,15:07:32.878
+[sheet-sync] Error saat cek/jalankan sinkronisasi
+SEP 24,15:07:32.892
+[sheet-sync] Error saat cek/jalankan sinkronisasi
+SEP 24,15:08:33.223
+[sheet-sync] Error saat cek/jalankan sinkronisasi
+SEP 24,15:08:33.231
+[sheet-sync] Error saat cek/jalankan sinkronisasi
+SEP 24,15:09:33.575
+[sheet-sync] Error saat cek/jalankan sinkronisasi
+SEP 24,15:09:33.584
+[sheet-sync] Error saat cek/jalankan sinkronisasi
+SEP 24,15:10:33.920
+[sheet-sync] Error saat cek/jalankan sinkronisasi
+SEP 24,15:10:33.927
+[sheet-sync] Error saat cek/jalankan sinkronisasi
+SEP 24,15:11:34.279
+[sheet-sync] Error saat cek/jalankan sinkronisasi
+SEP 24,15:11:34.286
+[sheet-sync] Error saat cek/jalankan sinkronisasi
+SEP 24,15:12:34.641
+[sheet-sync] Error saat cek/jalankan sinkronisasi
+SEP 24,15:12:34.654
+[sheet-sync] Error saat cek/jalankan sinkronisasi
+SEP 24,15:13:35.005
+[sheet-sync] Error saat cek/jalankan sinkronisasi
+SEP 24,15:13:35.017
+[sheet-sync] Error saat cek/jalankan sinkronisasi
+SEP 24,15:14:35.370
+[sheet-sync] Error saat cek/jalankan sinkronisasi
+SEP 24,15:14:35.376
+[sheet-sync] Error saat cek/jalankan sinkronisasi
+SEP 24,15:15:35.718
+[sheet-sync] Error saat cek/jalankan sinkronisasi
+SEP 24,15:15:35.727
+[sheet-sync] Error saat cek/jalankan sinkronisasi
+SEP 24,15:16:36.062
+[sheet-sync] Error saat cek/jalankan sinkronisasi
+SEP 24,15:16:36.067
+[sheet-sync] Error saat cek/jalankan sinkronisasi
+SEP 24,15:17:36.414
+[sheet-sync] Error saat cek/jalankan sinkronisasi
+SEP 24,15:17:36.420
+[sheet-sync] Error saat cek/jalankan sinkronisasi
+SEP 24,15:18:36.764
+[sheet-sync] Error saat cek/jalankan sinkronisasi
+SEP 24,15:18:36.773
+[sheet-sync] Error saat cek/jalankan sinkronisasi
+SEP 24,15:19:37.109
+[sheet-sync] Error saat cek/jalankan sinkronisasi
+SEP 24,15:19:37.121
+[sheet-sync] Error saat cek/jalankan sinkronisasi
+SEP 24,15:20:37.474
+[sheet-sync] Error saat cek/jalankan sinkronisasi
+SEP 24,15:20:37.474
+[sheet-sync] Error saat cek/jalankan sinkronisasi
+SEP 24,15:21:37.819
+[sheet-sync] Error saat cek/jalankan sinkronisasi
+SEP 24,15:21:37.819
+[sheet-sync] Error saat cek/jalankan sinkronisasi
+SEP 24,15:22:38.173
+[sheet-sync] Error saat cek/jalankan sinkronisasi
+SEP 24,15:22:38.175
+[sheet-sync] Error saat cek/jalankan sinkronisasi
+SEP 24,15:22:52.722
+request completed
+SEP 24,15:23:38.517
+[sheet-sync] Error saat cek/jalankan sinkronisasi
+SEP 24,15:23:38.518
+[sheet-sync] Error saat cek/jalankan sinkronisasi
+SEP 24,15:24:38.876
+[sheet-sync] Error saat cek/jalankan sinkronisasi
+SEP 24,15:24:38.877
+[sheet-sync] Error saat cek/jalankan sinkronisasi
+SEP 24,15:25:39.218
+[sheet-sync] Error saat cek/jalankan sinkronisasi
+SEP 24,15:25:39.225
+[sheet-sync] Error saat cek/jalankan sinkronisasi
+SEP 24,15:26:39.560
+[sheet-sync] Error saat cek/jalankan sinkronisasi
+SEP 24,15:26:39.566
+[sheet-sync] Error saat cek/jalankan sinkronisasi
+SEP 24,15:27:39.909
+[sheet-sync] Error saat cek/jalankan sinkronisasi
+SEP 24,15:27:39.912
+[sheet-sync] Error saat cek/jalankan sinkronisasi
+SEP 24,15:28:40.262
+[sheet-sync] Error saat cek/jalankan sinkronisasi
+SEP 24,15:28:40.263
+[sheet-sync] Error saat cek/jalankan sinkronisasi
+SEP 24,15:29:40.608
+[sheet-sync] Error saat cek/jalankan sinkronisasi
+SEP 24,15:29:40.608
+[sheet-sync] Error saat cek/jalankan sinkronisasi
+SEP 24,15:30:40.956
+[sheet-sync] Error saat cek/jalankan sinkronisasi
+SEP 24,15:30:40.957
+[sheet-sync] Error saat cek/jalankan sinkronisasi
+SEP 24,15:31:41.306
+[sheet-sync] Error saat cek/jalankan sinkronisasi
+SEP 24,15:31:41.309
+[sheet-sync] Error saat cek/jalankan sinkronisasi
+SEP 24,15:32:41.666
+[sheet-sync] Error saat cek/jalankan sinkronisasi
+SEP 24,15:32:41.667
+[sheet-sync] Error saat cek/jalankan sinkronisasi
+SEP 24,15:33:42.030
+[sheet-sync] Error saat cek/jalankan sinkronisasi
+SEP 24,15:33:42.039
+[sheet-sync] Error saat cek/jalankan sinkronisasi
+SEP 24,15:34:42.378
+[sheet-sync] Error saat cek/jalankan sinkronisasi
+SEP 24,15:34:42.378
+[sheet-sync] Error saat cek/jalankan sinkronisasi
+SEP 24,15:35:42.728
+[sheet-sync] Error saat cek/jalankan sinkronisasi
+SEP 24,15:35:42.731
+[sheet-sync] Error saat cek/jalankan sinkronisasi
+SEP 24,15:36:43.073
+[sheet-sync] Error saat cek/jalankan sinkronisasi
+SEP 24,15:36:43.082
+[sheet-sync] Error saat cek/jalankan sinkronisasi
+SEP 24,15:37:43.416
+[sheet-sync] Error saat cek/jalankan sinkronisasi
+SEP 24,15:37:43.433
+[sheet-sync] Error saat cek/jalankan sinkronisasi
+SEP 24,15:38:43.785
+[sheet-sync] Error saat cek/jalankan sinkronisasi
+SEP 24,15:38:43.786
+[sheet-sync] Error saat cek/jalankan sinkronisasi
+SEP 24,15:39:45.832
+[sheet-sync] Error saat cek/jalankan sinkronisasi
+SEP 24,15:39:45.839
+[sheet-sync] Error saat cek/jalankan sinkronisasi
+SEP 24,15:40:47.991
+[sheet-sync] Error saat cek/jalankan sinkronisasi
+SEP 24,15:40:48.005
+[sheet-sync] Error saat cek/jalankan sinkronisasi
+SEP 24,15:41:48.341
+[sheet-sync] Error saat cek/jalankan sinkronisasi
+SEP 24,15:41:48.346
+[sheet-sync] Error saat cek/jalankan sinkronisasi
+SEP 24,15:42:05.396
+[auth/me] dipanggil
+SEP 24,15:42:05.397
+request completed
+SEP 24,15:42:05.547
+[auth/me] dipanggil
+SEP 24,15:42:05.548
+request completed
+SEP 24,15:42:16.369
+request completed
+SEP 24,15:42:18.626
+[auth/me] dipanggil
+SEP 24,15:42:18.626
+request completed
+SEP 24,15:42:18.638
+request completed
+SEP 24,15:42:18.773
+request completed
+SEP 24,15:42:18.937
+request completed
+SEP 24,15:42:23.305
+[dev-login] dipanggil
+SEP 24,15:42:25.151
+Failed query: select "id", "email", "name", "avatar_url", "role", "phone_number", "phone_verified_at", "status", "last_login_at", "force_logout_at", "created_at", "updated_at" from "users" where "users"."phone_number" = $1
+params: 6282299997227
+SEP 24,15:42:25.152
+request errored
+SEP 24,15:42:42.474
+request completed
+SEP 24,15:42:42.563
+request completed
+SEP 24,15:42:42.580
+request completed
+SEP 24,15:42:48.688
+[sheet-sync] Error saat cek/jalankan sinkronisasi
+SEP 24,15:42:48.694
+[sheet-sync] Error saat cek/jalankan sinkronisasi
+SEP 24,15:42:49.086
+request completed
+SEP 24,15:42:49.088
+[auth/me] dipanggil
+SEP 24,15:42:49.089
+request completed
+SEP 24,15:42:49.090
+request completed
+SEP 24,15:42:49.502
+request completed
+SEP 24,15:43:39.214
+request completed
+SEP 24,15:43:39.460
+[auth/me] dipanggil
+SEP 24,15:43:39.461
+request completed
+SEP 24,15:43:39.463
+request completed
+SEP 24,15:43:39.512
+request completed
+SEP 24,15:43:45.052
+[dev-login] dipanggil
+SEP 24,15:43:45.395
+Failed query: select "id", "email", "name", "avatar_url", "role", "phone_number", "phone_verified_at", "status", "last_login_at", "force_logout_at", "created_at", "updated_at" from "users" where "users"."phone_number" = $1
+params: 6282299997227
+SEP 24,15:43:45.395
+request errored
+SEP 24,15:43:49.035
+[sheet-sync] Error saat cek/jalankan sinkronisasi
+SEP 24,15:43:49.036
+[sheet-sync] Error saat cek/jalankan sinkronisasi
+SEP 24,15:44:19.733
+[wa-otp] gagal membuat atau mengirim OTP
+SEP 24,15:44:19.734
+request errored
+SEP 24,15:44:49.379
+[sheet-sync] Error saat cek/jalankan sinkronisasi
+SEP 24,15:44:49.382
+[sheet-sync] Error saat cek/jalankan sinkronisasi
+SEP 24,15:45:23.661
+request completed
+SEP 24,15:45:24.139
+request completed
+SEP 24,15:45:49.728
+[sheet-sync] Error saat cek/jalankan sinkronisasi
+SEP 24,15:45:49.735
+[sheet-sync] Error saat cek/jalankan sinkronisasi
+SEP 24,15:46:50.073
+[sheet-sync] Error saat cek/jalankan sinkronisasi
+SEP 24,15:46:50.077
+[sheet-sync] Error saat cek/jalankan sinkronisasi
+SEP 24,15:47:50.492
+[sheet-sync] Error saat cek/jalankan sinkronisasi
+SEP 24,15:47:50.493
+[sheet-sync] Error saat cek/jalankan sinkronisasi
+SEP 24,15:47:52.032
+[auth/me] dipanggil
+SEP 24,15:47:52.033
+request completed
+SEP 24,15:48:43.346
+[auth/me] dipanggil
+SEP 24,15:48:43.347
+request completed
+SEP 24,15:48:50.860
+[sheet-sync] Error saat cek/jalankan sinkronisasi
+SEP 24,15:48:50.862
+[sheet-sync] Error saat cek/jalankan sinkronisasi
