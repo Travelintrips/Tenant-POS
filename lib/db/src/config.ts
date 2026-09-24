@@ -131,12 +131,11 @@ function normalizeCandidate(candidate: DbCandidate, expectedProjectRef: string |
 function getCandidates(): DbCandidate[] {
   const ordered: Array<[DbUrlSource, string | undefined]> = isProduction
     ? [
-        // Hostinger-managed SUPABASE_DATABASE_URL adalah credential canonical.
-        // Jika host-nya salah dipasangkan dengan :6543, normalizeCandidate akan
-        // mengubahnya ke Supavisor transaction endpoint tanpa mengubah password.
-        // Secret pooler manual hanya fallback karena pernah stale.
-        ["SUPABASE_DATABASE_URL", process.env["SUPABASE_DATABASE_URL"]],
+        // Production harus memakai explicit Supabase transaction pooler lebih dulu.
+        // SUPABASE_DATABASE_URL tetap dipertahankan sebagai fallback untuk hosting
+        // integration, tetapi tidak boleh mengalahkan pooler URL yang sudah tervalidasi.
         ["SUPABASE_POOLER_URL", process.env["SUPABASE_POOLER_URL"]],
+        ["SUPABASE_DATABASE_URL", process.env["SUPABASE_DATABASE_URL"]],
         ["SUPABASE_PG_URL", process.env["SUPABASE_PG_URL"]],
         ["SUPABASE_PG_URL_PROD", process.env["SUPABASE_PG_URL_PROD"]],
         ["DATABASE_URL", process.env["DATABASE_URL"]],
@@ -196,8 +195,8 @@ function resolveDbUrl(): {
   const scopedCandidates =
     matchingProjectCandidates.length > 0 ? matchingProjectCandidates : candidates;
 
-  // Urutan env adalah urutan kepercayaan credential. Credential Hostinger-managed
-  // dipakai pertama; endpoint db.*:6543 sudah diperbaiki menjadi pooler yang valid.
+  // Urutan env adalah urutan kepercayaan credential. Production memprioritaskan
+  // SUPABASE_POOLER_URL yang eksplisit dan tervalidasi; integration URL hanya fallback.
   const selected = scopedCandidates[0];
   const effectiveUrl = selected.value;
 
