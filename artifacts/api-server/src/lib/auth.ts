@@ -2,7 +2,7 @@ import passport from "passport";
 import { Strategy as GoogleStrategy } from "passport-google-oauth20";
 import { db } from "@workspace/db";
 import { usersTable, tenantUserAccessTable } from "@workspace/db/schema";
-import { eq, sql } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import { normalizePhoneNumber } from "../services/otp-service";
 import { withDbRetry } from "./db-retry";
