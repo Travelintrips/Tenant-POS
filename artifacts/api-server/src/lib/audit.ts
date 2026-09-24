@@ -38,7 +38,7 @@ export interface AuditOptions {
  * Fire-and-forget audit log write.
  * Never throws — audit failures must not break the main API flow.
  */
-export function logAudit(req: Request, opts: AuditOptions): void {
+export async function logAudit(req: Request, opts: AuditOptions): Promise<void> {
   const user = req.user as {
     dbId?: number;
     email?: string;
@@ -78,8 +78,9 @@ export function logAudit(req: Request, opts: AuditOptions): void {
     userAgent: req.headers["user-agent"] ?? null,
   };
 
-  db.insert(auditLogsTable)
-    .values(entry)
-    .then(() => {})
-    .catch(() => {});
+  try {
+    await db.insert(auditLogsTable).values(entry);
+  } catch {
+    // Audit failure must not break the primary business flow.
+  }
 }
