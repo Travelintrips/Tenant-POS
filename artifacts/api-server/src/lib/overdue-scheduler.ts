@@ -1,5 +1,5 @@
 import { db } from "@workspace/db";
-import { tenantInvoicesTable, tenantsTable, bankMutationsTable } from "@workspace/db/schema";
+import { tenantInvoicesTable, tenantsTable, bankMutationsTable, waLogsTable } from "@workspace/db/schema";
 import { and, inArray, isNull, eq, sql } from "drizzle-orm";
 import { createAllInvoicesForBooking, countContractBillingPeriods } from "./auto-invoice";
 import { sendInvoiceNotification, sendOverdueReminder, sendDueReminder, getAdminNotifyPhones, getSiteCompanyName, notifyAdminGroup } from "./whatsapp";
@@ -59,6 +59,32 @@ export function getBlastStatus(): BlastStatus {
 
 export function getBlastHistory(): BlastRun[] {
   return [..._blastHistory];
+}
+
+async function recordSchedulerWa(params: {
+  siteId?: number | null;
+  tenantId?: number | null;
+  invoiceId?: number | null;
+  phone: string;
+  messageType: "invoice_scheduler" | "due_reminder" | "overdue_reminder";
+  status: "accepted" | "queued" | "failed" | "skipped";
+  errorMessage?: string | null;
+}): Promise<void> {
+  try {
+    await db.insert(waLogsTable).values({
+      siteId: params.siteId ?? null,
+      tenantId: params.tenantId ?? null,
+      invoiceId: params.invoiceId ?? null,
+      phone: params.phone,
+      messageType: params.messageType,
+      status: params.status,
+      errorMessage: params.errorMessage ?? null,
+      sentBy: "scheduler",
+    });
+  } catch (err) {
+    // Logging delivery tidak boleh menggagalkan notifikasi utama.
+    logger.warn({ err, invoiceId: params.invoiceId }, "[scheduler] Gagal menyimpan WA delivery log");
+  }
 }
 
 async function releaseInvoiceNotificationClaim(invoiceId: number, claimedAt: Date): Promise<void> {
@@ -352,6 +378,7 @@ export async function runInvoiceNotificationCheck(): Promise<number> {
       id: tenantInvoicesTable.id,
       invoiceNumber: tenantInvoicesTable.invoiceNumber,
       siteId: tenantInvoicesTable.siteId,
+      tenantId: tenantInvoicesTable.tenantId,
       periodStart: tenantInvoicesTable.periodStart,
       periodEnd: tenantInvoicesTable.periodEnd,
       dueDate: tenantInvoicesTable.dueDate,
@@ -428,7 +455,16 @@ export async function runInvoiceNotificationCheck(): Promise<number> {
       });
 
       if (result.ok && !result.skipped) {
-        // Claim tetap tersimpan hanya setelah Fonnte menerima pesan.
+        // Claim tetap tersimpan setelah Fonnte menerima/menaruh pesan di antrean.
+        await recordSchedulerWa({
+          siteId: invoice.siteId,
+          tenantId: invoice.tenantId,
+          invoiceId: invoice.id,
+          phone: invoice.phone,
+          messageType: "invoice_scheduler",
+          status: result.pending ? "queued" : "accepted",
+          errorMessage: result.pending ? "Fonnte process:pending" : null,
+        });
         sent++;
         void notifyAdminGroup({
           eventType: "invoice_sent",
@@ -442,6 +478,15 @@ export async function runInvoiceNotificationCheck(): Promise<number> {
           paymentLink,
         }).catch(() => {});
       } else {
+        await recordSchedulerWa({
+          siteId: invoice.siteId,
+          tenantId: invoice.tenantId,
+          invoiceId: invoice.id,
+          phone: invoice.phone,
+          messageType: "invoice_scheduler",
+          status: result.skipped ? "skipped" : "failed",
+          errorMessage: result.error ?? null,
+        });
         await releaseInvoiceNotificationClaim(invoice.id, now);
         logger.warn(
           { invoiceId: invoice.id, skipped: result.skipped, error: result.error },
@@ -449,6 +494,15 @@ export async function runInvoiceNotificationCheck(): Promise<number> {
         );
       }
     } catch (err) {
+      await recordSchedulerWa({
+        siteId: invoice.siteId,
+        tenantId: invoice.tenantId,
+        invoiceId: invoice.id,
+        phone: invoice.phone,
+        messageType: "invoice_scheduler",
+        status: "failed",
+        errorMessage: err instanceof Error ? err.message : String(err),
+      });
       await releaseInvoiceNotificationClaim(invoice.id, now).catch(() => {});
       logger.warn({ err, invoiceId: invoice.id }, "[scheduler] Pengiriman invoice error — akan dicoba lagi");
     }
@@ -502,6 +556,7 @@ async function runMonthlyDailyReminderCheck(): Promise<{ h7: number; h3: number;
       id: tenantInvoicesTable.id,
       invoiceNumber: tenantInvoicesTable.invoiceNumber,
       siteId: tenantInvoicesTable.siteId,
+      tenantId: tenantInvoicesTable.tenantId,
       dueDate: tenantInvoicesTable.dueDate,
       periodStart: tenantInvoicesTable.periodStart,
       periodEnd: tenantInvoicesTable.periodEnd,
@@ -597,6 +652,15 @@ async function runMonthlyDailyReminderCheck(): Promise<{ h7: number; h3: number;
           });
 
       if (result.ok && !result.skipped) {
+        await recordSchedulerWa({
+          siteId: invoice.siteId,
+          tenantId: invoice.tenantId,
+          invoiceId: invoice.id,
+          phone: invoice.phone,
+          messageType: daysUntilDue >= 0 ? "due_reminder" : "overdue_reminder",
+          status: result.pending ? "queued" : "accepted",
+          errorMessage: result.pending ? "Fonnte process:pending" : null,
+        });
         sent++;
         void notifyAdminGroup({
           eventType: daysUntilDue >= 0 ? "reminder" : "overdue",
@@ -612,6 +676,15 @@ async function runMonthlyDailyReminderCheck(): Promise<{ h7: number; h3: number;
           paymentLink,
         }).catch(() => {});
       } else {
+        await recordSchedulerWa({
+          siteId: invoice.siteId,
+          tenantId: invoice.tenantId,
+          invoiceId: invoice.id,
+          phone: invoice.phone,
+          messageType: daysUntilDue >= 0 ? "due_reminder" : "overdue_reminder",
+          status: result.skipped ? "skipped" : "failed",
+          errorMessage: result.error ?? null,
+        });
         await releasePaymentReminderClaim(invoice.id, now);
         logger.warn(
           { invoiceId: invoice.id, skipped: result.skipped, error: result.error },
@@ -619,6 +692,15 @@ async function runMonthlyDailyReminderCheck(): Promise<{ h7: number; h3: number;
         );
       }
     } catch (err) {
+      await recordSchedulerWa({
+        siteId: invoice.siteId,
+        tenantId: invoice.tenantId,
+        invoiceId: invoice.id,
+        phone: invoice.phone,
+        messageType: daysUntilDue >= 0 ? "due_reminder" : "overdue_reminder",
+        status: "failed",
+        errorMessage: err instanceof Error ? err.message : String(err),
+      });
       await releasePaymentReminderClaim(invoice.id, now).catch(() => {});
       logger.warn({ err, invoiceId: invoice.id }, "[scheduler] Pengiriman reminder error — akan dicoba lagi");
     }
@@ -638,6 +720,8 @@ export async function runOverdueCheck(): Promise<number> {
     .select({
       id: tenantInvoicesTable.id,
       invoiceNumber: tenantInvoicesTable.invoiceNumber,
+      siteId: tenantInvoicesTable.siteId,
+      tenantId: tenantInvoicesTable.tenantId,
       dueDate: tenantInvoicesTable.dueDate,
       totalAmount: tenantInvoicesTable.totalAmount,
       outstandingAmount: tenantInvoicesTable.outstandingAmount,
@@ -738,6 +822,15 @@ export async function runOverdueCheck(): Promise<number> {
       });
 
       if (result.ok && !result.skipped) {
+        await recordSchedulerWa({
+          siteId: invoice.siteId,
+          tenantId: invoice.tenantId,
+          invoiceId: invoice.id,
+          phone: invoice.phone,
+          messageType: "overdue_reminder",
+          status: result.pending ? "queued" : "accepted",
+          errorMessage: result.pending ? "Fonnte process:pending" : null,
+        });
         sent++;
         void notifyAdminGroup({
           eventType: "overdue",
@@ -749,6 +842,15 @@ export async function runOverdueCheck(): Promise<number> {
           paymentLink,
         }).catch(() => {});
       } else {
+        await recordSchedulerWa({
+          siteId: invoice.siteId,
+          tenantId: invoice.tenantId,
+          invoiceId: invoice.id,
+          phone: invoice.phone,
+          messageType: "overdue_reminder",
+          status: result.skipped ? "skipped" : "failed",
+          errorMessage: result.error ?? null,
+        });
         await releaseOverdueReminderClaim(invoice.id, claimedAt);
         logger.warn(
           { invoiceId: invoice.id, skipped: result.skipped, error: result.error },
@@ -756,6 +858,15 @@ export async function runOverdueCheck(): Promise<number> {
         );
       }
     } catch (err) {
+      await recordSchedulerWa({
+        siteId: invoice.siteId,
+        tenantId: invoice.tenantId,
+        invoiceId: invoice.id,
+        phone: invoice.phone,
+        messageType: "overdue_reminder",
+        status: "failed",
+        errorMessage: err instanceof Error ? err.message : String(err),
+      });
       await releaseOverdueReminderClaim(invoice.id, claimedAt).catch(() => {});
       logger.warn({ err, invoiceId: invoice.id }, "[scheduler] Pengiriman overdue error — akan dicoba lagi");
     }
