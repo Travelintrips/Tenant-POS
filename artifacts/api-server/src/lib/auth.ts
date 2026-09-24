@@ -194,53 +194,128 @@ export async function buildSessionUser(dbUser: {
   return base;
 }
 
-const clientID = process.env.GOOGLE_CLIENT_ID;
-const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
-const configuredCallbackUrl = process.env.GOOGLE_CALLBACK_URL?.trim();
-const configuredAppUrl = process.env.APP_URL?.trim();
-const fallbackDomain = process.env.REPLIT_DEV_DOMAIN ?? process.env.REPLIT_DOMAINS?.split(",")[0];
-const isProduction = process.env.NODE_ENV === "production";
-const productionCallbackURL = "https://tenant.travelintrips.co.id/api/auth/google/callback";
-const callbackURL =
-  isProduction
-    ? productionCallbackURL
-    : configuredCallbackUrl ||
-      (configuredAppUrl
-        ? `${configuredAppUrl.replace(/\/+$/, "")}/api/auth/google/callback`
-        : fallbackDomain
-          ? `https://${fallbackDomain}/api/auth/google/callback`
-          : undefined);
+const GOOGLE_ENV_ALIASES = {
+  clientId: ["GOOGLE_CLIENT_ID", "GOOGLE_OAUTH_CLIENT_ID", "GOOGLE_CLIENTID"],
+  clientSecret: ["GOOGLE_CLIENT_SECRET", "GOOGLE_OAUTH_CLIENT_SECRET", "GOOGLE_CLIENTSECRET"],
+} as const;
 
-export const googleAuthEnabled = Boolean(clientID && clientSecret && callbackURL);
-export const googleCallbackURL = callbackURL ?? null;
+function readRuntimeEnv(names: readonly string[]): string | undefined {
+  for (const name of names) {
+    const exact = process.env[name]?.trim();
+    if (exact) return exact;
+  }
 
-if (googleAuthEnabled && clientID && clientSecret && callbackURL) {
-  passport.use(
-    new GoogleStrategy(
-      { clientID, clientSecret, callbackURL },
-      async (_accessToken, _refreshToken, profile, done) => {
-        try {
-          const primaryEmail = profile.emails?.[0];
-          const email = primaryEmail?.value ?? "";
-          const emailVerified = primaryEmail?.verified !== false;
-          const name = profile.displayName;
-          const avatar = profile.photos?.[0]?.value ?? null;
+  // Recovery untuk environment key yang tanpa sengaja memiliki spasi/casing
+  // berbeda di panel hosting. Nilai secret tidak pernah dicetak ke log/API.
+  for (const [key, value] of Object.entries(process.env)) {
+    const normalizedKey = key.trim().toUpperCase();
+    if (names.some((name) => name.toUpperCase() === normalizedKey)) {
+      const normalizedValue = value?.trim();
+      if (normalizedValue) return normalizedValue;
+    }
+  }
 
-          if (!emailVerified || !isGoogleOwnerEmail(email)) {
-            done(new Error("GOOGLE_EMAIL_NOT_ALLOWED"));
-            return;
-          }
-
-          const dbUser = await findOrCreateUser({ email, name, avatar });
-          const user = await buildSessionUser(dbUser, profile.id);
-          done(null, user);
-        } catch (err) {
-          done(err as Error);
-        }
-      },
-    ),
-  );
+  return undefined;
 }
+
+function resolveGoogleCallbackURL(): string | undefined {
+  const configuredCallbackUrl = process.env.GOOGLE_CALLBACK_URL?.trim();
+  const configuredAppUrl = process.env.APP_URL?.trim();
+  const fallbackDomain =
+    process.env.REPLIT_DEV_DOMAIN ?? process.env.REPLIT_DOMAINS?.split(",")[0];
+  const isProduction = process.env.NODE_ENV === "production";
+  const productionCallbackURL =
+    "https://tenant.travelintrips.co.id/api/auth/google/callback";
+
+  if (isProduction) return productionCallbackURL;
+  if (configuredCallbackUrl) return configuredCallbackUrl;
+  if (configuredAppUrl) {
+    return `${configuredAppUrl.replace(/\/+$/, "")}/api/auth/google/callback`;
+  }
+  if (fallbackDomain) {
+    return `https://${fallbackDomain}/api/auth/google/callback`;
+  }
+  return undefined;
+}
+
+export function getGoogleAuthStatus() {
+  const clientID = readRuntimeEnv(GOOGLE_ENV_ALIASES.clientId);
+  const clientSecret = readRuntimeEnv(GOOGLE_ENV_ALIASES.clientSecret);
+  const callbackURL = resolveGoogleCallbackURL();
+
+  return {
+    enabled: Boolean(clientID && clientSecret && callbackURL),
+    clientID,
+    clientSecret,
+    callbackURL: callbackURL ?? null,
+    clientIdPresent: Boolean(clientID),
+    clientSecretPresent: Boolean(clientSecret),
+  };
+}
+
+let googleStrategyFingerprint: string | null = null;
+
+export function ensureGoogleStrategy(): {
+  enabled: boolean;
+  callbackURL: string | null;
+  clientIdPresent: boolean;
+  clientSecretPresent: boolean;
+} {
+  const status = getGoogleAuthStatus();
+
+  if (!status.enabled || !status.clientID || !status.clientSecret || !status.callbackURL) {
+    return {
+      enabled: false,
+      callbackURL: status.callbackURL,
+      clientIdPresent: status.clientIdPresent,
+      clientSecretPresent: status.clientSecretPresent,
+    };
+  }
+
+  const fingerprint = `${status.clientID}|${status.callbackURL}`;
+  if (googleStrategyFingerprint !== fingerprint) {
+    passport.use(
+      "google",
+      new GoogleStrategy(
+        {
+          clientID: status.clientID,
+          clientSecret: status.clientSecret,
+          callbackURL: status.callbackURL,
+        },
+        async (_accessToken, _refreshToken, profile, done) => {
+          try {
+            const primaryEmail = profile.emails?.[0];
+            const email = primaryEmail?.value ?? "";
+            const emailVerified = primaryEmail?.verified !== false;
+            const name = profile.displayName;
+            const avatar = profile.photos?.[0]?.value ?? null;
+
+            if (!emailVerified || !isGoogleOwnerEmail(email)) {
+              done(new Error("GOOGLE_EMAIL_NOT_ALLOWED"));
+              return;
+            }
+
+            const dbUser = await findOrCreateUser({ email, name, avatar });
+            const user = await buildSessionUser(dbUser, profile.id);
+            done(null, user);
+          } catch (err) {
+            done(err as Error);
+          }
+        },
+      ),
+    );
+    googleStrategyFingerprint = fingerprint;
+  }
+
+  return {
+    enabled: true,
+    callbackURL: status.callbackURL,
+    clientIdPresent: true,
+    clientSecretPresent: true,
+  };
+}
+
+export const googleCallbackURL = resolveGoogleCallbackURL() ?? null;
 
 passport.serializeUser((user, done) => done(null, user));
 passport.deserializeUser((user, done) => done(null, user as Express.User));
