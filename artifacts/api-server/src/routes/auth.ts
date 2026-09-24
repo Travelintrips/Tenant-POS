@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import passport, { googleAuthEnabled, googleCallbackURL } from "../lib/auth";
+import passport, { ensureGoogleStrategy, getGoogleAuthStatus, googleCallbackURL } from "../lib/auth";
 import { db, dbConfig } from "@workspace/db";
 import { usersTable, USER_ROLES, USER_STATUSES, type UserRole, tenantUserAccessTable, mallSitesTable, tenantsTable } from "@workspace/db/schema";
 import { eq, asc, and, ne, or } from "drizzle-orm";
@@ -244,16 +244,18 @@ router.get("/auth/dev-login-enabled", (_req, res) => {
 });
 
 router.get("/auth/providers", (_req, res) => {
+  const google = getGoogleAuthStatus();
   const whatsappEnabled = Boolean(
     (process.env.FONNTE_API_KEY ?? process.env.FONNTE_TOKEN)?.trim(),
   );
 
+  res.setHeader("Cache-Control", "no-store");
   res.json({
     google: {
-      enabled: googleAuthEnabled,
-      clientIdPresent: Boolean(process.env.GOOGLE_CLIENT_ID?.trim()),
-      clientSecretPresent: Boolean(process.env.GOOGLE_CLIENT_SECRET?.trim()),
-      callbackUrl: googleCallbackURL,
+      enabled: google.enabled,
+      clientIdPresent: google.clientIdPresent,
+      clientSecretPresent: google.clientSecretPresent,
+      callbackUrl: google.callbackURL,
       ownerEmail: "admcst001@gmail.com",
     },
     whatsapp: {
@@ -265,15 +267,36 @@ router.get("/auth/providers", (_req, res) => {
 });
 
 router.get("/auth/google-enabled", (_req, res) => {
+  const google = getGoogleAuthStatus();
+  res.setHeader("Cache-Control", "no-store");
   res.json({
-    enabled: googleAuthEnabled,
-    callbackUrl: googleCallbackURL,
+    enabled: google.enabled,
+    clientIdPresent: google.clientIdPresent,
+    clientSecretPresent: google.clientSecretPresent,
+    callbackUrl: google.callbackURL,
   });
 });
 
 router.get("/auth/google", googleAuthRateLimiter, (req, res, next) => {
-  if (!googleAuthEnabled) {
-    res.redirect("/login?error=google_not_configured");
+  const google = ensureGoogleStrategy();
+  if (!google.enabled) {
+    const missing =
+      !google.clientIdPresent && !google.clientSecretPresent
+        ? "client_id_and_secret"
+        : !google.clientIdPresent
+          ? "client_id"
+          : "client_secret";
+
+    logger.error(
+      {
+        clientIdPresent: google.clientIdPresent,
+        clientSecretPresent: google.clientSecretPresent,
+        callbackUrl: google.callbackURL,
+      },
+      "[google-auth] konfigurasi runtime belum lengkap",
+    );
+
+    res.redirect(`/login?error=google_not_configured&missing=${missing}`);
     return;
   }
 
@@ -287,7 +310,8 @@ router.get(
   "/auth/google/callback",
   googleAuthRateLimiter,
   (req, res, next) => {
-    if (!googleAuthEnabled) {
+    const google = ensureGoogleStrategy();
+    if (!google.enabled) {
       res.redirect("/login?error=google_not_configured");
       return;
     }
