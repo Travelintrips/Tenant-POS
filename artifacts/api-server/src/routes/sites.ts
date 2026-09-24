@@ -3,7 +3,7 @@ import { db } from "@workspace/db";
 import { mallSitesTable, userSiteAccessTable, usersTable, insertMallSiteSchema } from "@workspace/db/schema";
 import { eq, and } from "drizzle-orm";
 import { requireAuth, requireAnyRole } from "../middlewares/auth";
-import { clearSitesCache } from "../middlewares/site-context";
+import { clearSitesCache, invalidateUserSiteAccessCache } from "../middlewares/site-context";
 import { logAudit } from "../lib/audit";
 
 const router: IRouter = Router();
@@ -131,7 +131,7 @@ router.get("/sites/:id/users", requireAnyRole("owner", "admin"), async (req, res
 router.post("/sites/:id/users", requireAnyRole("owner", "admin"), async (req, res) => {
   const siteId = Number(req.params.id);
   if (isNaN(siteId)) { res.status(400).json({ error: "ID tidak valid" }); return; }
-  const { userId, role } = req.body as { userId?: number; role?: string };
+  const { userId, role } = req.body as { userId?: string | number; role?: string };
   if (!userId) { res.status(400).json({ error: "userId wajib diisi" }); return; }
   try {
     const [existing] = await db
@@ -144,8 +144,9 @@ router.post("/sites/:id/users", requireAnyRole("owner", "admin"), async (req, re
     }
     const [access] = await db
       .insert(userSiteAccessTable)
-      .values({ userId: String(userId), siteId, role: role ?? "admin" })
+      .values({ userId: userId, siteId, role: role ?? "admin" })
       .returning();
+    invalidateUserSiteAccessCache(userId);
     logAudit(req, { action: "grant_site_access", entityType: "user_site_access", entityId: access.id, afterData: access });
     res.status(201).json(access);
   } catch (err) {
@@ -157,14 +158,15 @@ router.post("/sites/:id/users", requireAnyRole("owner", "admin"), async (req, re
 // ─── DELETE /api/sites/:id/users/:userId — cabut akses ───────────────────────
 router.delete("/sites/:id/users/:userId", requireAnyRole("owner", "admin"), async (req, res) => {
   const siteId = Number(req.params.id);
-  const userId = Number(req.params.userId);
-  if (isNaN(siteId) || isNaN(userId)) { res.status(400).json({ error: "ID tidak valid" }); return; }
+  const userId = String(req.params.userId ?? "").trim();
+  if (isNaN(siteId) || !userId) { res.status(400).json({ error: "ID tidak valid" }); return; }
   try {
     const [deleted] = await db
       .delete(userSiteAccessTable)
-      .where(and(eq(userSiteAccessTable.userId, String(userId)), eq(userSiteAccessTable.siteId, siteId)))
+      .where(and(eq(userSiteAccessTable.userId, userId), eq(userSiteAccessTable.siteId, siteId)))
       .returning();
     if (!deleted) { res.status(404).json({ error: "Akses tidak ditemukan" }); return; }
+    invalidateUserSiteAccessCache(userId);
     logAudit(req, { action: "revoke_site_access", entityType: "user_site_access", entityId: deleted.id, beforeData: deleted });
     res.json({ success: true });
   } catch (err) {
