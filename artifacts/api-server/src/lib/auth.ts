@@ -5,6 +5,7 @@ import { usersTable, tenantUserAccessTable } from "@workspace/db/schema";
 import { eq, sql } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import { normalizePhoneNumber } from "../services/otp-service";
+import { withDbRetry } from "./db-retry";
 
 declare global {
   namespace Express {
@@ -79,18 +80,26 @@ export async function findOrCreateUserByPhone(opts: {
 }): Promise<{ id: string; email: string | null; name: string; avatarUrl: string | null; role: string; phoneNumber: string | null } | null> {
   const normalized = normalizePhoneNumber(opts.phoneNumber);
 
-  const [existing] = await db
-    .select()
-    .from(usersTable)
-    .where(eq(usersTable.phoneNumber, normalized));
+  const [existing] = await withDbRetry(
+    () =>
+      db
+        .select()
+        .from(usersTable)
+        .where(eq(usersTable.phoneNumber, normalized)),
+    { label: "wa-auth.lookup-user" },
+  );
 
   if (!existing) return null;
   if (existing.status === "blocked" || existing.status === "inactive") return null;
 
-  await db
-    .update(usersTable)
-    .set({ lastLoginAt: new Date(), updatedAt: new Date() })
-    .where(eq(usersTable.id, existing.id));
+  await withDbRetry(
+    () =>
+      db
+        .update(usersTable)
+        .set({ lastLoginAt: new Date(), updatedAt: new Date() })
+        .where(eq(usersTable.id, existing.id)),
+    { label: "wa-auth.touch-user" },
+  );
 
   return { ...existing, phoneNumber: existing.phoneNumber ?? null };
 }

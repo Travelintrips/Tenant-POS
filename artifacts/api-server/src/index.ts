@@ -101,12 +101,27 @@ function validateProductionEnv(): void {
 }
 
 export async function runMigrationsAndScheduler(): Promise<void> {
-  try {
-    const { runMigrations, runUsersIdTextMigration } = await import("@workspace/db");
-    await runUsersIdTextMigration();
-    await runMigrations();
-  } catch (err) {
-    logger.warn({ err }, "[migrate] Schema sync gagal — server tetap jalan");
+  const shouldRunMigrations =
+    process.env["NODE_ENV"] !== "production" ||
+    process.env["RUN_DB_MIGRATIONS_ON_STARTUP"] === "true";
+
+  if (shouldRunMigrations) {
+    try {
+      const { runMigrations, runUsersIdTextMigration } = await import("@workspace/db");
+      await runUsersIdTextMigration();
+      await runMigrations();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      const cause = err instanceof Error ? (err as Error & { cause?: unknown }).cause : undefined;
+      logger.warn(
+        { message, cause: cause instanceof Error ? cause.message : cause },
+        "[migrate] Schema sync gagal — server tetap jalan",
+      );
+    }
+  } else {
+    logger.info(
+      "[migrate] Startup migration production dilewati; set RUN_DB_MIGRATIONS_ON_STARTUP=true hanya saat migration memang perlu dijalankan.",
+    );
   }
 
   startOverdueScheduler();

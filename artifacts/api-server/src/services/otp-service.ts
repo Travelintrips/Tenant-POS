@@ -3,6 +3,7 @@ import { db } from "@workspace/db";
 import { otpTokensTable } from "@workspace/db/schema";
 import { eq, lt } from "drizzle-orm";
 import { logger } from "../lib/logger";
+import { withDbRetry } from "../lib/db-retry";
 
 const OTP_EXPIRY_MINUTES = Number(process.env.OTP_EXPIRY_MINUTES ?? "5");
 const OTP_MAX_ATTEMPTS = Number(process.env.OTP_MAX_ATTEMPTS ?? "5");
@@ -45,16 +46,24 @@ export async function createOtp(phoneNumber: string): Promise<CreateOtpResult> {
   const expiresAt = new Date(Date.now() + OTP_EXPIRY_MINUTES * 60 * 1000);
 
   // Invalidate any existing OTPs for this number (hapus semua terlebih dahulu)
-  await db.delete(otpTokensTable).where(
-    eq(otpTokensTable.phoneNumber, normalized),
+  await withDbRetry(
+    () =>
+      db.delete(otpTokensTable).where(
+        eq(otpTokensTable.phoneNumber, normalized),
+      ),
+    { label: "otp.invalidate" },
   );
 
-  await db.insert(otpTokensTable).values({
-    phoneNumber: normalized,
-    otpHash: hash,
-    expiresAt,
-    attempts: 0,
-  });
+  await withDbRetry(
+    () =>
+      db.insert(otpTokensTable).values({
+        phoneNumber: normalized,
+        otpHash: hash,
+        expiresAt,
+        attempts: 0,
+      }),
+    { label: "otp.insert" },
+  );
 
   if (shouldReturnDevOtp()) {
     logger.info({ phoneNumber: normalized }, "[otp] OTP dibuat (dev mode)");
@@ -76,12 +85,16 @@ export async function verifyOtp(
   const hash = hashOtp(otp);
   const now = new Date();
 
-  const [token] = await db
-    .select()
-    .from(otpTokensTable)
-    .where(eq(otpTokensTable.phoneNumber, normalized))
-    .orderBy(otpTokensTable.createdAt)
-    .limit(1);
+  const [token] = await withDbRetry(
+    () =>
+      db
+        .select()
+        .from(otpTokensTable)
+        .where(eq(otpTokensTable.phoneNumber, normalized))
+        .orderBy(otpTokensTable.createdAt)
+        .limit(1),
+    { label: "otp.lookup" },
+  );
 
   if (!token) {
     return { ok: false, reason: "invalid" };
@@ -100,17 +113,25 @@ export async function verifyOtp(
   }
 
   if (token.otpHash !== hash) {
-    await db
-      .update(otpTokensTable)
-      .set({ attempts: token.attempts + 1 })
-      .where(eq(otpTokensTable.id, token.id));
+    await withDbRetry(
+      () =>
+        db
+          .update(otpTokensTable)
+          .set({ attempts: token.attempts + 1 })
+          .where(eq(otpTokensTable.id, token.id)),
+      { label: "otp.increment-attempt" },
+    );
     return { ok: false, reason: "invalid" };
   }
 
-  await db
-    .update(otpTokensTable)
-    .set({ usedAt: now })
-    .where(eq(otpTokensTable.id, token.id));
+  await withDbRetry(
+    () =>
+      db
+        .update(otpTokensTable)
+        .set({ usedAt: now })
+        .where(eq(otpTokensTable.id, token.id)),
+    { label: "otp.mark-used" },
+  );
 
   return { ok: true };
 }

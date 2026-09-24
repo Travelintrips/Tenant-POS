@@ -7,6 +7,7 @@ import { findOrCreateUser, buildSessionUser, getTenantAccess } from "../lib/auth
 import { requireAnyRole, requireAuth, invalidateUserStatusCache } from "../middlewares/auth";
 import { logAudit } from "../lib/audit";
 import { logger } from "../lib/logger";
+import { withDbRetry } from "../lib/db-retry";
 import { devLoginRateLimiter, googleAuthRateLimiter, authMeRateLimiter } from "../middlewares/rate-limit";
 import { normalizePhoneNumber } from "../services/otp-service";
 import { randomUUID } from "node:crypto";
@@ -106,18 +107,23 @@ if (DEV_LOGIN_ENABLED) {
       // Cari berdasarkan nomor ATAU email dev. Database lama/test dapat memiliki
       // akun dev dengan email yang sama tetapi phone_number masih null. Jika hanya
       // mencari nomor, INSERT berikutnya akan menabrak users_email_unique.
-      let [dbUser] = await db
-        .select()
-        .from(usersTable)
-        .where(
-          or(
-            eq(usersTable.phoneNumber, requestedPhoneNumber),
-            eq(usersTable.email, devEmail),
-          ),
-        );
+      let [dbUser] = await withDbRetry(
+        () =>
+          db
+            .select()
+            .from(usersTable)
+            .where(
+              or(
+                eq(usersTable.phoneNumber, requestedPhoneNumber),
+                eq(usersTable.email, devEmail),
+              ),
+            ),
+        { label: "dev-login.lookup-user" },
+      );
 
 if (!dbUser) {
-  const [created] = await db
+  const [created] = await withDbRetry(
+    () => db
     .insert(usersTable)
     .values({
       id: randomUUID(),
@@ -153,11 +159,14 @@ if (!dbUser) {
   forceLogoutAt: usersTable.forceLogoutAt,
   createdAt: usersTable.createdAt,
   updatedAt: usersTable.updatedAt,
-});
+}),
+    { label: "dev-login.upsert-user" },
+  );
 
   dbUser = created;
 } else {
-  const [updated] = await db
+  const [updated] = await withDbRetry(
+    () => db
     .update(usersTable)
     .set({
       role: effectiveRole,
@@ -179,7 +188,9 @@ if (!dbUser) {
   forceLogoutAt: usersTable.forceLogoutAt,
   createdAt: usersTable.createdAt,
   updatedAt: usersTable.updatedAt,
-});
+}),
+    { label: "dev-login.update-user" },
+  );
 
   dbUser = updated;
 }

@@ -17,25 +17,27 @@ function positiveIntEnv(name: string, fallback: number): number {
 // instance Tenant-POS tidak dapat menghabiskan seluruh slot koneksi project.
 export const dbPoolMax = positiveIntEnv(
   "DB_POOL_MAX",
-  dbConfig.poolMode === "transaction" ? 6 : 3,
+  dbConfig.env === "production" ? 1 : dbConfig.poolMode === "transaction" ? 4 : 2,
 );
 
 export const pool = new Pool({
   ...dbConfig.parsed,
   ssl: dbConfig.ssl,
   max: dbPoolMax,
-  idleTimeoutMillis: 10_000,
+  idleTimeoutMillis: 5_000,
   connectionTimeoutMillis: 8_000,
+  query_timeout: 12_000,
   keepAlive: true,
   keepAliveInitialDelayMillis: 10_000,
   application_name: "tenant-pos-api",
 });
 
-// PgBouncer transaction mode (port 6543) bisa menghapus search_path session.
-// Pastikan setiap koneksi baru selalu set search_path=public agar
-// query Drizzle tanpa schema prefix (mis. SELECT FROM "users") tidak gagal.
-pool.on("connect", (client) => {
-  client.query("SET search_path TO public").catch(() => {});
+// Jangan menjalankan SET/search_path pada transaction pooler. Supavisor transaction
+// mode tidak menjamin session state antar transaksi. Schema aplikasi memang public
+// secara default, sehingga query Drizzle tetap aman tanpa SET per koneksi.
+pool.on("error", (err) => {
+  const code = (err as NodeJS.ErrnoException).code ?? "unknown";
+  console.error(`[db-pool] idle client error code=${code} message=${err.message}`);
 });
 
 export const db = drizzle(pool, { schema });
