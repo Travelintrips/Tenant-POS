@@ -2,7 +2,7 @@ import { Router, type IRouter } from "express";
 import passport from "../lib/auth";
 import { db, dbConfig } from "@workspace/db";
 import { usersTable, USER_ROLES, USER_STATUSES, type UserRole, tenantUserAccessTable, mallSitesTable, tenantsTable } from "@workspace/db/schema";
-import { eq, asc, and, ne } from "drizzle-orm";
+import { eq, asc, and, ne, or } from "drizzle-orm";
 import { findOrCreateUser, buildSessionUser, getTenantAccess } from "../lib/auth";
 import { requireAnyRole, requireAuth, invalidateUserStatusCache } from "../middlewares/auth";
 import { logAudit } from "../lib/audit";
@@ -101,16 +101,27 @@ if (DEV_LOGIN_ENABLED) {
     );
 
     try {
-     let [dbUser] = await db
-  .select()
-  .from(usersTable)
-  .where(eq(usersTable.phoneNumber, requestedPhoneNumber));
+      const devEmail = `${requestedPhoneNumber}@dev.local`;
+
+      // Cari berdasarkan nomor ATAU email dev. Database lama/test dapat memiliki
+      // akun dev dengan email yang sama tetapi phone_number masih null. Jika hanya
+      // mencari nomor, INSERT berikutnya akan menabrak users_email_unique.
+      let [dbUser] = await db
+        .select()
+        .from(usersTable)
+        .where(
+          or(
+            eq(usersTable.phoneNumber, requestedPhoneNumber),
+            eq(usersTable.email, devEmail),
+          ),
+        );
+
 if (!dbUser) {
   const [created] = await db
     .insert(usersTable)
     .values({
       id: randomUUID(),
-      email: `${requestedPhoneNumber}@dev.local`,
+      email: devEmail,
       name: DEV_ROLE_NAMES[effectiveRole] ?? "Dev User",
       avatarUrl: null,
       phoneNumber: requestedPhoneNumber,
@@ -138,6 +149,8 @@ if (!dbUser) {
     .update(usersTable)
     .set({
       role: effectiveRole,
+      phoneNumber: requestedPhoneNumber,
+      email: dbUser.email ?? devEmail,
       updatedAt: new Date(),
     })
     .where(eq(usersTable.id, dbUser.id))
