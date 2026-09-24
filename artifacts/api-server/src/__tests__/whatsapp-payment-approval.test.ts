@@ -60,6 +60,12 @@ describe("WhatsApp payment approval uses canonical ledger", () => {
       outstandingAmount: "5000000",
       status: "unpaid",
     });
+    await createTestInvoice(tenant.id, booking.id, {
+      totalAmount: "5000000",
+      paidAmount: "0",
+      outstandingAmount: "5000000",
+      status: "unpaid",
+    });
     const payment = await createTestPayment(tenant.id, booking.id, {
       invoiceId: invoice.id,
       amount: "2000000",
@@ -100,8 +106,9 @@ describe("WhatsApp payment approval uses canonical ledger", () => {
     expect(Number(updatedInvoice.outstandingAmount)).toBe(3_000_000);
     expect(updatedInvoice.status).toBe("partial");
 
+    expect(Number(updatedBooking.totalAmount)).toBe(10_000_000);
     expect(Number(updatedBooking.paidAmount)).toBe(2_000_000);
-    expect(Number(updatedBooking.remainingAmount)).toBe(3_000_000);
+    expect(Number(updatedBooking.remainingAmount)).toBe(8_000_000);
     expect(updatedBooking.paymentStatus).toBe("PARTIAL");
 
     expect(receipt?.paymentId).toBe(payment.id);
