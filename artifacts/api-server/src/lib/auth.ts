@@ -3,7 +3,7 @@ import { Strategy as GoogleStrategy } from "passport-google-oauth20";
 import { db } from "@workspace/db";
 import { usersTable, tenantUserAccessTable } from "@workspace/db/schema";
 import { eq } from "drizzle-orm";
-import { randomUUID } from "node:crypto";
+import { createPublicKey, randomUUID, verify as verifySignature } from "node:crypto";
 import { normalizePhoneNumber } from "../services/otp-service";
 import { withDbRetry } from "./db-retry";
 
@@ -265,6 +265,122 @@ export function getGoogleAuthStatus(): {
           ? "runtime-env"
           : "missing",
   };
+}
+
+
+type GoogleIdTokenClaims = {
+  iss: string;
+  aud: string | string[];
+  sub: string;
+  email?: string;
+  email_verified?: boolean;
+  name?: string;
+  picture?: string;
+  exp: number;
+  iat?: number;
+};
+
+type GoogleJwk = JsonWebKey & { kid?: string; alg?: string; use?: string };
+
+let googleJwksCache: { keys: GoogleJwk[]; expiresAt: number } | null = null;
+
+function decodeJwtJson<T>(segment: string): T {
+  return JSON.parse(Buffer.from(segment, "base64url").toString("utf8")) as T;
+}
+
+async function getGoogleJwks(): Promise<GoogleJwk[]> {
+  const now = Date.now();
+  if (googleJwksCache && googleJwksCache.expiresAt > now) {
+    return googleJwksCache.keys;
+  }
+
+  const response = await fetch("https://www.googleapis.com/oauth2/v3/certs", {
+    signal: AbortSignal.timeout(8_000),
+  });
+  if (!response.ok) {
+    throw new Error(`GOOGLE_JWKS_HTTP_${response.status}`);
+  }
+
+  const payload = (await response.json()) as { keys?: GoogleJwk[] };
+  const keys = Array.isArray(payload.keys) ? payload.keys : [];
+  if (keys.length === 0) throw new Error("GOOGLE_JWKS_EMPTY");
+
+  const cacheControl = response.headers.get("cache-control") ?? "";
+  const maxAgeMatch = cacheControl.match(/max-age=(\d+)/i);
+  const maxAgeSeconds = maxAgeMatch ? Number(maxAgeMatch[1]) : 3600;
+  googleJwksCache = {
+    keys,
+    expiresAt: now + Math.max(300, Math.min(maxAgeSeconds, 86_400)) * 1000,
+  };
+
+  return keys;
+}
+
+export async function verifyGoogleIdToken(idToken: string): Promise<GoogleIdTokenClaims> {
+  const parts = idToken.split(".");
+  if (parts.length !== 3) throw new Error("GOOGLE_ID_TOKEN_MALFORMED");
+
+  const [encodedHeader, encodedPayload, encodedSignature] = parts;
+  const header = decodeJwtJson<{ alg?: string; kid?: string }>(encodedHeader);
+  const claims = decodeJwtJson<GoogleIdTokenClaims>(encodedPayload);
+
+  if (header.alg !== "RS256" || !header.kid) {
+    throw new Error("GOOGLE_ID_TOKEN_ALG_INVALID");
+  }
+
+  const google = getGoogleAuthStatus();
+  if (!google.clientID) throw new Error("GOOGLE_CLIENT_ID_MISSING");
+
+  const nowSeconds = Math.floor(Date.now() / 1000);
+  if (!claims.exp || claims.exp <= nowSeconds) {
+    throw new Error("GOOGLE_ID_TOKEN_EXPIRED");
+  }
+  if (claims.iat && claims.iat > nowSeconds + 120) {
+    throw new Error("GOOGLE_ID_TOKEN_IAT_INVALID");
+  }
+  if (!["accounts.google.com", "https://accounts.google.com"].includes(claims.iss)) {
+    throw new Error("GOOGLE_ID_TOKEN_ISSUER_INVALID");
+  }
+
+  const audiences = Array.isArray(claims.aud) ? claims.aud : [claims.aud];
+  if (!audiences.includes(google.clientID)) {
+    throw new Error("GOOGLE_ID_TOKEN_AUDIENCE_INVALID");
+  }
+
+  const keys = await getGoogleJwks();
+  const jwk = keys.find((key) => key.kid === header.kid);
+  if (!jwk) {
+    googleJwksCache = null;
+    const refreshed = await getGoogleJwks();
+    const refreshedJwk = refreshed.find((key) => key.kid === header.kid);
+    if (!refreshedJwk) throw new Error("GOOGLE_ID_TOKEN_KID_UNKNOWN");
+
+    const keyObject = createPublicKey({ key: refreshedJwk, format: "jwk" });
+    const valid = verifySignature(
+      "RSA-SHA256",
+      Buffer.from(`${encodedHeader}.${encodedPayload}`),
+      keyObject,
+      Buffer.from(encodedSignature, "base64url"),
+    );
+    if (!valid) throw new Error("GOOGLE_ID_TOKEN_SIGNATURE_INVALID");
+  } else {
+    const keyObject = createPublicKey({ key: jwk, format: "jwk" });
+    const valid = verifySignature(
+      "RSA-SHA256",
+      Buffer.from(`${encodedHeader}.${encodedPayload}`),
+      keyObject,
+      Buffer.from(encodedSignature, "base64url"),
+    );
+    if (!valid) throw new Error("GOOGLE_ID_TOKEN_SIGNATURE_INVALID");
+  }
+
+  const email = normalizeEmail(claims.email ?? "");
+  if (!claims.email_verified || !email || !isGoogleOwnerEmail(email)) {
+    throw new Error("GOOGLE_EMAIL_NOT_ALLOWED");
+  }
+  if (!claims.sub) throw new Error("GOOGLE_ID_TOKEN_SUB_MISSING");
+
+  return { ...claims, email };
 }
 
 let googleStrategyFingerprint: string | null = null;

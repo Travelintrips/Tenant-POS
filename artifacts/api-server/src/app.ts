@@ -54,7 +54,8 @@ app.use(
     contentSecurityPolicy: false,
     crossOriginEmbedderPolicy: false,
     crossOriginResourcePolicy: { policy: "cross-origin" },
-    crossOriginOpenerPolicy: { policy: "same-origin" },
+    // Google Identity Services popup membutuhkan opener tetap tersedia.
+    crossOriginOpenerPolicy: { policy: "same-origin-allow-popups" },
     referrerPolicy: { policy: "strict-origin-when-cross-origin" },
     frameguard: { action: "sameorigin" },
   }),

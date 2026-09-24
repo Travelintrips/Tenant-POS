@@ -27,7 +27,11 @@ export default function Login() {
       ? "Google Login belum dikonfigurasi di server."
       : errorCode === "google_auth_failed"
         ? "Google Login gagal atau email tidak diizinkan."
-        : errorCode
+        : errorCode === "google_callback_failed"
+          ? "Google OAuth callback gagal. Gunakan tombol Google baru di bawah."
+          : errorCode === "google_session_failed"
+            ? "Google berhasil diverifikasi tetapi sesi gagal dibuat."
+            : errorCode
           ? "Login gagal. Silakan coba lagi."
           : null;
   const [loadingRole, setLoadingRole] = useState<UserRole | null>(null);
@@ -35,6 +39,8 @@ export default function Login() {
     typeof __DEV_LOGIN_ENABLED__ !== "undefined" ? __DEV_LOGIN_ENABLED__ : false,
   );
   const [googleLoginEnabled, setGoogleLoginEnabled] = useState(false);
+  const [googleClientId, setGoogleClientId] = useState<string | null>(null);
+  const [googleSdkReady, setGoogleSdkReady] = useState(false);
   const [devSecret, setDevSecret] = useState("");
   const [loginError, setLoginError] = useState<string | null>(null);
   const [step, setStep] = useState<Step>("phone");
@@ -76,7 +82,10 @@ export default function Login() {
           return r.json();
         })
         .then((data) => {
-          if (!cancelled) setGoogleLoginEnabled(data.enabled === true);
+          if (!cancelled) {
+            setGoogleLoginEnabled(data.gisEnabled === true || data.clientIdPresent === true);
+            setGoogleClientId(typeof data.clientId === "string" ? data.clientId : null);
+          }
         })
         .catch(() => {
           if (cancelled) return;
@@ -96,7 +105,86 @@ export default function Login() {
     };
   }, []);
 
-  const handleGoogleLogin = () => {
+  useEffect(() => {
+    if (!googleClientId) return;
+
+    let cancelled = false;
+    const scriptId = "google-identity-services";
+
+    const initialize = () => {
+      if (cancelled) return;
+      const google = (window as any).google;
+      if (!google?.accounts?.id) return;
+
+      google.accounts.id.initialize({
+        client_id: googleClientId,
+        callback: async (response: { credential?: string }) => {
+          const credential = response?.credential;
+          if (!credential) {
+            setLoginError("Google tidak mengembalikan credential login.");
+            return;
+          }
+
+          setLoginError(null);
+          try {
+            const res = await fetch("/api/auth/google/id-token", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              credentials: "include",
+              body: JSON.stringify({ credential }),
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) {
+              setLoginError(data.error ?? `Google Login gagal (${res.status})`);
+              return;
+            }
+
+            qc.setQueryData(["auth-me"], data);
+            window.location.href = "/";
+          } catch {
+            setLoginError("Tidak dapat menyelesaikan Google Login.");
+          }
+        },
+      });
+
+      const container = document.getElementById("google-signin-button");
+      if (container) {
+        container.innerHTML = "";
+        google.accounts.id.renderButton(container, {
+          type: "standard",
+          theme: "outline",
+          size: "large",
+          text: "signin_with",
+          shape: "rectangular",
+          width: Math.max(280, Math.min(container.clientWidth || 360, 400)),
+        });
+        setGoogleSdkReady(true);
+      }
+    };
+
+    const existing = document.getElementById(scriptId) as HTMLScriptElement | null;
+    if (existing) {
+      if ((window as any).google?.accounts?.id) initialize();
+      else existing.addEventListener("load", initialize, { once: true });
+    } else {
+      const script = document.createElement("script");
+      script.id = scriptId;
+      script.src = "https://accounts.google.com/gsi/client";
+      script.async = true;
+      script.defer = true;
+      script.onload = initialize;
+      script.onerror = () => {
+        if (!cancelled) setLoginError("Gagal memuat Google Identity Services.");
+      };
+      document.head.appendChild(script);
+    }
+
+    return () => {
+      cancelled = true;
+    };
+  }, [googleClientId, qc]);
+
+  const handleGoogleLoginFallback = () => {
     setLoginError(null);
     window.location.href = "/api/auth/google";
   };
@@ -289,19 +377,25 @@ export default function Login() {
             <Separator className="flex-1" />
           </div>
 
-          <Button
-            type="button"
-            variant="outline"
-            className="w-full gap-2"
-            size="lg"
-            onClick={handleGoogleLogin}
-          >
-            <LogIn className="h-4 w-4" />
-            Masuk dengan Google
-          </Button>
+          <div id="google-signin-button" className="w-full flex justify-center min-h-10" />
+
+          {!googleSdkReady && (
+            <Button
+              type="button"
+              variant="outline"
+              className="w-full gap-2"
+              size="lg"
+              onClick={handleGoogleLoginFallback}
+              disabled={!googleLoginEnabled}
+            >
+              <LogIn className="h-4 w-4" />
+              Masuk dengan Google
+            </Button>
+          )}
+
           <p className="text-[11px] text-center text-muted-foreground">
             Google Owner: admcst001@gmail.com
-            {!googleLoginEnabled ? " · klik untuk cek konfigurasi server" : ""}
+            {!googleLoginEnabled ? " · konfigurasi Google belum terbaca" : ""}
           </p>
 
           {devLoginEnabled && (

@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import passport, { ensureGoogleStrategy, getGoogleAuthStatus } from "../lib/auth";
+import passport, { ensureGoogleStrategy, getGoogleAuthStatus, verifyGoogleIdToken } from "../lib/auth";
 import { db, dbConfig } from "@workspace/db";
 import { usersTable, USER_ROLES, USER_STATUSES, type UserRole, tenantUserAccessTable, mallSitesTable, tenantsTable } from "@workspace/db/schema";
 import { eq, asc, and, ne, or } from "drizzle-orm";
@@ -257,6 +257,7 @@ router.get("/auth/providers", (_req, res) => {
       clientSecretPresent: google.clientSecretPresent,
       callbackUrl: google.callbackURL,
       configSource: google.source,
+      clientId: google.clientID ?? null,
       ownerEmail: "admcst001@gmail.com",
     },
     whatsapp: {
@@ -276,6 +277,8 @@ router.get("/auth/google-enabled", (_req, res) => {
     clientSecretPresent: google.clientSecretPresent,
     callbackUrl: google.callbackURL,
     configSource: google.source,
+    clientId: google.clientID ?? null,
+    gisEnabled: google.clientIdPresent,
   });
 });
 
@@ -309,6 +312,66 @@ router.get("/auth/google", googleAuthRateLimiter, (req, res, next) => {
   })(req, res, next);
 });
 
+router.post("/auth/google/id-token", googleAuthRateLimiter, async (req, res) => {
+  const credential =
+    typeof req.body?.credential === "string" ? req.body.credential.trim() : "";
+
+  if (!credential) {
+    res.status(400).json({ error: "Google credential tidak tersedia" });
+    return;
+  }
+
+  try {
+    const claims = await verifyGoogleIdToken(credential);
+    const email = claims.email ?? "";
+    const dbUser = await findOrCreateUser({
+      email,
+      name: claims.name?.trim() || "Admin Cahaya Sejati Teknologi",
+      avatar: claims.picture ?? null,
+    });
+    const sessionUser = await buildSessionUser(dbUser, claims.sub);
+
+    req.login(sessionUser, (err) => {
+      if (err) {
+        logger.error(
+          { message: err instanceof Error ? err.message : String(err) },
+          "[google-gis] req.login gagal",
+        );
+        res.status(500).json({ error: "Gagal membuat sesi Google" });
+        return;
+      }
+
+      logger.info(
+        { email: sessionUser.email, role: sessionUser.role },
+        "[google-gis] login berhasil",
+      );
+      res.json(sessionUser);
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    logger.error(
+      { message, errorChain: errorChain(err) },
+      "[google-gis] verifikasi ID token gagal",
+    );
+
+    const status =
+      message === "GOOGLE_EMAIL_NOT_ALLOWED" ? 403 :
+      message.startsWith("GOOGLE_ID_TOKEN_") ? 401 :
+      message === "GOOGLE_CLIENT_ID_MISSING" ? 503 :
+      500;
+
+    res.status(status).json({
+      error:
+        status === 403
+          ? "Akun Google ini tidak diizinkan"
+          : status === 401
+            ? "Token Google tidak valid"
+            : "Google Login gagal. Silakan coba lagi.",
+      code: message,
+    });
+  }
+});
+
 router.get(
   "/auth/google/callback",
   googleAuthRateLimiter,
@@ -319,12 +382,43 @@ router.get(
       return;
     }
 
-    passport.authenticate("google", {
-      failureRedirect: "/login?error=google_auth_failed",
-    })(req, res, next);
-  },
-  (_req, res) => {
-    res.redirect("/");
+    passport.authenticate(
+      "google",
+      (err: unknown, user: Express.User | false | null, info: unknown) => {
+        if (err) {
+          logger.error(
+            {
+              message: err instanceof Error ? err.message : String(err),
+              errorChain: errorChain(err),
+              info,
+            },
+            "[google-oauth] callback gagal",
+          );
+          res.redirect("/login?error=google_callback_failed");
+          return;
+        }
+
+        if (!user) {
+          logger.warn({ info }, "[google-oauth] callback tanpa user");
+          res.redirect("/login?error=google_auth_failed");
+          return;
+        }
+
+        req.logIn(user, (loginErr) => {
+          if (loginErr) {
+            logger.error(
+              {
+                message: loginErr instanceof Error ? loginErr.message : String(loginErr),
+              },
+              "[google-oauth] req.login gagal",
+            );
+            res.redirect("/login?error=google_session_failed");
+            return;
+          }
+          res.redirect("/");
+        });
+      },
+    )(req, res, next);
   },
 );
 
