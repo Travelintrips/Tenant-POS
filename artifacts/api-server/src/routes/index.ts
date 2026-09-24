@@ -13,6 +13,7 @@ import uploadsRouter from "./uploads";
 import eventsRouter from "./events";
 import sitesRouter from "./sites";
 import whatsappAuthRouter from "./whatsapp-auth";
+import emergencyRouter from "./emergency";
 import tenantPortalRouter from "./tenant-portal";
 import tenantUsersRouter from "./tenant-users";
 import whatsappRouter from "./whatsapp";
@@ -42,6 +43,7 @@ const router: IRouter = Router();
 router.use(healthRouter);
 router.use(authRouter);
 router.use(whatsappAuthRouter);
+router.use(emergencyRouter);
 
 // Public routes (tidak perlu login)
 router.use(logoProxyRouter);
