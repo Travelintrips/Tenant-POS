@@ -255,7 +255,6 @@ router.get("/auth/providers", (_req, res) => {
       callbackUrl: google.callbackURL,
       configSource: google.source,
       clientId: google.clientID ?? null,
-      ownerEmail: "admcst001@gmail.com",
     },
     whatsapp: {
       enabled: whatsappEnabled,
@@ -323,7 +322,7 @@ router.post("/auth/google/id-token", googleAuthRateLimiter, async (req, res) => 
     const email = claims.email ?? "";
     const dbUser = await findOrCreateUser({
       email,
-      name: claims.name?.trim() || "Admin Cahaya Sejati Teknologi",
+      name: claims.name?.trim() || email.split("@")[0] || "Pengguna Google",
       avatar: claims.picture ?? null,
     });
     const sessionUser = await buildSessionUser(dbUser, claims.sub);
