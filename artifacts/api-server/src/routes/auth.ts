@@ -128,6 +128,18 @@ if (!dbUser) {
       role: effectiveRole,
       status: "active",
     })
+    // Dua request dev-login dapat lolos SELECT awal secara bersamaan.
+    // Upsert pada email membuat pembuatan user idempotent dan mencegah 500
+    // users_email_unique saat startup/test/rolling deployment paralel.
+    .onConflictDoUpdate({
+      target: usersTable.email,
+      set: {
+        role: effectiveRole,
+        phoneNumber: requestedPhoneNumber,
+        status: "active",
+        updatedAt: new Date(),
+      },
+    })
     .returning({
   id: usersTable.id,
   email: usersTable.email,
