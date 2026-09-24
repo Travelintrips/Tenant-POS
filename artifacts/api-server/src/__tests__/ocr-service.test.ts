@@ -13,7 +13,7 @@ describe("OCR nominal pembayaran", () => {
     );
 
     expect(result.amount).toBe(3_050_000);
-    expect(result.confidence).toBe(0.9);
+    expect(result.confidence).toBe(0.98);
   });
 
 
