@@ -243,6 +243,23 @@ router.get("/auth/dev-login-enabled", (_req, res) => {
   res.json({ enabled: DEV_LOGIN_ENABLED });
 });
 
+router.get("/auth/providers", (_req, res) => {
+  const whatsappEnabled = Boolean(
+    (process.env.FONNTE_API_KEY ?? process.env.FONNTE_TOKEN)?.trim(),
+  );
+
+  res.json({
+    google: {
+      enabled: googleAuthEnabled,
+      callbackUrl: googleCallbackURL,
+      ownerEmail: "admcst001@gmail.com",
+    },
+    whatsapp: {
+      enabled: whatsappEnabled,
+    },
+  });
+});
+
 router.get("/auth/google-enabled", (_req, res) => {
   res.json({
     enabled: googleAuthEnabled,
