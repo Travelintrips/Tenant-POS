@@ -65,6 +65,62 @@ export interface LedgerResult {
  * Recalculate invoice paid_amount from ALL non-voided approved payments.
  * Always call this after any payment status change; never manually update paid_amount.
  */
+export async function syncBookingFromInvoices(
+  tx: AnyDb,
+  bookingId: number,
+  now = new Date(),
+): Promise<{ totalAmount: number; paidAmount: number; remaining: number; status: string } | null> {
+  const [booking] = await tx
+    .select({ id: tenantBookingsTable.id })
+    .from(tenantBookingsTable)
+    .where(eq(tenantBookingsTable.id, bookingId))
+    .for("update");
+
+  if (!booking) return null;
+
+  const [sumRow] = await tx
+    .select({
+      totalBilled: sql<string>`coalesce(sum(total_amount::numeric), 0)::text`,
+      totalPaid: sql<string>`coalesce(sum(paid_amount::numeric), 0)::text`,
+      hasOverdue: sql<boolean>`coalesce(bool_or(status = 'overdue'), false)`,
+      hasPartial: sql<boolean>`coalesce(bool_or(status = 'partial'), false)`,
+      allPaid: sql<boolean>`coalesce(bool_and(status = 'paid'), false)`,
+      invoiceCount: sql<number>`count(*)::int`,
+    })
+    .from(tenantInvoicesTable)
+    .where(
+      and(
+        eq(tenantInvoicesTable.bookingId, bookingId),
+        sql`status != 'cancelled'`,
+      ),
+    );
+
+  const invoiceCount = Number(sumRow?.invoiceCount ?? 0);
+  if (invoiceCount === 0) return null;
+
+  const totalAmount = parseFloat(sumRow?.totalBilled ?? "0");
+  const paidAmount = parseFloat(sumRow?.totalPaid ?? "0");
+  const remaining = Math.max(totalAmount - paidAmount, 0);
+  const status =
+    sumRow?.allPaid ? "PAID" :
+    sumRow?.hasOverdue ? "OVERDUE" :
+    sumRow?.hasPartial || paidAmount > 0 ? "PARTIAL" :
+    "UNPAID";
+
+  await tx
+    .update(tenantBookingsTable)
+    .set({
+      totalAmount: String(totalAmount),
+      paidAmount: String(paidAmount),
+      remainingAmount: String(remaining),
+      paymentStatus: status,
+      updatedAt: now,
+    })
+    .where(eq(tenantBookingsTable.id, bookingId));
+
+  return { totalAmount, paidAmount, remaining, status };
+}
+
 export async function syncInvoiceFromPayments(
   tx: AnyDb,
   invoiceId: number,
@@ -120,56 +176,7 @@ export async function syncInvoiceFromPayments(
       .where(eq(tenantInvoicesTable.id, invoiceId));
 
     if (inv?.bookingId) {
-      // Lock booking row agar concurrent payments di booking yang sama tidak race
-      const [booking] = await tx
-        .select({
-          id: tenantBookingsTable.id,
-          totalAmount: tenantBookingsTable.totalAmount,
-        })
-        .from(tenantBookingsTable)
-        .where(eq(tenantBookingsTable.id, inv.bookingId))
-        .for("update");
-
-      if (booking) {
-        // Hanya jumlahkan paid_amount dari invoice non-cancelled
-        // (totalAmount booking = kontrak, autoritatif; jangan pakai sum(invoice.total))
-        const [sumRow] = await tx
-          .select({
-            totalPaid: sql<string>`coalesce(sum(paid_amount::numeric), 0)::text`,
-            hasOverdue: sql<boolean>`bool_or(status = 'overdue')`,
-            hasPartial: sql<boolean>`bool_or(status = 'partial')`,
-            allPaid: sql<boolean>`bool_and(status = 'paid')`,
-          })
-          .from(tenantInvoicesTable)
-          .where(
-            and(
-              eq(tenantInvoicesTable.bookingId, inv.bookingId),
-              // Kecualikan invoice yang dibatalkan
-              sql`status != 'cancelled'`,
-            ),
-          );
-
-        const bookingPaid = parseFloat(sumRow?.totalPaid ?? "0");
-        const bookingTotal = parseFloat(String(booking.totalAmount ?? "0"));
-        const bookingRemaining = Math.max(bookingTotal - bookingPaid, 0);
-
-        // Status booking berdasarkan agregat semua invoice (bukan status invoice tunggal)
-        const bookingPaymentStatus =
-          sumRow?.allPaid ? "PAID" :
-          sumRow?.hasOverdue ? "OVERDUE" :
-          sumRow?.hasPartial || bookingPaid > 0 ? "PARTIAL" :
-          "UNPAID";
-
-        await tx
-          .update(tenantBookingsTable)
-          .set({
-            paymentStatus: bookingPaymentStatus,
-            paidAmount: String(bookingPaid),
-            remainingAmount: String(bookingRemaining),
-            updatedAt: now,
-          })
-          .where(eq(tenantBookingsTable.id, booking.id));
-      }
+      await syncBookingFromInvoices(tx, inv.bookingId, now);
     }
   } catch (err) {
     // Non-fatal — unit status masih terbaca dari latestInvoiceStatus
