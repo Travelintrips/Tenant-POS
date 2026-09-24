@@ -1,10 +1,47 @@
-import { describe, it, expect, afterAll } from "vitest";
+import { describe, it, expect, afterAll, vi } from "vitest";
 import request from "supertest";
 import app from "../app";
 import { makeAuthAgent, unauthAgent } from "./helpers/agent";
 import { cleanupAll } from "./helpers/factory";
+import { requireNonTenantUser } from "../middlewares/auth";
 
 afterAll(cleanupAll);
+
+describe("Tenant POS role boundary", () => {
+  it("menolak role shared app yang bukan role staf Tenant POS", () => {
+    const req = {
+      isAuthenticated: () => true,
+      user: { role: "ecommerce" },
+    } as any;
+    const res = {
+      status: vi.fn().mockReturnThis(),
+      json: vi.fn().mockReturnThis(),
+    } as any;
+    const next = vi.fn();
+
+    requireNonTenantUser(req, res, next);
+
+    expect(res.status).toHaveBeenCalledWith(403);
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  it("mengizinkan role staf Tenant POS", () => {
+    const req = {
+      isAuthenticated: () => true,
+      user: { role: "finance" },
+    } as any;
+    const res = {
+      status: vi.fn().mockReturnThis(),
+      json: vi.fn().mockReturnThis(),
+    } as any;
+    const next = vi.fn();
+
+    requireNonTenantUser(req, res, next);
+
+    expect(next).toHaveBeenCalledTimes(1);
+    expect(res.status).not.toHaveBeenCalled();
+  });
+});
 
 describe("Fase 1 — Auth & Role", () => {
   describe("dev-login", () => {
