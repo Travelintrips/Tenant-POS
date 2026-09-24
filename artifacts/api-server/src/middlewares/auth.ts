@@ -102,15 +102,22 @@ export function requireAnyRole(...roles: UserRole[]) {
   };
 }
 
+const TENANT_POS_STAFF_ROLES: readonly UserRole[] = ["owner", "admin", "finance", "cashier"];
+
 export function requireNonTenantUser(req: Request, res: Response, next: NextFunction): void {
   if (!req.isAuthenticated()) {
     res.status(401).json({ error: "Tidak terautentikasi" });
     return;
   }
-  if (req.user?.role === "tenant_user") {
-    res.status(403).json({ error: "Akses ditolak untuk akun tenant." });
+
+  const role = req.user?.role as UserRole | string | undefined;
+  if (!role || !TENANT_POS_STAFF_ROLES.includes(role as UserRole)) {
+    res.status(403).json({
+      error: "Akses ditolak. Akun ini tidak memiliki peran staf Tenant POS.",
+    });
     return;
   }
+
   next();
 }
 

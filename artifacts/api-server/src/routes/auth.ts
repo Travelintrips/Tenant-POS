@@ -341,6 +341,13 @@ router.post("/auth/google/id-token", googleAuthRateLimiter, async (req, res) => 
         return;
       }
 
+      logAudit(req, {
+        action: "google_login_success",
+        entityType: "user",
+        entityId: dbUser.id,
+        afterData: { email: sessionUser.email, role: sessionUser.role },
+      });
+
       logger.info(
         { email: sessionUser.email, role: sessionUser.role },
         "[google-gis] login berhasil",
@@ -359,6 +366,12 @@ router.post("/auth/google/id-token", googleAuthRateLimiter, async (req, res) => 
       message.startsWith("GOOGLE_ID_TOKEN_") ? 401 :
       message === "GOOGLE_CLIENT_ID_MISSING" ? 503 :
       500;
+
+    logAudit(req, {
+      action: "google_login_failed",
+      entityType: "user",
+      afterData: { reason: message, status },
+    });
 
     res.status(status).json({
       error:
