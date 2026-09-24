@@ -6,11 +6,13 @@ import { makeAuthAgent } from "./helpers/agent";
 import { createTestTenant, createTestBooking, cleanupAll, TEST_PREFIX } from "./helpers/factory";
 
 let owner: ReturnType<typeof makeAuthAgent> extends Promise<infer T> ? T : never;
+let admin: ReturnType<typeof makeAuthAgent> extends Promise<infer T> ? T : never;
 let todSiteId: number;
 let sportSiteId: number;
 
 beforeAll(async () => {
   owner = await makeAuthAgent("owner");
+  admin = await makeAuthAgent("admin");
 
   const [tod] = await db
     .select()
@@ -34,6 +36,39 @@ beforeAll(async () => {
 afterAll(cleanupAll);
 
 describe("Multi-Site — Isolasi Data per Lokasi", () => {
+  describe("Authorization site", () => {
+    it("owner dapat memakai mode ALL", async () => {
+      const res = await owner
+        .get("/api/tenant-pos/overview")
+        .set("x-site-code", "ALL");
+      expect(res.status).toBe(200);
+    });
+
+    it("non-owner tidak dapat memakai mode ALL", async () => {
+      const res = await admin
+        .get("/api/tenant-pos/overview")
+        .set("x-site-code", "ALL");
+      expect(res.status).toBe(403);
+    });
+
+    it("akun legacy tanpa user_site_access hanya dapat memakai site default", async () => {
+      const defaultRes = await admin.get("/api/tenant-pos/overview");
+      expect(defaultRes.status).toBe(200);
+
+      const otherSiteRes = await admin
+        .get("/api/tenant-pos/overview")
+        .set("x-site-id", String(sportSiteId));
+      expect(otherSiteRes.status).toBe(403);
+    });
+
+    it("site eksplisit yang tidak ada ditolak dan tidak fallback ke default", async () => {
+      const res = await admin
+        .get("/api/tenant-pos/overview")
+        .set("x-site-id", "999999");
+      expect(res.status).toBe(404);
+    });
+  });
+
   describe("GET /api/tenants — isolasi tenant per site", () => {
     it("tenant site TOD tidak muncul di request site Sport Center", async () => {
       const todTenant = await createTestTenant({
