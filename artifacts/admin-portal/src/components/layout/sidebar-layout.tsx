@@ -33,6 +33,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useToast } from "@/hooks/use-toast";
+import { apiFetch } from "@/lib/api";
 
 const ROLE_COLORS: Record<UserRole, string> = {
   owner:       "bg-purple-100 text-purple-800",
@@ -114,15 +115,15 @@ function SidebarNav({ children }: { children: React.ReactNode }) {
   const can = (...roles: UserRole[]) => !!role && roles.includes(role);
 
   const { data: pendingCount = 0 } = useQuery<number>({
-    queryKey: ["pending-payments-sidebar-count"],
+    queryKey: ["pending-payments-sidebar-count", activeSite?.id ?? null],
     queryFn: async () => {
-      const res = await fetch("/api/pending-payments/count");
+      const res = await apiFetch("/api/pending-payments/count");
       if (!res.ok) return 0;
       const d = await res.json();
       return d.count ?? 0;
     },
     refetchInterval: 30_000,
-    enabled: can("owner", "admin", "finance"),
+    enabled: can("owner", "admin", "finance") && !!activeSite,
   });
 
   // ── Polling: jumlah calon tenant pending (self-register) ──────────────────
@@ -130,14 +131,14 @@ function SidebarNav({ children }: { children: React.ReactNode }) {
   const prevPendingRegistrationCount = useRef<number | undefined>(undefined);
 
   const { data: pendingRegistrationData } = useQuery<PendingRegistrationData>({
-    queryKey: ["pending-registration-count"],
+    queryKey: ["pending-registration-count", activeSite?.id ?? null],
     queryFn: async () => {
-      const res = await fetch("/api/calon-tenant/pending-count");
+      const res = await apiFetch("/api/calon-tenant/pending-count");
       if (!res.ok) throw new Error("Gagal mengambil data pending registrasi");
       return res.json();
     },
     refetchInterval: 30_000,
-    enabled: can("owner", "admin"),
+    enabled: can("owner", "admin") && !!activeSite,
   });
 
   const pendingRegistrationCount = pendingRegistrationData?.pendingCount ?? 0;
@@ -173,14 +174,14 @@ function SidebarNav({ children }: { children: React.ReactNode }) {
   };
 
   const { data: upcomingData } = useQuery<UpcomingData>({
-    queryKey: ["invoice-upcoming-notification"],
+    queryKey: ["invoice-upcoming-notification", activeSite?.id ?? null],
     queryFn: async () => {
-      const res = await fetch("/api/tenant-invoices/upcoming");
+      const res = await apiFetch("/api/tenant-invoices/upcoming");
       if (!res.ok) return { count: 0, overdueCount: 0, upcomingCount: 0, overdue: [], upcoming: [] };
       return res.json();
     },
     refetchInterval: 60_000,
-    enabled: can("owner", "admin", "finance"),
+    enabled: can("owner", "admin", "finance") && !!activeSite,
   });
 
   const notifCount = upcomingData?.count ?? 0;
