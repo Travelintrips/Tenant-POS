@@ -80,9 +80,9 @@ describe("Helmet — Referrer-Policy", () => {
 // ─── Cross-Origin-Opener-Policy ─────────────────────────────────────────────
 
 describe("Helmet — Cross-Origin-Opener-Policy", () => {
-  it("GET /api/health memiliki Cross-Origin-Opener-Policy: same-origin", async () => {
+  it("GET /api/health memiliki Cross-Origin-Opener-Policy yang kompatibel dengan Google Identity Services popup", async () => {
     const res = await getHeaders("/api/health");
-    expect(res.headers["cross-origin-opener-policy"]).toBe("same-origin");
+    expect(res.headers["cross-origin-opener-policy"]).toBe("same-origin-allow-popups");
   });
 });
 
