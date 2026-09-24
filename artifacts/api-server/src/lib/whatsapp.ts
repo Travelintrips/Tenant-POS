@@ -1014,9 +1014,21 @@ export interface AdminGroupPaymentParams {
  * Dipanggil secara fire-and-forget bersamaan dengan notifikasi individual.
  * Group JID format: 12036341119221335@g.us (tidak perlu normalisasi nomor)
  */
+export function getAdminWaGroupStatus(): { configured: boolean; valid: boolean } {
+  const groupJid = process.env.ADMIN_WA_GROUP?.trim() ?? "";
+  return {
+    configured: groupJid.length > 0,
+    valid: /^\d+@g\.us$/.test(groupJid),
+  };
+}
+
 export async function notifyAdminGroup(params: AdminGroupPaymentParams): Promise<WaResult> {
-  const groupJid = process.env.ADMIN_WA_GROUP;
+  const groupJid = process.env.ADMIN_WA_GROUP?.trim();
   if (!groupJid) return { ok: true, skipped: true };
+  if (!/^\d+@g\.us$/.test(groupJid)) {
+    logger.error("[WA] ADMIN_WA_GROUP format tidak valid; expected numeric group JID ending @g.us");
+    return { ok: false, error: "ADMIN_WA_GROUP format tidak valid" };
+  }
 
   const dedupeKey = [
     groupJid.trim(),
