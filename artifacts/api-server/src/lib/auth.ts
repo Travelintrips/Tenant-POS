@@ -280,7 +280,7 @@ type GoogleIdTokenClaims = {
   iat?: number;
 };
 
-type GoogleJwk = JsonWebKey & { kid?: string; alg?: string; use?: string };
+type GoogleJwk = Record<string, unknown> & { kid?: string; alg?: string; use?: string };
 
 let googleJwksCache: { keys: GoogleJwk[]; expiresAt: number } | null = null;
 
@@ -355,7 +355,7 @@ export async function verifyGoogleIdToken(idToken: string): Promise<GoogleIdToke
     const refreshedJwk = refreshed.find((key) => key.kid === header.kid);
     if (!refreshedJwk) throw new Error("GOOGLE_ID_TOKEN_KID_UNKNOWN");
 
-    const keyObject = createPublicKey({ key: refreshedJwk, format: "jwk" });
+    const keyObject = createPublicKey({ key: refreshedJwk as any, format: "jwk" });
     const valid = verifySignature(
       "RSA-SHA256",
       Buffer.from(`${encodedHeader}.${encodedPayload}`),
@@ -364,7 +364,7 @@ export async function verifyGoogleIdToken(idToken: string): Promise<GoogleIdToke
     );
     if (!valid) throw new Error("GOOGLE_ID_TOKEN_SIGNATURE_INVALID");
   } else {
-    const keyObject = createPublicKey({ key: jwk, format: "jwk" });
+    const keyObject = createPublicKey({ key: jwk as any, format: "jwk" });
     const valid = verifySignature(
       "RSA-SHA256",
       Buffer.from(`${encodedHeader}.${encodedPayload}`),
