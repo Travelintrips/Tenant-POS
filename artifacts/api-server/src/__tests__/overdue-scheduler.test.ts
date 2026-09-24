@@ -53,6 +53,8 @@ describe("overdue invoice scheduler", () => {
     });
     await createTestInvoice(activeTenant.id, undefined, {
       invoiceNumber: `INV-OVERDUE-AUGUST-${Date.now()}`,
+      periodStart: "2026-08-01",
+      periodEnd: "2026-08-31",
       dueDate: "2026-08-31",
       status: "unpaid",
       outstandingAmount: "100000",
