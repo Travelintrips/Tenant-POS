@@ -1,4 +1,3 @@
-import ExcelJS from "exceljs";
 import { apiFetch as apiFetchBase } from "@/lib/api";
 import { useState, useMemo, useRef } from "react";
 import { useSite } from "@/contexts/site-context";
@@ -3446,6 +3445,7 @@ export default function TenantInvoices() {
                   <Button variant="outline" size="sm" className="h-8 gap-1 border-green-500 text-green-700"
                     disabled={ppnReport.rows.length === 0}
                     onClick={async () => {
+                      const { default: ExcelJS } = await import("exceljs");
                       const wb = new ExcelJS.Workbook();
                       const judul = [[`LAPORAN PPN 11% PER BULAN`],[`Periode: ${ppnFrom} s/d ${ppnTo}`],[`Dicetak: ${new Date().toLocaleDateString("id-ID",{dateStyle:"long"})}`],[]];
                       const header = [["Bulan","Jumlah Invoice","Subtotal (DPP)","PPN 11%","Total Tagihan","Total Terbayar"]];
@@ -3534,6 +3534,7 @@ export default function TenantInvoices() {
                   <Button variant="outline" size="sm" className="h-8 gap-1 border-green-500 text-green-700"
                     disabled={ppnReport.byTenant.length === 0}
                     onClick={async () => {
+                      const { default: ExcelJS } = await import("exceljs");
                       const wb = new ExcelJS.Workbook();
                       const judul = [[`LAPORAN PPN 11% PER TENANT`],[`Periode: ${ppnFrom} s/d ${ppnTo}`],[`Dicetak: ${new Date().toLocaleDateString("id-ID",{dateStyle:"long"})}`],[]];
                       const header = [["Nama Tenant","Pemilik","Unit","Jml Invoice","Subtotal (DPP)","PPN 11%","Total Tagihan","Total Terbayar"]];
