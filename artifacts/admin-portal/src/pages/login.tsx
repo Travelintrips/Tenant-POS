@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { FlaskConical, MessageCircle, Loader2, ShieldCheck } from "lucide-react";
+import { FlaskConical, MessageCircle, Loader2, ShieldCheck, LogIn } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
@@ -21,11 +21,20 @@ declare const __DEV_LOGIN_ENABLED__: boolean;
 type Step = "phone" | "otp";
 
 export default function Login() {
-  const error = new URLSearchParams(window.location.search).get("error");
+  const errorCode = new URLSearchParams(window.location.search).get("error");
+  const error =
+    errorCode === "google_not_configured"
+      ? "Google Login belum dikonfigurasi di server."
+      : errorCode === "google_auth_failed"
+        ? "Google Login gagal atau email tidak diizinkan."
+        : errorCode
+          ? "Login gagal. Silakan coba lagi."
+          : null;
   const [loadingRole, setLoadingRole] = useState<UserRole | null>(null);
   const [devLoginEnabled, setDevLoginEnabled] = useState<boolean>(
     typeof __DEV_LOGIN_ENABLED__ !== "undefined" ? __DEV_LOGIN_ENABLED__ : false,
   );
+  const [googleLoginEnabled, setGoogleLoginEnabled] = useState(false);
   const [devSecret, setDevSecret] = useState("");
   const [loginError, setLoginError] = useState<string | null>(null);
   const [step, setStep] = useState<Step>("phone");
@@ -55,6 +64,28 @@ export default function Login() {
     tryFetch(5);
     return () => { cancelled = true; };
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    fetch("/api/auth/google-enabled", { credentials: "include" })
+      .then((r) => r.json())
+      .then((data) => {
+        if (!cancelled) setGoogleLoginEnabled(data.enabled === true);
+      })
+      .catch(() => {
+        if (!cancelled) setGoogleLoginEnabled(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const handleGoogleLogin = () => {
+    setLoginError(null);
+    window.location.href = "/api/auth/google";
+  };
 
   const handleDevLogin = async (role: UserRole) => {
     setLoadingRole(role);
@@ -235,6 +266,29 @@ export default function Login() {
               </button>
             </form>
           )}
+
+          <div className="flex items-center gap-2 my-1">
+            <Separator className="flex-1" />
+            <span className="text-[10px] text-muted-foreground whitespace-nowrap">
+              ATAU
+            </span>
+            <Separator className="flex-1" />
+          </div>
+
+          <Button
+            type="button"
+            variant="outline"
+            className="w-full gap-2"
+            size="lg"
+            onClick={handleGoogleLogin}
+            disabled={!googleLoginEnabled}
+          >
+            <LogIn className="h-4 w-4" />
+            {googleLoginEnabled ? "Masuk dengan Google" : "Google Login belum dikonfigurasi"}
+          </Button>
+          <p className="text-[11px] text-center text-muted-foreground">
+            Google Owner: admcst001@gmail.com
+          </p>
 
           {devLoginEnabled && (
             <>
