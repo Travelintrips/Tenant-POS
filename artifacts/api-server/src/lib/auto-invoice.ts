@@ -5,6 +5,7 @@
 import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
 import { logger } from "./logger";
+import { syncBookingFromInvoices } from "./payment-ledger";
 
 function calcAmounts(opts: {
   rentAmount: number;
@@ -308,6 +309,12 @@ export async function createAllInvoicesForBooking(opts: {
       createdIds.push(id);
       existingMonths.add(monthKey);
     }
+  }
+
+  try {
+    await syncBookingFromInvoices(db, bookingId, now);
+  } catch (err) {
+    logger.warn({ err, bookingId }, "[auto-invoice] Gagal sinkron total booking dari invoice");
   }
 
   logger.info(`[auto-invoice] Selesai: ${createdIds.length} invoice dibuat untuk bookingId=${bookingId} (${durationMonths} bulan)`);
