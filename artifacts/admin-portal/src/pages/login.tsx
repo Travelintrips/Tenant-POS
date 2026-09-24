@@ -393,10 +393,11 @@ export default function Login() {
             </Button>
           )}
 
-          <p className="text-[11px] text-center text-muted-foreground">
-            Google Owner: admcst001@gmail.com
-            {!googleLoginEnabled ? " · konfigurasi Google belum terbaca" : ""}
-          </p>
+          {!googleLoginEnabled && (
+            <p className="text-[11px] text-center text-muted-foreground">
+              Konfigurasi Google belum terbaca.
+            </p>
+          )}
 
           {devLoginEnabled && (
             <>
