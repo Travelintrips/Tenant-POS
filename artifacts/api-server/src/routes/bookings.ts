@@ -22,7 +22,7 @@ import {
   getSiteCompanyName,
 } from "../lib/whatsapp";
 import { z } from "zod";
-import { createAllInvoicesForBooking } from "../lib/auto-invoice";
+import { createAllInvoicesForBooking, countContractBillingPeriods } from "../lib/auto-invoice";
 import { runInvoiceNotificationCheck } from "../lib/overdue-scheduler";
 
 const router: IRouter = Router();
@@ -303,13 +303,12 @@ router.post("/bookings", async (req, res) => {
     if (data.contractStatus === "active" && data.startDate && Number(data.rentAmount ?? 0) > 0) {
       const startDate = data.startDate;
       const endDate = data.endDate ?? null;
-      const durMonths = data.durationMonths ??
-        (endDate
-          ? Math.max(1, Math.round(
-              (new Date(endDate + "T00:00:00Z").getTime() - new Date(startDate + "T00:00:00Z").getTime())
-              / (30.44 * 24 * 60 * 60 * 1000)
-            ))
-          : 1);
+      const boundedPeriods = endDate
+        ? countContractBillingPeriods(startDate, endDate)
+        : null;
+      const durMonths = data.durationMonths
+        ? Math.max(1, boundedPeriods ? Math.min(data.durationMonths, boundedPeriods) : data.durationMonths)
+        : Math.max(1, boundedPeriods ?? 1);
       void createAllInvoicesForBooking({
         bookingId: booking.id,
         siteId: data.siteId ?? req.siteId,
@@ -317,6 +316,7 @@ router.post("/bookings", async (req, res) => {
         unitCode: data.unitCode ?? null,
         rentAmount: Number(data.rentAmount),
         startDate,
+        endDate,
         durationMonths: Math.max(1, durMonths),
         serviceChargeAmount: data.serviceChargeAmount !== undefined ? Number(data.serviceChargeAmount) : undefined,
         electricityChargeAmount: data.electricityChargeAmount !== undefined ? Number(data.electricityChargeAmount) : undefined,
@@ -548,13 +548,12 @@ router.put("/bookings/:id", async (req, res) => {
       const endDate = withTenant.endDate ?? null;
       const rentAmt = Number(withTenant.rentAmount ?? 0);
       if (startDate && rentAmt > 0) {
-        const durMonths = withTenant.durationMonths ??
-          (endDate
-            ? Math.max(1, Math.round(
-                (new Date(endDate + "T00:00:00Z").getTime() - new Date(startDate + "T00:00:00Z").getTime())
-                / (30.44 * 24 * 60 * 60 * 1000)
-              ))
-            : 1);
+        const boundedPeriods = endDate
+          ? countContractBillingPeriods(startDate, endDate)
+          : null;
+        const durMonths = withTenant.durationMonths
+          ? Math.max(1, boundedPeriods ? Math.min(withTenant.durationMonths, boundedPeriods) : withTenant.durationMonths)
+          : Math.max(1, boundedPeriods ?? 1);
         void createAllInvoicesForBooking({
           bookingId: withTenant.id,
           siteId: withTenant.siteId ?? req.siteId,
@@ -562,6 +561,7 @@ router.put("/bookings/:id", async (req, res) => {
           unitCode: withTenant.unitCode ?? null,
           rentAmount: rentAmt,
           startDate,
+          endDate,
           durationMonths: Math.max(1, durMonths),
           serviceChargeAmount: withTenant.serviceChargeAmount != null ? Number(withTenant.serviceChargeAmount) : undefined,
           electricityChargeAmount: withTenant.electricityChargeAmount != null ? Number(withTenant.electricityChargeAmount) : undefined,
