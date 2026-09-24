@@ -11,6 +11,7 @@ import crypto from "crypto";
 import passport from "./lib/auth";
 import router from "./routes";
 import { logger } from "./lib/logger";
+import { getAdminWaGroupStatus } from "./lib/whatsapp";
 
 const app: Express = express();
 
@@ -152,6 +153,7 @@ app.use(passport.initialize());
 app.use(passport.session());
 
 app.get("/api/healthz", (_req, res) => {
+  const adminWaGroup = getAdminWaGroupStatus();
   res.json({
     ok: true,
     release: process.env.REPLIT_DEPLOYMENT_ID ?? process.env.REPL_ID ?? "unknown",
@@ -163,6 +165,13 @@ app.get("/api/healthz", (_req, res) => {
       host: dbConfig.host,
       port: dbConfig.port,
       sharedSessionPool: true,
+    },
+    notifications: {
+      fonnteConfigured: Boolean(
+        process.env.FONNTE_API_KEY?.trim() || process.env.FONNTE_TOKEN?.trim(),
+      ),
+      adminWaGroupConfigured: adminWaGroup.configured,
+      adminWaGroupValid: adminWaGroup.valid,
     },
   });
 });
