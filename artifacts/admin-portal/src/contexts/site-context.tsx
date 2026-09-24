@@ -84,8 +84,15 @@ export function SiteProvider({ children }: { children: React.ReactNode }) {
     (site: MallSite) => {
       setActiveSiteState(site);
       localStorage.setItem(LS_KEY, site.code === "ALL" ? "ALL" : String(site.id));
-      // Invalidate all data queries so they reload for the new site
-      queryClient.invalidateQueries();
+      // Reload data yang bergantung pada site, tetapi jangan refetch auth
+      // dan daftar site yang tidak berubah. Ini menghindari request storm saat
+      // user berpindah TOD M1 <-> Sport Center.
+      queryClient.invalidateQueries({
+        predicate: (query) => {
+          const root = String(query.queryKey[0] ?? "");
+          return root !== "auth-me" && root !== "sites";
+        },
+      });
     },
     [queryClient],
   );
