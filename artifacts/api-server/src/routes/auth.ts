@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import passport, { ensureGoogleStrategy, getGoogleAuthStatus, googleCallbackURL } from "../lib/auth";
+import passport, { ensureGoogleStrategy, getGoogleAuthStatus } from "../lib/auth";
 import { db, dbConfig } from "@workspace/db";
 import { usersTable, USER_ROLES, USER_STATUSES, type UserRole, tenantUserAccessTable, mallSitesTable, tenantsTable } from "@workspace/db/schema";
 import { eq, asc, and, ne, or } from "drizzle-orm";
