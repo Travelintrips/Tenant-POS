@@ -125,9 +125,28 @@ if (!sessionSecret) {
 // Sesi disimpan ke PostgreSQL agar tidak hilang saat server restart.
 // Tabel `session` harus sudah ada di DB (dibuat oleh migration 0069).
 const PgSession = connectPgSimple(session);
+
+function positiveIntEnv(name: string, fallback: number): number {
+  const raw = process.env[name];
+  if (!raw) return fallback;
+  const parsed = Number(raw);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+const sessionPoolMax = positiveIntEnv(
+  "SESSION_DB_POOL_MAX",
+  dbConfig.poolMode === "transaction" ? 2 : 1,
+);
+
 const sessionPool = new Pool({
   ...dbConfig.parsed,
   ssl: dbConfig.ssl,
+  max: sessionPoolMax,
+  idleTimeoutMillis: 10_000,
+  connectionTimeoutMillis: 8_000,
+  keepAlive: true,
+  keepAliveInitialDelayMillis: 10_000,
+  application_name: "tenant-pos-session",
 });
 
 app.use(
@@ -158,6 +177,12 @@ app.get("/api/healthz", (_req, res) => {
     ok: true,
     release: process.env.REPLIT_DEPLOYMENT_ID ?? process.env.REPL_ID ?? "unknown",
     paymentProofRevision: "proof-stream-v3",
+    database: {
+      source: dbConfig.source,
+      poolMode: dbConfig.poolMode,
+      projectRef: dbConfig.projectRef,
+      sessionPoolMax,
+    },
   });
 });
 
