@@ -159,9 +159,41 @@ app.get("/api/healthz", (_req, res) => {
       source: dbConfig.source,
       poolMode: dbConfig.poolMode,
       projectRef: dbConfig.projectRef,
+      host: dbConfig.host,
+      port: dbConfig.port,
       sharedSessionPool: true,
     },
   });
+});
+
+app.get("/api/healthz/db", async (_req, res) => {
+  try {
+    await pool.query("select 1 as ok");
+    res.json({
+      ok: true,
+      source: dbConfig.source,
+      poolMode: dbConfig.poolMode,
+      projectRef: dbConfig.projectRef,
+      host: dbConfig.host,
+      port: dbConfig.port,
+    });
+  } catch (err) {
+    const code =
+      err && typeof err === "object" && "code" in err
+        ? String((err as { code?: unknown }).code ?? "")
+        : "";
+    const message = err instanceof Error ? err.message : String(err);
+    logger.error({ code, message }, "[healthz/db] Database tidak terjangkau");
+    res.status(503).json({
+      ok: false,
+      code: code || "DB_UNREACHABLE",
+      source: dbConfig.source,
+      poolMode: dbConfig.poolMode,
+      projectRef: dbConfig.projectRef,
+      host: dbConfig.host,
+      port: dbConfig.port,
+    });
+  }
 });
 
 app.use("/api", router);
