@@ -5,6 +5,8 @@ const isProduction = (process.env["NODE_ENV"] ?? "development") === "production"
 
 type DbPoolMode = "transaction" | "session" | "direct";
 type DbUrlSource =
+  | "SUPABASE_DATABASE_URL"
+  | "SUPABASE_DATABASE_URL_DEV"
   | "SUPABASE_POOLER_URL"
   | "SUPABASE_PG_URL"
   | "SUPABASE_PG_URL_PROD"
@@ -34,7 +36,7 @@ function getCandidateProjectRef(url: string): string | null {
     const parsed = new URL(url);
     const username = decodeURIComponent(parsed.username);
 
-    const usernameMatch = username.match(/^postgres\.([a-z0-9]+)$/i);
+    const usernameMatch = username.match(/^[^.]+\.([a-z0-9]+)$/i);
     if (usernameMatch?.[1]) return usernameMatch[1];
 
     const hostMatch = parsed.hostname.match(/^db\.([a-z0-9]+)\.supabase\.co$/i);
@@ -57,16 +59,40 @@ function getPoolMode(url: string): DbPoolMode {
   }
 }
 
+function normalizeCandidate(candidate: DbCandidate, expectedProjectRef: string | null): DbCandidate {
+  try {
+    const parsed = new URL(candidate.value);
+
+    if (parsed.hostname.includes("pooler.supabase.com")) {
+      const username = decodeURIComponent(parsed.username);
+      if (expectedProjectRef && !username.includes(".")) {
+        parsed.username = `${username || "postgres"}.${expectedProjectRef}`;
+      }
+      if (isProduction && parsed.port === "5432") {
+        parsed.port = "6543";
+      }
+      return { ...candidate, value: parsed.toString() };
+    }
+
+    return candidate;
+  } catch {
+    return candidate;
+  }
+}
+
 function getCandidates(): DbCandidate[] {
   const ordered: Array<[DbUrlSource, string | undefined]> = isProduction
     ? [
-        ["SUPABASE_PG_URL", process.env["SUPABASE_PG_URL"]],
+        ["SUPABASE_DATABASE_URL", process.env["SUPABASE_DATABASE_URL"]],
         ["SUPABASE_POOLER_URL", process.env["SUPABASE_POOLER_URL"]],
+        ["SUPABASE_PG_URL", process.env["SUPABASE_PG_URL"]],
         ["SUPABASE_PG_URL_PROD", process.env["SUPABASE_PG_URL_PROD"]],
         ["DATABASE_URL", process.env["DATABASE_URL"]],
       ]
     : [
+        ["SUPABASE_DATABASE_URL_DEV", process.env["SUPABASE_DATABASE_URL_DEV"]],
         ["SUPABASE_PG_URL_DEV", process.env["SUPABASE_PG_URL_DEV"]],
+        ["SUPABASE_DATABASE_URL", process.env["SUPABASE_DATABASE_URL"]],
         ["SUPABASE_POOLER_URL", process.env["SUPABASE_POOLER_URL"]],
         ["DATABASE_URL", process.env["DATABASE_URL"]],
       ];
@@ -82,53 +108,40 @@ function resolveDbUrl(): {
   poolMode: DbPoolMode;
   projectRef: string | null;
 } {
-  const candidates = getCandidates();
+  const rawCandidates = getCandidates();
 
-  if (candidates.length === 0) {
+  if (rawCandidates.length === 0) {
     throw new Error(
-      "SUPABASE_POOLER_URL, SUPABASE_PG_URL, SUPABASE_PG_URL_PROD, SUPABASE_PG_URL_DEV, atau DATABASE_URL harus diset di Secrets/Config",
+      "SUPABASE_DATABASE_URL, SUPABASE_POOLER_URL, SUPABASE_PG_URL, SUPABASE_PG_URL_PROD, SUPABASE_PG_URL_DEV, atau DATABASE_URL harus diset di Secrets/Config",
     );
   }
 
   const expectedProjectRef = getSupabaseProjectRef();
+  const candidates = rawCandidates.map((candidate) =>
+    normalizeCandidate(candidate, expectedProjectRef),
+  );
 
-  // Jangan sampai production diam-diam tersambung ke project Supabase yang salah.
-  // Jika SUPABASE_URL tersedia, prioritaskan hanya connection string yang project
-  // ref-nya sama. Ini mencegah DEV/PROD tertukar saat beberapa secret coexist.
   const matchingProjectCandidates = expectedProjectRef
     ? candidates.filter((candidate) => {
-        const ref = getCandidateProjectRef(candidate.value);
-        return ref === null || ref === expectedProjectRef;
+        try {
+          const parsed = new URL(candidate.value);
+          const isSupabaseCandidate =
+            parsed.hostname.includes("supabase.co") ||
+            parsed.hostname.includes("pooler.supabase.com");
+          return isSupabaseCandidate && getCandidateProjectRef(candidate.value) === expectedProjectRef;
+        } catch {
+          return false;
+        }
       })
     : candidates;
 
   const scopedCandidates =
     matchingProjectCandidates.length > 0 ? matchingProjectCandidates : candidates;
 
-  // SUPABASE_PG_URL adalah source-of-truth production di Hostinger.
-  // Jangan memilih *_PROD hanya karena URL lama itu kebetulan sudah :6543:
-  // password stale pada *_PROD pernah menyebabkan seluruh login gagal.
-  const preferred = scopedCandidates[0];
-  const selected =
-    preferred.source === "SUPABASE_PG_URL"
-      ? preferred
-      : scopedCandidates.find((candidate) => getPoolMode(candidate.value) === "transaction") ??
-        preferred;
-
-  // Jika source-of-truth masih berupa Supabase session-pooler URL (:5432),
-  // pindahkan ke transaction pooler pada host/credential yang sama (:6543).
-  let effectiveUrl = selected.value;
-  if (getPoolMode(effectiveUrl) === "session") {
-    try {
-      const parsed = new URL(effectiveUrl);
-      if (parsed.hostname.includes("pooler.supabase.com")) {
-        parsed.port = "6543";
-        effectiveUrl = parsed.toString();
-      }
-    } catch {
-      // URL sudah divalidasi lagi oleh parseDbUrl; biarkan nilai asli bila malformed.
-    }
-  }
+  // Urutan env adalah urutan kepercayaan credential. Hostinger Supabase integration
+  // menyediakan SUPABASE_DATABASE_URL; secret manual lama hanya menjadi fallback.
+  const selected = scopedCandidates[0];
+  const effectiveUrl = selected.value;
 
   return {
     url: effectiveUrl,
@@ -137,7 +150,6 @@ function resolveDbUrl(): {
     projectRef: getCandidateProjectRef(effectiveUrl) ?? expectedProjectRef,
   };
 }
-
 const resolved = resolveDbUrl();
 const rawUrl = resolved.url;
 const isSupabase = rawUrl.includes("supabase") || rawUrl.includes("pooler");
@@ -157,7 +169,7 @@ function parseDbUrl(url: string) {
   }
 }
 
-const parsedUrl = isSupabase ? parseDbUrl(rawUrl) : null;
+const parsedUrl = parseDbUrl(rawUrl);
 
 function resolveSslConfig() {
   if (!isSupabase) return false as const;
@@ -190,15 +202,9 @@ export const dbConfig = {
   source: resolved.source,
   poolMode: resolved.poolMode,
   projectRef: resolved.projectRef,
-  parsed: parsedUrl
-    ? {
-        host: parsedUrl.host,
-        port: parsedUrl.port,
-        user: parsedUrl.user,
-        password: parsedUrl.password,
-        database: parsedUrl.database,
-      }
-    : { connectionString: rawUrl },
+  parsed: { connectionString: rawUrl },
+  host: parsedUrl?.host ?? null,
+  port: parsedUrl?.port ?? null,
   // Use Supabase's published root CA (or an explicit operator override).
   // Certificate and hostname verification remain enabled in every case.
   ssl: resolveSslConfig(),
