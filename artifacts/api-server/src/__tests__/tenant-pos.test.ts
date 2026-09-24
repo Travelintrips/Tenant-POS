@@ -94,6 +94,59 @@ describe("Fase 4 — POS Pembayaran", () => {
       track("payments", res.body.payment.id);
     });
 
+    it("invoice payment mempertahankan total booking sebagai agregat seluruh invoice", async () => {
+      const tenant = await createTestTenant();
+      const booking = await createTestBooking(tenant.id, {
+        totalAmount: "5000000",
+        paidAmount: "0",
+        remainingAmount: "5000000",
+        paymentStatus: "UNPAID",
+      });
+      const invoiceA = await createTestInvoice(tenant.id, booking.id, {
+        totalAmount: "5000000",
+        paidAmount: "0",
+        outstandingAmount: "5000000",
+        status: "unpaid",
+      });
+      await createTestInvoice(tenant.id, booking.id, {
+        totalAmount: "5000000",
+        paidAmount: "0",
+        outstandingAmount: "5000000",
+        status: "unpaid",
+      });
+
+      const res = await cashier.post("/api/tenant-pos/payments").send({
+        tenantId: tenant.id,
+        bookingId: booking.id,
+        invoiceId: invoiceA.id,
+        amountPaid: 2000000,
+        paymentMethod: "tunai",
+        shiftId: testShift.id,
+      });
+
+      expect(res.status).toBe(201);
+      track("payments", res.body.payment.id);
+
+      const [storedBooking] = await db
+        .select({
+          totalAmount: tenantBookingsTable.totalAmount,
+          paidAmount: tenantBookingsTable.paidAmount,
+          remainingAmount: tenantBookingsTable.remainingAmount,
+          paymentStatus: tenantBookingsTable.paymentStatus,
+        })
+        .from(tenantBookingsTable)
+        .where(eq(tenantBookingsTable.id, booking.id));
+
+      expect(storedBooking).toEqual({
+        totalAmount: "10000000",
+        paidAmount: "2000000",
+        remainingAmount: "8000000",
+        paymentStatus: "PARTIAL",
+      });
+      expect(res.body.paidAmount).toBe(2000000);
+      expect(res.body.remainingAmount).toBe(8000000);
+    });
+
     it("payment via QRIS berhasil", async () => {
       const newInvoice = await createTestInvoice(testTenant.id, testBooking.id, {
         totalAmount: "2000000",
