@@ -58,6 +58,17 @@ function validateProductionEnv(): void {
     `[startup] Database connection selected: source=${dbConfig.source}, mode=${dbConfig.poolMode}, project=${dbConfig.projectRef ?? "unknown"}, host=${dbConfig.host ?? "unknown"}, port=${dbConfig.port ?? "unknown"}`
   );
 
+  logger.info(
+    {
+      googleClientIdPresent: Boolean(process.env.GOOGLE_CLIENT_ID?.trim()),
+      googleClientSecretPresent: Boolean(process.env.GOOGLE_CLIENT_SECRET?.trim()),
+      fonnteApiKeyPresent: Boolean(process.env.FONNTE_API_KEY?.trim()),
+      fonnteTokenPresent: Boolean(process.env.FONNTE_TOKEN?.trim()),
+      googleCallbackUrl: "https://tenant.travelintrips.co.id/api/auth/google/callback",
+    },
+    "[startup-auth] Authentication provider configuration",
+  );
+
   // Diagnostic aman: bandingkan credential runtime tanpa pernah mencetak password.
   const inspectDbUrl = (raw: string | undefined) => {
     if (!raw?.trim()) return null;

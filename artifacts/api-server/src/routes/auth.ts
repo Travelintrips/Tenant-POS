@@ -251,11 +251,15 @@ router.get("/auth/providers", (_req, res) => {
   res.json({
     google: {
       enabled: googleAuthEnabled,
+      clientIdPresent: Boolean(process.env.GOOGLE_CLIENT_ID?.trim()),
+      clientSecretPresent: Boolean(process.env.GOOGLE_CLIENT_SECRET?.trim()),
       callbackUrl: googleCallbackURL,
       ownerEmail: "admcst001@gmail.com",
     },
     whatsapp: {
       enabled: whatsappEnabled,
+      apiKeyPresent: Boolean(process.env.FONNTE_API_KEY?.trim()),
+      tokenPresent: Boolean(process.env.FONNTE_TOKEN?.trim()),
     },
   });
 });

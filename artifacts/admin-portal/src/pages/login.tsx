@@ -67,18 +67,32 @@ export default function Login() {
 
   useEffect(() => {
     let cancelled = false;
+    let timeoutId: number | undefined;
 
-    fetch("/api/auth/google-enabled", { credentials: "include" })
-      .then((r) => r.json())
-      .then((data) => {
-        if (!cancelled) setGoogleLoginEnabled(data.enabled === true);
-      })
-      .catch(() => {
-        if (!cancelled) setGoogleLoginEnabled(false);
-      });
+    const checkGoogle = (attemptsLeft: number) => {
+      fetch("/api/auth/google-enabled", { credentials: "include", cache: "no-store" })
+        .then(async (r) => {
+          if (!r.ok) throw new Error(`HTTP ${r.status}`);
+          return r.json();
+        })
+        .then((data) => {
+          if (!cancelled) setGoogleLoginEnabled(data.enabled === true);
+        })
+        .catch(() => {
+          if (cancelled) return;
+          if (attemptsLeft > 1) {
+            timeoutId = window.setTimeout(() => checkGoogle(attemptsLeft - 1), 1200);
+          } else {
+            setGoogleLoginEnabled(false);
+          }
+        });
+    };
+
+    checkGoogle(5);
 
     return () => {
       cancelled = true;
+      if (timeoutId) window.clearTimeout(timeoutId);
     };
   }, []);
 
@@ -281,13 +295,13 @@ export default function Login() {
             className="w-full gap-2"
             size="lg"
             onClick={handleGoogleLogin}
-            disabled={!googleLoginEnabled}
           >
             <LogIn className="h-4 w-4" />
-            {googleLoginEnabled ? "Masuk dengan Google" : "Google Login belum dikonfigurasi"}
+            Masuk dengan Google
           </Button>
           <p className="text-[11px] text-center text-muted-foreground">
             Google Owner: admcst001@gmail.com
+            {!googleLoginEnabled ? " · klik untuk cek konfigurasi server" : ""}
           </p>
 
           {devLoginEnabled && (
