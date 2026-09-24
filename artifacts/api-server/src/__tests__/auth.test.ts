@@ -4,8 +4,24 @@ import app from "../app";
 import { makeAuthAgent, unauthAgent } from "./helpers/agent";
 import { cleanupAll } from "./helpers/factory";
 import { requireNonTenantUser } from "../middlewares/auth";
+import { getGoogleRoleForEmail } from "../lib/auth";
 
 afterAll(cleanupAll);
+
+describe("Google login role mapping", () => {
+  it("mempertahankan akun owner Google sebagai owner", () => {
+    expect(getGoogleRoleForEmail("admcst001@gmail.com")).toBe("owner");
+  });
+
+  it("mengizinkan almanosetiawan@gmail.com sebagai admin", () => {
+    expect(getGoogleRoleForEmail("almanosetiawan@gmail.com")).toBe("admin");
+    expect(getGoogleRoleForEmail(" AlmanoSetiawan@GMAIL.COM ")).toBe("admin");
+  });
+
+  it("menolak akun Google yang tidak masuk allowlist", () => {
+    expect(getGoogleRoleForEmail("unknown@example.com")).toBeNull();
+  });
+});
 
 describe("Tenant POS role boundary", () => {
   it("menolak role shared app yang bukan role staf Tenant POS", () => {
