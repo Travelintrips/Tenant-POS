@@ -60,8 +60,8 @@ function getPoolMode(url: string): DbPoolMode {
 function getCandidates(): DbCandidate[] {
   const ordered: Array<[DbUrlSource, string | undefined]> = isProduction
     ? [
-        ["SUPABASE_POOLER_URL", process.env["SUPABASE_POOLER_URL"]],
         ["SUPABASE_PG_URL", process.env["SUPABASE_PG_URL"]],
+        ["SUPABASE_POOLER_URL", process.env["SUPABASE_POOLER_URL"]],
         ["SUPABASE_PG_URL_PROD", process.env["SUPABASE_PG_URL_PROD"]],
         ["DATABASE_URL", process.env["DATABASE_URL"]],
       ]
@@ -105,17 +105,18 @@ function resolveDbUrl(): {
   const scopedCandidates =
     matchingProjectCandidates.length > 0 ? matchingProjectCandidates : candidates;
 
-  // Web/API harus memakai transaction pooler (port 6543) bila tersedia.
-  // Session pooler Supabase memiliki batas koneksi jauh lebih kecil dan sebelumnya
-  // membuat login gagal dengan EMAXCONNSESSION saat 15 slot sudah penuh.
+  // SUPABASE_PG_URL adalah source-of-truth production di Hostinger.
+  // Jangan memilih *_PROD hanya karena URL lama itu kebetulan sudah :6543:
+  // password stale pada *_PROD pernah menyebabkan seluruh login gagal.
+  const preferred = scopedCandidates[0];
   const selected =
-    scopedCandidates.find((candidate) => getPoolMode(candidate.value) === "transaction") ??
-    scopedCandidates[0];
+    preferred.source === "SUPABASE_PG_URL"
+      ? preferred
+      : scopedCandidates.find((candidate) => getPoolMode(candidate.value) === "transaction") ??
+        preferred;
 
-  // Jika hosting hanya diberi Supabase session-pooler URL (:5432), gunakan endpoint
-  // transaction pooler pada host/credential yang sama (:6543). Ini penting untuk
-  // deployment multi-instance: session mode mempunyai batas client yang kecil dan
-  // setiap rolling restart dapat menahan beberapa koneksi idle sekaligus.
+  // Jika source-of-truth masih berupa Supabase session-pooler URL (:5432),
+  // pindahkan ke transaction pooler pada host/credential yang sama (:6543).
   let effectiveUrl = selected.value;
   if (getPoolMode(effectiveUrl) === "session") {
     try {
