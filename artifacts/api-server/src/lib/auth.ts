@@ -250,6 +250,12 @@ export function getGoogleAuthStatus() {
     callbackURL: callbackURL ?? null,
     clientIdPresent: Boolean(clientID),
     clientSecretPresent: Boolean(clientSecret),
+    source:
+      process.env.GOOGLE_AUTH_ENV_SOURCE === "hostinger-build-bridge"
+        ? "hostinger-build-bridge"
+        : clientID || clientSecret
+          ? "runtime-env"
+          : "missing",
   };
 }
 
@@ -260,6 +266,7 @@ export function ensureGoogleStrategy(): {
   callbackURL: string | null;
   clientIdPresent: boolean;
   clientSecretPresent: boolean;
+  source: "runtime-env" | "hostinger-build-bridge" | "missing";
 } {
   const status = getGoogleAuthStatus();
 
@@ -269,6 +276,7 @@ export function ensureGoogleStrategy(): {
       callbackURL: status.callbackURL,
       clientIdPresent: status.clientIdPresent,
       clientSecretPresent: status.clientSecretPresent,
+      source: status.source,
     };
   }
 
@@ -312,6 +320,7 @@ export function ensureGoogleStrategy(): {
     callbackURL: status.callbackURL,
     clientIdPresent: true,
     clientSecretPresent: true,
+    source: status.source,
   };
 }
 

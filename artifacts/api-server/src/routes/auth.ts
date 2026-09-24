@@ -256,6 +256,7 @@ router.get("/auth/providers", (_req, res) => {
       clientIdPresent: google.clientIdPresent,
       clientSecretPresent: google.clientSecretPresent,
       callbackUrl: google.callbackURL,
+      configSource: google.source,
       ownerEmail: "admcst001@gmail.com",
     },
     whatsapp: {
@@ -274,6 +275,7 @@ router.get("/auth/google-enabled", (_req, res) => {
     clientIdPresent: google.clientIdPresent,
     clientSecretPresent: google.clientSecretPresent,
     callbackUrl: google.callbackURL,
+    configSource: google.source,
   });
 });
 
@@ -292,6 +294,7 @@ router.get("/auth/google", googleAuthRateLimiter, (req, res, next) => {
         clientIdPresent: google.clientIdPresent,
         clientSecretPresent: google.clientSecretPresent,
         callbackUrl: google.callbackURL,
+        configSource: google.source,
       },
       "[google-auth] konfigurasi runtime belum lengkap",
     );
