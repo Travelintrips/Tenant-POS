@@ -13,8 +13,8 @@ vi.mock("../lib/whatsapp", () => ({
   notifyAdminGroup: vi.fn().mockResolvedValue({ ok: true, skipped: true }),
 }));
 
-import { runOverdueCheck } from "../lib/overdue-scheduler";
-import { sendOverdueReminder } from "../lib/whatsapp";
+import { runMonthlyDailyReminderCheck, runOverdueCheck } from "../lib/overdue-scheduler";
+import { sendDueReminder, sendOverdueReminder } from "../lib/whatsapp";
 
 describe("overdue invoice scheduler", () => {
   let tenantIds: number[] = [];
@@ -31,7 +31,7 @@ describe("overdue invoice scheduler", () => {
     await cleanupTestData(tenantIds);
   });
 
-  it("hanya mengirim invoice jatuh tempo September 2026+ untuk tenant aktif, sekali per hari, dan berhenti setelah lunas", async () => {
+  it("mengirim semua invoice overdue tenant aktif lintas bulan, sekali per hari, dan berhenti setelah lunas", async () => {
     const activeTenant = await createTenant({
       phone: "6281200000001",
       status: "active",
@@ -84,7 +84,7 @@ describe("overdue invoice scheduler", () => {
     expect(firstRun).toBeGreaterThanOrEqual(1);
     expect(eligibleCalls()).toHaveLength(1);
     expect(sendMock.mock.calls.some(([params]) => params.invoiceNumber?.includes("INACTIVE"))).toBe(false);
-    expect(sendMock.mock.calls.some(([params]) => params.invoiceNumber?.includes("AUGUST"))).toBe(false);
+    expect(sendMock.mock.calls.some(([params]) => params.invoiceNumber?.includes("AUGUST"))).toBe(true);
     expect(sendMock.mock.calls.some(([params]) => params.invoiceNumber?.includes("PAID"))).toBe(false);
     expect(sendMock.mock.calls.some(([params]) => params.invoiceNumber?.includes("ZERO"))).toBe(false);
 
@@ -115,6 +115,55 @@ describe("overdue invoice scheduler", () => {
 
     await runOverdueCheck();
     expect(eligibleCalls()).toHaveLength(1);
+  });
+});
+
+describe("due reminder H-7/H-3/H-1", () => {
+  let tenantIds: number[] = [];
+
+  beforeEach(() => {
+    tenantIds = [];
+    vi.clearAllMocks();
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-24T01:00:00.000Z"));
+  });
+
+  afterEach(async () => {
+    if (tenantIds.length > 0) {
+      await db.delete(waLogsTable).where(inArray(waLogsTable.tenantId, tenantIds)).catch(() => {});
+    }
+    await cleanupTestData(tenantIds);
+    vi.useRealTimers();
+  });
+
+  it("mengirim H-3 untuk invoice tenant dengan periode non-tanggal-1 dan tidak dobel di hari yang sama", async () => {
+    const tenant = await createTenant({
+      phone: "6281200000011",
+      status: "active",
+    });
+    tenantIds.push(tenant.id);
+
+    const invoice = await createTestInvoice(tenant.id, undefined, {
+      invoiceNumber: `INV-DUE-H3-${Date.now()}`,
+      periodStart: "2026-09-24",
+      periodEnd: "2026-10-23",
+      dueDate: "2026-09-27",
+      status: "unpaid",
+      outstandingAmount: "100000",
+      lastPaymentReminderAt: null,
+    });
+
+    const first = await runMonthlyDailyReminderCheck();
+    const sendMock = vi.mocked(sendDueReminder);
+    const calls = () =>
+      sendMock.mock.calls.filter(([params]) => params.invoiceNumber === invoice.invoiceNumber);
+
+    expect(first.h3).toBeGreaterThanOrEqual(1);
+    expect(calls()).toHaveLength(1);
+    expect(calls()[0]?.[0].daysUntilDue).toBe(3);
+
+    await runMonthlyDailyReminderCheck();
+    expect(calls()).toHaveLength(1);
   });
 });
 
