@@ -24,6 +24,29 @@ declare global {
   }
 }
 
+const DEFAULT_GOOGLE_OWNER_EMAILS = ["admcst001@gmail.com"];
+
+function normalizeEmail(value: string): string {
+  return value.trim().toLowerCase();
+}
+
+function getGoogleOwnerEmails(): Set<string> {
+  const configured = process.env.GOOGLE_OWNER_EMAILS
+    ?.split(",")
+    .map((email) => normalizeEmail(email))
+    .filter(Boolean) ?? [];
+
+  return new Set(
+    (configured.length > 0 ? configured : DEFAULT_GOOGLE_OWNER_EMAILS).map(normalizeEmail),
+  );
+}
+
+const GOOGLE_OWNER_EMAILS = getGoogleOwnerEmails();
+
+function isGoogleOwnerEmail(email: string): boolean {
+  return GOOGLE_OWNER_EMAILS.has(normalizeEmail(email));
+}
+
 async function getTenantAccess(userId: string) {
   const rows = await db
     .select({
@@ -42,36 +65,75 @@ export async function findOrCreateUser(opts: {
   name: string;
   avatar: string | null;
 }): Promise<{ id: string; email: string | null; name: string; avatarUrl: string | null; role: string; phoneNumber: string | null }> {
-  const [existing] = await db
-    .select()
-    .from(usersTable)
-    .where(eq(usersTable.email, opts.email));
-
-  if (existing) {
-    await db
-      .update(usersTable)
-      .set({ name: opts.name, updatedAt: new Date() })
-      .where(eq(usersTable.id, existing.id));
-    return { ...existing, phoneNumber: existing.phoneNumber ?? null };
+  const email = normalizeEmail(opts.email);
+  if (!email || !isGoogleOwnerEmail(email)) {
+    throw new Error("GOOGLE_EMAIL_NOT_ALLOWED");
   }
 
-  const [{ count }] = await db
-    .select({ count: sql<number>`count(*)::int` })
-    .from(usersTable);
+  const [existing] = await withDbRetry(
+    () =>
+      db
+        .select()
+        .from(usersTable)
+        .where(eq(usersTable.email, email)),
+    { label: "google-auth.lookup-user" },
+  );
 
-  const role = count === 0 ? "owner" : "admin";
+  if (existing) {
+    if (existing.status === "blocked" || existing.status === "inactive") {
+      throw new Error("GOOGLE_ACCOUNT_INACTIVE");
+    }
+
+    const [updated] = await withDbRetry(
+      () =>
+        db
+          .update(usersTable)
+          .set({
+            name: opts.name,
+            avatarUrl: opts.avatar,
+            role: "owner",
+            status: "active",
+            lastLoginAt: new Date(),
+            updatedAt: new Date(),
+          })
+          .where(eq(usersTable.id, existing.id))
+          .returning(),
+      { label: "google-auth.promote-owner" },
+    );
+
+    return { ...updated, phoneNumber: updated.phoneNumber ?? null };
+  }
+
   const newId = randomUUID();
+  const [created] = await withDbRetry(
+    () =>
+      db
+        .insert(usersTable)
+        .values({
+          id: newId,
+          email,
+          name: opts.name,
+          avatarUrl: opts.avatar,
+          role: "owner",
+          status: "active",
+          lastLoginAt: new Date(),
+        })
+        .onConflictDoUpdate({
+          target: usersTable.email,
+          set: {
+            name: opts.name,
+            avatarUrl: opts.avatar,
+            role: "owner",
+            status: "active",
+            lastLoginAt: new Date(),
+            updatedAt: new Date(),
+          },
+        })
+        .returning(),
+    { label: "google-auth.upsert-owner" },
+  );
 
-  const [created] = await db
-    .insert(usersTable)
-    .values({ id: newId, email: opts.email, name: opts.name, avatarUrl: opts.avatar, role, status: "active" })
-    .onConflictDoUpdate({
-      target: usersTable.email,
-      set: { name: opts.name, updatedAt: new Date() },
-    })
-    .returning();
-
-  return { ...created, phoneNumber: null };
+  return { ...created, phoneNumber: created.phoneNumber ?? null };
 }
 
 export async function findOrCreateUserByPhone(opts: {
@@ -137,23 +199,37 @@ const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
 const configuredCallbackUrl = process.env.GOOGLE_CALLBACK_URL?.trim();
 const configuredAppUrl = process.env.APP_URL?.trim();
 const fallbackDomain = process.env.REPLIT_DEV_DOMAIN ?? process.env.REPLIT_DOMAINS?.split(",")[0];
+const isProduction = process.env.NODE_ENV === "production";
+const productionCallbackURL = "https://tenant.travelintrips.co.id/api/auth/google/callback";
 const callbackURL =
   configuredCallbackUrl ||
-  (configuredAppUrl
-    ? `${configuredAppUrl.replace(/\/+$/, "")}/api/auth/google/callback`
-    : fallbackDomain
-      ? `https://${fallbackDomain}/api/auth/google/callback`
-      : undefined);
+  (isProduction
+    ? productionCallbackURL
+    : configuredAppUrl
+      ? `${configuredAppUrl.replace(/\/+$/, "")}/api/auth/google/callback`
+      : fallbackDomain
+        ? `https://${fallbackDomain}/api/auth/google/callback`
+        : undefined);
 
-if (clientID && clientSecret && callbackURL) {
+export const googleAuthEnabled = Boolean(clientID && clientSecret && callbackURL);
+export const googleCallbackURL = callbackURL ?? null;
+
+if (googleAuthEnabled && clientID && clientSecret && callbackURL) {
   passport.use(
     new GoogleStrategy(
       { clientID, clientSecret, callbackURL },
       async (_accessToken, _refreshToken, profile, done) => {
         try {
-          const email = profile.emails?.[0]?.value ?? "";
+          const primaryEmail = profile.emails?.[0];
+          const email = primaryEmail?.value ?? "";
+          const emailVerified = primaryEmail?.verified !== false;
           const name = profile.displayName;
           const avatar = profile.photos?.[0]?.value ?? null;
+
+          if (!emailVerified || !isGoogleOwnerEmail(email)) {
+            done(new Error("GOOGLE_EMAIL_NOT_ALLOWED"));
+            return;
+          }
 
           const dbUser = await findOrCreateUser({ email, name, avatar });
           const user = await buildSessionUser(dbUser, profile.id);
