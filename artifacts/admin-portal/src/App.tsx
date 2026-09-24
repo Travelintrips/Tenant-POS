@@ -1,3 +1,4 @@
+import { lazy, Suspense } from "react";
 import { Switch, Route, Router as WouterRouter, Redirect } from "wouter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
@@ -11,37 +12,49 @@ import { useAuth, type UserRole } from "@/hooks/use-auth";
 import { RealtimeSync } from "@/components/realtime-sync";
 import { SiteProvider } from "@/contexts/site-context";
 
-import DataTenant from "@/pages/data-tenant";
-import UnitTenant from "@/pages/unit-tenant";
-import RekapTenant from "@/pages/rekap-tenant";
-import BookingTenant from "@/pages/booking-tenant";
-import TenantPos from "@/pages/tenant-pos";
-import Laporan from "@/pages/laporan";
-import TenantInvoices from "@/pages/tenant-invoices";
-import AuditLogs from "@/pages/audit-logs";
-import UsersPage from "@/pages/users";
-import SettingsPage from "@/pages/settings";
-import CompareSites from "@/pages/compare-sites";
-import TenantPortal from "@/pages/tenant-portal";
-import TinjauPembayaran from "@/pages/tinjau-pembayaran";
-import PaymentProofUpload from "@/pages/payment-proof-upload";
-import Dashboard from "@/pages/dashboard";
-import TenantProfile from "@/pages/tenant-profile";
-import WhatsAppSend from "@/pages/whatsapp-send";
-import WhatsAppTemplates from "@/pages/whatsapp-templates";
-import DbMonitoring from "@/pages/db-monitoring";
-import DrafPerjanjian from "@/pages/draf-perjanjian";
-import DokumenSewa from "@/pages/dokumen-sewa";
-import TenantRegister from "@/pages/tenant-register";
-import BukuJurnal from "@/pages/buku-jurnal";
-import KelolaCoa from "@/pages/kelola-coa";
-import PengeluaranOperasional from "@/pages/pengeluaran-operasional";
-import RiwayatPembayaran from "@/pages/riwayat-pembayaran";
-import PemasukanLain from "@/pages/pemasukan-lain";
-import ConsolidatedInvoices from "@/pages/consolidated-invoices";
-import RekonsiliasiBank from "@/pages/rekonsiliasi-bank";
+// Route-level code splitting: login tetap ringan dan halaman operasional
+// hanya diunduh ketika benar-benar dibuka.
+const DataTenant = lazy(() => import("@/pages/data-tenant"));
+const UnitTenant = lazy(() => import("@/pages/unit-tenant"));
+const RekapTenant = lazy(() => import("@/pages/rekap-tenant"));
+const BookingTenant = lazy(() => import("@/pages/booking-tenant"));
+const TenantPos = lazy(() => import("@/pages/tenant-pos"));
+const Laporan = lazy(() => import("@/pages/laporan"));
+const TenantInvoices = lazy(() => import("@/pages/tenant-invoices"));
+const AuditLogs = lazy(() => import("@/pages/audit-logs"));
+const UsersPage = lazy(() => import("@/pages/users"));
+const SettingsPage = lazy(() => import("@/pages/settings"));
+const CompareSites = lazy(() => import("@/pages/compare-sites"));
+const TenantPortal = lazy(() => import("@/pages/tenant-portal"));
+const TinjauPembayaran = lazy(() => import("@/pages/tinjau-pembayaran"));
+const PaymentProofUpload = lazy(() => import("@/pages/payment-proof-upload"));
+const Dashboard = lazy(() => import("@/pages/dashboard"));
+const TenantProfile = lazy(() => import("@/pages/tenant-profile"));
+const WhatsAppSend = lazy(() => import("@/pages/whatsapp-send"));
+const WhatsAppTemplates = lazy(() => import("@/pages/whatsapp-templates"));
+const DbMonitoring = lazy(() => import("@/pages/db-monitoring"));
+const DrafPerjanjian = lazy(() => import("@/pages/draf-perjanjian"));
+const DokumenSewa = lazy(() => import("@/pages/dokumen-sewa"));
+const TenantRegister = lazy(() => import("@/pages/tenant-register"));
+const BukuJurnal = lazy(() => import("@/pages/buku-jurnal"));
+const KelolaCoa = lazy(() => import("@/pages/kelola-coa"));
+const PengeluaranOperasional = lazy(() => import("@/pages/pengeluaran-operasional"));
+const RiwayatPembayaran = lazy(() => import("@/pages/riwayat-pembayaran"));
+const PemasukanLain = lazy(() => import("@/pages/pemasukan-lain"));
+const ConsolidatedInvoices = lazy(() => import("@/pages/consolidated-invoices"));
+const RekonsiliasiBank = lazy(() => import("@/pages/rekonsiliasi-bank"));
 
-const queryClient = new QueryClient();
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 30_000,
+      gcTime: 5 * 60 * 1000,
+      refetchOnWindowFocus: false,
+      refetchOnReconnect: true,
+      retry: 1,
+    },
+  },
+});
 
 const Spinner = () => (
   <div className="min-h-screen flex items-center justify-center">
@@ -307,7 +320,9 @@ function App() {
           <SiteProvider>
             <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
               <ErrorBoundary>
-                <Router />
+                <Suspense fallback={<Spinner />}>
+                  <Router />
+                </Suspense>
               </ErrorBoundary>
             </WouterRouter>
             <Toaster />
