@@ -3836,3 +3836,75 @@ END $$;
 ${BANK_COA_RULE_SEED_SQL}
   `.trim(),
 });
+
+
+MIGRATIONS.push({
+  name: "0092_tenant_integrity_guards",
+  sql: `
+-- Canonical FK payment -> invoice. Historical data was verified orphan-free
+-- before enabling the guard.
+DO $$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'tenant_payments_invoice_id_fkey'
+  ) THEN
+    ALTER TABLE tenant_payments
+      ADD CONSTRAINT tenant_payments_invoice_id_fkey
+      FOREIGN KEY (invoice_id)
+      REFERENCES tenant_invoices(id)
+      ON UPDATE CASCADE
+      ON DELETE SET NULL
+      NOT VALID;
+    ALTER TABLE tenant_payments
+      VALIDATE CONSTRAINT tenant_payments_invoice_id_fkey;
+  END IF;
+END $$;
+
+-- Financial rows must survive booking deletion. Keep one canonical FK per
+-- booking reference and null the relation instead of cascading the payment.
+ALTER TABLE tenant_payments
+  DROP CONSTRAINT IF EXISTS tenant_payments_booking_id_fkey;
+ALTER TABLE tenant_payments
+  ADD CONSTRAINT tenant_payments_booking_id_fkey
+  FOREIGN KEY (booking_id)
+  REFERENCES tenant_bookings(id)
+  ON UPDATE CASCADE
+  ON DELETE SET NULL;
+
+ALTER TABLE tenant_payments
+  DROP CONSTRAINT IF EXISTS tenant_payments_tenant_booking_id_fkey;
+ALTER TABLE tenant_payments
+  DROP CONSTRAINT IF EXISTS tenant_payments_tenant_booking_id_tenant_bookings_id_fk;
+ALTER TABLE tenant_payments
+  ADD CONSTRAINT tenant_payments_tenant_booking_id_fkey
+  FOREIGN KEY (tenant_booking_id)
+  REFERENCES tenant_bookings(id)
+  ON UPDATE CASCADE
+  ON DELETE SET NULL;
+
+-- Tenant access must reference a real user and must be unique per
+-- user/tenant/site tuple.
+DO $$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'tenant_user_access_user_id_fkey'
+  ) THEN
+    ALTER TABLE tenant_user_access
+      ADD CONSTRAINT tenant_user_access_user_id_fkey
+      FOREIGN KEY (user_id)
+      REFERENCES users(id)
+      ON UPDATE CASCADE
+      ON DELETE CASCADE
+      NOT VALID;
+    ALTER TABLE tenant_user_access
+      VALIDATE CONSTRAINT tenant_user_access_user_id_fkey;
+  END IF;
+END $$;
+
+CREATE UNIQUE INDEX IF NOT EXISTS tenant_user_access_user_tenant_site_uq
+  ON tenant_user_access(user_id, tenant_id, site_id);
+
+-- Remove duplicate invoice index; idx_tenant_payments_invoice remains.
+DROP INDEX IF EXISTS idx_tenant_payments_invoice_id;
+  `.trim(),
+});
