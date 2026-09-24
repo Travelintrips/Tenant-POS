@@ -1,8 +1,7 @@
 import express, { type Express, type Request, type Response, type NextFunction } from "express";
 import session from "express-session";
 import connectPgSimple from "connect-pg-simple";
-import { Pool } from "pg";
-import { dbConfig } from "@workspace/db";
+import { dbConfig, pool } from "@workspace/db";
 import cors from "cors";
 import helmet from "helmet";
 import pinoHttp from "pino-http";
@@ -126,33 +125,12 @@ if (!sessionSecret) {
 // Tabel `session` harus sudah ada di DB (dibuat oleh migration 0069).
 const PgSession = connectPgSimple(session);
 
-function positiveIntEnv(name: string, fallback: number): number {
-  const raw = process.env[name];
-  if (!raw) return fallback;
-  const parsed = Number(raw);
-  return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
-}
-
-const sessionPoolMax = positiveIntEnv(
-  "SESSION_DB_POOL_MAX",
-  dbConfig.poolMode === "transaction" ? 2 : 1,
-);
-
-const sessionPool = new Pool({
-  ...dbConfig.parsed,
-  ssl: dbConfig.ssl,
-  max: sessionPoolMax,
-  idleTimeoutMillis: 10_000,
-  connectionTimeoutMillis: 8_000,
-  keepAlive: true,
-  keepAliveInitialDelayMillis: 10_000,
-  application_name: "tenant-pos-session",
-});
-
+// Gunakan pool database aplikasi yang sama untuk session store. Membuka pool kedua
+// per instance membuat rolling deployment menghabiskan slot session-pooler Supabase.
 app.use(
   session({
     store: new PgSession({
-      pool: sessionPool,
+      pool,
       tableName: "session",
       schemaName: "public",
       createTableIfMissing: false,
@@ -181,7 +159,7 @@ app.get("/api/healthz", (_req, res) => {
       source: dbConfig.source,
       poolMode: dbConfig.poolMode,
       projectRef: dbConfig.projectRef,
-      sessionPoolMax,
+      sharedSessionPool: true,
     },
   });
 });

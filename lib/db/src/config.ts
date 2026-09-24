@@ -112,11 +112,28 @@ function resolveDbUrl(): {
     scopedCandidates.find((candidate) => getPoolMode(candidate.value) === "transaction") ??
     scopedCandidates[0];
 
+  // Jika hosting hanya diberi Supabase session-pooler URL (:5432), gunakan endpoint
+  // transaction pooler pada host/credential yang sama (:6543). Ini penting untuk
+  // deployment multi-instance: session mode mempunyai batas client yang kecil dan
+  // setiap rolling restart dapat menahan beberapa koneksi idle sekaligus.
+  let effectiveUrl = selected.value;
+  if (getPoolMode(effectiveUrl) === "session") {
+    try {
+      const parsed = new URL(effectiveUrl);
+      if (parsed.hostname.includes("pooler.supabase.com")) {
+        parsed.port = "6543";
+        effectiveUrl = parsed.toString();
+      }
+    } catch {
+      // URL sudah divalidasi lagi oleh parseDbUrl; biarkan nilai asli bila malformed.
+    }
+  }
+
   return {
-    url: selected.value,
+    url: effectiveUrl,
     source: selected.source,
-    poolMode: getPoolMode(selected.value),
-    projectRef: getCandidateProjectRef(selected.value) ?? expectedProjectRef,
+    poolMode: getPoolMode(effectiveUrl),
+    projectRef: getCandidateProjectRef(effectiveUrl) ?? expectedProjectRef,
   };
 }
 

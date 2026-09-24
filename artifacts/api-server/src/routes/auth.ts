@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import passport from "../lib/auth";
-import { db } from "@workspace/db";
+import { db, dbConfig } from "@workspace/db";
 import { usersTable, USER_ROLES, USER_STATUSES, type UserRole, tenantUserAccessTable, mallSitesTable, tenantsTable } from "@workspace/db/schema";
 import { eq, asc, and, ne } from "drizzle-orm";
 import { findOrCreateUser, buildSessionUser, getTenantAccess } from "../lib/auth";
@@ -12,6 +12,36 @@ import { normalizePhoneNumber } from "../services/otp-service";
 import { randomUUID } from "node:crypto";
 
 const router: IRouter = Router();
+
+function errorChain(err: unknown): Array<{
+  name?: string;
+  message?: string;
+  code?: string;
+  severity?: string;
+  detail?: string;
+}> {
+  const chain: Array<{
+    name?: string;
+    message?: string;
+    code?: string;
+    severity?: string;
+    detail?: string;
+  }> = [];
+
+  let current: any = err;
+  for (let depth = 0; depth < 5 && current; depth++) {
+    chain.push({
+      name: typeof current.name === "string" ? current.name : undefined,
+      message: typeof current.message === "string" ? current.message : String(current),
+      code: typeof current.code === "string" ? current.code : undefined,
+      severity: typeof current.severity === "string" ? current.severity : undefined,
+      detail: typeof current.detail === "string" ? current.detail : undefined,
+    });
+    current = current.cause;
+  }
+
+  return chain;
+}
 
 const DEV_LOGIN_ENABLED =
   process.env.NODE_ENV !== "production" ||
@@ -156,11 +186,15 @@ if (!dbUser) {
     } catch (err) {
       logger.error(
         {
-        message: err instanceof Error ? err.message : String(err),
-        stack: err instanceof Error ? err.stack : undefined,
+          message: err instanceof Error ? err.message : String(err),
+          stack: err instanceof Error ? err.stack : undefined,
+          errorChain: errorChain(err),
+          dbSource: dbConfig.source,
+          dbPoolMode: dbConfig.poolMode,
+          dbProjectRef: dbConfig.projectRef,
         },
-  "[dev-login] Error membuat user"
-);
+        "[dev-login] Error membuat user",
+      );
 
       res.status(500).json({
         error: "Gagal membuat sesi dev login",
