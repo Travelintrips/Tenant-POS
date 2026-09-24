@@ -512,44 +512,27 @@ export async function runInvoiceNotificationCheck(): Promise<number> {
   return sent;
 }
 
-// ─── Pengingat harian tanggal 2–7 setiap bulan ───────────────────────────────
+// ─── Due reminder H-7 / H-3 / H-1 ───────────────────────────────────────────
 
 /**
- * Kirim WA pengingat harian ke tenant yang invoice bulan ini belum lunas.
- * Berjalan setiap hari pada tanggal 2, 3, 4, 5, 6, 7 bulan berjalan (WIB).
+ * Kirim WA reminder tepat H-7, H-3, dan H-1 sebelum jatuh tempo.
+ * Berjalan setiap hari pada scheduler 08:00 WIB sehingga tenant dengan tanggal
+ * mulai kontrak non-tanggal-1 tetap mendapatkan reminder yang benar.
  *
- * Logika:
- * - Invoice dengan period_start = bulan ini (WIB) dan status unpaid/partial
- * - Belum dikirim hari ini (last_payment_reminder_at IS NULL atau < hari ini WIB)
- * - Jika due_date belum lewat → sendDueReminder (dengan daysUntilDue terkomputasi)
- * - Jika due_date sudah lewat → sendOverdueReminder
+ * Overdue tidak diproses di sini agar satu invoice tidak menerima dua pesan
+ * dalam blast yang sama; overdue ditangani eksklusif oleh runOverdueCheck().
  */
-async function runMonthlyDailyReminderCheck(): Promise<{ h7: number; h3: number; h1: number }> {
-  // Hitung hari/bulan/tahun dalam WIB (UTC+7)
+export async function runMonthlyDailyReminderCheck(): Promise<{ h7: number; h3: number; h1: number }> {
   const nowUtc = new Date();
   const wibMs = 7 * 60 * 60 * 1000;
   const nowWib = new Date(nowUtc.getTime() + wibMs);
-  const dayWib   = nowWib.getUTCDate();
-  const monthWib = nowWib.getUTCMonth();   // 0-indexed
-  const yearWib  = nowWib.getUTCFullYear();
-
-  // Hanya aktif pada tanggal 2–7 setiap bulan
-  if (dayWib < 2 || dayWib > 7) {
-    logger.info({ dayWib }, "[scheduler] Pengingat harian: bukan tanggal 2-7, dilewati");
-    return { h7: 0, h3: 0, h1: 0 };
-  }
-
+  const yearWib = nowWib.getUTCFullYear();
+  const monthWib = nowWib.getUTCMonth();
+  const dayWib = nowWib.getUTCDate();
   const pad = (n: number) => String(n).padStart(2, "0");
-  const monthStart    = `${yearWib}-${pad(monthWib + 1)}-01`;
-  const nextMonthYear = monthWib === 11 ? yearWib + 1 : yearWib;
-  const nextMonthNum  = monthWib === 11 ? 1 : monthWib + 2;
-  const nextMonthStart = `${nextMonthYear}-${pad(nextMonthNum)}-01`;
-  const todayWibStr   = `${yearWib}-${pad(monthWib + 1)}-${pad(dayWib)}`;
+  const todayWibStr = `${yearWib}-${pad(monthWib + 1)}-${pad(dayWib)}`;
 
-  logger.info(
-    { dayWib, monthStart, todayWibStr },
-    "[scheduler] Menjalankan pengingat harian bulan ini...",
-  );
+  logger.info({ todayWibStr }, "[scheduler] Menjalankan reminder H-7/H-3/H-1...");
 
   const invoices = await db
     .select({
@@ -571,11 +554,12 @@ async function runMonthlyDailyReminderCheck(): Promise<{ h7: number; h3: number;
     .innerJoin(tenantsTable, eq(tenantInvoicesTable.tenantId, tenantsTable.id))
     .where(
       and(
+        sql`${tenantsTable.status} IN ('aktif', 'active')`,
         inArray(tenantInvoicesTable.status, ["unpaid", "partial"]),
-        // Invoice bulan ini (berdasarkan period_start)
-        sql`"period_start" >= ${monthStart}::date`,
-        sql`"period_start" < ${nextMonthStart}::date`,
-        // Belum dikirim pengingat hari ini (WIB)
+        sql`${tenantInvoicesTable.periodStart}::date <= ${todayWibStr}::date`,
+        sql`${tenantInvoicesTable.dueDate} IS NOT NULL`,
+        sql`(${tenantInvoicesTable.dueDate}::date - ${todayWibStr}::date) IN (7, 3, 1)`,
+        sql`COALESCE(${tenantInvoicesTable.outstandingAmount}, 0)::numeric > 0`,
         sql`(
           last_payment_reminder_at IS NULL
           OR DATE(last_payment_reminder_at AT TIME ZONE 'Asia/Jakarta') < ${todayWibStr}::date
@@ -583,20 +567,34 @@ async function runMonthlyDailyReminderCheck(): Promise<{ h7: number; h3: number;
       ),
     );
 
-  logger.info({ count: invoices.length }, "[scheduler] Invoice bulan ini perlu pengingat");
+  logger.info({ count: invoices.length }, "[scheduler] Invoice perlu reminder jatuh tempo");
 
-  let sent = 0;
+  const counts = { h7: 0, h3: 0, h1: 0 };
 
   for (const invoice of invoices) {
-    const now = new Date();
+    const dueDate = invoice.dueDate ? new Date(invoice.dueDate + "T00:00:00Z") : null;
+    if (!dueDate) continue;
 
-    // Atomic claim: hanya update jika belum ada yang claim hari ini
+    const todayDate = new Date(todayWibStr + "T00:00:00Z");
+    const daysUntilDue = Math.round((dueDate.getTime() - todayDate.getTime()) / 86400000);
+    if (![7, 3, 1].includes(daysUntilDue)) continue;
+
+    const claimedAt = new Date();
     const claimed = await db
       .update(tenantInvoicesTable)
-      .set({ lastPaymentReminderAt: now, updatedAt: now })
+      .set({ lastPaymentReminderAt: claimedAt, updatedAt: claimedAt })
       .where(
         and(
           eq(tenantInvoicesTable.id, invoice.id),
+          sql`EXISTS (
+            SELECT 1 FROM tenants AS active_tenant
+            WHERE active_tenant.id = ${tenantInvoicesTable.tenantId}
+              AND active_tenant.status IN ('aktif', 'active')
+          )`,
+          inArray(tenantInvoicesTable.status, ["unpaid", "partial"]),
+          sql`${tenantInvoicesTable.periodStart}::date <= ${todayWibStr}::date`,
+          sql`(${tenantInvoicesTable.dueDate}::date - ${todayWibStr}::date) IN (7, 3, 1)`,
+          sql`COALESCE(${tenantInvoicesTable.outstandingAmount}, 0)::numeric > 0`,
           sql`(
             last_payment_reminder_at IS NULL
             OR DATE(last_payment_reminder_at AT TIME ZONE 'Asia/Jakarta') < ${todayWibStr}::date
@@ -608,48 +606,32 @@ async function runMonthlyDailyReminderCheck(): Promise<{ h7: number; h3: number;
     if (claimed.length === 0) continue;
 
     if (!invoice.phone) {
-      await releasePaymentReminderClaim(invoice.id, now);
+      await releasePaymentReminderClaim(invoice.id, claimedAt);
       logger.warn({ invoiceId: invoice.id }, "[scheduler] Reminder tidak punya nomor WA tenant");
       continue;
     }
 
-    const dueDate  = invoice.dueDate ? new Date(invoice.dueDate + "T00:00:00Z") : null;
-    const todayDate = new Date(todayWibStr + "T00:00:00Z");
-    const daysUntilDue = dueDate
-      ? Math.round((dueDate.getTime() - todayDate.getTime()) / 86400000)
-      : 0;
-
-    const dueStr = dueDate
-      ? dueDate.toLocaleDateString("id-ID", { day: "numeric", month: "long", year: "numeric" })
-      : "-";
-
+    const dueStr = dueDate.toLocaleDateString("id-ID", {
+      day: "numeric",
+      month: "long",
+      year: "numeric",
+    });
     const companyName = await getSiteCompanyName(invoice.siteId ?? 0);
     const paymentLink = await buildPaymentLink(invoice.paymentToken);
 
     try {
-      const result = daysUntilDue >= 0
-        ? await sendDueReminder({
-            ownerName: invoice.ownerName,
-            businessName: invoice.businessName,
-            invoiceNumber: invoice.invoiceNumber,
-            periodLabel: formatPeriodLabel(invoice.periodStart, invoice.periodEnd),
-            totalAmount: invoice.totalAmount,
-            outstandingAmount: invoice.outstandingAmount,
-            dueDate: dueStr,
-            daysUntilDue,
-            phone: invoice.phone,
-            paymentLink,
-          })
-        : await sendOverdueReminder({
-            ownerName: invoice.ownerName,
-            businessName: invoice.businessName,
-            invoiceNumber: invoice.invoiceNumber,
-            totalAmount: invoice.totalAmount,
-            outstandingAmount: invoice.outstandingAmount ?? invoice.totalAmount,
-            daysOverdue: Math.abs(daysUntilDue),
-            phone: invoice.phone,
-            paymentLink,
-          });
+      const result = await sendDueReminder({
+        ownerName: invoice.ownerName,
+        businessName: invoice.businessName,
+        invoiceNumber: invoice.invoiceNumber,
+        periodLabel: formatPeriodLabel(invoice.periodStart, invoice.periodEnd),
+        totalAmount: invoice.totalAmount,
+        outstandingAmount: invoice.outstandingAmount,
+        dueDate: dueStr,
+        daysUntilDue,
+        phone: invoice.phone,
+        paymentLink,
+      });
 
       if (result.ok && !result.skipped) {
         await recordSchedulerWa({
@@ -657,20 +639,22 @@ async function runMonthlyDailyReminderCheck(): Promise<{ h7: number; h3: number;
           tenantId: invoice.tenantId,
           invoiceId: invoice.id,
           phone: invoice.phone,
-          messageType: daysUntilDue >= 0 ? "due_reminder" : "overdue_reminder",
+          messageType: "due_reminder",
           status: result.pending ? "queued" : "accepted",
           errorMessage: result.pending ? "Fonnte process:pending" : null,
         });
-        sent++;
+
+        if (daysUntilDue === 7) counts.h7++;
+        if (daysUntilDue === 3) counts.h3++;
+        if (daysUntilDue === 1) counts.h1++;
+
         void notifyAdminGroup({
-          eventType: daysUntilDue >= 0 ? "reminder" : "overdue",
+          eventType: "reminder",
           businessName: invoice.businessName,
           ownerName: invoice.ownerName,
           invoiceNumber: invoice.invoiceNumber,
           amount: invoice.outstandingAmount ?? invoice.totalAmount,
-          ...(daysUntilDue >= 0
-            ? { daysUntilDue }
-            : { daysOverdue: Math.abs(daysUntilDue) }),
+          daysUntilDue,
           dueDate: dueStr,
           siteName: companyName,
           paymentLink,
@@ -681,14 +665,14 @@ async function runMonthlyDailyReminderCheck(): Promise<{ h7: number; h3: number;
           tenantId: invoice.tenantId,
           invoiceId: invoice.id,
           phone: invoice.phone,
-          messageType: daysUntilDue >= 0 ? "due_reminder" : "overdue_reminder",
+          messageType: "due_reminder",
           status: result.skipped ? "skipped" : "failed",
           errorMessage: result.error ?? null,
         });
-        await releasePaymentReminderClaim(invoice.id, now);
+        await releasePaymentReminderClaim(invoice.id, claimedAt);
         logger.warn(
           { invoiceId: invoice.id, skipped: result.skipped, error: result.error },
-          "[scheduler] Pengingat gagal/dilewati — akan dicoba lagi",
+          "[scheduler] Reminder jatuh tempo gagal/dilewati — akan dicoba lagi",
         );
       }
     } catch (err) {
@@ -697,18 +681,17 @@ async function runMonthlyDailyReminderCheck(): Promise<{ h7: number; h3: number;
         tenantId: invoice.tenantId,
         invoiceId: invoice.id,
         phone: invoice.phone,
-        messageType: daysUntilDue >= 0 ? "due_reminder" : "overdue_reminder",
+        messageType: "due_reminder",
         status: "failed",
         errorMessage: err instanceof Error ? err.message : String(err),
       });
-      await releasePaymentReminderClaim(invoice.id, now).catch(() => {});
-      logger.warn({ err, invoiceId: invoice.id }, "[scheduler] Pengiriman reminder error — akan dicoba lagi");
+      await releasePaymentReminderClaim(invoice.id, claimedAt).catch(() => {});
+      logger.warn({ err, invoiceId: invoice.id }, "[scheduler] Pengiriman reminder jatuh tempo error");
     }
   }
 
-  logger.info({ sent, total: invoices.length }, "[scheduler] Pengingat harian selesai");
-  // h7 dipakai sebagai total pengingat harian; h3/h1 tidak digunakan lagi
-  return { h7: sent, h3: 0, h1: 0 };
+  logger.info({ ...counts }, "[scheduler] Reminder H-7/H-3/H-1 selesai");
+  return counts;
 }
 
 // ─── Overdue Reminder (sudah melewati jatuh tempo) ───────────────────────────
@@ -736,10 +719,9 @@ export async function runOverdueCheck(): Promise<number> {
       and(
         sql`${tenantsTable.status} IN ('aktif', 'active')`,
         inArray(tenantInvoicesTable.status, ["unpaid", "partial", "overdue"]),
-        // Blast harian hanya untuk periode tagihan bulan berjalan dan tidak
-        // pernah sebelum period_start. Setelah jatuh tempo, kirim setiap hari
-        // pukul 08:00 WIB sampai invoice lunas.
-        sql`DATE_TRUNC('month', ${tenantInvoicesTable.periodStart}::date) = DATE_TRUNC('month', (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Jakarta')::date)`,
+        // Semua invoice yang sudah melewati jatuh tempo diproses, termasuk
+        // tunggakan bulan sebelumnya. Kirim maksimal sekali per hari pukul
+        // 08:00 WIB sampai invoice lunas.
         sql`${tenantInvoicesTable.periodStart}::date <= (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Jakarta')::date`,
         sql`"due_date" < (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Jakarta')::date`,
         sql`COALESCE(${tenantInvoicesTable.outstandingAmount}, 0)::numeric > 0`,
@@ -782,8 +764,7 @@ export async function runOverdueCheck(): Promise<number> {
               AND active_tenant.status IN ('aktif', 'active')
           )`,
           inArray(tenantInvoicesTable.status, ["unpaid", "partial", "overdue"]),
-          sql`DATE_TRUNC('month', ${tenantInvoicesTable.periodStart}::date) = DATE_TRUNC('month', (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Jakarta')::date)`,
-          sql`${tenantInvoicesTable.periodStart}::date <= (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Jakarta')::date`,
+            sql`${tenantInvoicesTable.periodStart}::date <= (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Jakarta')::date`,
           sql`${tenantInvoicesTable.dueDate} < (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Jakarta')::date`,
           sql`COALESCE(${tenantInvoicesTable.outstandingAmount}, 0)::numeric > 0`,
           sql`(
