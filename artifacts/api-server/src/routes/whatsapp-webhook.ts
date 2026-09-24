@@ -18,6 +18,7 @@ import { db } from "@workspace/db";
 import {
   tenantPaymentsTable,
   tenantInvoicesTable,
+  tenantReceiptsTable,
   tenantsTable,
   usersTable,
 } from "@workspace/db/schema";
@@ -27,8 +28,13 @@ import { sseBroker } from "../lib/sse-broker";
 import {
   sendPaymentApproved,
   sendPaymentRejected,
+  notifyAdminGroup,
 } from "../lib/whatsapp";
 import { webhookRateLimiter } from "../middlewares/rate-limit";
+import { approveExistingPayment } from "../lib/payment-ledger";
+import { postTenantPaymentAccountingEntry } from "../lib/accounting-entry";
+import { writePaymentEvent, normalizePaymentMethod } from "../lib/payment-events";
+import { isLikelyYearAmount } from "../lib/ocr-service";
 
 const router: IRouter = Router();
 
@@ -119,7 +125,7 @@ router.post("/whatsapp/webhook", webhookRateLimiter, async (req, res) => {
 });
 
 // ─── handleApprove ────────────────────────────────────────────────────────────
-async function handleApprove(paymentId: number, approverPhone: string) {
+export async function handleApprove(paymentId: number, approverPhone: string) {
   try {
     const result = await db.transaction(async (tx) => {
       const [payment] = await tx
@@ -151,46 +157,38 @@ async function handleApprove(paymentId: number, approverPhone: string) {
         throw Object.assign(new Error("Invoice telah dibatalkan"), { status: 409 });
       }
 
+      // Samakan guard dengan approval dari portal admin. Nominal yang jelas
+      // terlihat seperti tahun hasil OCR tidak boleh lolos lewat jalur WhatsApp.
+      if (
+        isLikelyYearAmount(Number(payment.amount)) &&
+        Number(invoice.outstandingAmount ?? invoice.totalAmount ?? 0) >= 100_000
+      ) {
+        throw Object.assign(
+          new Error("Nominal pembayaran terlihat seperti angka tahun hasil OCR"),
+          { status: 422, code: "OCR_AMOUNT_SUSPICIOUS" },
+        );
+      }
+
       const now = new Date();
+      await approveExistingPayment(
+        tx,
+        payment.id,
+        invoice.id,
+        `WA:${approverPhone}`,
+        now,
+      );
+
       const [updatedPayment] = await tx
-        .update(tenantPaymentsTable)
-        .set({
-          approvalStatus: "approved",
-          approvedBy: `WA:${approverPhone}`,
-          approvedAt: now,
-          paidAt: now,
-          paymentStatus: "PAID",
-          status: "PAID",
-          updatedAt: now,
-        })
-        .where(eq(tenantPaymentsTable.id, paymentId))
-        .returning();
-
-      const newPaid = Number(invoice.paidAmount) + Number(payment.amount);
-      const total = Number(invoice.totalAmount);
-      const outstanding = Math.max(total - newPaid, 0);
-
-      const newStatus =
-        newPaid >= total
-          ? "paid"
-          : newPaid > 0
-            ? "partial"
-            : invoice.dueDate && new Date(invoice.dueDate) < now
-              ? "overdue"
-              : "unpaid";
+        .select()
+        .from(tenantPaymentsTable)
+        .where(eq(tenantPaymentsTable.id, payment.id));
 
       const [updatedInvoice] = await tx
-        .update(tenantInvoicesTable)
-        .set({
-          paidAmount: String(newPaid),
-          outstandingAmount: String(outstanding),
-          status: newStatus,
-          updatedAt: now,
-        })
-        .where(eq(tenantInvoicesTable.id, invoice.id))
-        .returning();
+        .select()
+        .from(tenantInvoicesTable)
+        .where(eq(tenantInvoicesTable.id, invoice.id));
 
-      return { payment: updatedPayment, invoice: updatedInvoice };
+      return { payment: updatedPayment!, invoice: updatedInvoice! };
     });
 
     sseBroker.publish("payment_approved", {
@@ -198,31 +196,98 @@ async function handleApprove(paymentId: number, approverPhone: string) {
       invoiceId: result.invoice.id,
     });
 
-    // WA konfirmasi ke tenant
-    if (result.invoice.tenantId) {
-      const [tenant] = await db
-        .select({
-          ownerName: tenantsTable.ownerName,
-          businessName: tenantsTable.businessName,
-          phone: tenantsTable.phone,
-        })
-        .from(tenantsTable)
-        .where(eq(tenantsTable.id, result.invoice.tenantId));
+    const tenant = result.invoice.tenantId
+      ? await db
+          .select({
+            ownerName: tenantsTable.ownerName,
+            businessName: tenantsTable.businessName,
+            phone: tenantsTable.phone,
+          })
+          .from(tenantsTable)
+          .where(eq(tenantsTable.id, result.invoice.tenantId))
+          .then((rows) => rows[0])
+      : null;
 
-      if (tenant?.phone) {
-        await sendPaymentApproved({
-          ownerName: tenant.ownerName,
-          businessName: tenant.businessName,
-          invoiceNumber: result.invoice.invoiceNumber,
-          amount: result.payment.amount,
-          phone: tenant.phone,
-        }).catch(() => {});
-      }
+    // Jalur approval WhatsApp wajib menghasilkan side-effect keuangan yang sama
+    // dengan approval dari panel admin. Semua writer di bawah idempotent.
+    await db
+      .insert(tenantReceiptsTable)
+      .values({
+        paymentId: result.payment.id,
+        invoiceId: result.invoice.id,
+        tenantId: result.payment.tenantId ?? 0,
+        siteId: result.payment.siteId ?? null,
+        receiptNumber: result.payment.receiptNumber ?? `RCT-${result.payment.id}`,
+        fileUrl: "",
+        invoiceNumber: result.invoice.invoiceNumber,
+        businessName: tenant?.businessName ?? null,
+        ownerName: tenant?.ownerName ?? null,
+        amountPaid: String(result.payment.amount),
+        taxAmount: "0",
+        netAmount: String(result.payment.amount),
+        paymentMethod: result.payment.paymentMethod ?? null,
+        kasirName: `WA:${approverPhone}`,
+        waStatus: "skipped",
+      })
+      .onConflictDoNothing();
+
+    await postTenantPaymentAccountingEntry({
+      paymentId: result.payment.id,
+      siteId: result.payment.siteId ?? null,
+      invoiceNumber: result.invoice.invoiceNumber ?? null,
+      businessName: tenant?.businessName ?? null,
+      amountPaid: Number(result.payment.amount),
+      paymentMethod: result.payment.paymentMethod ?? "transfer",
+      transactionDate: result.payment.paidAt ?? new Date(),
+      receiptNumber: result.payment.receiptNumber ?? `RCT-${result.payment.id}`,
+      sourceModule: "payment_proof_approval",
+    });
+
+    await writePaymentEvent({
+      sourceApp: "tenant_management",
+      ownerApp: "tenant_management",
+      sourceModule: "tenant_invoice",
+      sourceTable: "tenant_payments",
+      sourceId: result.payment.id,
+      tenantId: result.payment.tenantId ?? null,
+      siteId: result.payment.siteId ?? null,
+      invoiceId: result.payment.invoiceId ?? null,
+      amount: Number(result.payment.amount),
+      direction: "IN",
+      paymentMethod: normalizePaymentMethod(result.payment.paymentMethod ?? "transfer"),
+      paymentReference: result.payment.referenceNumber ?? null,
+      proofUrl: result.payment.proofUrl ?? result.payment.proofImageUrl ?? null,
+      paymentStatus: "confirmed",
+      metadata: {
+        receiptNumber: result.payment.receiptNumber,
+        approvedBy: `WA:${approverPhone}`,
+        invoiceStatus: result.invoice.status,
+      },
+    });
+
+    if (tenant?.phone) {
+      await sendPaymentApproved({
+        ownerName: tenant.ownerName,
+        businessName: tenant.businessName,
+        invoiceNumber: result.invoice.invoiceNumber,
+        amount: result.payment.amount,
+        phone: tenant.phone,
+      }).catch(() => {});
     }
+
+    await notifyAdminGroup({
+      eventType: "payment_approved",
+      businessName: tenant?.businessName ?? "Tenant",
+      ownerName: tenant?.ownerName ?? "-",
+      invoiceNumber: result.invoice.invoiceNumber,
+      receiptNumber: result.payment.receiptNumber,
+      amount: result.payment.amount,
+      paymentMethod: result.payment.paymentMethod ?? undefined,
+    }).catch(() => {});
 
     logger.info(
       { paymentId, approverPhone },
-      "[wa-webhook] pembayaran disetujui via WA",
+      "[wa-webhook] pembayaran disetujui via WA melalui canonical ledger",
     );
   } catch (err) {
     logger.warn(
