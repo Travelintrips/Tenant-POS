@@ -32,14 +32,51 @@ function validateProductionEnv(): void {
     );
   }
 
-  if (dbConfig.source !== "SUPABASE_DATABASE_URL") {
+  if (dbConfig.source !== "SUPABASE_POOLER_URL") {
     warnings.push(
-      `Production memakai ${dbConfig.source}. SUPABASE_DATABASE_URL dari integrasi Hostinger/Supabase lebih diutamakan bila tersedia agar credential stale tidak dipakai.`,
+      `Production memakai ${dbConfig.source}. SUPABASE_POOLER_URL transaction pooler lebih diutamakan bila tersedia.`,
     );
   }
 
   logger.info(
     `[startup] Database connection selected: source=${dbConfig.source}, mode=${dbConfig.poolMode}, project=${dbConfig.projectRef ?? "unknown"}, host=${dbConfig.host ?? "unknown"}, port=${dbConfig.port ?? "unknown"}`
+  );
+
+  // Diagnostic aman: bandingkan credential runtime tanpa pernah mencetak password.
+  const inspectDbUrl = (raw: string | undefined) => {
+    if (!raw?.trim()) return null;
+    try {
+      const parsed = new URL(raw.trim());
+      const password = decodeURIComponent(parsed.password);
+      return {
+        username: decodeURIComponent(parsed.username),
+        password,
+        host: parsed.hostname,
+        port: parsed.port || "5432",
+        project:
+          decodeURIComponent(parsed.username).match(/^[^.]+\.([a-z0-9]+)$/i)?.[1] ??
+          parsed.hostname.match(/^db\.([a-z0-9]+)\.supabase\.co$/i)?.[1] ??
+          null,
+      };
+    } catch {
+      return null;
+    }
+  };
+
+  const poolerRuntime = inspectDbUrl(poolerUrl);
+  const databaseRuntime = inspectDbUrl(supabaseDatabaseUrl);
+  const selectedRuntime =
+    dbConfig.source === "SUPABASE_POOLER_URL"
+      ? poolerRuntime
+      : dbConfig.source === "SUPABASE_DATABASE_URL"
+        ? databaseRuntime
+        : null;
+  const placeholderPassword = selectedRuntime
+    ? /^(?:password|\[?your[-_ ]?password\]?|<password>)$/i.test(selectedRuntime.password)
+    : false;
+
+  logger.info(
+    `[startup-db-config] poolerPresent=${Boolean(poolerRuntime)}, databaseUrlPresent=${Boolean(databaseRuntime)}, sameUsername=${Boolean(poolerRuntime && databaseRuntime && poolerRuntime.username === databaseRuntime.username)}, samePassword=${Boolean(poolerRuntime && databaseRuntime && poolerRuntime.password === databaseRuntime.password)}, selectedUser=${selectedRuntime?.username ?? "unknown"}, selectedProject=${selectedRuntime?.project ?? "unknown"}, selectedHost=${selectedRuntime?.host ?? "unknown"}, selectedPort=${selectedRuntime?.port ?? "unknown"}, placeholderPassword=${placeholderPassword}`
   );
 
   if (dbConfig.poolMode === "session") {
