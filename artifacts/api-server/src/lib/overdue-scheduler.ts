@@ -1,7 +1,7 @@
 import { db } from "@workspace/db";
 import { tenantInvoicesTable, tenantsTable, bankMutationsTable } from "@workspace/db/schema";
 import { and, inArray, isNull, eq, sql } from "drizzle-orm";
-import { createAllInvoicesForBooking } from "./auto-invoice";
+import { createAllInvoicesForBooking, countContractBillingPeriods } from "./auto-invoice";
 import { sendInvoiceNotification, sendOverdueReminder, sendDueReminder, getAdminNotifyPhones, getSiteCompanyName, notifyAdminGroup } from "./whatsapp";
 import { logger } from "./logger";
 import { getBaseUrl } from "./app-url";
@@ -297,12 +297,14 @@ async function runMonthlyInvoiceGeneration(): Promise<number> {
   for (const b of rows) {
     if (!b.start_date) continue;
 
+    const endDatePeriods = b.end_date
+      ? countContractBillingPeriods(b.start_date, b.end_date)
+      : null;
     let durationMonths = Number(b.duration_months ?? 0);
-    if (!durationMonths && b.end_date) {
-      const s = new Date(b.start_date + "T00:00:00Z");
-      const e = new Date(b.end_date + "T00:00:00Z");
-      durationMonths =
-        (e.getFullYear() - s.getFullYear()) * 12 + (e.getMonth() - s.getMonth()) + 1;
+    if (durationMonths > 0 && endDatePeriods) {
+      durationMonths = Math.min(durationMonths, endDatePeriods);
+    } else if (!durationMonths && endDatePeriods) {
+      durationMonths = endDatePeriods;
     }
     if (durationMonths <= 0) continue;
 
@@ -317,6 +319,7 @@ async function runMonthlyInvoiceGeneration(): Promise<number> {
         unitCode: b.unit_code ?? null,
         rentAmount,
         startDate: b.start_date,
+        endDate: b.end_date,
         durationMonths,
       });
       totalCreated += ids.length;
