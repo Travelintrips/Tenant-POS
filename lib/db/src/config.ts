@@ -69,9 +69,47 @@ function isInvalidSupabaseEndpoint(url: string): boolean {
   }
 }
 
+function getKnownPoolerHost(projectRef: string | null): string | null {
+  if (!projectRef) return null;
+
+  const explicit = process.env["SUPABASE_POOLER_HOST"]?.trim();
+  if (explicit) return explicit;
+
+  // Project production Tenant POS/CST berada di ap-southeast-2 dan memakai
+  // shared Supavisor host ini. Mapping eksplisit dipakai hanya sebagai recovery
+  // bila Hostinger menyuntikkan URL db.<ref>.supabase.co dengan port 6543,
+  // kombinasi yang tidak valid dan menghasilkan ECONNREFUSED.
+  const known: Record<string, string> = {
+    nzdweipzckfszczzqtuw: "aws-1-ap-southeast-2.pooler.supabase.com",
+    xssrfshdrtdfupgqwfdw: "aws-1-ap-southeast-2.pooler.supabase.com",
+  };
+
+  return known[projectRef] ?? null;
+}
+
 function normalizeCandidate(candidate: DbCandidate, expectedProjectRef: string | null): DbCandidate {
   try {
     const parsed = new URL(candidate.value);
+
+    // Hostinger dapat menginjeksi SUPABASE_DATABASE_URL sebagai
+    // db.<project>.supabase.co:6543. Port 6543 hanya valid pada Supavisor
+    // pooler host, bukan pada db.* endpoint. Perbaiki endpoint ini secara
+    // deterministik sebelum kandidat dipilih agar login tidak bergantung pada
+    // ada/tidaknya secret fallback lain.
+    const directMatch = parsed.hostname.match(/^db\.([a-z0-9]+)\.supabase\.co$/i);
+    if (directMatch?.[1] && parsed.port === "6543") {
+      const projectRef = expectedProjectRef ?? directMatch[1];
+      const poolerHost = getKnownPoolerHost(projectRef);
+      if (poolerHost) {
+        const username = decodeURIComponent(parsed.username) || "postgres";
+        parsed.hostname = poolerHost;
+        parsed.port = "6543";
+        parsed.username = username.includes(".")
+          ? username
+          : `${username}.${projectRef}`;
+        return { ...candidate, value: parsed.toString() };
+      }
+    }
 
     if (parsed.hostname.includes("pooler.supabase.com")) {
       const username = decodeURIComponent(parsed.username);
