@@ -103,8 +103,9 @@ router.get("/tenant-pos/overview", async (req, res) => {
       .from(tenantPaymentsTable)
       .where(
         and(
-          sql`${tenantPaymentsTable.paidAt}::date = ${today}`,
+          sql`DATE(${tenantPaymentsTable.paidAt} AT TIME ZONE 'Asia/Jakarta') = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Jakarta')::date`,
           eq(tenantPaymentsTable.isVoided, false),
+          eq(tenantPaymentsTable.approvalStatus, "approved"),
           paymentSiteFilter
         )
       );
@@ -700,7 +701,11 @@ router.post("/tenant-pos/payments", paymentRateLimiter, async (req, res) => {
         const [prevPaid] = await tx
           .select({ total: sql<number>`coalesce(sum(amount::numeric), 0)::int` })
           .from(tenantPaymentsTable)
-          .where(and(eq(tenantPaymentsTable.bookingId, bookingId), eq(tenantPaymentsTable.isVoided, false)));
+          .where(and(
+            eq(tenantPaymentsTable.bookingId, bookingId),
+            eq(tenantPaymentsTable.isVoided, false),
+            eq(tenantPaymentsTable.approvalStatus, "approved"),
+          ));
         previousPaidAmount = prevPaid?.total ?? 0;
       } else if (invoiceId) {
         // invoice-only path: use invoice.paidAmount
@@ -1524,7 +1529,8 @@ router.post("/tenant-pos/payments/:id/void", paymentRateLimiter, async (req, res
           .where(
             and(
               eq(tenantPaymentsTable.bookingId, payment.bookingId),
-              eq(tenantPaymentsTable.isVoided, false)
+              eq(tenantPaymentsTable.isVoided, false),
+              eq(tenantPaymentsTable.approvalStatus, "approved")
             )
           );
 
@@ -1553,7 +1559,8 @@ router.post("/tenant-pos/payments/:id/void", paymentRateLimiter, async (req, res
           .where(
             and(
               eq(tenantPaymentsTable.invoiceId, payment.invoiceId),
-              eq(tenantPaymentsTable.isVoided, false)
+              eq(tenantPaymentsTable.isVoided, false),
+              eq(tenantPaymentsTable.approvalStatus, "approved")
             )
           );
 
@@ -1754,12 +1761,20 @@ router.get("/tenant-pos/shifts/current", async (req, res) => {
     const [txCount] = await db
       .select({ count: sql<number>`count(*)::int` })
       .from(tenantPaymentsTable)
-      .where(and(eq(tenantPaymentsTable.shiftId, shift.id), eq(tenantPaymentsTable.isVoided, false)));
+      .where(and(
+        eq(tenantPaymentsTable.shiftId, shift.id),
+        eq(tenantPaymentsTable.isVoided, false),
+        eq(tenantPaymentsTable.approvalStatus, "approved"),
+      ));
 
     const [txTotal] = await db
       .select({ total: sql<number>`coalesce(sum(amount::numeric), 0)::int` })
       .from(tenantPaymentsTable)
-      .where(and(eq(tenantPaymentsTable.shiftId, shift.id), eq(tenantPaymentsTable.isVoided, false)));
+      .where(and(
+        eq(tenantPaymentsTable.shiftId, shift.id),
+        eq(tenantPaymentsTable.isVoided, false),
+        eq(tenantPaymentsTable.approvalStatus, "approved"),
+      ));
 
     res.json({
       id: shift.id,
@@ -1858,6 +1873,7 @@ router.post("/tenant-pos/shifts/:id/close", async (req, res) => {
         and(
           eq(tenantPaymentsTable.shiftId, shiftId),
           eq(tenantPaymentsTable.isVoided, false),
+          eq(tenantPaymentsTable.approvalStatus, "approved"),
           sql`lower(${tenantPaymentsTable.paymentMethod}) = 'tunai'`,
         ),
       );
@@ -1882,12 +1898,20 @@ router.post("/tenant-pos/shifts/:id/close", async (req, res) => {
     const [txCount] = await db
       .select({ count: sql<number>`count(*)::int` })
       .from(tenantPaymentsTable)
-      .where(and(eq(tenantPaymentsTable.shiftId, shiftId), eq(tenantPaymentsTable.isVoided, false)));
+      .where(and(
+        eq(tenantPaymentsTable.shiftId, shiftId),
+        eq(tenantPaymentsTable.isVoided, false),
+        eq(tenantPaymentsTable.approvalStatus, "approved"),
+      ));
 
     const [txTotal] = await db
       .select({ total: sql<number>`coalesce(sum(amount::numeric), 0)::int` })
       .from(tenantPaymentsTable)
-      .where(and(eq(tenantPaymentsTable.shiftId, shiftId), eq(tenantPaymentsTable.isVoided, false)));
+      .where(and(
+        eq(tenantPaymentsTable.shiftId, shiftId),
+        eq(tenantPaymentsTable.isVoided, false),
+        eq(tenantPaymentsTable.approvalStatus, "approved"),
+      ));
 
     res.json({
       shift: updated,
@@ -1913,16 +1937,19 @@ router.get("/tenant-pos/daily-report", async (req, res) => {
         receiptNumber: tenantPaymentsTable.receiptNumber,
         paidAt: tenantPaymentsTable.paidAt,
         isVoided: tenantPaymentsTable.isVoided,
+        approvalStatus: tenantPaymentsTable.approvalStatus,
         businessName: tenantsTable.businessName,
         boothNumber: tenantsTable.boothNumber,
       })
       .from(tenantPaymentsTable)
-      .innerJoin(tenantBookingsTable, eq(tenantPaymentsTable.bookingId, tenantBookingsTable.id))
-      .innerJoin(tenantsTable, eq(tenantBookingsTable.tenantId, tenantsTable.id))
-      .where(and(sql`${tenantPaymentsTable.paidAt}::date = ${dateParam}`, dailySiteFilter))
+      .leftJoin(tenantsTable, eq(tenantPaymentsTable.tenantId, tenantsTable.id))
+      .where(and(
+        sql`DATE(${tenantPaymentsTable.paidAt} AT TIME ZONE 'Asia/Jakarta') = ${dateParam}::date`,
+        dailySiteFilter,
+      ))
       .orderBy(tenantPaymentsTable.paidAt);
 
-    const valid = payments.filter((p) => !p.isVoided);
+    const valid = payments.filter((p) => !p.isVoided && p.approvalStatus === "approved");
     const totalAmount = valid.reduce((sum, p) => sum + Number(p.amount), 0);
     const byMethod: Record<string, number> = {};
     for (const p of valid) {
@@ -1965,16 +1992,16 @@ router.get("/tenant-pos/shifts/:id/report", async (req, res) => {
         referenceNumber: tenantPaymentsTable.referenceNumber,
         paidAt: tenantPaymentsTable.paidAt,
         isVoided: tenantPaymentsTable.isVoided,
+        approvalStatus: tenantPaymentsTable.approvalStatus,
         businessName: tenantsTable.businessName,
         boothNumber: tenantsTable.boothNumber,
       })
       .from(tenantPaymentsTable)
-      .leftJoin(tenantBookingsTable, eq(tenantPaymentsTable.bookingId, tenantBookingsTable.id))
-      .leftJoin(tenantsTable, eq(tenantBookingsTable.tenantId, tenantsTable.id))
+      .leftJoin(tenantsTable, eq(tenantPaymentsTable.tenantId, tenantsTable.id))
       .where(eq(tenantPaymentsTable.shiftId, shiftId))
       .orderBy(tenantPaymentsTable.paidAt);
 
-    const valid = payments.filter((p) => !p.isVoided);
+    const valid = payments.filter((p) => !p.isVoided && p.approvalStatus === "approved");
     const totalAmount = valid.reduce((sum, p) => sum + Number(p.amount), 0);
     const byMethod: Record<string, number> = {};
     for (const p of valid) {
