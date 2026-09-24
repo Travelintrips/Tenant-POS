@@ -131,11 +131,12 @@ function normalizeCandidate(candidate: DbCandidate, expectedProjectRef: string |
 function getCandidates(): DbCandidate[] {
   const ordered: Array<[DbUrlSource, string | undefined]> = isProduction
     ? [
-        // Prefer the explicit transaction-pooler secret in production. Some hosting
-        // integrations inject SUPABASE_DATABASE_URL automatically and may expose a
-        // direct db.* host that is not valid on the pooler port.
-        ["SUPABASE_POOLER_URL", process.env["SUPABASE_POOLER_URL"]],
+        // Hostinger-managed SUPABASE_DATABASE_URL adalah credential canonical.
+        // Jika host-nya salah dipasangkan dengan :6543, normalizeCandidate akan
+        // mengubahnya ke Supavisor transaction endpoint tanpa mengubah password.
+        // Secret pooler manual hanya fallback karena pernah stale.
         ["SUPABASE_DATABASE_URL", process.env["SUPABASE_DATABASE_URL"]],
+        ["SUPABASE_POOLER_URL", process.env["SUPABASE_POOLER_URL"]],
         ["SUPABASE_PG_URL", process.env["SUPABASE_PG_URL"]],
         ["SUPABASE_PG_URL_PROD", process.env["SUPABASE_PG_URL_PROD"]],
         ["DATABASE_URL", process.env["DATABASE_URL"]],
@@ -195,8 +196,8 @@ function resolveDbUrl(): {
   const scopedCandidates =
     matchingProjectCandidates.length > 0 ? matchingProjectCandidates : candidates;
 
-  // Urutan env adalah urutan kepercayaan credential. Di production,
-  // SUPABASE_POOLER_URL eksplisit harus menang atas URL integration yang diinjeksi host.
+  // Urutan env adalah urutan kepercayaan credential. Credential Hostinger-managed
+  // dipakai pertama; endpoint db.*:6543 sudah diperbaiki menjadi pooler yang valid.
   const selected = scopedCandidates[0];
   const effectiveUrl = selected.value;
 
