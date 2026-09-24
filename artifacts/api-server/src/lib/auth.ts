@@ -47,7 +47,7 @@ const GOOGLE_ADMIN_EMAILS = new Set(
     .map(normalizeEmail),
 );
 
-function getGoogleRole(email: string): "owner" | "admin" | null {
+export function getGoogleRoleForEmail(email: string): "owner" | "admin" | null {
   const normalized = normalizeEmail(email);
   if (GOOGLE_OWNER_EMAILS.has(normalized)) return "owner";
   if (GOOGLE_ADMIN_EMAILS.has(normalized)) return "admin";
@@ -55,7 +55,7 @@ function getGoogleRole(email: string): "owner" | "admin" | null {
 }
 
 function isGoogleAllowedEmail(email: string): boolean {
-  return getGoogleRole(email) !== null;
+  return getGoogleRoleForEmail(email) !== null;
 }
 
 async function getTenantAccess(userId: string) {
@@ -77,7 +77,7 @@ export async function findOrCreateUser(opts: {
   avatar: string | null;
 }): Promise<{ id: string; email: string | null; name: string; avatarUrl: string | null; role: string; phoneNumber: string | null }> {
   const email = normalizeEmail(opts.email);
-  const googleRole = getGoogleRole(email);
+  const googleRole = getGoogleRoleForEmail(email);
   if (!email || !googleRole) {
     throw new Error("GOOGLE_EMAIL_NOT_ALLOWED");
   }
@@ -110,7 +110,7 @@ export async function findOrCreateUser(opts: {
           })
           .where(eq(usersTable.id, existing.id))
           .returning(),
-      { label: "google-auth.promote-owner" },
+      { label: "google-auth.update-allowed-user" },
     );
 
     return { ...updated, phoneNumber: updated.phoneNumber ?? null };
@@ -142,7 +142,7 @@ export async function findOrCreateUser(opts: {
           },
         })
         .returning(),
-    { label: "google-auth.upsert-owner" },
+    { label: "google-auth.upsert-allowed-user" },
   );
 
   return { ...created, phoneNumber: created.phoneNumber ?? null };
