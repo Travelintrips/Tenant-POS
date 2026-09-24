@@ -23,6 +23,22 @@ export function parseAmountFromText(text: string): { amount: number | null; conf
     // Hapus teks setelah kata "ref", "no ref", "no. ref", "kode", "nomor"
     .replace(/(?:no\.?\s*ref(?:erensi)?|ref(?:erensi)?|kode|nomor\s*resi|kode\s*unik)\s*[:\.\-]?\s*[\w\d]+/gi, "");
 
+  // Utamakan nominal transfer yang dilabeli eksplisit. Bukti bank sering
+  // menampilkan "Nominal RpX", "Biaya transaksi RpY", lalu "Total RpX+Y".
+  // Untuk pencocokan invoice kita harus membaca nilai transfernya, bukan fee/total.
+  const explicitAmountPatterns = [
+    /(?:nominal|jumlah(?:\s+transfer)?|nilai\s+transfer|amount)\s*[:\-]?\s*(?:Rp\.?\s*|IDR\s*)?([\d.,]+)/i,
+    /transfer\s+berhasil[\s\S]{0,60}?(?:Rp\.?\s*|IDR\s*)([\d.,]+)/i,
+  ];
+  for (const pattern of explicitAmountPatterns) {
+    const match = scrubbed.match(pattern);
+    if (!match?.[1]) continue;
+    const explicitAmount = normaliseNumber(match[1]);
+    if (explicitAmount !== null && !isLikelyYearAmount(explicitAmount) && !isDateLike(explicitAmount)) {
+      return { amount: explicitAmount, confidence: 0.98 };
+    }
+  }
+
   const candidates: { val: number; fromPrefix: boolean }[] = [];
 
   // 2) Rp / IDR prefix — tertinggi prioritasnya
