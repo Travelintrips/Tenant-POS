@@ -18,6 +18,30 @@ const DEFAULT_SITE_CODE = "TOD_M1_BANDARA";
 let _sitesCache: { id: number; code: string; name: string }[] | null = null;
 let _sitesCacheAt = 0;
 const CACHE_TTL_MS = 5 * 60 * 1000;
+const USER_ACCESS_CACHE_TTL_MS = 60 * 1000;
+const _userAccessCache = new Map<string, { siteIds: number[]; expiresAt: number }>();
+
+async function getUserSiteIds(userId: string): Promise<number[]> {
+  const cached = _userAccessCache.get(userId);
+  if (cached && cached.expiresAt > Date.now()) return cached.siteIds;
+
+  const rows = await db
+    .select({ siteId: userSiteAccessTable.siteId })
+    .from(userSiteAccessTable)
+    .where(eq(userSiteAccessTable.userId, userId));
+
+  const siteIds = rows.map((row) => row.siteId);
+  _userAccessCache.set(userId, {
+    siteIds,
+    expiresAt: Date.now() + USER_ACCESS_CACHE_TTL_MS,
+  });
+  return siteIds;
+}
+
+export function invalidateUserSiteAccessCache(userId?: string) {
+  if (userId) _userAccessCache.delete(String(userId));
+  else _userAccessCache.clear();
+}
 
 async function getAllSites() {
   if (_sitesCache && Date.now() - _sitesCacheAt < CACHE_TTL_MS) return _sitesCache;
@@ -118,13 +142,10 @@ export async function siteContext(req: Request, res: Response, next: NextFunctio
         return;
       }
 
-      const allAccess = await db
-        .select({ siteId: userSiteAccessTable.siteId })
-        .from(userSiteAccessTable)
-        .where(eq(userSiteAccessTable.userId, dbId));
+      const allowedSiteIds = await getUserSiteIds(dbId);
 
-      if (allAccess.length > 0) {
-        const hasAccess = allAccess.some((a) => a.siteId === resolvedSite.id);
+      if (allowedSiteIds.length > 0) {
+        const hasAccess = allowedSiteIds.includes(resolvedSite.id);
         if (!hasAccess) {
           res.status(403).json({
             error: "Akses ditolak ke site ini. Hubungi administrator untuk mendapat akses.",
