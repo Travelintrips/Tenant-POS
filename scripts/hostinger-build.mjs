@@ -18,6 +18,9 @@ const runtimeBridgeKeys = [
   "GOOGLE_CLIENT_SECRET",
   "FONNTE_API_KEY",
   "FONNTE_TOKEN",
+  "ADMIN_WA_GROUP",
+  "ADMIN_WHATSAPP",
+  "FONNTE_ADMIN_WA",
 ];
 
 function run(command, args) {
@@ -64,7 +67,8 @@ if (npmUa.startsWith("npm/")) {
 }
 
 // Hostinger can expose Environment Variables during build but not forward all of
-// them to the Node runtime. Persist only the server-side auth secrets into the
-// private API dist folder so hostinger-start can restore missing runtime values.
+// them to the Node runtime. Persist only the server-side auth/notification
+// configuration into the private API dist folder so hostinger-start can restore
+// missing runtime values.
 // This file is never under the public admin-portal static directory.
 writeRuntimeEnvBridge();
