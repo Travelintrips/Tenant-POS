@@ -144,9 +144,9 @@ router.post("/sites/:id/users", requireAnyRole("owner", "admin"), async (req, re
     }
     const [access] = await db
       .insert(userSiteAccessTable)
-      .values({ userId: userId, siteId, role: role ?? "admin" })
+      .values({ userId: String(userId), siteId, role: role ?? "admin" })
       .returning();
-    invalidateUserSiteAccessCache(userId);
+    invalidateUserSiteAccessCache(String(userId));
     logAudit(req, { action: "grant_site_access", entityType: "user_site_access", entityId: access.id, afterData: access });
     res.status(201).json(access);
   } catch (err) {
