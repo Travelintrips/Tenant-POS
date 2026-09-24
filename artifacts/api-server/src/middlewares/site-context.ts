@@ -1,7 +1,7 @@
 import { type Request, type Response, type NextFunction } from "express";
 import { db } from "@workspace/db";
 import { mallSitesTable, userSiteAccessTable } from "@workspace/db/schema";
-import { eq, and } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 
 declare global {
   namespace Express {
@@ -49,58 +49,81 @@ export async function siteContext(req: Request, res: Response, next: NextFunctio
   try {
     const sites = await getAllSites();
     if (sites.length === 0) {
-      // Sites table not yet seeded — attach a dummy and continue
-      req.siteId = 0;
-      req.siteCode = DEFAULT_SITE_CODE;
-      return next();
+      res.status(503).json({ error: "Konfigurasi site belum tersedia" });
+      return;
     }
 
     const defaultSite = sites.find((s) => s.code === DEFAULT_SITE_CODE) ?? sites[0];
-
-    // Resolve requested site
-    let resolvedSite = defaultSite;
+    const user = req.user as { dbId?: number | string; role?: string } | undefined;
+    const role = user?.role ?? "";
+    const dbId = user?.dbId != null ? String(user.dbId) : "";
 
     const headerSiteId = req.headers["x-site-id"];
     const headerSiteCode = req.headers["x-site-code"];
     const querySiteId = req.query.siteId;
+    const hasExplicitSiteSelection =
+      headerSiteId != null || headerSiteCode != null || querySiteId != null;
 
-    if (headerSiteId) {
+    let resolvedSite = defaultSite;
+
+    if (headerSiteId != null) {
       const id = Number(headerSiteId);
+      if (!Number.isInteger(id) || id <= 0) {
+        res.status(400).json({ error: "x-site-id tidak valid" });
+        return;
+      }
       const found = sites.find((s) => s.id === id);
-      if (found) resolvedSite = found;
-    } else if (headerSiteCode) {
-      const code = String(headerSiteCode);
+      if (!found) {
+        res.status(404).json({ error: "Site tidak ditemukan" });
+        return;
+      }
+      resolvedSite = found;
+    } else if (headerSiteCode != null) {
+      const code = String(headerSiteCode).trim();
       if (code === "ALL") {
-        // "Semua" mode — no site filter; routes handle siteId=0 as "all sites"
+        if (role !== "owner") {
+          res.status(403).json({ error: "Mode semua site hanya tersedia untuk owner." });
+          return;
+        }
         req.siteId = 0;
         req.siteCode = "ALL";
         res.setHeader("Vary", "x-site-id, x-site-code");
-        return next();
+        next();
+        return;
       }
+
       const found = sites.find((s) => s.code === code);
-      if (found) resolvedSite = found;
-    } else if (querySiteId) {
+      if (!found) {
+        res.status(404).json({ error: "Site tidak ditemukan" });
+        return;
+      }
+      resolvedSite = found;
+    } else if (querySiteId != null) {
       const id = Number(querySiteId);
+      if (!Number.isInteger(id) || id <= 0) {
+        res.status(400).json({ error: "siteId tidak valid" });
+        return;
+      }
       const found = sites.find((s) => s.id === id);
-      if (found) resolvedSite = found;
+      if (!found) {
+        res.status(404).json({ error: "Site tidak ditemukan" });
+        return;
+      }
+      resolvedSite = found;
     }
 
-    const user = req.user as { dbId?: number | string; role?: string } | undefined;
-    const role = user?.role ?? "cashier";
+    if (role !== "owner") {
+      if (!dbId) {
+        res.status(403).json({ error: "Identitas user tidak valid untuk akses site." });
+        return;
+      }
 
-    // Owner bypasses site access check
-    const numericDbId = user?.dbId ? Number(user.dbId) : NaN;
-    if (role !== "owner" && !isNaN(numericDbId) && numericDbId > 0) {
-      const dbId = numericDbId;
-
-      // Check if user has ANY site access rows
       const allAccess = await db
         .select({ siteId: userSiteAccessTable.siteId })
         .from(userSiteAccessTable)
-        .where(eq(userSiteAccessTable.userId, String(dbId)));
+        .where(eq(userSiteAccessTable.userId, dbId));
 
       if (allAccess.length > 0) {
-        // User has explicit access rows — verify they can access the resolved site
         const hasAccess = allAccess.some((a) => a.siteId === resolvedSite.id);
         if (!hasAccess) {
           res.status(403).json({
@@ -109,21 +132,24 @@ export async function siteContext(req: Request, res: Response, next: NextFunctio
           });
           return;
         }
+      } else if (resolvedSite.id !== defaultSite.id || (hasExplicitSiteSelection && resolvedSite.id !== defaultSite.id)) {
+        // Backward compatibility: akun lama tanpa user_site_access tetap dapat
+        // memakai site default, tetapi tidak boleh memilih site lain.
+        res.status(403).json({
+          error: "Akses site belum dikonfigurasi untuk akun ini.",
+          siteCode: resolvedSite.code,
+        });
+        return;
       }
-      // If no access rows at all → backward compat: allow default site
     }
 
     req.siteId = resolvedSite.id;
     req.siteCode = resolvedSite.code;
-    // Beritahu browser/proxy bahwa response berbeda tergantung site header
     res.setHeader("Vary", "x-site-id, x-site-code");
     next();
   } catch (err) {
-    // Site context failure must not break API — use default
-    const sites = _sitesCache;
-    const def = sites?.find((s) => s.code === DEFAULT_SITE_CODE) ?? sites?.[0];
-    req.siteId = def?.id ?? 0;
-    req.siteCode = def?.code ?? DEFAULT_SITE_CODE;
-    next();
+    // Authorization context harus fail-closed. Gangguan DB/cache tidak boleh
+    // berubah menjadi akses default yang melewati validasi site.
+    res.status(503).json({ error: "Konteks site tidak dapat divalidasi saat ini." });
   }
 }
