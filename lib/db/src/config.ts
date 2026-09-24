@@ -51,11 +51,21 @@ function getCandidateProjectRef(url: string): string | null {
 function getPoolMode(url: string): DbPoolMode {
   try {
     const parsed = new URL(url);
-    if (parsed.port === "6543") return "transaction";
-    if (parsed.hostname.includes("pooler.supabase.com")) return "session";
+    if (parsed.hostname.includes("pooler.supabase.com")) {
+      return parsed.port === "6543" ? "transaction" : "session";
+    }
     return "direct";
   } catch {
     return "direct";
+  }
+}
+
+function isInvalidSupabaseEndpoint(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    return /^db\.[a-z0-9]+\.supabase\.co$/i.test(parsed.hostname) && parsed.port === "6543";
+  } catch {
+    return false;
   }
 }
 
@@ -83,8 +93,11 @@ function normalizeCandidate(candidate: DbCandidate, expectedProjectRef: string |
 function getCandidates(): DbCandidate[] {
   const ordered: Array<[DbUrlSource, string | undefined]> = isProduction
     ? [
-        ["SUPABASE_DATABASE_URL", process.env["SUPABASE_DATABASE_URL"]],
+        // Prefer the explicit transaction-pooler secret in production. Some hosting
+        // integrations inject SUPABASE_DATABASE_URL automatically and may expose a
+        // direct db.* host that is not valid on the pooler port.
         ["SUPABASE_POOLER_URL", process.env["SUPABASE_POOLER_URL"]],
+        ["SUPABASE_DATABASE_URL", process.env["SUPABASE_DATABASE_URL"]],
         ["SUPABASE_PG_URL", process.env["SUPABASE_PG_URL"]],
         ["SUPABASE_PG_URL_PROD", process.env["SUPABASE_PG_URL_PROD"]],
         ["DATABASE_URL", process.env["DATABASE_URL"]],
@@ -117,9 +130,15 @@ function resolveDbUrl(): {
   }
 
   const expectedProjectRef = getSupabaseProjectRef();
-  const candidates = rawCandidates.map((candidate) =>
-    normalizeCandidate(candidate, expectedProjectRef),
-  );
+  const candidates = rawCandidates
+    .map((candidate) => normalizeCandidate(candidate, expectedProjectRef))
+    .filter((candidate) => !isInvalidSupabaseEndpoint(candidate.value));
+
+  if (candidates.length === 0) {
+    throw new Error(
+      "Konfigurasi database Supabase tidak valid: host db.<project>.supabase.co tidak dapat memakai port transaction pooler 6543. Gunakan SUPABASE_POOLER_URL dari Supabase Connect.",
+    );
+  }
 
   const matchingProjectCandidates = expectedProjectRef
     ? candidates.filter((candidate) => {
@@ -138,8 +157,8 @@ function resolveDbUrl(): {
   const scopedCandidates =
     matchingProjectCandidates.length > 0 ? matchingProjectCandidates : candidates;
 
-  // Urutan env adalah urutan kepercayaan credential. Hostinger Supabase integration
-  // menyediakan SUPABASE_DATABASE_URL; secret manual lama hanya menjadi fallback.
+  // Urutan env adalah urutan kepercayaan credential. Di production,
+  // SUPABASE_POOLER_URL eksplisit harus menang atas URL integration yang diinjeksi host.
   const selected = scopedCandidates[0];
   const effectiveUrl = selected.value;
 
