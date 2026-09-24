@@ -238,7 +238,15 @@ function resolveGoogleCallbackURL(): string | undefined {
   return undefined;
 }
 
-export function getGoogleAuthStatus() {
+export function getGoogleAuthStatus(): {
+  enabled: boolean;
+  clientID: string | undefined;
+  clientSecret: string | undefined;
+  callbackURL: string | null;
+  clientIdPresent: boolean;
+  clientSecretPresent: boolean;
+  source: "runtime-env" | "hostinger-build-bridge" | "missing";
+} {
   const clientID = readRuntimeEnv(GOOGLE_ENV_ALIASES.clientId);
   const clientSecret = readRuntimeEnv(GOOGLE_ENV_ALIASES.clientSecret);
   const callbackURL = resolveGoogleCallbackURL();
