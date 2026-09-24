@@ -421,6 +421,17 @@ router.post("/pending-payments/:id/reject", async (req, res) => {
           phone: tenant.phone,
         }).catch(() => {});
       }
+
+      notifyAdminGroup({
+        eventType: "payment_rejected",
+        businessName: tenant?.businessName ?? "Tenant",
+        ownerName: tenant?.ownerName ?? "-",
+        invoiceNumber: invoiceData?.invoiceNumber ?? null,
+        receiptNumber: payment.receiptNumber,
+        amount: payment.amount,
+        paymentMethod: payment.paymentMethod ?? undefined,
+        rejectionReason: parsed.data.reason,
+      }).catch(() => {});
     }
 
     res.json({ success: true, payment: updated });
