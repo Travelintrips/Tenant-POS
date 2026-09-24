@@ -1,5 +1,8 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { makeAuthAgent } from "./helpers/agent";
+import { db } from "@workspace/db";
+import { tenantsTable } from "@workspace/db/schema";
+import { eq } from "drizzle-orm";
 import { createTestTenant, createTestBooking, cleanupAll, TEST_PREFIX } from "./helpers/factory";
 
 let owner: any;
@@ -99,18 +102,33 @@ describe("Fase 2 — Kontrak Booking", () => {
   });
 
   describe("PUT /api/bookings/:id", () => {
-    it("memperbarui data booking", async () => {
+    it("memperbarui data booking dan menyinkronkan periode kontrak tenant master", async () => {
       const booking = await createTestBooking(testTenant.id);
       const today = new Date();
       const future = new Date(today);
       future.setFullYear(today.getFullYear() + 2);
+      const startDate = today.toISOString().slice(0, 10);
+      const endDate = future.toISOString().slice(0, 10);
       const res = await owner.put(`/api/bookings/${booking.id}`).send({
         ...bookingPayload(),
-        endDate: future.toISOString().slice(0, 10),
+        startDate,
+        endDate,
+        contractStatus: "active",
         rentAmount: "6000000",
         totalAmount: "6000000",
       });
       expect(res.status).toBe(200);
+
+      const [tenant] = await db
+        .select({
+          contractStartDate: tenantsTable.contractStartDate,
+          contractEndDate: tenantsTable.contractEndDate,
+        })
+        .from(tenantsTable)
+        .where(eq(tenantsTable.id, testTenant.id));
+
+      expect(tenant.contractStartDate).toBe(startDate);
+      expect(tenant.contractEndDate).toBe(endDate);
     });
   });
 
