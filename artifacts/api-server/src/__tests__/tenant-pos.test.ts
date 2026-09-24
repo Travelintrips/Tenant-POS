@@ -64,6 +64,38 @@ describe("Fase 4 — POS Pembayaran", () => {
       expect(res.body).toHaveProperty("paidTodayAmount");
     });
 
+    it("overview nominal terbayar tidak menghitung payment yang belum approved", async () => {
+      const before = await owner.get("/api/tenant-pos/overview");
+      expect(before.status).toBe(200);
+
+      const unique = Date.now();
+      const [pending] = await db
+        .insert(tenantPaymentsTable)
+        .values({
+          siteId: testTenant.siteId,
+          tenantId: testTenant.id,
+          bookingId: testBooking.id,
+          tenantBookingId: testBooking.id,
+          invoiceId: testInvoice.id,
+          amount: "987654",
+          method: "transfer",
+          paymentMethod: "transfer",
+          status: "PENDING",
+          paymentStatus: "PENDING",
+          approvalStatus: "pending_review",
+          paymentNumber: `TEST-PENDING-${unique}`,
+          receiptNumber: `TEST-PENDING-${unique}`,
+          paidAt: new Date(),
+          isVoided: false,
+        } as any)
+        .returning({ id: tenantPaymentsTable.id });
+      track("payments", pending.id);
+
+      const after = await owner.get("/api/tenant-pos/overview");
+      expect(after.status).toBe(200);
+      expect(after.body.paidTodayAmount).toBe(before.body.paidTodayAmount);
+    });
+
     it("cashier bisa akses overview (200)", async () => {
       const res = await cashier.get("/api/tenant-pos/overview");
       expect(res.status).toBe(200);
@@ -554,6 +586,70 @@ describe("Fase 4 — POS Pembayaran", () => {
           .send({ reason: "Coba void" });
         expect(voidRes.status).toBe(403);
       }
+    });
+  });
+
+  describe("GET /api/tenant-pos/daily-report", () => {
+    it("memasukkan payment approved tanpa booking dan mengecualikan pending dari total terbayar", async () => {
+      const unique = Date.now();
+      const paidAt = new Date("2026-09-24T03:00:00.000Z");
+
+      const [approved] = await db
+        .insert(tenantPaymentsTable)
+        .values({
+          siteId: testTenant.siteId,
+          tenantId: testTenant.id,
+          bookingId: null,
+          tenantBookingId: null,
+          invoiceId: null,
+          amount: "432101",
+          method: "transfer",
+          paymentMethod: "transfer",
+          status: "PAID",
+          paymentStatus: "PAID",
+          approvalStatus: "approved",
+          paymentNumber: `TEST-DAILY-APPROVED-${unique}`,
+          receiptNumber: `TEST-DAILY-APPROVED-${unique}`,
+          paidAt,
+          isVoided: false,
+        } as any)
+        .returning({ id: tenantPaymentsTable.id });
+      track("payments", approved.id);
+
+      const [pending] = await db
+        .insert(tenantPaymentsTable)
+        .values({
+          siteId: testTenant.siteId,
+          tenantId: testTenant.id,
+          bookingId: null,
+          tenantBookingId: null,
+          invoiceId: null,
+          amount: "987101",
+          method: "transfer",
+          paymentMethod: "transfer",
+          status: "PENDING",
+          paymentStatus: "PENDING",
+          approvalStatus: "pending_review",
+          paymentNumber: `TEST-DAILY-PENDING-${unique}`,
+          receiptNumber: `TEST-DAILY-PENDING-${unique}`,
+          paidAt,
+          isVoided: false,
+        } as any)
+        .returning({ id: tenantPaymentsTable.id });
+      track("payments", pending.id);
+
+      const res = await owner.get("/api/tenant-pos/daily-report?date=2026-09-24");
+      expect(res.status).toBe(200);
+      expect(res.body.payments.some((p: { id: number }) => p.id === approved.id)).toBe(true);
+      expect(res.body.payments.some((p: { id: number }) => p.id === pending.id)).toBe(true);
+
+      const approvedInReport = res.body.payments.find((p: { id: number }) => p.id === approved.id);
+      expect(approvedInReport?.businessName).toBe(testTenant.businessName);
+
+      const validTotalFromRows = res.body.payments
+        .filter((p: { isVoided: boolean; approvalStatus?: string }) => !p.isVoided && p.approvalStatus === "approved")
+        .reduce((sum: number, p: { amount: number }) => sum + Number(p.amount), 0);
+      expect(res.body.totalAmount).toBe(validTotalFromRows);
     });
   });
 
