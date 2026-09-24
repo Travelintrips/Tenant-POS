@@ -128,18 +128,42 @@ function normalizeCandidate(candidate: DbCandidate, expectedProjectRef: string |
   }
 }
 
+function isNativeTransactionPoolerUrl(value: string | undefined): boolean {
+  if (!value?.trim()) return false;
+  try {
+    const parsed = new URL(value.trim());
+    return parsed.hostname.includes("pooler.supabase.com") && parsed.port === "6543";
+  } catch {
+    return false;
+  }
+}
+
 function getCandidates(): DbCandidate[] {
+  const prodPoolerUrl = process.env["SUPABASE_POOLER_URL"];
+  const productionOrdered: Array<[DbUrlSource, string | undefined]> =
+    isNativeTransactionPoolerUrl(prodPoolerUrl)
+      ? [
+          // Gunakan explicit pooler hanya bila nilainya memang native Supavisor
+          // transaction URL. Jangan memprioritaskan db.<ref>.supabase.co:6543:
+          // walaupun host dapat diperbaiki, password di secret lama bisa stale.
+          ["SUPABASE_POOLER_URL", prodPoolerUrl],
+          ["SUPABASE_DATABASE_URL", process.env["SUPABASE_DATABASE_URL"]],
+          ["SUPABASE_PG_URL", process.env["SUPABASE_PG_URL"]],
+          ["SUPABASE_PG_URL_PROD", process.env["SUPABASE_PG_URL_PROD"]],
+          ["DATABASE_URL", process.env["DATABASE_URL"]],
+        ]
+      : [
+          // Bila SUPABASE_POOLER_URL malformed/legacy, gunakan credential database
+          // canonical lebih dulu dan pertahankan pooler URL hanya sebagai fallback.
+          ["SUPABASE_DATABASE_URL", process.env["SUPABASE_DATABASE_URL"]],
+          ["SUPABASE_PG_URL", process.env["SUPABASE_PG_URL"]],
+          ["SUPABASE_PG_URL_PROD", process.env["SUPABASE_PG_URL_PROD"]],
+          ["DATABASE_URL", process.env["DATABASE_URL"]],
+          ["SUPABASE_POOLER_URL", prodPoolerUrl],
+        ];
+
   const ordered: Array<[DbUrlSource, string | undefined]> = isProduction
-    ? [
-        // Production harus memakai explicit Supabase transaction pooler lebih dulu.
-        // SUPABASE_DATABASE_URL tetap dipertahankan sebagai fallback untuk hosting
-        // integration, tetapi tidak boleh mengalahkan pooler URL yang sudah tervalidasi.
-        ["SUPABASE_POOLER_URL", process.env["SUPABASE_POOLER_URL"]],
-        ["SUPABASE_DATABASE_URL", process.env["SUPABASE_DATABASE_URL"]],
-        ["SUPABASE_PG_URL", process.env["SUPABASE_PG_URL"]],
-        ["SUPABASE_PG_URL_PROD", process.env["SUPABASE_PG_URL_PROD"]],
-        ["DATABASE_URL", process.env["DATABASE_URL"]],
-      ]
+    ? productionOrdered
     : [
         ["SUPABASE_DATABASE_URL_DEV", process.env["SUPABASE_DATABASE_URL_DEV"]],
         ["SUPABASE_PG_URL_DEV", process.env["SUPABASE_PG_URL_DEV"]],
@@ -195,8 +219,8 @@ function resolveDbUrl(): {
   const scopedCandidates =
     matchingProjectCandidates.length > 0 ? matchingProjectCandidates : candidates;
 
-  // Urutan env adalah urutan kepercayaan credential. Production memprioritaskan
-  // SUPABASE_POOLER_URL yang eksplisit dan tervalidasi; integration URL hanya fallback.
+  // Urutan env adalah urutan kepercayaan credential. Native transaction pooler
+  // diprioritaskan; pooler URL legacy/malformed didemote agar password stale tidak menang.
   const selected = scopedCandidates[0];
   const effectiveUrl = selected.value;
 
