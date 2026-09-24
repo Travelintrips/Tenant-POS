@@ -1069,7 +1069,7 @@ router.post("/tenant-pos/payments", paymentRateLimiter, async (req, res) => {
             ownerName: result.tenantData?.ownerName ?? "-",
             receiptNumber: result.receiptNumber,
             invoiceNumber,
-            amount: amountPaid: financialAmount,
+            amount: financialAmount,
             paymentMethod,
             kasirName,
             siteName: posCompanyName ?? null,
