@@ -71,7 +71,9 @@ describe("google-sheets native REST client", () => {
         access_token: "cached-token",
         expires_in: 3600,
       }), { status: 200 }))
-      .mockResolvedValue(new Response(JSON.stringify({ values: [] }), { status: 200 }));
+      .mockImplementation(async () =>
+        new Response(JSON.stringify({ values: [] }), { status: 200 }),
+      );
 
     vi.stubGlobal("fetch", fetchMock);
 
