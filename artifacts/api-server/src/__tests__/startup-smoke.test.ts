@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   runUsersIdTextMigration: vi.fn(),
   runMigrations: vi.fn(),
+  poolQuery: vi.fn(),
   startOverdueScheduler: vi.fn(),
   startSheetSyncScheduler: vi.fn(),
   listen: vi.fn(),
@@ -14,6 +15,9 @@ const mocks = vi.hoisted(() => ({
 vi.mock("@workspace/db", () => ({
   runUsersIdTextMigration: mocks.runUsersIdTextMigration,
   runMigrations: mocks.runMigrations,
+  pool: {
+    query: mocks.poolQuery,
+  },
 }));
 
 vi.mock("../app", () => ({
@@ -49,6 +53,7 @@ describe("startup migration failure smoke", () => {
     vi.clearAllMocks();
     mocks.runUsersIdTextMigration.mockResolvedValue(undefined);
     mocks.runMigrations.mockResolvedValue(undefined);
+    mocks.poolQuery.mockResolvedValue({ rows: [{ ok: 1 }] });
   });
 
   it("tetap menyalakan scheduler overdue dan sheet sync saat users-id migration gagal", async () => {
@@ -71,5 +76,16 @@ describe("startup migration failure smoke", () => {
     expect(mocks.runMigrations).toHaveBeenCalledTimes(1);
     expect(mocks.startOverdueScheduler).toHaveBeenCalledTimes(1);
     expect(mocks.startSheetSyncScheduler).toHaveBeenCalledTimes(1);
+  });
+
+  it("tidak menyalakan background scheduler bila database probe gagal", async () => {
+    mocks.poolQuery.mockRejectedValueOnce(new Error("forced database probe failure"));
+
+    await runMigrationsAndScheduler();
+
+    expect(mocks.poolQuery).toHaveBeenCalledTimes(1);
+    expect(mocks.startOverdueScheduler).not.toHaveBeenCalled();
+    expect(mocks.startSheetSyncScheduler).not.toHaveBeenCalled();
+    expect(mocks.loggerError).toHaveBeenCalled();
   });
 });
