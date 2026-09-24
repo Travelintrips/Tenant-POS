@@ -20,6 +20,9 @@ const allowedBridgeKeys = new Set([
   "GOOGLE_CLIENT_SECRET",
   "FONNTE_API_KEY",
   "FONNTE_TOKEN",
+  "ADMIN_WA_GROUP",
+  "ADMIN_WHATSAPP",
+  "FONNTE_ADMIN_WA",
 ]);
 
 let bridgeUsed = false;
@@ -57,9 +60,13 @@ console.log(
       "GOOGLE_CLIENT_SECRET",
       "FONNTE_API_KEY",
       "FONNTE_TOKEN",
+      "ADMIN_WA_GROUP",
+      "ADMIN_WHATSAPP",
+      "FONNTE_ADMIN_WA",
     ]
       .map((key) => `${key}=${Boolean(process.env[key]?.trim())}`)
       .join(", ") +
+    `, ADMIN_WA_GROUP_FORMAT_VALID=${/^\\d+@g\\.us$/.test(process.env.ADMIN_WA_GROUP?.trim() ?? "")}` +
     `, bridgeUsed=${bridgeUsed}`,
 );
 
