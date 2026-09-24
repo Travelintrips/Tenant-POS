@@ -89,7 +89,7 @@ describe("Fase 7 — Audit Log", () => {
       const future = new Date(today);
       future.setFullYear(today.getFullYear() + 2);
 
-      await owner.put(`/api/bookings/${booking.id}`).send({
+      const updateRes = await owner.put(`/api/bookings/${booking.id}`).send({
         tenantId: tenant.id,
         unitCode: booking.unitCode,
         startDate: today.toISOString().slice(0, 10),
@@ -103,8 +103,7 @@ describe("Fase 7 — Audit Log", () => {
         paidAmount: "0",
         remainingAmount: "7000000",
       });
-
-      await new Promise((r) => setTimeout(r, 600));
+      expect(updateRes.status).toBe(200);
 
       const [log] = await db
         .select()
