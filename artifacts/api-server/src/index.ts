@@ -4,6 +4,7 @@ import { config } from "./lib/config";
 import { logger } from "./lib/logger";
 import { startOverdueScheduler } from "./lib/overdue-scheduler";
 import { startSheetSyncScheduler } from "./lib/sheet-sync-scheduler";
+import { dbConfig } from "@workspace/db";
 
 let httpServer: Server | null = null;
 let startupStarted = false;
@@ -16,9 +17,9 @@ function validateProductionEnv(): void {
   const errors: string[] = [];
   const warnings: string[] = [];
 
-  // lib/db/src/config.ts production memakai prioritas:
-  // SUPABASE_PG_URL_PROD → SUPABASE_PG_URL → SUPABASE_POOLER_URL → DATABASE_URL.
-  // Validasi mengikuti urutan yang sama dengan resolveDbUrl().
+  // lib/db/src/config.ts memilih connection string yang cocok dengan SUPABASE_URL,
+  // lalu memprioritaskan transaction pooler Supabase (port 6543) bila tersedia.
+  // Ini mencegah session-pool exhaustion (EMAXCONNSESSION).
   const pgUrlProd = process.env["SUPABASE_PG_URL_PROD"];
   const pgUrl = process.env["SUPABASE_PG_URL"];
   const poolerUrl = process.env["SUPABASE_POOLER_URL"];
@@ -60,6 +61,23 @@ function validateProductionEnv(): void {
     if (pgUrlProd.trimEnd() !== pgUrlProd) {
       warnings.push("SUPABASE_PG_URL_PROD memiliki trailing whitespace — bisa menyebabkan koneksi gagal.");
     }
+  }
+
+  logger.info(
+    {
+      dbSource: dbConfig.source,
+      dbPoolMode: dbConfig.poolMode,
+      dbProjectRef: dbConfig.projectRef,
+    },
+    "[startup] Database connection selected",
+  );
+
+  if (dbConfig.poolMode === "session") {
+    warnings.push(
+      "Koneksi database masih memakai Supabase session pooler. " +
+      "Set connection string transaction pooler port 6543 di SUPABASE_POOLER_URL atau SUPABASE_PG_URL " +
+      "agar koneksi web tidak kembali mencapai batas EMAXCONNSESSION."
+    );
   }
 
   if (!process.env["SESSION_SECRET"] || process.env["SESSION_SECRET"] === "fallback-dev-secret") {
