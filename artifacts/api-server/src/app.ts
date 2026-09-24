@@ -198,6 +198,106 @@ app.get("/api/healthz/db", async (_req, res) => {
 
 app.use("/api", router);
 
+app.get("/emergency", (_req, res) => {
+  res.setHeader("Cache-Control", "no-store");
+  res.type("html").send(`<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Tenant POS — Emergency Read Only</title>
+  <style>
+    body{font-family:system-ui,-apple-system,sans-serif;margin:0;background:#f6f7f9;color:#1f2937}
+    main{max-width:1200px;margin:32px auto;padding:0 18px}
+    .card{background:#fff;border:1px solid #e5e7eb;border-radius:14px;padding:18px;margin-bottom:18px}
+    h1{margin:0 0 6px;font-size:24px} h2{font-size:18px;margin:0 0 12px}
+    .muted{color:#6b7280}.row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+    input{padding:11px 12px;border:1px solid #d1d5db;border-radius:8px;min-width:280px}
+    button{padding:11px 16px;border:0;border-radius:8px;background:#2563eb;color:#fff;font-weight:600;cursor:pointer}
+    button:disabled{opacity:.55;cursor:wait}.error{color:#b91c1c}.ok{color:#047857}
+    table{width:100%;border-collapse:collapse;font-size:13px}th,td{padding:8px;border-bottom:1px solid #e5e7eb;text-align:left;white-space:nowrap}
+    .scroll{overflow:auto}.hidden{display:none}
+  </style>
+</head>
+<body>
+<main>
+  <div class="card">
+    <h1>Tenant POS — Emergency Read Only</h1>
+    <div class="muted">Akses darurat hanya baca. Jalur ini tidak memakai koneksi PostgreSQL TCP utama.</div>
+  </div>
+  <div class="card" id="loginCard">
+    <div class="row">
+      <input id="password" type="password" autocomplete="current-password" placeholder="Password Dev / Emergency" />
+      <button id="load">Buka Monitoring</button>
+    </div>
+    <div id="status" class="muted" style="margin-top:10px"></div>
+  </div>
+  <div id="content" class="hidden">
+    <div class="card"><div id="generated" class="muted"></div></div>
+    <div class="card"><h2>Pembayaran terbaru</h2><div class="scroll"><table id="payments"></table></div></div>
+    <div class="card"><h2>Invoice terbaru</h2><div class="scroll"><table id="invoices"></table></div></div>
+    <div class="card"><h2>Booking tenant terbaru</h2><div class="scroll"><table id="bookings"></table></div></div>
+  </div>
+</main>
+<script>
+(() => {
+  const password = document.getElementById('password');
+  const button = document.getElementById('load');
+  const status = document.getElementById('status');
+  const content = document.getElementById('content');
+  let activePassword = '';
+
+  const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (m) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+  const table = (el, rows) => {
+    if (!Array.isArray(rows) || rows.length === 0) {
+      el.innerHTML = '<tr><td class="muted">Tidak ada data.</td></tr>';
+      return;
+    }
+    const keys = Object.keys(rows[0]);
+    el.innerHTML = '<thead><tr>' + keys.map(k => '<th>' + esc(k) + '</th>').join('') + '</tr></thead>' +
+      '<tbody>' + rows.map(r => '<tr>' + keys.map(k => '<td>' + esc(r[k]) + '</td>').join('') + '</tr>').join('') + '</tbody>';
+  };
+
+  async function load() {
+    if (!activePassword) activePassword = password.value;
+    if (!activePassword) return;
+    button.disabled = true;
+    status.textContent = 'Mengambil data langsung dari Supabase...';
+    status.className = 'muted';
+    try {
+      const res = await fetch('/api/emergency/overview', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({password: activePassword}),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || ('HTTP ' + res.status));
+      document.getElementById('generated').textContent =
+        'Terakhir diperbarui: ' + new Date(data.generatedAt).toLocaleString('id-ID') + ' · mode: ' + data.mode;
+      table(document.getElementById('payments'), data.payments);
+      table(document.getElementById('invoices'), data.invoices);
+      table(document.getElementById('bookings'), data.bookings);
+      content.classList.remove('hidden');
+      status.textContent = 'Terhubung.';
+      status.className = 'ok';
+    } catch (e) {
+      content.classList.add('hidden');
+      status.textContent = e && e.message ? e.message : String(e);
+      status.className = 'error';
+    } finally {
+      button.disabled = false;
+    }
+  }
+
+  button.addEventListener('click', () => { activePassword = password.value; void load(); });
+  password.addEventListener('keydown', (e) => { if (e.key === 'Enter') { activePassword = password.value; void load(); } });
+  setInterval(() => { if (activePassword && !content.classList.contains('hidden')) void load(); }, 30000);
+})();
+</script>
+</body>
+</html>`);
+});
+
 // ─── Serve admin portal static files ─────────────────────────────────────
 // Di development, Vite proxy menangani routing antar API dan frontend.
 // Di production (termasuk NODE_ENV=development di container Replit), Express
