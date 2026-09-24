@@ -4,7 +4,7 @@ import { config } from "./lib/config";
 import { logger } from "./lib/logger";
 import { startOverdueScheduler } from "./lib/overdue-scheduler";
 import { startSheetSyncScheduler } from "./lib/sheet-sync-scheduler";
-import { dbConfig } from "@workspace/db";
+import { dbConfig, pool } from "@workspace/db";
 
 let httpServer: Server | null = null;
 let startupStarted = false;
@@ -20,47 +20,26 @@ function validateProductionEnv(): void {
   // lib/db/src/config.ts memilih connection string yang cocok dengan SUPABASE_URL,
   // lalu memprioritaskan transaction pooler Supabase (port 6543) bila tersedia.
   // Ini mencegah session-pool exhaustion (EMAXCONNSESSION).
+  const supabaseDatabaseUrl = process.env["SUPABASE_DATABASE_URL"];
   const pgUrlProd = process.env["SUPABASE_PG_URL_PROD"];
   const pgUrl = process.env["SUPABASE_PG_URL"];
   const poolerUrl = process.env["SUPABASE_POOLER_URL"];
   const databaseUrl = process.env["DATABASE_URL"];
 
-  if (!pgUrlProd && !pgUrl && !poolerUrl && !databaseUrl) {
+  if (!supabaseDatabaseUrl && !pgUrlProd && !pgUrl && !poolerUrl && !databaseUrl) {
     errors.push(
-      "Tidak ada DB URL yang tersedia (SUPABASE_PG_URL_PROD, SUPABASE_PG_URL, SUPABASE_POOLER_URL, maupun DATABASE_URL tidak diset). " +
-      "Server tidak dapat terhubung ke database."
+      "Tidak ada DB URL production yang tersedia. Hubungkan Supabase melalui Hostinger Database Connect Wizard atau set SUPABASE_DATABASE_URL."
     );
-  } else if (!pgUrlProd && !pgUrl && !poolerUrl && databaseUrl) {
-    // Hanya DATABASE_URL yang tersedia — ini kemungkinan Replit managed PostgreSQL (dev/lokal),
-    // BUKAN database production Supabase. Invoice dan token pembayaran yang dibuat di Supabase
-    // tidak akan ditemukan, menyebabkan error "Link pembayaran tidak valid" di halaman /bayar/:token.
+  }
+
+  if (dbConfig.source !== "SUPABASE_DATABASE_URL") {
     warnings.push(
-      "SUPABASE_PG_URL_PROD dan SUPABASE_PG_URL tidak diset. Production menggunakan DATABASE_URL " +
-      "sebagai fallback — pastikan ini adalah database production yang benar (bukan DB lokal/dev Replit). " +
-      "Jika token pembayaran tidak ditemukan, set SUPABASE_PG_URL_PROD ke connection string Supabase production."
-    );
-  } else if (pgUrl) {
-    warnings.push(
-      pgUrlProd
-        ? "SUPABASE_PG_URL dipakai sebagai koneksi utama production; SUPABASE_PG_URL_PROD hanya fallback."
-        : "Production menggunakan SUPABASE_PG_URL sebagai koneksi utama."
-    );
-    if (pgUrl.trimEnd() !== pgUrl) {
-      warnings.push("SUPABASE_PG_URL memiliki trailing whitespace — akan di-trim sebelum dipakai.");
-    }
-  } else if (poolerUrl) {
-    warnings.push(
-      "SUPABASE_PG_URL tidak diset; production menggunakan SUPABASE_POOLER_URL sebagai fallback."
-    );
-  } else if (pgUrlProd) {
-    warnings.push(
-      "SUPABASE_PG_URL tidak diset; production terpaksa memakai SUPABASE_PG_URL_PROD. " +
-      "Pastikan password-nya masih valid."
+      `Production memakai ${dbConfig.source}. SUPABASE_DATABASE_URL dari integrasi Hostinger/Supabase lebih diutamakan bila tersedia agar credential stale tidak dipakai.`,
     );
   }
 
   logger.info(
-    `[startup] Database connection selected: source=${dbConfig.source}, mode=${dbConfig.poolMode}, project=${dbConfig.projectRef ?? "unknown"}`
+    `[startup] Database connection selected: source=${dbConfig.source}, mode=${dbConfig.poolMode}, project=${dbConfig.projectRef ?? "unknown"}, host=${dbConfig.host ?? "unknown"}, port=${dbConfig.port ?? "unknown"}`
   );
 
   if (dbConfig.poolMode === "session") {
@@ -122,6 +101,19 @@ export async function runMigrationsAndScheduler(): Promise<void> {
     logger.info(
       "[migrate] Startup migration production dilewati; set RUN_DB_MIGRATIONS_ON_STARTUP=true hanya saat migration memang perlu dijalankan.",
     );
+  }
+
+  try {
+    await pool.query("select 1 as ok");
+    logger.info("[startup-db] Database probe berhasil; background scheduler boleh dijalankan.");
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    const cause = err instanceof Error ? (err as Error & { cause?: unknown }).cause : undefined;
+    logger.error(
+      { message, cause: cause instanceof Error ? cause.message : cause },
+      "[startup-db] Database probe gagal; scheduler dan sheet-sync TIDAK dijalankan agar koneksi login/transaksi mendapat prioritas.",
+    );
+    return;
   }
 
   startOverdueScheduler();
