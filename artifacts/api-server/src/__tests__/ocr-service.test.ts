@@ -16,6 +16,16 @@ describe("OCR nominal pembayaran", () => {
     expect(result.confidence).toBe(0.9);
   });
 
+
+  it("memilih Nominal transfer, bukan Total yang sudah termasuk biaya", () => {
+    const result = parseAmountFromText(
+      "Transfer berhasil\nRp3.000.000\nDetail transfer\nNominal Rp3.000.000\nBiaya transaksi Rp2.500\nTotal Rp3.002.500",
+    );
+
+    expect(result.amount).toBe(3_000_000);
+    expect(result.confidence).toBe(0.98);
+  });
+
   it("mengenali nominal bertanda pemisah ribuan tanpa prefix", () => {
     const result = parseAmountFromText("01 September 2026\nTotal transfer 3.050.000");
 
