@@ -318,10 +318,21 @@ const frontendDist = path.join(process.cwd(), "artifacts/admin-portal/dist/publi
 const frontendIndex = path.join(frontendDist, "index.html");
 if (fs.existsSync(frontendDist)) {
   logger.info({ frontendDist }, "[app] Serving admin portal static files");
-  app.use(express.static(frontendDist, { maxAge: "1d", etag: true }));
-  // SPA fallback: app.use() tanpa path — tidak melalui path-to-regexp sama sekali.
-  // Semua request yang lolos dari static + /api handler diarahkan ke index.html.
+  app.use(express.static(frontendDist, {
+    maxAge: "1h",
+    etag: true,
+    setHeaders: (res, filePath) => {
+      // Vite memberi content hash untuk bundle di /assets; file ini aman
+      // disimpan lama karena nama berubah setiap build.
+      if (filePath.includes(`${path.sep}assets${path.sep}`)) {
+        res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+      }
+    },
+  }));
+  // SPA shell jangan di-cache lama agar deploy baru langsung memuat nama asset
+  // hashed yang baru, sementara chunk lama tetap cacheable.
   app.use((_req, res) => {
+    res.setHeader("Cache-Control", "no-cache");
     res.sendFile(frontendIndex);
   });
 } else {
