@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import passport from "../lib/auth";
+import passport, { googleAuthEnabled, googleCallbackURL } from "../lib/auth";
 import { db, dbConfig } from "@workspace/db";
 import { usersTable, USER_ROLES, USER_STATUSES, type UserRole, tenantUserAccessTable, mallSitesTable, tenantsTable } from "@workspace/db/schema";
 import { eq, asc, and, ne, or } from "drizzle-orm";
@@ -243,12 +243,38 @@ router.get("/auth/dev-login-enabled", (_req, res) => {
   res.json({ enabled: DEV_LOGIN_ENABLED });
 });
 
-router.get("/auth/google", googleAuthRateLimiter, passport.authenticate("google", { scope: ["profile", "email"] }));
+router.get("/auth/google-enabled", (_req, res) => {
+  res.json({
+    enabled: googleAuthEnabled,
+    callbackUrl: googleCallbackURL,
+  });
+});
+
+router.get("/auth/google", googleAuthRateLimiter, (req, res, next) => {
+  if (!googleAuthEnabled) {
+    res.redirect("/login?error=google_not_configured");
+    return;
+  }
+
+  passport.authenticate("google", {
+    scope: ["profile", "email"],
+    prompt: "select_account",
+  })(req, res, next);
+});
 
 router.get(
   "/auth/google/callback",
   googleAuthRateLimiter,
-  passport.authenticate("google", { failureRedirect: "/login?error=1" }),
+  (req, res, next) => {
+    if (!googleAuthEnabled) {
+      res.redirect("/login?error=google_not_configured");
+      return;
+    }
+
+    passport.authenticate("google", {
+      failureRedirect: "/login?error=google_auth_failed",
+    })(req, res, next);
+  },
   (_req, res) => {
     res.redirect("/");
   },
