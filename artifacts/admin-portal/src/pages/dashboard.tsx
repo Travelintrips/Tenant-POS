@@ -26,6 +26,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { useSite } from "@/contexts/site-context";
 import { useToast } from "@/hooks/use-toast";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { apiFetch } from "@/lib/api";
 
 const BASE = "";
 
@@ -132,7 +133,7 @@ const MONTH_OPTIONS = buildMonthOptions();
 
 export default function Dashboard() {
   const { data: user } = useAuth();
-  const { activeSite } = useSite();
+  const { activeSite, activeSiteId } = useSite();
   const { toast } = useToast();
   const siteHeader: Record<string, string> = activeSite && activeSite.code !== "ALL"
     ? { "x-site-id": String(activeSite.id) }
@@ -150,7 +151,7 @@ export default function Dashboard() {
     try {
       const params = new URLSearchParams({ month: paidMonthFilter });
       if (activeSite && activeSite.code !== "ALL") params.set("siteId", String(activeSite.id));
-      const res = await fetch(`${BASE}/api/dashboard/export-monthly-pdf?${params}`, {
+      const res = await apiFetch(`${BASE}/api/dashboard/export-monthly-pdf?${params}`, {
         headers: siteHeader,
       });
       if (!res.ok) throw new Error("Gagal mengunduh laporan");
@@ -173,54 +174,59 @@ export default function Dashboard() {
   };
 
   const { data: summary, isLoading: loadSummary, isError: errorSummary } = useQuery<DashSummary>({
-    queryKey: ["dashboard-summary", activeSite?.id, paidMonthFilter],
+    queryKey: ["dashboard-summary", activeSiteId, paidMonthFilter],
     queryFn: async () => {
       const url = `${BASE}/api/dashboard/summary?paidMonth=${paidMonthFilter}`;
-      const res = await fetch(url, { headers: siteHeader });
+      const res = await apiFetch(url, { headers: siteHeader });
       if (!res.ok) throw new Error("Gagal memuat summary");
       return res.json();
     },
     refetchInterval: 60_000,
+    enabled: activeSiteId !== null,
   });
 
   const { data: monthly, isLoading: loadMonthly } = useQuery<{ monthly: MonthlySummary[] }>({
-    queryKey: ["laporan-summary-dashboard", tahun, activeSite?.id],
+    queryKey: ["laporan-summary-dashboard", tahun, activeSiteId],
     queryFn: async () => {
-      const res = await fetch(`${BASE}/api/laporan/summary?tahun=${tahun}`, { headers: siteHeader });
+      const res = await apiFetch(`${BASE}/api/laporan/summary?tahun=${tahun}`, { headers: siteHeader });
       if (!res.ok) throw new Error("Gagal memuat grafik");
       return res.json();
     },
     refetchInterval: 120_000,
+    enabled: activeSiteId !== null,
   });
 
   const { data: unitStats } = useQuery<UnitStats>({
-    queryKey: ["dashboard-unit-stats"],
+    queryKey: ["dashboard-unit-stats", activeSiteId],
     queryFn: async () => {
-      const res = await fetch(`${BASE}/api/dashboard/unit-stats`);
+      const res = await apiFetch(`${BASE}/api/dashboard/unit-stats`);
       if (!res.ok) throw new Error("Gagal memuat statistik unit");
       return res.json();
     },
     refetchInterval: 120_000,
+    enabled: activeSiteId !== null,
   });
 
   const { data: paidTrend } = useQuery<{ trend: TrendPoint[] }>({
-    queryKey: ["dashboard-paid-trend", activeSite?.id],
+    queryKey: ["dashboard-paid-trend", activeSiteId],
     queryFn: async () => {
-      const res = await fetch(`${BASE}/api/dashboard/paid-trend`, { headers: siteHeader });
+      const res = await apiFetch(`${BASE}/api/dashboard/paid-trend`, { headers: siteHeader });
       if (!res.ok) return { trend: [] };
       return res.json();
     },
     refetchInterval: 120_000,
+    enabled: activeSiteId !== null,
   });
 
   const { data: upcoming } = useQuery<UpcomingData>({
-    queryKey: ["invoice-upcoming-dashboard", activeSite?.id],
+    queryKey: ["invoice-upcoming-dashboard", activeSiteId],
     queryFn: async () => {
-      const res = await fetch(`${BASE}/api/tenant-invoices/upcoming`, { headers: siteHeader });
+      const res = await apiFetch(`${BASE}/api/tenant-invoices/upcoming`, { headers: siteHeader });
       if (!res.ok) return { count: 0, overdueCount: 0, upcomingCount: 0, overdue: [], upcoming: [] };
       return res.json();
     },
     refetchInterval: 60_000,
+    enabled: activeSiteId !== null,
   });
 
   const chartData = useMemo(() => {
