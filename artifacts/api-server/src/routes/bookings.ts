@@ -131,6 +131,25 @@ const contractValidationSchema = z.object({
   }
 });
 
+async function syncTenantContractWindow(params: {
+  tenantId: number;
+  startDate: string | null | undefined;
+  endDate: string | null | undefined;
+  contractStatus: string | null | undefined;
+}): Promise<void> {
+  if (!params.startDate || !params.endDate) return;
+  if (!["active", "expiring_soon"].includes(params.contractStatus ?? "")) return;
+
+  await db
+    .update(tenantsTable)
+    .set({
+      contractStartDate: params.startDate,
+      contractEndDate: params.endDate,
+      updatedAt: new Date(),
+    })
+    .where(eq(tenantsTable.id, params.tenantId));
+}
+
 async function checkUnitOverlap(
   unitCode: string,
   startDate: string,
@@ -282,6 +301,13 @@ router.post("/bookings", async (req, res) => {
       .insert(tenantBookingsTable)
       .values(data)
       .returning();
+
+    await syncTenantContractWindow({
+      tenantId: booking.tenantId,
+      startDate: booking.startDate,
+      endDate: booking.endDate,
+      contractStatus: booking.contractStatus,
+    });
 
     const [withTenant] = await db
       .select(bookingSelect)
@@ -457,6 +483,13 @@ router.put("/bookings/:id", async (req, res) => {
       res.status(404).json({ error: "Kontrak tidak ditemukan" });
       return;
     }
+
+    await syncTenantContractWindow({
+      tenantId: updated.tenantId,
+      startDate: updated.startDate,
+      endDate: updated.endDate,
+      contractStatus: updated.contractStatus,
+    });
 
     const [withTenant] = await db
       .select(bookingSelect)
