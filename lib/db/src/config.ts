@@ -4,12 +4,11 @@ import { supabaseRootCa } from "./supabase-root-ca";
 const isProduction = (process.env["NODE_ENV"] ?? "development") === "production";
 
 function resolveDbUrl(): string {
-  // Environment-specific Replit config takes precedence over shared secrets.
-  // A stale shared SUPABASE_PG_URL_PROD must not override the production
-  // connection configured in [userenv.production].
+  // Production uses the explicit production connection first. This keeps the
+  // database and PostgreSQL session store on the same intended production DB.
   const url = isProduction
-    ? process.env["SUPABASE_PG_URL"] ??
-      process.env["SUPABASE_PG_URL_PROD"] ??
+    ? process.env["SUPABASE_PG_URL_PROD"] ??
+      process.env["SUPABASE_PG_URL"] ??
       process.env["SUPABASE_POOLER_URL"] ??
       process.env["DATABASE_URL"]
     : process.env["SUPABASE_PG_URL_DEV"] ??

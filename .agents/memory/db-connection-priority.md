@@ -7,13 +7,14 @@ description: Environment-scoped Supabase URLs can coexist with a stale shared pr
 Development and production may use different Supabase projects and credentials. The application
 database connection and PostgreSQL session store must use the same environment-aware priority:
 
-- development: `SUPABASE_PG_URL_DEV` → `SUPABASE_PG_URL_PROD` → shared fallbacks
-- production: production-scoped `SUPABASE_PG_URL` → shared `SUPABASE_PG_URL_PROD` → shared fallbacks
+- development: `SUPABASE_PG_URL_DEV` → `SUPABASE_POOLER_URL` → `DATABASE_URL`
+- production: `SUPABASE_PG_URL_PROD` → `SUPABASE_PG_URL` → `SUPABASE_POOLER_URL` → `DATABASE_URL`
 
-**Why:** A valid environment-scoped production URL can coexist with an invalid or expired
-shared secret. Prioritizing the shared secret made every login path fail because both user
-lookups and PostgreSQL session writes depend on the same database connection.
+**Why:** On 2026-09-24, the user explicitly selected `SUPABASE_PG_URL_PROD` as the production
+source after the live login failed while multiple database URL keys were configured. The DB
+pool and session store must resolve the same URL or authentication can fail at either lookup
+or session persistence.
 
 **How to apply:** When changing database URL precedence, update `lib/db` and the API startup
-validation together, force `NODE_ENV=production` in the production start command, then restart
-the server so the long-running process reads the new environment.
+validation together. Production uses `NODE_ENV=production`; redeploy the external Hostinger
+service for source changes to take effect on the live domain.
