@@ -103,6 +103,25 @@ export function calcPeriodEnd(periodStart: Date): Date {
   return new Date(nextStart.getFullYear(), nextStart.getMonth(), nextStart.getDate() - 1);
 }
 
+/**
+ * Jumlah periode bulanan yang benar-benar mulai di dalam rentang kontrak.
+ * End date adalah batas keras: tidak boleh membuat invoice dengan period_start
+ * setelah tanggal selesai kontrak.
+ */
+export function countContractBillingPeriods(startDate: string, endDate: string): number {
+  const start = new Date(startDate + "T00:00:00Z");
+  const end = new Date(endDate + "T00:00:00Z");
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end < start) return 0;
+
+  let count = 0;
+  while (count < 240) {
+    const periodStart = addMonths(start, count);
+    if (periodStart > end) break;
+    count++;
+  }
+  return count;
+}
+
 async function insertOneInvoice(opts: {
   siteId: number;
   tenantId: number;
@@ -189,7 +208,8 @@ export async function createAllInvoicesForBooking(opts: {
   unitCode: string | null;
   rentAmount: number;
   startDate: string;      // "YYYY-MM-DD" — awal periode sewa
-  durationMonths: number; // jumlah bulan
+  endDate?: string | null; // batas keras kontrak; period_start tidak boleh melewati ini
+  durationMonths: number; // jumlah bulan maksimum
   serviceChargeAmount?: number;
   electricityChargeAmount?: number;
   waterChargeAmount?: number;
@@ -237,6 +257,7 @@ export async function createAllInvoicesForBooking(opts: {
   }
 
   const baseDate = new Date(startDate + "T00:00:00Z");
+  const contractEndDate = opts.endDate ? new Date(opts.endDate + "T00:00:00Z") : null;
   const now = new Date();
   const createdIds: number[] = [];
 
@@ -250,6 +271,13 @@ export async function createAllInvoicesForBooking(opts: {
 
   for (let i = 0; i < durationMonths; i++) {
     const monthStart = addMonths(baseDate, i);
+    if (contractEndDate && monthStart > contractEndDate) {
+      logger.info(
+        { bookingId, periodStart: toDateStr(monthStart), endDate: opts.endDate },
+        "[auto-invoice] Batas akhir kontrak tercapai; invoice berikutnya tidak dibuat",
+      );
+      break;
+    }
     const monthEnd = calcPeriodEnd(monthStart);
     // Jatuh tempo = tanggal terbit + 5 hari
     const dueDate = new Date(monthStart.getTime() + 5 * 24 * 60 * 60 * 1000);
