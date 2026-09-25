@@ -51,13 +51,15 @@ router.get("/tenants", async (req, res) => {
       db
         .select({
           tenantId: tenantInvoicesTable.tenantId,
-          totalOutstanding: sql<string>`SUM(${tenantInvoicesTable.outstandingAmount})`.as("total_outstanding"),
+          totalOutstanding: sql<string>`COALESCE(SUM(${tenantInvoicesTable.outstandingAmount}::numeric), 0)`.as("total_outstanding"),
         })
         .from(tenantInvoicesTable)
         .where(
           and(
             inArray(tenantInvoicesTable.tenantId, tenantIds),
             inArray(tenantInvoicesTable.status, ["unpaid", "overdue", "partial"]),
+            sql`COALESCE(${tenantInvoicesTable.outstandingAmount}, 0)::numeric > 0`,
+            sql`(${tenantInvoicesTable.periodStart} IS NULL OR ${tenantInvoicesTable.periodStart}::date <= (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Jakarta')::date)`,
           ),
         )
         .groupBy(tenantInvoicesTable.tenantId),
@@ -201,11 +203,24 @@ router.get("/tenants/:id/profile", async (req, res) => {
       .orderBy(desc(tenantPaymentsTable.paidAt));
 
     // ── 5. KPI ────────────────────────────────────────────────────────────────
-    const totalBilled      = invoices.reduce((s, i) => s + Number(i.totalAmount  ?? 0), 0);
-    const totalPaid        = invoices.reduce((s, i) => s + Number(i.paidAmount   ?? 0), 0);
-    const totalOutstanding = invoices.reduce((s, i) => s + Number(i.outstandingAmount ?? 0), 0);
+    const todayWib = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Asia/Jakarta",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(new Date());
+    const effectiveInvoices = invoices.filter((i) =>
+      i.status !== "cancelled" &&
+      i.status !== "draft" &&
+      (!i.periodStart || i.periodStart <= todayWib)
+    );
+    const totalBilled      = effectiveInvoices.reduce((s, i) => s + Number(i.totalAmount  ?? 0), 0);
+    const totalPaid        = effectiveInvoices.reduce((s, i) => s + Number(i.paidAmount   ?? 0), 0);
+    const totalOutstanding = effectiveInvoices
+      .filter((i) => ["unpaid", "partial", "overdue"].includes(i.status))
+      .reduce((s, i) => s + Math.max(Number(i.outstandingAmount ?? 0), 0), 0);
     const paymentRate      = totalBilled > 0 ? Math.round(totalPaid / totalBilled * 100) : 0;
-    const overdueInvoices  = invoices.filter(i => i.status === "overdue").length;
+    const overdueInvoices  = effectiveInvoices.filter(i => i.status === "overdue" && Number(i.outstandingAmount ?? 0) > 0).length;
     const activeBooking    = bookings.find(b => b.contractStatus === "active" || b.bookingStatus === "confirmed");
 
     res.json({
