@@ -89,46 +89,34 @@ router.get("/consolidated-invoices", async (req, res) => {
   try {
     const siteId = req.siteId > 0 ? req.siteId : null;
 
-    const rows = await db
-      .select({
-        id: consolidatedInvoicesTable.id,
-        invoiceNumber: consolidatedInvoicesTable.invoiceNumber,
-        tenantId: consolidatedInvoicesTable.tenantId,
-        tenantName: tenantsTable.businessName,
-        tenantOwner: tenantsTable.ownerName,
-        periodLabel: sql<string | null>`COALESCE(
-          ${consolidatedInvoicesTable.periodLabel},
-          (SELECT to_char(MIN(ti.period_start), 'MM/YYYY')
-           FROM consolidated_invoice_items cii
-           JOIN tenant_invoices ti ON ti.id = cii.invoice_id
-           WHERE cii.consolidated_invoice_id = ${consolidatedInvoicesTable.id}
-             AND ti.period_start IS NOT NULL)
-        )`,
-        dueDate: sql<string | null>`COALESCE(
-          ${consolidatedInvoicesTable.dueDate}::text,
-          (SELECT MIN(ti.due_date)::text
-           FROM consolidated_invoice_items cii
-           JOIN tenant_invoices ti ON ti.id = cii.invoice_id
-           WHERE cii.consolidated_invoice_id = ${consolidatedInvoicesTable.id}
-             AND ti.due_date IS NOT NULL)
-        )`,
-        totalAmount: consolidatedInvoicesTable.totalAmount,
-        paidAmount: consolidatedInvoicesTable.paidAmount,
-        outstandingAmount: consolidatedInvoicesTable.outstandingAmount,
-        status: consolidatedInvoicesTable.status,
-        notes: consolidatedInvoicesTable.notes,
-        createdAt: consolidatedInvoicesTable.createdAt,
-        itemCount: sql<number>`(
-          SELECT count(*) FROM consolidated_invoice_items
-          WHERE consolidated_invoice_id = ${consolidatedInvoicesTable.id}
-        )::int`,
-      })
-      .from(consolidatedInvoicesTable)
-      .innerJoin(tenantsTable, eq(consolidatedInvoicesTable.tenantId, tenantsTable.id))
-      .where(siteId ? eq(consolidatedInvoicesTable.siteId, siteId) : sql`true`)
-      .orderBy(desc(consolidatedInvoicesTable.createdAt));
+    // Satu aggregate query menggantikan tiga correlated subquery per baris.
+    // Ini mengurangi round-work PostgreSQL secara signifikan saat daftar membesar.
+    const result = await db.execute(sql`
+      SELECT
+        ci.id,
+        ci.invoice_number AS "invoiceNumber",
+        ci.tenant_id AS "tenantId",
+        t.business_name AS "tenantName",
+        t.owner_name AS "tenantOwner",
+        COALESCE(ci.period_label, to_char(MIN(ti.period_start), 'MM/YYYY')) AS "periodLabel",
+        COALESCE(ci.due_date, MIN(ti.due_date))::text AS "dueDate",
+        ci.total_amount AS "totalAmount",
+        ci.paid_amount AS "paidAmount",
+        ci.outstanding_amount AS "outstandingAmount",
+        ci.status,
+        ci.notes,
+        ci.created_at AS "createdAt",
+        COUNT(cii.id)::int AS "itemCount"
+      FROM consolidated_invoices ci
+      JOIN tenants t ON t.id = ci.tenant_id
+      LEFT JOIN consolidated_invoice_items cii ON cii.consolidated_invoice_id = ci.id
+      LEFT JOIN tenant_invoices ti ON ti.id = cii.invoice_id
+      WHERE ${siteId ? sql`ci.site_id = ${siteId}` : sql`true`}
+      GROUP BY ci.id, t.business_name, t.owner_name
+      ORDER BY ci.created_at DESC
+    `);
 
-    res.json(rows);
+    res.json(result.rows);
   } catch (err) {
     req.log.error(err, "Gagal mengambil consolidated invoices");
     res.status(500).json({ error: "Gagal mengambil data" });
@@ -142,48 +130,38 @@ router.get("/consolidated-invoices/all-unpaid", async (req, res) => {
   try {
     const siteId = req.siteId > 0 ? req.siteId : null;
 
-    // Invoice yang sudah masuk consolidated aktif
-    const alreadyConsolidated = await db
-      .select({ invoiceId: consolidatedInvoiceItemsTable.invoiceId })
-      .from(consolidatedInvoiceItemsTable)
-      .innerJoin(
-        consolidatedInvoicesTable,
-        eq(consolidatedInvoiceItemsTable.consolidatedInvoiceId, consolidatedInvoicesTable.id)
-      )
-      .where(inArray(consolidatedInvoicesTable.status, ["unpaid", "partial", "draft"]));
-
-    const excludedIds = alreadyConsolidated.map((r) => r.invoiceId);
-
-    const invoices = await db
-      .select({
-        id: tenantInvoicesTable.id,
-        tenantId: tenantInvoicesTable.tenantId,
-        tenantName: tenantsTable.businessName,
-        tenantOwner: tenantsTable.ownerName,
-        invoiceNumber: tenantInvoicesTable.invoiceNumber,
-        unitCode: tenantInvoicesTable.unitCode,
-        periodStart: tenantInvoicesTable.periodStart,
-        periodEnd: tenantInvoicesTable.periodEnd,
-        dueDate: tenantInvoicesTable.dueDate,
-        totalAmount: tenantInvoicesTable.totalAmount,
-        paidAmount: tenantInvoicesTable.paidAmount,
-        outstandingAmount: tenantInvoicesTable.outstandingAmount,
-        status: tenantInvoicesTable.status,
-      })
-      .from(tenantInvoicesTable)
-      .innerJoin(tenantsTable, eq(tenantInvoicesTable.tenantId, tenantsTable.id))
-      .where(
-        and(
-          inArray(tenantInvoicesTable.status, ["unpaid", "partial", "overdue"]),
-          siteId ? eq(tenantInvoicesTable.siteId, siteId) : sql`true`,
-          excludedIds.length > 0
-            ? sql`${tenantInvoicesTable.id} NOT IN (${sql.join(excludedIds.map((id) => sql`${id}`), sql`, `)})`
-            : sql`true`
+    // Gunakan NOT EXISTS dalam satu query agar tidak mengambil semua ID
+    // konsolidasi ke Node terlebih dahulu dan tidak membangun NOT IN yang besar.
+    const result = await db.execute(sql`
+      SELECT
+        ti.id,
+        ti.tenant_id AS "tenantId",
+        t.business_name AS "tenantName",
+        t.owner_name AS "tenantOwner",
+        ti.invoice_number AS "invoiceNumber",
+        ti.unit_code AS "unitCode",
+        ti.period_start AS "periodStart",
+        ti.period_end AS "periodEnd",
+        ti.due_date AS "dueDate",
+        ti.total_amount AS "totalAmount",
+        ti.paid_amount AS "paidAmount",
+        ti.outstanding_amount AS "outstandingAmount",
+        ti.status
+      FROM tenant_invoices ti
+      JOIN tenants t ON t.id = ti.tenant_id
+      WHERE ti.status IN ('unpaid', 'partial', 'overdue')
+        AND ${siteId ? sql`ti.site_id = ${siteId}` : sql`true`}
+        AND NOT EXISTS (
+          SELECT 1
+          FROM consolidated_invoice_items cii
+          JOIN consolidated_invoices ci ON ci.id = cii.consolidated_invoice_id
+          WHERE cii.invoice_id = ti.id
+            AND ci.status IN ('unpaid', 'partial', 'draft')
         )
-      )
-      .orderBy(tenantsTable.businessName, tenantInvoicesTable.dueDate);
+      ORDER BY t.business_name, ti.due_date
+    `);
 
-    res.json(invoices);
+    res.json(result.rows);
   } catch (err) {
     req.log.error(err, "Gagal mengambil semua unpaid invoices");
     res.status(500).json({ error: "Gagal mengambil data invoice" });
