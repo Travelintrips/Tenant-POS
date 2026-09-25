@@ -159,7 +159,7 @@ router.get("/tenant-pos/floor-plan", async (req, res) => {
     const tenantSiteFilter = siteId > 0 ? eq(tenantsTable.siteId, siteId) : undefined;
     const invoiceSiteFilter = siteId > 0 ? eq(tenantInvoicesTable.siteId, siteId) : undefined;
 
-    const rows = await db
+    const rowsPromise = db
       .select({
         tenantId: tenantsTable.id,
         businessName: tenantsTable.businessName,
@@ -202,7 +202,7 @@ router.get("/tenant-pos/floor-plan", async (req, res) => {
       .orderBy(tenantsTable.areaName, tenantsTable.id);
 
     // Invoice terbuka yang benar-benar sudah menjadi piutang: periode berjalan + tunggakan lama.
-    const invoiceCounts = await db
+    const invoiceCountsPromise = db
       .select({
         tenantId: tenantInvoicesTable.tenantId,
         openCount: sql<number>`count(*)::int`,
@@ -219,17 +219,8 @@ router.get("/tenant-pos/floor-plan", async (req, res) => {
       ))
       .groupBy(tenantInvoicesTable.tenantId);
 
-    const invoiceCountMap = new Map<number, { open: number; overdue: number; partial: number; unpaid: number }>(
-      invoiceCounts.map((r) => [r.tenantId, {
-        open: r.openCount,
-        overdue: r.overdueCount,
-        partial: r.partialCount,
-        unpaid: r.unpaidCount,
-      }])
-    );
-
     // Bedakan invoice efektif (sudah masuk periode) vs invoice future.
-    const invoiceExistRes = await db
+    const invoiceExistPromise = db
       .select({
         tenantId: tenantInvoicesTable.tenantId,
         effectiveCount: sql<number>`count(*) filter (
@@ -250,17 +241,9 @@ router.get("/tenant-pos/floor-plan", async (req, res) => {
       .where(invoiceSiteFilter)
       .groupBy(tenantInvoicesTable.tenantId);
 
-    const invoiceExistMap = new Map<number, { effective: number; paidEffective: number; future: number }>(
-      invoiceExistRes.map((r) => [r.tenantId, {
-        effective: r.effectiveCount,
-        paidEffective: r.paidEffectiveCount,
-        future: r.futureCount,
-      }])
-    );
-
     // Angka yang ditampilkan di kartu POS harus berasal dari invoice, bukan total kontrak booking.
     // "Bulan berjalan" memakai bulan period_start di zona bisnis Asia/Jakarta.
-    const invoiceFinancialRes = await db
+    const invoiceFinancialPromise = db
       .select({
         tenantId: tenantInvoicesTable.tenantId,
         currentPeriodTotal: sql<number>`coalesce(sum(${tenantInvoicesTable.totalAmount}::numeric) filter (
@@ -303,6 +286,32 @@ router.get("/tenant-pos/floor-plan", async (req, res) => {
       .from(tenantInvoicesTable)
       .where(invoiceSiteFilter)
       .groupBy(tenantInvoicesTable.tenantId);
+
+    // Empat query floor-plan ini independen dan read-only. Jalankan paralel untuk
+    // menghilangkan akumulasi round-trip DB pada initial load / perpindahan site.
+    const [rows, invoiceCounts, invoiceExistRes, invoiceFinancialRes] = await Promise.all([
+      rowsPromise,
+      invoiceCountsPromise,
+      invoiceExistPromise,
+      invoiceFinancialPromise,
+    ]);
+
+    const invoiceCountMap = new Map<number, { open: number; overdue: number; partial: number; unpaid: number }>(
+      invoiceCounts.map((r) => [r.tenantId, {
+        open: r.openCount,
+        overdue: r.overdueCount,
+        partial: r.partialCount,
+        unpaid: r.unpaidCount,
+      }])
+    );
+
+    const invoiceExistMap = new Map<number, { effective: number; paidEffective: number; future: number }>(
+      invoiceExistRes.map((r) => [r.tenantId, {
+        effective: r.effectiveCount,
+        paidEffective: r.paidEffectiveCount,
+        future: r.futureCount,
+      }])
+    );
 
     const invoiceFinancialMap = new Map<number, {
       currentPeriodTotal: number;
