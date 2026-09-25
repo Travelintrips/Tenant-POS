@@ -1,4 +1,5 @@
 import { Component, type ErrorInfo, type ReactNode } from "react";
+import { isChunkLoadError, recoverFromChunkError } from "@/lib/chunk-recovery";
 
 interface Props {
   children: ReactNode;
@@ -22,6 +23,9 @@ export class ErrorBoundary extends Component<Props, State> {
 
   componentDidCatch(error: Error, info: ErrorInfo) {
     console.error("[ErrorBoundary] Uncaught error:", error, info.componentStack);
+    if (isChunkLoadError(error)) {
+      recoverFromChunkError(error);
+    }
   }
 
   render() {
@@ -31,7 +35,9 @@ export class ErrorBoundary extends Component<Props, State> {
           <div className="max-w-md text-center space-y-4">
             <h1 className="text-2xl font-bold text-destructive">Terjadi Kesalahan</h1>
             <p className="text-muted-foreground">
-              Halaman ini mengalami error yang tidak terduga. Silakan muat ulang aplikasi.
+              {isChunkLoadError(this.state.error)
+                ? "Versi aplikasi baru terdeteksi tetapi browser masih memegang file lama. Sistem sudah mencoba memulihkan otomatis."
+                : "Halaman ini mengalami error yang tidak terduga. Silakan muat ulang aplikasi."}
             </p>
             <p className="text-xs text-muted-foreground font-mono bg-muted px-3 py-2 rounded">
               {this.state.error?.message}
