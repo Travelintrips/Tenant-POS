@@ -1399,6 +1399,7 @@ export default function TenantInvoices() {
       trashChargeAmount: createForm.trashChargeAmount || "0",
       discountAmount: createForm.discountAmount || "0",
       penaltyAmount: createForm.penaltyAmount || "0",
+      usePpn: createForm.usePpn,
       notes: createForm.notes || null,
       status: createForm.status,
     });
