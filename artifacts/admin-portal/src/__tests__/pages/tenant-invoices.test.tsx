@@ -1,7 +1,8 @@
 import React from "react";
 import { describe, it, expect, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import { renderWithProviders, withUser } from "@/test/render-utils";
+import { SiteProvider, useSite } from "@/contexts/site-context";
 
 const mockInvoices = [
   {
@@ -40,10 +41,18 @@ const mockInvoices = [
   },
 ];
 
+const sites = [
+  { id: 1, code: "TOD_M1_BANDARA", name: "TOD M1", type: "mall_tenant", status: "active" },
+  { id: 2, code: "SPORT_CENTER_BANDARA", name: "Sport Center", type: "sport_center", status: "active" },
+];
+
 function setupMock(invoices = mockInvoices) {
   vi.mocked(global.fetch).mockImplementation((url: string) => {
     if (String(url).includes("/api/auth/me")) {
       return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(withUser()) } as Response);
+    }
+    if (String(url).includes("/api/sites")) {
+      return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(sites) } as Response);
     }
     if (String(url).includes("/api/tenant-invoices") || String(url).includes("/api/tenants")) {
       return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(invoices) } as Response);
@@ -52,28 +61,112 @@ function setupMock(invoices = mockInvoices) {
   });
 }
 
+function renderInvoicePage(Page: React.ComponentType) {
+  return renderWithProviders(
+    <SiteProvider>
+      <Page />
+    </SiteProvider>,
+    { user: withUser() },
+  );
+}
+
+function TestSiteSwitcher() {
+  const { sites: availableSites, setActiveSite } = useSite();
+  return (
+    <div>
+      {availableSites.map((site) => (
+        <button key={site.id} type="button" onClick={() => setActiveSite(site)}>
+          switch-{site.id}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 describe("Fase 3 — Halaman Invoice Tenant (Frontend)", () => {
   it("render halaman invoice tanpa crash", async () => {
     setupMock();
     const TenantInvoices = (await import("@/pages/tenant-invoices")).default;
-    const { container } = renderWithProviders(<TenantInvoices />, { user: withUser() });
+    const { container } = renderInvoicePage(TenantInvoices);
     expect(container).toBeTruthy();
   });
 
   it("menampilkan invoice dari API", async () => {
     setupMock();
     const TenantInvoices = (await import("@/pages/tenant-invoices")).default;
-    renderWithProviders(<TenantInvoices />, { user: withUser() });
+    renderInvoicePage(TenantInvoices);
 
     await waitFor(() => {
       expect(screen.getByText("INV-TENANT/202601/00001")).toBeInTheDocument();
     }, { timeout: 5000 });
   });
 
+  it("langsung menghilangkan data site lama ketika site diganti", async () => {
+    localStorage.setItem("mall_active_site_id", "2");
+
+    let resolveTod: ((value: Response) => void) | undefined;
+    const todResponse = new Promise<Response>((resolve) => {
+      resolveTod = resolve;
+    });
+
+    vi.mocked(global.fetch).mockImplementation((url: string, options?: RequestInit) => {
+      const requestUrl = String(url);
+      if (requestUrl.includes("/api/auth/me")) {
+        return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(withUser()) } as Response);
+      }
+      if (requestUrl.includes("/api/sites")) {
+        return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(sites) } as Response);
+      }
+      if (requestUrl.includes("/api/tenant-invoices")) {
+        const headers = (options?.headers ?? {}) as Record<string, string>;
+        const siteId = headers["x-site-id"];
+        if (siteId === "1") return todResponse;
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () => Promise.resolve([{ ...mockInvoices[0], id: 22, invoiceNumber: "SPORT-OLD-001" }]),
+        } as Response);
+      }
+      if (requestUrl.includes("/api/tenants")) {
+        return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve([]) } as Response);
+      }
+      return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve([]) } as Response);
+    });
+
+    const TenantInvoices = (await import("@/pages/tenant-invoices")).default;
+    renderWithProviders(
+      <SiteProvider>
+        <TestSiteSwitcher />
+        <TenantInvoices />
+      </SiteProvider>,
+      { user: withUser() },
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("SPORT-OLD-001")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "switch-1" }));
+
+    await waitFor(() => {
+      expect(screen.queryByText("SPORT-OLD-001")).not.toBeInTheDocument();
+    });
+
+    resolveTod?.({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve([{ ...mockInvoices[1], id: 11, invoiceNumber: "TOD-NEW-001" }]),
+    } as Response);
+
+    await waitFor(() => {
+      expect(screen.getByText("TOD-NEW-001")).toBeInTheDocument();
+    });
+  });
+
   it("menampilkan invoice dengan status paid", async () => {
     setupMock();
     const TenantInvoices = (await import("@/pages/tenant-invoices")).default;
-    renderWithProviders(<TenantInvoices />, { user: withUser() });
+    renderInvoicePage(TenantInvoices);
 
     await waitFor(() => {
       expect(screen.getByText("INV-TENANT/202601/00002")).toBeInTheDocument();
