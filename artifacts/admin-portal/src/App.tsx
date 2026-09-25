@@ -1,4 +1,4 @@
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, useEffect } from "react";
 import { Switch, Route, Router as WouterRouter, Redirect } from "wouter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
@@ -12,43 +12,154 @@ import { useAuth, type UserRole } from "@/hooks/use-auth";
 import { RealtimeSync } from "@/components/realtime-sync";
 import { SiteProvider } from "@/contexts/site-context";
 
-// Route-level code splitting: login tetap ringan dan halaman operasional
-// hanya diunduh ketika benar-benar dibuka.
-const DataTenant = lazy(() => import("@/pages/data-tenant"));
-const UnitTenant = lazy(() => import("@/pages/unit-tenant"));
-const RekapTenant = lazy(() => import("@/pages/rekap-tenant"));
-const BookingTenant = lazy(() => import("@/pages/booking-tenant"));
-const TenantPos = lazy(() => import("@/pages/tenant-pos"));
-const Laporan = lazy(() => import("@/pages/laporan"));
-const TenantInvoices = lazy(() => import("@/pages/tenant-invoices"));
-const AuditLogs = lazy(() => import("@/pages/audit-logs"));
-const UsersPage = lazy(() => import("@/pages/users"));
-const SettingsPage = lazy(() => import("@/pages/settings"));
-const CompareSites = lazy(() => import("@/pages/compare-sites"));
-const TenantPortal = lazy(() => import("@/pages/tenant-portal"));
-const TinjauPembayaran = lazy(() => import("@/pages/tinjau-pembayaran"));
-const PaymentProofUpload = lazy(() => import("@/pages/payment-proof-upload"));
-const Dashboard = lazy(() => import("@/pages/dashboard"));
-const TenantProfile = lazy(() => import("@/pages/tenant-profile"));
-const WhatsAppSend = lazy(() => import("@/pages/whatsapp-send"));
-const WhatsAppTemplates = lazy(() => import("@/pages/whatsapp-templates"));
-const DbMonitoring = lazy(() => import("@/pages/db-monitoring"));
-const DrafPerjanjian = lazy(() => import("@/pages/draf-perjanjian"));
-const DokumenSewa = lazy(() => import("@/pages/dokumen-sewa"));
-const TenantRegister = lazy(() => import("@/pages/tenant-register"));
-const BukuJurnal = lazy(() => import("@/pages/buku-jurnal"));
-const KelolaCoa = lazy(() => import("@/pages/kelola-coa"));
-const PengeluaranOperasional = lazy(() => import("@/pages/pengeluaran-operasional"));
-const RiwayatPembayaran = lazy(() => import("@/pages/riwayat-pembayaran"));
-const PemasukanLain = lazy(() => import("@/pages/pemasukan-lain"));
-const ConsolidatedInvoices = lazy(() => import("@/pages/consolidated-invoices"));
-const RekonsiliasiBank = lazy(() => import("@/pages/rekonsiliasi-bank"));
+// Route-level code splitting: login tetap ringan. Setelah staf berhasil login,
+// chunk menu yang boleh diakses diprefetch saat browser idle agar klik pertama
+// tidak menunggu download + parse JavaScript.
+const loadDataTenant = () => import("@/pages/data-tenant");
+const loadUnitTenant = () => import("@/pages/unit-tenant");
+const loadRekapTenant = () => import("@/pages/rekap-tenant");
+const loadBookingTenant = () => import("@/pages/booking-tenant");
+const loadTenantPos = () => import("@/pages/tenant-pos");
+const loadLaporan = () => import("@/pages/laporan");
+const loadTenantInvoices = () => import("@/pages/tenant-invoices");
+const loadAuditLogs = () => import("@/pages/audit-logs");
+const loadUsers = () => import("@/pages/users");
+const loadSettings = () => import("@/pages/settings");
+const loadCompareSites = () => import("@/pages/compare-sites");
+const loadTenantPortal = () => import("@/pages/tenant-portal");
+const loadTinjauPembayaran = () => import("@/pages/tinjau-pembayaran");
+const loadPaymentProofUpload = () => import("@/pages/payment-proof-upload");
+const loadDashboard = () => import("@/pages/dashboard");
+const loadTenantProfile = () => import("@/pages/tenant-profile");
+const loadWhatsAppSend = () => import("@/pages/whatsapp-send");
+const loadWhatsAppTemplates = () => import("@/pages/whatsapp-templates");
+const loadDbMonitoring = () => import("@/pages/db-monitoring");
+const loadDrafPerjanjian = () => import("@/pages/draf-perjanjian");
+const loadDokumenSewa = () => import("@/pages/dokumen-sewa");
+const loadTenantRegister = () => import("@/pages/tenant-register");
+const loadBukuJurnal = () => import("@/pages/buku-jurnal");
+const loadKelolaCoa = () => import("@/pages/kelola-coa");
+const loadPengeluaranOperasional = () => import("@/pages/pengeluaran-operasional");
+const loadRiwayatPembayaran = () => import("@/pages/riwayat-pembayaran");
+const loadPemasukanLain = () => import("@/pages/pemasukan-lain");
+const loadConsolidatedInvoices = () => import("@/pages/consolidated-invoices");
+const loadRekonsiliasiBank = () => import("@/pages/rekonsiliasi-bank");
+
+const DataTenant = lazy(loadDataTenant);
+const UnitTenant = lazy(loadUnitTenant);
+const RekapTenant = lazy(loadRekapTenant);
+const BookingTenant = lazy(loadBookingTenant);
+const TenantPos = lazy(loadTenantPos);
+const Laporan = lazy(loadLaporan);
+const TenantInvoices = lazy(loadTenantInvoices);
+const AuditLogs = lazy(loadAuditLogs);
+const UsersPage = lazy(loadUsers);
+const SettingsPage = lazy(loadSettings);
+const CompareSites = lazy(loadCompareSites);
+const TenantPortal = lazy(loadTenantPortal);
+const TinjauPembayaran = lazy(loadTinjauPembayaran);
+const PaymentProofUpload = lazy(loadPaymentProofUpload);
+const Dashboard = lazy(loadDashboard);
+const TenantProfile = lazy(loadTenantProfile);
+const WhatsAppSend = lazy(loadWhatsAppSend);
+const WhatsAppTemplates = lazy(loadWhatsAppTemplates);
+const DbMonitoring = lazy(loadDbMonitoring);
+const DrafPerjanjian = lazy(loadDrafPerjanjian);
+const DokumenSewa = lazy(loadDokumenSewa);
+const TenantRegister = lazy(loadTenantRegister);
+const BukuJurnal = lazy(loadBukuJurnal);
+const KelolaCoa = lazy(loadKelolaCoa);
+const PengeluaranOperasional = lazy(loadPengeluaranOperasional);
+const RiwayatPembayaran = lazy(loadRiwayatPembayaran);
+const PemasukanLain = lazy(loadPemasukanLain);
+const ConsolidatedInvoices = lazy(loadConsolidatedInvoices);
+const RekonsiliasiBank = lazy(loadRekonsiliasiBank);
+
+type PageLoader = () => Promise<unknown>;
+
+const commonStaffLoaders: PageLoader[] = [
+  loadDashboard,
+  loadTenantPos,
+  loadTenantInvoices,
+  loadBookingTenant,
+  loadUnitTenant,
+  loadRiwayatPembayaran,
+  loadRekapTenant,
+  loadLaporan,
+];
+
+function getPrefetchLoaders(role: UserRole): PageLoader[] {
+  if (role === "tenant_user") return [loadTenantPortal];
+  if (role === "cashier") return [loadTenantPos];
+
+  const financeLoaders: PageLoader[] = [
+    ...commonStaffLoaders,
+    loadConsolidatedInvoices,
+    loadTinjauPembayaran,
+    loadPengeluaranOperasional,
+    loadPemasukanLain,
+    loadBukuJurnal,
+    loadRekonsiliasiBank,
+    loadKelolaCoa,
+    loadCompareSites,
+    loadWhatsAppSend,
+    loadWhatsAppTemplates,
+  ];
+
+  if (role === "finance") return financeLoaders;
+
+  const adminLoaders: PageLoader[] = [
+    ...financeLoaders,
+    loadDataTenant,
+    loadDrafPerjanjian,
+    loadAuditLogs,
+  ];
+
+  if (role === "admin") return adminLoaders;
+
+  return [...adminLoaders, loadUsers, loadSettings, loadDbMonitoring];
+}
+
+function prefetchRolePages(role: UserRole): () => void {
+  let cancelled = false;
+  const loaders = Array.from(new Set(getPrefetchLoaders(role)));
+
+  const run = async () => {
+    // Bertahap agar prefetch tidak berebut bandwidth/CPU dengan halaman aktif.
+    for (let i = 0; i < loaders.length && !cancelled; i += 3) {
+      const batch = loaders.slice(i, i + 3);
+      await Promise.all(batch.map((load) => load().catch(() => undefined)));
+      if (!cancelled) await new Promise((resolve) => window.setTimeout(resolve, 40));
+    }
+  };
+
+  const idleWindow = window as typeof window & {
+    requestIdleCallback?: (callback: () => void, options?: { timeout: number }) => number;
+    cancelIdleCallback?: (id: number) => void;
+  };
+
+  if (idleWindow.requestIdleCallback) {
+    const id = idleWindow.requestIdleCallback(() => void run(), { timeout: 1800 });
+    return () => {
+      cancelled = true;
+      idleWindow.cancelIdleCallback?.(id);
+    };
+  }
+
+  const id = window.setTimeout(() => void run(), 900);
+  return () => {
+    cancelled = true;
+    window.clearTimeout(id);
+  };
+}
 
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      staleTime: 30_000,
-      gcTime: 5 * 60 * 1000,
+      // RealtimeSync tetap meng-invalidasi query saat data berubah. Cache lebih lama
+      // mencegah refetch berulang saat user bolak-balik menu dalam sesi yang sama.
+      staleTime: 2 * 60 * 1000,
+      gcTime: 15 * 60 * 1000,
       refetchOnWindowFocus: false,
       refetchOnReconnect: true,
       retry: 1,
@@ -72,6 +183,11 @@ function getDefaultRoute(role: UserRole): string {
 
 function AuthGuard({ children, roles }: { children: React.ReactNode; roles?: UserRole[] }) {
   const { data: user, isLoading } = useAuth();
+
+  useEffect(() => {
+    if (!user) return;
+    return prefetchRolePages(user.role);
+  }, [user?.id, user?.role]);
 
   if (isLoading) return <Spinner />;
 
