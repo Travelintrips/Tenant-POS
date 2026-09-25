@@ -16,6 +16,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
+import { useSite } from "@/contexts/site-context";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 const API = BASE + "/api";
@@ -143,27 +144,34 @@ function downloadCsv(content: string, filename: string) {
 // ─── Hooks ────────────────────────────────────────────────────────────────────
 
 function useLiveOverview() {
+  const { activeSiteId } = useSite();
   return useQuery<Overview>({
-    queryKey: ["laporan-overview"],
+    queryKey: ["laporan-overview", activeSiteId],
+    enabled: activeSiteId !== null,
     queryFn: () => apiFetch(`${BASE}/api/tenant-pos/overview`, { credentials: "include" }).then((r) => r.json()),
     refetchInterval: 30_000,
   });
 }
 function useRecentPayments() {
+  const { activeSiteId } = useSite();
   return useQuery<RecentPayment[]>({
-    queryKey: ["laporan-recent-payments"],
+    queryKey: ["laporan-recent-payments", activeSiteId],
+    enabled: activeSiteId !== null,
     queryFn: () => apiFetch(`${BASE}/api/tenant-pos/recent-payments?limit=15`, { credentials: "include" }).then((r) => r.json()),
     refetchInterval: 30_000,
   });
 }
 function useKPI() {
+  const { activeSiteId } = useSite();
   return useQuery<KPIData>({
-    queryKey: ["laporan-kpi"],
+    queryKey: ["laporan-kpi", activeSiteId],
+    enabled: activeSiteId !== null,
     queryFn: () => apiFetch(`${API}/laporan/kpi`, { credentials: "include" }).then((r) => r.json()),
     refetchInterval: 60_000,
   });
 }
 function usePiutang(filter: FilterState) {
+  const { activeSiteId } = useSite();
   const params = new URLSearchParams({ limit: "200" });
   if (filter.tenantId) params.set("tenant_id", filter.tenantId);
   if (filter.floor) params.set("floor", filter.floor);
@@ -171,49 +179,60 @@ function usePiutang(filter: FilterState) {
   if (filter.dari) params.set("dari", filter.dari);
   if (filter.sampai) params.set("sampai", filter.sampai);
   return useQuery<PiutangData>({
-    queryKey: ["laporan-piutang", filter],
+    queryKey: ["laporan-piutang", activeSiteId, filter],
+    enabled: activeSiteId !== null,
     queryFn: () => apiFetch(`${API}/laporan/piutang?${params}`, { credentials: "include" }).then((r) => r.json()),
   });
 }
 function useAging() {
+  const { activeSiteId } = useSite();
   return useQuery<AgingData>({
-    queryKey: ["laporan-aging"],
+    queryKey: ["laporan-aging", activeSiteId],
+    enabled: activeSiteId !== null,
     queryFn: () => apiFetch(`${API}/laporan/aging`, { credentials: "include" }).then((r) => r.json()),
     refetchInterval: 60_000,
   });
 }
 function usePaymentMethods(filter: FilterState, tahun: string) {
+  const { activeSiteId } = useSite();
   const params = new URLSearchParams({ tahun });
   if (filter.bulan) params.set("bulan", filter.bulan);
   if (filter.dari) params.set("dari", filter.dari);
   if (filter.sampai) params.set("sampai", filter.sampai);
   return useQuery<PaymentMethodData>({
-    queryKey: ["laporan-payment-methods", tahun, filter.bulan, filter.dari, filter.sampai],
+    queryKey: ["laporan-payment-methods", activeSiteId, tahun, filter.bulan, filter.dari, filter.sampai],
+    enabled: activeSiteId !== null,
     queryFn: () => apiFetch(`${API}/laporan/payment-methods?${params}`, { credentials: "include" }).then((r) => r.json()),
   });
 }
 function useTenantsList() {
+  const { activeSiteId } = useSite();
   return useQuery<TenantItem[]>({
-    queryKey: ["laporan-tenants-list"],
+    queryKey: ["laporan-tenants-list", activeSiteId],
+    enabled: activeSiteId !== null,
     queryFn: () => apiFetch(`${API}/laporan/tenants-list`, { credentials: "include" }).then((r) => r.json()),
     staleTime: 5 * 60 * 1000,
   });
 }
 function useFloorsList() {
+  const { activeSiteId } = useSite();
   return useQuery<string[]>({
-    queryKey: ["laporan-floors-list"],
+    queryKey: ["laporan-floors-list", activeSiteId],
+    enabled: activeSiteId !== null,
     queryFn: () => apiFetch(`${API}/laporan/floors-list`, { credentials: "include" }).then((r) => r.json()),
     staleTime: 5 * 60 * 1000,
   });
 }
 function useRekapIuranSampah(filter: FilterState, tahun: string) {
+  const { activeSiteId } = useSite();
   const params = new URLSearchParams({ tahun });
   if (filter.bulan) params.set("bulan", filter.bulan);
   if (filter.dari) params.set("dari", filter.dari);
   if (filter.sampai) params.set("sampai", filter.sampai);
   if (filter.tenantId) params.set("tenant_id", filter.tenantId);
   return useQuery<IuranSampahData>({
-    queryKey: ["laporan-iuran-sampah", tahun, filter.bulan, filter.dari, filter.sampai, filter.tenantId],
+    queryKey: ["laporan-iuran-sampah", activeSiteId, tahun, filter.bulan, filter.dari, filter.sampai, filter.tenantId],
+    enabled: activeSiteId !== null,
     queryFn: () => apiFetch(`${API}/laporan/rekap-iuran-sampah?${params}`, { credentials: "include" }).then((r) => r.json()),
   });
 }
@@ -1008,6 +1027,7 @@ function RecentPaymentsTable() {
 
 function RekapTransaksiSection({ filter, tahun }: { filter: FilterState; tahun: string }) {
   const [showJurnal, setShowJurnal] = useState(false);
+  const { activeSiteId } = useSite();
 
   const params = new URLSearchParams({ tahun, limit: "100" });
   if (filter.bulan) params.set("bulan", filter.bulan);
@@ -1018,7 +1038,8 @@ function RekapTransaksiSection({ filter, tahun }: { filter: FilterState; tahun: 
   if (filter.paymentMethod) params.set("payment_method", filter.paymentMethod);
 
   const rekapQuery = useQuery<RekapData>({
-    queryKey: ["laporan-rekap", tahun, filter],
+    queryKey: ["laporan-rekap", activeSiteId, tahun, filter],
+    enabled: activeSiteId !== null,
     queryFn: async () => {
       const res = await apiFetch(`${API}/laporan/rekap-payments?${params}`);
       if (!res.ok) throw new Error("Gagal memuat rekap pembayaran");
@@ -1209,6 +1230,7 @@ function RekapTransaksiSection({ filter, tahun }: { filter: FilterState; tahun: 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function Laporan() {
+  const { activeSiteId } = useSite();
   const [tahun, setTahun] = useState(String(new Date().getFullYear()));
   const [filter, setFilter] = useState<FilterState>({
     dari: "", sampai: "", bulan: "", tenantId: "", floor: "", paymentMethod: "", invoiceStatus: "",
@@ -1217,7 +1239,8 @@ export default function Laporan() {
   const prevYear = String(parseInt(tahun) - 1);
 
   const summaryQuery = useQuery<SummaryData>({
-    queryKey: ["laporan-summary", tahun],
+    queryKey: ["laporan-summary", activeSiteId, tahun],
+    enabled: activeSiteId !== null,
     queryFn: async () => {
       const res = await apiFetch(`${API}/laporan/summary?tahun=${tahun}`);
       if (!res.ok) throw new Error("Gagal memuat ringkasan");
@@ -1225,7 +1248,8 @@ export default function Laporan() {
     },
   });
   const prevSummaryQuery = useQuery<SummaryData>({
-    queryKey: ["laporan-summary", prevYear],
+    queryKey: ["laporan-summary", activeSiteId, prevYear],
+    enabled: activeSiteId !== null,
     queryFn: async () => {
       const res = await apiFetch(`${API}/laporan/summary?tahun=${prevYear}`);
       if (!res.ok) throw new Error();

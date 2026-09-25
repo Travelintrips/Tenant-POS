@@ -40,6 +40,8 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
+import { useSite } from "@/contexts/site-context";
+import { apiFetch as siteApiFetch } from "@/lib/api";
 
 function formatRupiah(val: string | number | null | undefined) {
   if (val == null || val === "") return "Rp 0";
@@ -122,7 +124,7 @@ function isSuspiciousOcrPayment(payment: PendingPayment): boolean {
 }
 
 async function apiFetch(url: string, opts?: RequestInit) {
-  const res = await fetch(url, opts);
+  const res = await siteApiFetch(url, opts);
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     throw new Error(body.error ?? `HTTP ${res.status}`);
@@ -133,6 +135,7 @@ async function apiFetch(url: string, opts?: RequestInit) {
 export default function TinjauPembayaran() {
   const { toast } = useToast();
   const qc = useQueryClient();
+  const { activeSiteId } = useSite();
 
   const [activeTab, setActiveTab] = useState("pending_review");
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
@@ -143,21 +146,18 @@ export default function TinjauPembayaran() {
   const [alreadyPaidWarning, setAlreadyPaidWarning] = useState(false);
 
   const { data: payments = [], isLoading, refetch } = useQuery<PendingPayment[]>({
-    queryKey: ["pending-payments", activeTab],
+    queryKey: ["pending-payments", activeSiteId, activeTab],
+    enabled: activeSiteId !== null,
+    staleTime: 30_000,
     queryFn: () => apiFetch(`/api/pending-payments?status=${activeTab}`),
     refetchInterval: activeTab === "pending_review" ? 30_000 : false,
   });
 
   const { data: counts } = useQuery<{ pending_review: number; approved: number; rejected: number }>({
-    queryKey: ["pending-payments-counts"],
-    queryFn: async () => {
-      const [p, a, r] = await Promise.all([
-        apiFetch("/api/pending-payments?status=pending_review"),
-        apiFetch("/api/pending-payments?status=approved"),
-        apiFetch("/api/pending-payments?status=rejected"),
-      ]);
-      return { pending_review: p.length, approved: a.length, rejected: r.length };
-    },
+    queryKey: ["pending-payments-counts", activeSiteId],
+    enabled: activeSiteId !== null,
+    staleTime: 30_000,
+    queryFn: () => apiFetch("/api/pending-payments/counts"),
     refetchInterval: 30_000,
   });
 

@@ -3908,3 +3908,34 @@ CREATE UNIQUE INDEX IF NOT EXISTS tenant_user_access_user_tenant_site_uq
 DROP INDEX IF EXISTS idx_tenant_payments_invoice_id;
   `.trim(),
 });
+
+MIGRATIONS.push({
+  name: "0093_tenant_portal_performance_indexes",
+  sql: `
+-- Hot-path indexes for Tenant POS admin pages and multi-site switching.
+CREATE INDEX IF NOT EXISTS idx_tenants_site_status
+  ON tenants (site_id, status);
+
+CREATE INDEX IF NOT EXISTS idx_tenant_bookings_site_status_created
+  ON tenant_bookings (site_id, status, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_tenant_invoices_site_status_due
+  ON tenant_invoices (site_id, status, due_date);
+
+CREATE INDEX IF NOT EXISTS idx_tenant_invoices_site_period
+  ON tenant_invoices (site_id, period_start DESC);
+
+CREATE INDEX IF NOT EXISTS idx_tenant_payments_site_paid
+  ON tenant_payments (site_id, paid_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_consolidated_items_consolidated_id
+  ON consolidated_invoice_items (consolidated_invoice_id);
+
+CREATE INDEX IF NOT EXISTS idx_consolidated_invoices_site_created
+  ON consolidated_invoices (site_id, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_consolidated_invoices_site_status
+  ON consolidated_invoices (site_id, status);
+  `.trim(),
+});
+
