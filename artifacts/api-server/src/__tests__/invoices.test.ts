@@ -45,6 +45,42 @@ describe("Fase 3 — Invoice / Tagihan", () => {
   });
 
   describe("POST /api/tenant-invoices", () => {
+    it("menerima tenantId/bookingId numeric string dari form browser", async () => {
+      const res = await owner
+        .post("/api/tenant-invoices")
+        .send({
+          tenantId: String(testTenant.id),
+          bookingId: String(testBooking.id),
+          periodStart: "2026-09-01",
+          periodEnd: "2026-09-30",
+          dueDate: "2026-09-30",
+          rentAmount: "1500000",
+          status: "unpaid",
+        });
+
+      expect(res.status).toBe(201);
+      expect(res.body.tenantId).toBe(testTenant.id);
+      expect(res.body.bookingId).toBe(testBooking.id);
+    });
+
+    it("menerima bookingId kosong sebagai null pada create manual", async () => {
+      const res = await owner
+        .post("/api/tenant-invoices")
+        .send({
+          tenantId: String(testTenant.id),
+          bookingId: "",
+          periodStart: "2026-10-01",
+          periodEnd: "2026-10-31",
+          dueDate: "2026-10-31",
+          rentAmount: "1700000",
+          status: "unpaid",
+        });
+
+      expect(res.status).toBe(201);
+      expect(res.body.tenantId).toBe(testTenant.id);
+      expect(res.body.bookingId).toBeNull();
+    });
+
     it("membuat invoice dengan data valid dan invoice_number berformat INV-TENANT/YYYYMM/NNNNN", async () => {
       const due = new Date();
       due.setDate(due.getDate() + 30);
