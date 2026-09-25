@@ -396,7 +396,7 @@ export default function DataTenant() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const logoInputRef = useRef<HTMLInputElement>(null);
-  const { activeSite } = useSite();
+  const { activeSite, activeSiteId } = useSite();
   const [, navigate] = useLocation();
 
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -438,15 +438,19 @@ export default function DataTenant() {
   });
 
   const { data: tenants, isLoading, isError } = useQuery<Tenant[]>({
-    queryKey: ["/api/tenants"],
+    queryKey: ["/api/tenants", activeSiteId],
     queryFn: fetchTenants,
+    enabled: activeSiteId !== null,
+    staleTime: 60_000,
   });
 
   const [showAllAvailable, setShowAllAvailable] = useState(false);
 
   const { data: mallUnits = [] } = useQuery<MallUnit[]>({
-    queryKey: ["/api/mall-units"],
+    queryKey: ["/api/mall-units", activeSiteId],
     queryFn: fetchMallUnits,
+    enabled: activeSiteId !== null,
+    staleTime: 60_000,
   });
 
   const { data: companiesData = [] } = useQuery<CompanyRow[]>({
@@ -507,8 +511,8 @@ export default function DataTenant() {
   })();
 
   const invalidateAll = () => {
-    void queryClient.invalidateQueries({ queryKey: ["/api/tenants"] });
-    void queryClient.invalidateQueries({ queryKey: ["/api/mall-units"] });
+    void queryClient.invalidateQueries({ queryKey: ["/api/tenants", activeSiteId] });
+    void queryClient.invalidateQueries({ queryKey: ["/api/mall-units", activeSiteId] });
   };
 
   const patchUnitStatusMutation = useMutation({
@@ -523,7 +527,7 @@ export default function DataTenant() {
         return r.json();
       }),
     onSuccess: (_data, vars) => {
-      void queryClient.invalidateQueries({ queryKey: ["/api/mall-units"] });
+      void queryClient.invalidateQueries({ queryKey: ["/api/mall-units", activeSiteId] });
       const opt = UNIT_STATUS_OPTIONS.find(o => o.value === vars.status);
       toast({ title: "Status unit diperbarui", description: `Unit berhasil diubah ke "${opt?.label ?? vars.status}".` });
     },
@@ -566,7 +570,7 @@ export default function DataTenant() {
   const bulkDeleteMutation = useMutation({
     mutationFn: bulkDeleteTenants,
     onSuccess: (result) => {
-      void queryClient.invalidateQueries({ queryKey: ["/api/tenants"] });
+      void queryClient.invalidateQueries({ queryKey: ["/api/tenants", activeSiteId] });
       toast({ title: "Berhasil", description: `${result.deleted} tenant berhasil dihapus.` });
       setSelectedIds(new Set());
       setBulkDeleteOpen(false);
