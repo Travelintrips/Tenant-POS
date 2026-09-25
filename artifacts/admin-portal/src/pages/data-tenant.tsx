@@ -1242,8 +1242,6 @@ export default function DataTenant() {
               })
             )}
           </div>
-
-          </div>
           ) : (
           <div className="rounded-md border overflow-x-auto">
             <Table>
