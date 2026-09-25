@@ -15,13 +15,18 @@ import { SiteProvider } from "@/contexts/site-context";
 
 // Route-level code splitting: login tetap ringan dan halaman operasional
 // hanya diunduh ketika benar-benar dibuka.
-const DataTenant = lazyWithRecovery(() => import("@/pages/data-tenant"));
-const UnitTenant = lazyWithRecovery(() => import("@/pages/unit-tenant"));
-const RekapTenant = lazyWithRecovery(() => import("@/pages/rekap-tenant"));
-const BookingTenant = lazyWithRecovery(() => import("@/pages/booking-tenant"));
+const loadDataTenant = () => import("@/pages/data-tenant");
+const DataTenant = lazyWithRecovery(loadDataTenant);
+const loadUnitTenant = () => import("@/pages/unit-tenant");
+const UnitTenant = lazyWithRecovery(loadUnitTenant);
+const loadRekapTenant = () => import("@/pages/rekap-tenant");
+const RekapTenant = lazyWithRecovery(loadRekapTenant);
+const loadBookingTenant = () => import("@/pages/booking-tenant");
+const BookingTenant = lazyWithRecovery(loadBookingTenant);
 const loadTenantPos = () => import("@/pages/tenant-pos");
 const TenantPos = lazyWithRecovery(loadTenantPos);
-const Laporan = lazyWithRecovery(() => import("@/pages/laporan"));
+const loadLaporan = () => import("@/pages/laporan");
+const Laporan = lazyWithRecovery(loadLaporan);
 const loadTenantInvoices = () => import("@/pages/tenant-invoices");
 const TenantInvoices = lazyWithRecovery(loadTenantInvoices);
 const AuditLogs = lazyWithRecovery(() => import("@/pages/audit-logs"));
@@ -29,7 +34,8 @@ const UsersPage = lazyWithRecovery(() => import("@/pages/users"));
 const SettingsPage = lazyWithRecovery(() => import("@/pages/settings"));
 const CompareSites = lazyWithRecovery(() => import("@/pages/compare-sites"));
 const TenantPortal = lazyWithRecovery(() => import("@/pages/tenant-portal"));
-const TinjauPembayaran = lazyWithRecovery(() => import("@/pages/tinjau-pembayaran"));
+const loadTinjauPembayaran = () => import("@/pages/tinjau-pembayaran");
+const TinjauPembayaran = lazyWithRecovery(loadTinjauPembayaran);
 const PaymentProofUpload = lazyWithRecovery(() => import("@/pages/payment-proof-upload"));
 const loadDashboard = () => import("@/pages/dashboard");
 const Dashboard = lazyWithRecovery(loadDashboard);
@@ -37,16 +43,22 @@ const TenantProfile = lazyWithRecovery(() => import("@/pages/tenant-profile"));
 const WhatsAppSend = lazyWithRecovery(() => import("@/pages/whatsapp-send"));
 const WhatsAppTemplates = lazyWithRecovery(() => import("@/pages/whatsapp-templates"));
 const DbMonitoring = lazyWithRecovery(() => import("@/pages/db-monitoring"));
-const DrafPerjanjian = lazyWithRecovery(() => import("@/pages/draf-perjanjian"));
+const loadDrafPerjanjian = () => import("@/pages/draf-perjanjian");
+const DrafPerjanjian = lazyWithRecovery(loadDrafPerjanjian);
 const DokumenSewa = lazyWithRecovery(() => import("@/pages/dokumen-sewa"));
 const TenantRegister = lazyWithRecovery(() => import("@/pages/tenant-register"));
-const BukuJurnal = lazyWithRecovery(() => import("@/pages/buku-jurnal"));
+const loadBukuJurnal = () => import("@/pages/buku-jurnal");
+const BukuJurnal = lazyWithRecovery(loadBukuJurnal);
 const KelolaCoa = lazyWithRecovery(() => import("@/pages/kelola-coa"));
-const PengeluaranOperasional = lazyWithRecovery(() => import("@/pages/pengeluaran-operasional"));
-const RiwayatPembayaran = lazyWithRecovery(() => import("@/pages/riwayat-pembayaran"));
+const loadPengeluaranOperasional = () => import("@/pages/pengeluaran-operasional");
+const PengeluaranOperasional = lazyWithRecovery(loadPengeluaranOperasional);
+const loadRiwayatPembayaran = () => import("@/pages/riwayat-pembayaran");
+const RiwayatPembayaran = lazyWithRecovery(loadRiwayatPembayaran);
 const PemasukanLain = lazyWithRecovery(() => import("@/pages/pemasukan-lain"));
-const ConsolidatedInvoices = lazyWithRecovery(() => import("@/pages/consolidated-invoices"));
-const RekonsiliasiBank = lazyWithRecovery(() => import("@/pages/rekonsiliasi-bank"));
+const loadConsolidatedInvoices = () => import("@/pages/consolidated-invoices");
+const ConsolidatedInvoices = lazyWithRecovery(loadConsolidatedInvoices);
+const loadRekonsiliasiBank = () => import("@/pages/rekonsiliasi-bank");
+const RekonsiliasiBank = lazyWithRecovery(loadRekonsiliasiBank);
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -81,12 +93,38 @@ function AuthGuard({ children, roles }: { children: React.ReactNode; roles?: Use
 
     let cancelled = false;
     const run = async () => {
-      // Prefetch menu operasional paling sering dipakai setelah browser idle.
-      // Bertahap supaya tidak berebut CPU/network dengan halaman yang sedang dibuka.
-      for (const load of [loadDashboard, loadTenantPos, loadTenantInvoices]) {
+      // Warm route chunks setelah halaman pertama sudah interaktif. Dengan ini,
+      // klik menu admin tidak perlu menunggu download/parse chunk untuk pertama kali.
+      // Tetap bertahap agar koneksi dan main thread tidak tersumbat.
+      const highPriorityLoads = [
+        loadDashboard,
+        loadDataTenant,
+        loadUnitTenant,
+        loadBookingTenant,
+        loadTenantPos,
+        loadTenantInvoices,
+        loadConsolidatedInvoices,
+        loadTinjauPembayaran,
+        loadRiwayatPembayaran,
+      ];
+      const lowerPriorityLoads = [
+        loadRekapTenant,
+        loadLaporan,
+        loadDrafPerjanjian,
+        loadPengeluaranOperasional,
+        loadBukuJurnal,
+        loadRekonsiliasiBank,
+      ];
+
+      for (const load of highPriorityLoads) {
         if (cancelled) break;
         await load().catch(() => undefined);
-        await new Promise((resolve) => window.setTimeout(resolve, 40));
+        await new Promise((resolve) => window.setTimeout(resolve, 24));
+      }
+      for (const load of lowerPriorityLoads) {
+        if (cancelled) break;
+        await load().catch(() => undefined);
+        await new Promise((resolve) => window.setTimeout(resolve, 60));
       }
     };
 
