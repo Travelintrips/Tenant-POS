@@ -2,6 +2,7 @@ import { useState, useMemo, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import { useSite } from "@/contexts/site-context";
+import { apiFetch } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -171,7 +172,7 @@ function DetailModal({ id, onClose }: { id: number; onClose: () => void }) {
       toast({ title: "Bukti Pembayaran Tersimpan", description: `Bukti dihubungkan ke ${data.updatedPayments ?? 0} transaksi invoice konsolidasi.` });
       setHistoricalProof(null);
       void queryClient.invalidateQueries({ queryKey: ["consolidated-invoice-detail", id] });
-      void queryClient.invalidateQueries({ queryKey: ["consolidated-invoices"] });
+      void queryClient.invalidateQueries({ queryKey: ["consolidated-invoices", activeSiteId] });
       void queryClient.invalidateQueries({ queryKey: ["payment-history"] });
     },
     onError: (e: Error) => toast({ title: "Gagal", description: e.message, variant: "destructive" }),
@@ -340,7 +341,7 @@ function DetailModal({ id, onClose }: { id: number; onClose: () => void }) {
         onSuccess={() => {
           setShowPaymentModal(false);
           queryClient.invalidateQueries({ queryKey: ["consolidated-invoice-detail", id] });
-          queryClient.invalidateQueries({ queryKey: ["consolidated-invoices"] });
+          queryClient.invalidateQueries({ queryKey: ["consolidated-invoices", activeSiteId] });
         }}
       />
     )}
@@ -548,6 +549,7 @@ function RecordPaymentModal({
 // ── Modal Buat Invoice Konsolidasi ────────────────────────────────────────────
 function CreateModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: () => void }) {
   const { toast } = useToast();
+  const { activeSiteId } = useSite();
   const [step, setStep] = useState<1 | 2>(1);
   const [selectedInvoiceIds, setSelectedInvoiceIds] = useState<number[]>([]);
   const [searchText, setSearchText] = useState("");
@@ -557,9 +559,12 @@ function CreateModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: (
   const [notes, setNotes] = useState("");
 
   const { data: allUnpaidInvoices = [], isLoading: loadingInvoices } = useQuery<UnpaidInvoice[]>({
-    queryKey: ["all-unpaid-invoices-for-consolidation"],
+    queryKey: ["all-unpaid-invoices-for-consolidation", activeSiteId],
+    enabled: activeSiteId !== null,
+    staleTime: 60_000,
     queryFn: async () => {
-      const r = await fetch(`${BASE}/api/consolidated-invoices/all-unpaid`, { credentials: "include" });
+      const r = await apiFetch(`${BASE}/api/consolidated-invoices/all-unpaid`);
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
       const data = await r.json();
       return Array.isArray(data) ? data : [];
     },
@@ -1029,6 +1034,7 @@ function CreateModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: (
 export default function ConsolidatedInvoicesPage() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const { activeSiteId } = useSite();
   const [search, setSearch] = useState("");
   const [showCreate, setShowCreate] = useState(false);
   const [detailId, setDetailId] = useState<number | null>(null);
@@ -1036,10 +1042,14 @@ export default function ConsolidatedInvoicesPage() {
   const [filterStatus, setFilterStatus] = useState("all");
 
   const { data: invoices = [], isLoading, refetch } = useQuery<ConsolidatedInvoice[]>({
-    queryKey: ["consolidated-invoices"],
+    queryKey: ["consolidated-invoices", activeSiteId],
+    enabled: activeSiteId !== null,
+    staleTime: 60_000,
     queryFn: async () => {
-      const r = await fetch(`${BASE}/api/consolidated-invoices`, { credentials: "include" });
-      return r.json();
+      const r = await apiFetch(`${BASE}/api/consolidated-invoices`);
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const data = await r.json();
+      return Array.isArray(data) ? data : [];
     },
   });
 
@@ -1055,7 +1065,7 @@ export default function ConsolidatedInvoicesPage() {
     },
     onSuccess: () => {
       toast({ title: "Berhasil", description: "Invoice konsolidasi dihapus" });
-      void queryClient.invalidateQueries({ queryKey: ["consolidated-invoices"] });
+      void queryClient.invalidateQueries({ queryKey: ["consolidated-invoices", activeSiteId] });
       setDeleteId(null);
     },
     onError: (e) => toast({ title: "Gagal", description: e.message, variant: "destructive" }),
@@ -1306,7 +1316,7 @@ export default function ConsolidatedInvoicesPage() {
           onClose={() => setShowCreate(false)}
           onSuccess={() => {
             setShowCreate(false);
-            void queryClient.invalidateQueries({ queryKey: ["consolidated-invoices"] });
+            void queryClient.invalidateQueries({ queryKey: ["consolidated-invoices", activeSiteId] });
           }}
         />
       )}
