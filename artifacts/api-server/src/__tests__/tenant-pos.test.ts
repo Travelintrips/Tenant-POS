@@ -16,7 +16,7 @@ import {
   bankMutationsTable,
   bankReconciliationMatchesTable,
 } from "@workspace/db/schema";
-import { eq, inArray } from "drizzle-orm";
+import { eq, inArray, and, sql } from "drizzle-orm";
 
 let owner: any;
 let cashier: any;
@@ -93,7 +93,24 @@ describe("Fase 4 — POS Pembayaran", () => {
 
       const after = await owner.get("/api/tenant-pos/overview");
       expect(after.status).toBe(200);
-      expect(after.body.paidTodayAmount).toBe(before.body.paidTodayAmount);
+
+      // Jangan membandingkan dengan snapshot "before" karena suite API lain
+      // berjalan paralel pada database CI yang sama dan dapat menambah/menghapus
+      // payment approved di site ini di antara dua request. Bandingkan endpoint
+      // dengan aggregate canonical saat ini: hanya payment approved, non-void,
+      // dan tanggal hari ini yang boleh dihitung.
+      const [expectedApproved] = await db
+        .select({ total: sql<number>`coalesce(sum(amount::numeric), 0)::int` })
+        .from(tenantPaymentsTable)
+        .where(and(
+          sql`DATE(${tenantPaymentsTable.paidAt} AT TIME ZONE 'Asia/Jakarta') = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Jakarta')::date`,
+          eq(tenantPaymentsTable.isVoided, false),
+          eq(tenantPaymentsTable.approvalStatus, "approved"),
+          eq(tenantPaymentsTable.siteId, testTenant.siteId),
+        ));
+
+      expect(after.body.paidTodayAmount).toBe(expectedApproved?.total ?? 0);
+      expect(after.body.paidTodayAmount).not.toBe((before.body.paidTodayAmount ?? 0) + 987654);
     });
 
     it("cashier bisa akses overview (200)", async () => {
