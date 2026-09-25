@@ -18,6 +18,11 @@ describe("Google login role mapping", () => {
     expect(getGoogleRoleForEmail(" AlmanoSetiawan@GMAIL.COM ")).toBe("admin");
   });
 
+  it("mengizinkan erlanggaerix@gmail.com sebagai admin dengan akses staf yang sama", () => {
+    expect(getGoogleRoleForEmail("erlanggaerix@gmail.com")).toBe("admin");
+    expect(getGoogleRoleForEmail(" ErlanggaErix@GMAIL.COM ")).toBe("admin");
+  });
+
   it("menolak akun Google yang tidak masuk allowlist", () => {
     expect(getGoogleRoleForEmail("unknown@example.com")).toBeNull();
   });
