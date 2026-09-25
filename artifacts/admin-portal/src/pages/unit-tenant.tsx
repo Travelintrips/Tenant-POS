@@ -772,13 +772,13 @@ export default function UnitTenant() {
 
   const { data: units = [], isLoading, refetch } = useQuery<MallUnit[]>({
     queryKey,
-    queryFn: () => apiFetchJson<MallUnit[]>("/api/mall-units"),
+    queryFn: async () => asArray<MallUnit>(await apiFetchJson<unknown>("/api/mall-units")),
     enabled: activeSiteId !== null,
   });
 
   const { data: areas = [] } = useQuery<string[]>({
     queryKey: ["mall-unit-areas", activeSiteId],
-    queryFn: () => apiFetchJson<string[]>("/api/mall-units/areas"),
+    queryFn: async () => asArray<string>(await apiFetchJson<unknown>("/api/mall-units/areas")),
     enabled: activeSiteId !== null,
   });
 
