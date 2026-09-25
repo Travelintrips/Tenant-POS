@@ -22,11 +22,16 @@ describe("admin WhatsApp group delivery log", () => {
     const values = vi.fn().mockResolvedValue(undefined);
     const insert = vi.fn(() => ({ values }));
 
-    vi.doMock("@workspace/db", () => ({
-      db: {
-        insert,
-      },
-    }));
+    vi.doMock("@workspace/db", async (importOriginal) => {
+      const actual = await importOriginal<typeof import("@workspace/db")>();
+      return {
+        ...actual,
+        db: {
+          ...actual.db,
+          insert,
+        },
+      };
+    });
 
     const { notifyAdminGroup } = await import("../lib/whatsapp");
 
