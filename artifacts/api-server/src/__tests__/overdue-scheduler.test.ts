@@ -116,6 +116,52 @@ describe("overdue invoice scheduler", () => {
     await runOverdueCheck();
     expect(eligibleCalls()).toHaveLength(1);
   });
+
+  it("melepas claim dan tidak menghitung terkirim saat Fonnte masih pending", async () => {
+    const tenant = await createTenant({
+      phone: "6281200000099",
+      status: "active",
+    });
+    tenantIds.push(tenant.id);
+
+    const invoice = await createTestInvoice(tenant.id, undefined, {
+      invoiceNumber: `INV-OVERDUE-PENDING-${Date.now()}`,
+      periodStart: "2026-09-01",
+      periodEnd: "2026-09-30",
+      dueDate: "2026-09-01",
+      status: "unpaid",
+      outstandingAmount: "100000",
+      lastOverdueReminderAt: null,
+    });
+
+    vi.mocked(sendOverdueReminder).mockResolvedValueOnce({
+      ok: true,
+      skipped: false,
+      pending: true,
+    });
+
+    const sent = await runOverdueCheck();
+    expect(sent).toBe(0);
+
+    const [updated] = await db
+      .select()
+      .from(tenantInvoicesTable)
+      .where(eq(tenantInvoicesTable.id, invoice.id));
+    expect(updated?.lastOverdueReminderAt).toBeNull();
+
+    const deliveryLogs = await db
+      .select()
+      .from(waLogsTable)
+      .where(eq(waLogsTable.invoiceId, invoice.id));
+    expect(
+      deliveryLogs.some(
+        (row) =>
+          row.messageType === "overdue_reminder" &&
+          row.status === "queued" &&
+          row.errorMessage === "Fonnte process:pending",
+      ),
+    ).toBe(true);
+  });
 });
 
 describe("due reminder H-7/H-3/H-1", () => {
@@ -164,6 +210,52 @@ describe("due reminder H-7/H-3/H-1", () => {
 
     await runMonthlyDailyReminderCheck();
     expect(calls()).toHaveLength(1);
+  });
+
+  it("melepas claim H-3 saat Fonnte pending agar dapat dicoba lagi", async () => {
+    const tenant = await createTenant({
+      phone: "6281200000012",
+      status: "active",
+    });
+    tenantIds.push(tenant.id);
+
+    const invoice = await createTestInvoice(tenant.id, undefined, {
+      invoiceNumber: `INV-DUE-H3-PENDING-${Date.now()}`,
+      periodStart: "2026-09-24",
+      periodEnd: "2026-10-23",
+      dueDate: "2026-09-27",
+      status: "unpaid",
+      outstandingAmount: "100000",
+      lastPaymentReminderAt: null,
+    });
+
+    vi.mocked(sendDueReminder).mockResolvedValueOnce({
+      ok: true,
+      skipped: false,
+      pending: true,
+    });
+
+    const result = await runMonthlyDailyReminderCheck();
+    expect(result.h3).toBe(0);
+
+    const [updated] = await db
+      .select()
+      .from(tenantInvoicesTable)
+      .where(eq(tenantInvoicesTable.id, invoice.id));
+    expect(updated?.lastPaymentReminderAt).toBeNull();
+
+    const deliveryLogs = await db
+      .select()
+      .from(waLogsTable)
+      .where(eq(waLogsTable.invoiceId, invoice.id));
+    expect(
+      deliveryLogs.some(
+        (row) =>
+          row.messageType === "due_reminder" &&
+          row.status === "queued" &&
+          row.errorMessage === "Fonnte process:pending",
+      ),
+    ).toBe(true);
   });
 });
 
