@@ -27,6 +27,7 @@ import { useSite } from "@/contexts/site-context";
 import { useToast } from "@/hooks/use-toast";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { apiFetch } from "@/lib/api";
+import { arrayField } from "@/lib/api-shape";
 
 const BASE = "";
 
@@ -190,7 +191,8 @@ export default function Dashboard() {
     queryFn: async () => {
       const res = await apiFetch(`${BASE}/api/laporan/summary?tahun=${tahun}`, { headers: siteHeader });
       if (!res.ok) throw new Error("Gagal memuat grafik");
-      return res.json();
+      const data = await res.json();
+      return { ...data, monthly: arrayField<MonthlySummary>(data, "monthly") };
     },
     refetchInterval: 120_000,
     enabled: activeSiteId !== null,
@@ -212,7 +214,8 @@ export default function Dashboard() {
     queryFn: async () => {
       const res = await apiFetch(`${BASE}/api/dashboard/paid-trend`, { headers: siteHeader });
       if (!res.ok) return { trend: [] };
-      return res.json();
+      const data = await res.json();
+      return { ...data, trend: arrayField<TrendPoint>(data, "trend") };
     },
     refetchInterval: 120_000,
     enabled: activeSiteId !== null,
@@ -223,7 +226,15 @@ export default function Dashboard() {
     queryFn: async () => {
       const res = await apiFetch(`${BASE}/api/tenant-invoices/upcoming`, { headers: siteHeader });
       if (!res.ok) return { count: 0, overdueCount: 0, upcomingCount: 0, overdue: [], upcoming: [] };
-      return res.json();
+      const data = await res.json();
+      return {
+        ...data,
+        count: Number(data?.count ?? 0),
+        overdueCount: Number(data?.overdueCount ?? 0),
+        upcomingCount: Number(data?.upcomingCount ?? 0),
+        overdue: arrayField<UpcomingItem>(data, "overdue"),
+        upcoming: arrayField<UpcomingItem>(data, "upcoming"),
+      };
     },
     refetchInterval: 60_000,
     enabled: activeSiteId !== null,
