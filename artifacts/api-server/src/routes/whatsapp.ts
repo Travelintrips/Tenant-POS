@@ -102,6 +102,23 @@ router.post("/whatsapp/invoice/:id/send", async (req, res) => {
       .where(eq(tenantInvoicesTable.id, id));
 
     if (!invoice) { res.status(404).json({ error: "Invoice tidak ditemukan" }); return; }
+    if (invoice.status === "cancelled") {
+      res.status(409).json({ ok: false, error: "Invoice yang dibatalkan tidak dapat dikirim sebagai tagihan" });
+      return;
+    }
+    if (invoice.status === "paid") {
+      res.status(409).json({ ok: false, error: "Invoice sudah lunas dan tidak perlu ditagih" });
+      return;
+    }
+    if (invoice.periodStart) {
+      const todayWib = new Intl.DateTimeFormat("en-CA", {
+        timeZone: "Asia/Jakarta", year: "numeric", month: "2-digit", day: "2-digit",
+      }).format(new Date());
+      if (invoice.periodStart > todayWib) {
+        res.status(409).json({ ok: false, error: "Periode invoice belum dimulai sehingga belum dapat ditagih" });
+        return;
+      }
+    }
     if (!invoice.phone) { res.status(400).json({ error: "Nomor HP tenant tidak terdaftar" }); return; }
 
     // Cooldown 6 jam — cegah kirim berulang untuk invoice yang sama
@@ -202,6 +219,10 @@ router.post("/whatsapp/invoice/:id/overdue-reminder", async (req, res) => {
       .where(eq(tenantInvoicesTable.id, id));
 
     if (!invoice) { res.status(404).json({ error: "Invoice tidak ditemukan" }); return; }
+    if (invoice.status !== "overdue" || Number(invoice.outstandingAmount ?? 0) <= 0) {
+      res.status(409).json({ ok: false, error: "Pengingat overdue hanya dapat dikirim untuk invoice overdue dengan sisa tagihan aktif" });
+      return;
+    }
     if (!invoice.phone) { res.status(400).json({ error: "Nomor HP tenant tidak terdaftar" }); return; }
 
     // Cooldown 24 jam — pengingat overdue tidak boleh dikirim lebih dari sekali sehari

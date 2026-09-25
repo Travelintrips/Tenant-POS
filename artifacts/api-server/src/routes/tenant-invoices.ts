@@ -465,6 +465,14 @@ router.get("/tenant-invoices/:id/payment-link", async (req, res) => {
       .where(eq(tenantInvoicesTable.id, id));
 
     if (!row) { res.status(404).json({ error: "Invoice tidak ditemukan" }); return; }
+    if (row.status === "cancelled") {
+      res.status(409).json({ error: "Invoice yang dibatalkan tidak memiliki piutang aktif atau link pembayaran" });
+      return;
+    }
+    if (row.status === "paid") {
+      res.status(409).json({ error: "Invoice sudah lunas dan tidak memerlukan link pembayaran" });
+      return;
+    }
 
     if (!row.paymentToken) {
       res.status(422).json({ error: "Invoice ini belum memiliki token pembayaran. Coba kirim link WA terlebih dahulu untuk membuat token." });
@@ -1041,8 +1049,25 @@ router.post("/tenant-invoices/:id/cancel", async (req, res) => {
       .where(eq(tenantInvoicesTable.id, id));
 
     if (!existing) { res.status(404).json({ error: "Invoice tidak ditemukan" }); return; }
+    if (existing.status === "cancelled") {
+      res.json(existing);
+      return;
+    }
     if (existing.status === "paid") {
       res.status(409).json({ error: "Invoice yang sudah lunas tidak dapat dibatalkan" });
+      return;
+    }
+
+    const [existingPayment] = await db
+      .select({ id: tenantPaymentsTable.id })
+      .from(tenantPaymentsTable)
+      .where(eq(tenantPaymentsTable.invoiceId, id))
+      .limit(1);
+
+    if (Number(existing.paidAmount ?? 0) > 0 || existingPayment) {
+      res.status(409).json({
+        error: "Invoice yang sudah memiliki pembayaran tidak dapat dibatalkan. Lakukan koreksi/refund sesuai prosedur pembayaran.",
+      });
       return;
     }
 
@@ -1373,6 +1398,10 @@ router.delete("/tenant-invoices/:id", requireAnyRole("owner", "admin"), async (r
       res.status(409).json({ error: "Invoice yang sudah lunas tidak dapat dihapus" });
       return;
     }
+    if (existing.status === "cancelled") {
+      res.status(409).json({ error: "Invoice yang dibatalkan dipertahankan sebagai histori audit dan tidak dapat dihapus" });
+      return;
+    }
 
     const relatedPayments = await db
       .select()
@@ -1490,7 +1519,7 @@ router.get("/tenant-invoices/export", async (req, res) => {
         Number(r.subtotal ?? 0),
         Number(r.totalAmount ?? 0),
         Number(r.paidAmount ?? 0),
-        Number(r.outstandingAmount ?? 0),
+        r.status === "cancelled" ? 0 : Number(r.outstandingAmount ?? 0),
         esc(STATUS_ID[r.status] ?? r.status),
         esc(r.notes),
         esc(fmtDate(r.createdAt?.toISOString())),
@@ -1522,6 +1551,7 @@ router.post("/tenant-invoices/:id/send-pdf", uploadPdfMemory.single("pdf"), asyn
         tenantId: tenantInvoicesTable.tenantId,
         siteId: tenantInvoicesTable.siteId,
         totalAmount: tenantInvoicesTable.totalAmount,
+        status: tenantInvoicesTable.status,
         dueDate: tenantInvoicesTable.dueDate,
         ownerName: tenantsTable.ownerName,
         businessName: tenantsTable.businessName,
@@ -1532,6 +1562,10 @@ router.post("/tenant-invoices/:id/send-pdf", uploadPdfMemory.single("pdf"), asyn
       .where(eq(tenantInvoicesTable.id, id));
 
     if (!invoice) { res.status(404).json({ error: "Invoice tidak ditemukan" }); return; }
+    if (invoice.status === "cancelled") {
+      res.status(409).json({ error: "Invoice yang dibatalkan tidak dapat dikirim sebagai tagihan" });
+      return;
+    }
     if (!invoice.phone) { res.status(400).json({ error: "Nomor HP tenant tidak terdaftar" }); return; }
 
     const filename = `invoice-${invoice.invoiceNumber}-${Date.now()}.pdf`;

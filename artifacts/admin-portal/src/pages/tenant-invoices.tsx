@@ -195,6 +195,10 @@ function isActiveReceivable(inv: Pick<Invoice, "periodStart" | "status" | "outst
   return Number(inv.outstandingAmount ?? 0) > 0;
 }
 
+function effectiveOutstanding(inv: Pick<Invoice, "status" | "outstandingAmount">): number {
+  return inv.status === "cancelled" ? 0 : Number(inv.outstandingAmount ?? 0);
+}
+
 // ─── CSV Export ───────────────────────────────────────────────────────────────
 
 type ExportableInvoice = {
@@ -268,7 +272,7 @@ function exportInvoicesToCSV(rows: ExportableInvoice[], filename: string) {
       Number(r.taxAmount               ?? 0),
       Number(r.totalAmount             ?? 0),
       Number(r.paidAmount              ?? 0),
-      Number(r.outstandingAmount       ?? 0),
+      r.status === "cancelled" ? 0 : Number(r.outstandingAmount ?? 0),
       csvEscape(STATUS_ID[r.status] ?? r.status),
       csvEscape(r.notes),
       csvEscape(r.createdAt ? new Date(r.createdAt).toLocaleDateString("id-ID") : null),
@@ -330,7 +334,7 @@ async function exportInvoicesToPDF(rows: ExportableInvoice[], filename: string, 
     r.dueDate ? new Date(r.dueDate).toLocaleDateString("id-ID") : "-",
     fmtRp(r.totalAmount),
     fmtRp(r.paidAmount),
-    fmtRp(r.outstandingAmount),
+    fmtRp(r.status === "cancelled" ? 0 : r.outstandingAmount),
     STATUS_ID_PDF[r.status] ?? r.status,
   ]);
 
@@ -1159,7 +1163,7 @@ export default function TenantInvoices() {
   });
 
   async function handleBulkSendPdf() {
-    const toSend = filteredInvoices.filter(inv => selectedIds.has(inv.id) && inv.phone);
+    const toSend = filteredInvoices.filter(inv => selectedIds.has(inv.id) && inv.phone && inv.status !== "cancelled" && !isFutureInvoicePeriod(inv));
     if (toSend.length === 0) {
       toast({ title: "Tidak ada penerima", description: "Invoice yang dipilih tidak memiliki nomor HP tenant.", variant: "destructive" });
       return;
@@ -2082,7 +2086,7 @@ export default function TenantInvoices() {
               >
                 {bulkSendProgress !== null
                   ? <><Loader2 className="h-3.5 w-3.5 animate-spin" />Mengirim {bulkSendProgress.current}/{bulkSendProgress.total}...</>
-                  : <><Send className="h-3.5 w-3.5" />Blast PDF ke WA ({filteredInvoices.filter(inv => selectedIds.has(inv.id) && inv.phone).length})</>
+                  : <><Send className="h-3.5 w-3.5" />Blast PDF ke WA ({filteredInvoices.filter(inv => selectedIds.has(inv.id) && inv.phone && inv.status !== "cancelled" && !isFutureInvoicePeriod(inv)).length})</>
                 }
               </Button>
               <Button
@@ -2197,8 +2201,12 @@ export default function TenantInvoices() {
                       <TableCell className="text-sm">{formatDate(inv.dueDate)}</TableCell>
                       <TableCell className="text-sm font-medium">{formatRupiah(inv.totalAmount)}</TableCell>
                       <TableCell className="text-sm text-green-600">{formatRupiah(inv.paidAmount)}</TableCell>
-                      <TableCell className={`text-sm font-semibold ${isFuturePeriod ? "text-muted-foreground" : Number(inv.outstandingAmount) > 0 ? "text-orange-600" : "text-green-600"}`}>
-                        {isFuturePeriod ? "Belum menjadi piutang" : formatRupiah(inv.outstandingAmount)}
+                      <TableCell className={`text-sm font-semibold ${inv.status === "cancelled" || isFuturePeriod ? "text-muted-foreground" : effectiveOutstanding(inv) > 0 ? "text-orange-600" : "text-green-600"}`}>
+                        {inv.status === "cancelled"
+                          ? "Tidak menjadi piutang"
+                          : isFuturePeriod
+                            ? "Belum menjadi piutang"
+                            : formatRupiah(effectiveOutstanding(inv))}
                       </TableCell>
                       <TableCell>
                         {isFuturePeriod ? (
@@ -2298,7 +2306,7 @@ export default function TenantInvoices() {
                               : <Download className="h-3.5 w-3.5" />
                             }
                           </Button>
-                          {inv.phone && (
+                          {inv.phone && inv.status !== "cancelled" && (
                             <Button
                               size="sm" variant="ghost"
                               className="h-7 w-7 p-0 text-violet-600 hover:text-violet-700"
@@ -2320,7 +2328,7 @@ export default function TenantInvoices() {
                               <X className="h-3.5 w-3.5" />
                             </Button>
                           )}
-                          {inv.status !== "paid" && (
+                          {inv.status !== "paid" && inv.status !== "cancelled" && (
                             <Button
                               size="sm"
                               variant="ghost"
