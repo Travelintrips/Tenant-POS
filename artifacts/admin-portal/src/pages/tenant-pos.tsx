@@ -1024,7 +1024,7 @@ function SummaryCards({ overview, loading, error }: { overview?: Overview; loadi
   }
 
   return (
-    <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+    <div className="grid grid-cols-1 min-[380px]:grid-cols-2 lg:grid-cols-4 gap-3">
       {cards.map((c) => (
         <div key={c.label} className={cn("relative rounded-2xl border bg-gradient-to-br shadow-sm overflow-hidden", c.gradient, c.border)}>
           <div className={cn("absolute top-0 left-0 w-1 h-full rounded-l-2xl", c.accent)} />
