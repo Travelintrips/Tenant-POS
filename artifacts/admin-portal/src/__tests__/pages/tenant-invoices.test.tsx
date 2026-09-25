@@ -172,4 +172,49 @@ describe("Fase 3 — Halaman Invoice Tenant (Frontend)", () => {
       expect(screen.getByText("INV-TENANT/202601/00002")).toBeInTheDocument();
     }, { timeout: 5000 });
   });
+
+  it("Total Tunggakan mengecualikan invoice future tetapi tetap menghitung tunggakan lama", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-25T03:00:00.000Z"));
+
+    const invoices = [
+      {
+        ...mockInvoices[0],
+        id: 101,
+        invoiceNumber: "INV-CURRENT-001",
+        periodStart: "2026-09-01",
+        periodEnd: "2026-09-30",
+        status: "unpaid",
+        outstandingAmount: "5000000",
+      },
+      {
+        ...mockInvoices[0],
+        id: 102,
+        invoiceNumber: "INV-OLD-001",
+        periodStart: "2026-08-01",
+        periodEnd: "2026-08-31",
+        status: "overdue",
+        outstandingAmount: "3000000",
+      },
+      {
+        ...mockInvoices[0],
+        id: 103,
+        invoiceNumber: "INV-FUTURE-001",
+        periodStart: "2026-10-01",
+        periodEnd: "2026-10-31",
+        status: "unpaid",
+        outstandingAmount: "7000000",
+      },
+    ];
+
+    setupMock(invoices);
+    const TenantInvoices = (await import("@/pages/tenant-invoices")).default;
+    renderInvoicePage(TenantInvoices);
+
+    expect(await screen.findByText("Rp 8.000.000")).toBeInTheDocument();
+    expect(screen.queryByText("Rp 15.000.000")).not.toBeInTheDocument();
+
+    vi.useRealTimers();
+  });
+
 });
