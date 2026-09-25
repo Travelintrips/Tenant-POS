@@ -7,7 +7,7 @@
  */
 
 import { db } from "@workspace/db";
-import { usersTable, systemSettingsTable } from "@workspace/db/schema";
+import { usersTable, systemSettingsTable, waLogsTable } from "@workspace/db/schema";
 import { sql, and, inArray, eq } from "drizzle-orm";
 import { logger } from "./logger";
 
@@ -1007,6 +1007,45 @@ export interface AdminGroupPaymentParams {
   daysUntilDue?: number | null;
   daysOverdue?: number | null;
   paymentLink?: string | null;
+  siteId?: number | null;
+  tenantId?: number | null;
+  invoiceId?: number | null;
+}
+
+async function recordAdminGroupDelivery(
+  params: AdminGroupPaymentParams,
+  groupJid: string,
+  result: WaResult,
+): Promise<void> {
+  const status = result.skipped
+    ? "skipped"
+    : !result.ok
+      ? "failed"
+      : result.pending
+        ? "queued"
+        : "accepted";
+
+  const errorMessage = result.pending
+    ? "Fonnte process:pending"
+    : result.error ?? null;
+
+  try {
+    await db.insert(waLogsTable).values({
+      siteId: params.siteId ?? null,
+      tenantId: params.tenantId ?? null,
+      invoiceId: params.invoiceId ?? null,
+      phone: groupJid,
+      messageType: `admin_group_${params.eventType}`,
+      status,
+      errorMessage,
+      sentBy: "admin_group",
+    });
+  } catch (err) {
+    logger.warn(
+      { err, invoiceId: params.invoiceId, eventType: params.eventType },
+      "[WA] Gagal menyimpan delivery log group admin",
+    );
+  }
 }
 
 /**
@@ -1026,8 +1065,10 @@ export async function notifyAdminGroup(params: AdminGroupPaymentParams): Promise
   const groupJid = process.env.ADMIN_WA_GROUP?.trim();
   if (!groupJid) return { ok: true, skipped: true };
   if (!/^\d+@g\.us$/.test(groupJid)) {
+    const result: WaResult = { ok: false, error: "ADMIN_WA_GROUP format tidak valid" };
     logger.error("[WA] ADMIN_WA_GROUP format tidak valid; expected numeric group JID ending @g.us");
-    return { ok: false, error: "ADMIN_WA_GROUP format tidak valid" };
+    await recordAdminGroupDelivery(params, groupJid, result);
+    return result;
   }
 
   const dedupeKey = [
@@ -1121,9 +1162,14 @@ export async function notifyAdminGroup(params: AdminGroupPaymentParams): Promise
     reviewLine +
     payLinkLine;
 
-  const sendPromise = sendMessage(groupJid, message).then((result) => {
-    // Kegagalan boleh dicoba lagi; status sukses/pending tetap dideduplikasi.
-    if (!result.ok) groupNotificationCache.delete(dedupeKey);
+  const sendPromise = sendMessage(groupJid, message).then(async (result) => {
+    await recordAdminGroupDelivery(params, groupJid, result);
+
+    // Hanya delivery yang benar-benar accepted yang boleh dideduplikasi.
+    // queued/pending/skipped/failed harus dapat dicoba lagi.
+    if (!result.ok || result.pending || result.skipped) {
+      groupNotificationCache.delete(dedupeKey);
+    }
     return result;
   });
   groupNotificationCache.set(dedupeKey, {
