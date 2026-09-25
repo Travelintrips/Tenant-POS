@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiFetch, apiFetchJson } from "@/lib/api";
+import { asArray } from "@/lib/api-shape";
 import { useAuth } from "@/hooks/use-auth";
 import { useSite } from "@/contexts/site-context";
 import { useToast } from "@/hooks/use-toast";
