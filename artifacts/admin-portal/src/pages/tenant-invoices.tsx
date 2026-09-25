@@ -175,6 +175,20 @@ function formatPeriod(start: string | null, end: string | null): string {
   return `${s} – ${e}`;
 }
 
+function jakartaDateKey(date = new Date()): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Jakarta",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(date);
+}
+
+function isFutureInvoicePeriod(inv: Pick<Invoice, "periodStart" | "status">): boolean {
+  if (!inv.periodStart || inv.status === "paid" || inv.status === "cancelled") return false;
+  return inv.periodStart > jakartaDateKey();
+}
+
 // ─── CSV Export ───────────────────────────────────────────────────────────────
 
 type ExportableInvoice = {
@@ -2128,7 +2142,9 @@ export default function TenantInvoices() {
                       </TableCell>
                     </TableRow>
                   )
-                  : filteredInvoices.map((inv) => (
+                  : filteredInvoices.map((inv) => {
+                    const isFuturePeriod = isFutureInvoicePeriod(inv);
+                    return (
                     <TableRow
                       key={inv.id}
                       className={`cursor-pointer hover:bg-muted/30 ${selectedIds.has(inv.id) ? "bg-violet-50/60" : ""}`}
@@ -2170,14 +2186,21 @@ export default function TenantInvoices() {
                       <TableCell className="text-sm">{formatDate(inv.dueDate)}</TableCell>
                       <TableCell className="text-sm font-medium">{formatRupiah(inv.totalAmount)}</TableCell>
                       <TableCell className="text-sm text-green-600">{formatRupiah(inv.paidAmount)}</TableCell>
-                      <TableCell className={`text-sm font-semibold ${Number(inv.outstandingAmount) > 0 ? "text-orange-600" : "text-green-600"}`}>
-                        {formatRupiah(inv.outstandingAmount)}
+                      <TableCell className={`text-sm font-semibold ${isFuturePeriod ? "text-muted-foreground" : Number(inv.outstandingAmount) > 0 ? "text-orange-600" : "text-green-600"}`}>
+                        {isFuturePeriod ? "Belum menjadi piutang" : formatRupiah(inv.outstandingAmount)}
                       </TableCell>
                       <TableCell>
-                        <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium ${STATUS_CLASS[inv.status]}`}>
-                          {STATUS_ICON[inv.status]}
-                          {STATUS_LABEL[inv.status]}
-                        </span>
+                        {isFuturePeriod ? (
+                          <span className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium bg-slate-50 text-slate-600 border-slate-200">
+                            <Clock className="h-3.5 w-3.5" />
+                            Akan Datang
+                          </span>
+                        ) : (
+                          <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium ${STATUS_CLASS[inv.status]}`}>
+                            {STATUS_ICON[inv.status]}
+                            {STATUS_LABEL[inv.status]}
+                          </span>
+                        )}
                       </TableCell>
                       <TableCell className="text-xs">
                         {inv.invoiceNotifiedAt ? (
@@ -2194,13 +2217,13 @@ export default function TenantInvoices() {
                       </TableCell>
                       <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
                         <div className="flex items-center justify-end gap-1 flex-wrap">
-                          {inv.status !== "paid" && inv.status !== "cancelled" && (
+                          {!isFuturePeriod && inv.status !== "paid" && inv.status !== "cancelled" && (
                             <Button size="sm" variant="outline" className="h-7 px-2 text-xs gap-1" onClick={() => openPayment(inv)}>
                               <CreditCard className="h-3 w-3" />
                               Bayar
                             </Button>
                           )}
-                          {inv.status !== "paid" && inv.status !== "cancelled" && inv.phone && (
+                          {!isFuturePeriod && inv.status !== "paid" && inv.status !== "cancelled" && inv.phone && (
                             <Button
                               size="sm"
                               variant="outline"
@@ -2216,7 +2239,7 @@ export default function TenantInvoices() {
                               Kirim Link
                             </Button>
                           )}
-                          {inv.status !== "paid" && inv.status !== "cancelled" && (
+                          {!isFuturePeriod && inv.status !== "paid" && inv.status !== "cancelled" && (
                             <Button
                               size="sm"
                               variant="outline"
@@ -2232,7 +2255,7 @@ export default function TenantInvoices() {
                               Salin Link
                             </Button>
                           )}
-                          {inv.status !== "paid" && inv.status !== "cancelled" && inv.phone && (
+                          {!isFuturePeriod && inv.status !== "paid" && inv.status !== "cancelled" && inv.phone && (
                             <Button
                               size="sm" variant="ghost"
                               className={`h-7 w-7 p-0 ${inv.status === "overdue" ? "text-red-500 hover:text-red-600" : "text-emerald-600 hover:text-emerald-700"}`}
@@ -2281,7 +2304,7 @@ export default function TenantInvoices() {
                           <Button size="sm" variant="ghost" className="h-7 w-7 p-0" title="Print" onClick={() => { void viewOrPrintInvoice(inv, "print"); }}>
                             <Printer className="h-3.5 w-3.5" />
                           </Button>
-                          {inv.status !== "paid" && inv.status !== "cancelled" && (
+                          {!isFuturePeriod && inv.status !== "paid" && inv.status !== "cancelled" && (
                             <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-destructive hover:text-destructive" title="Batalkan" onClick={() => setCancelTarget(inv)}>
                               <X className="h-3.5 w-3.5" />
                             </Button>
@@ -2300,7 +2323,8 @@ export default function TenantInvoices() {
                         </div>
                       </TableCell>
                     </TableRow>
-                  ))
+                    );
+                  })
                 }
               </TableBody>
             </Table>

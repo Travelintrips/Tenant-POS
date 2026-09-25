@@ -95,10 +95,24 @@ router.get("/dashboard/summary", async (req, res) => {
       }).from(tenantsTable).where(and(tenantClause, tenantCompany)),
 
       db.select({
-        overdue:      sql<number>`COUNT(*) FILTER (WHERE ${tenantInvoicesTable.status} = 'overdue')::int`,
-        unpaid:       sql<number>`COUNT(*) FILTER (WHERE ${tenantInvoicesTable.status} = 'unpaid')::int`,
-        partial:      sql<number>`COUNT(*) FILTER (WHERE ${tenantInvoicesTable.status} = 'partial')::int`,
-        totalPiutang: sql<number>`COALESCE(SUM(${tenantInvoicesTable.outstandingAmount}) FILTER (WHERE ${tenantInvoicesTable.status} NOT IN ('paid','cancelled')), 0)::numeric`,
+        // Invoice periode mendatang tetap tersimpan, tetapi belum menjadi tagihan/piutang aktif.
+        // Aktivasi mengikuti period_start dalam timezone bisnis Asia/Jakarta.
+        overdue: sql<number>`COUNT(*) FILTER (
+          WHERE ${tenantInvoicesTable.status} = 'overdue'
+            AND (${tenantInvoicesTable.periodStart} IS NULL OR ${tenantInvoicesTable.periodStart} <= (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Jakarta')::date)
+        )::int`,
+        unpaid: sql<number>`COUNT(*) FILTER (
+          WHERE ${tenantInvoicesTable.status} = 'unpaid'
+            AND (${tenantInvoicesTable.periodStart} IS NULL OR ${tenantInvoicesTable.periodStart} <= (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Jakarta')::date)
+        )::int`,
+        partial: sql<number>`COUNT(*) FILTER (
+          WHERE ${tenantInvoicesTable.status} = 'partial'
+            AND (${tenantInvoicesTable.periodStart} IS NULL OR ${tenantInvoicesTable.periodStart} <= (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Jakarta')::date)
+        )::int`,
+        totalPiutang: sql<number>`COALESCE(SUM(${tenantInvoicesTable.outstandingAmount}) FILTER (
+          WHERE ${tenantInvoicesTable.status} NOT IN ('paid','cancelled')
+            AND (${tenantInvoicesTable.periodStart} IS NULL OR ${tenantInvoicesTable.periodStart} <= (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Jakarta')::date)
+        ), 0)::numeric`,
       }).from(tenantInvoicesTable).where(and(invClause, invoiceCompany)),
 
       db.select({
