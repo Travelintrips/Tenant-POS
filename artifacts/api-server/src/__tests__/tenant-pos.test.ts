@@ -100,6 +100,7 @@ describe("Fase 4 — POS Pembayaran", () => {
       const res = await cashier.get("/api/tenant-pos/overview");
       expect(res.status).toBe(200);
     });
+
   });
 
   describe("GET /api/tenant-pos/floor-plan", () => {
@@ -107,6 +108,39 @@ describe("Fase 4 — POS Pembayaran", () => {
       const res = await owner.get("/api/tenant-pos/floor-plan");
       expect(res.status).toBe(200);
       expect(Array.isArray(res.body)).toBe(true);
+    });
+
+    it("tenant dengan invoice berjalan lunas tetap LUNAS walau punya invoice future belum bayar", async () => {
+      const tenant = await createTestTenant();
+
+      await createTestInvoice(tenant.id, undefined, {
+        periodStart: "2020-09-01",
+        periodEnd: "2020-09-30",
+        totalAmount: "1500000",
+        paidAmount: "1500000",
+        outstandingAmount: "0",
+        status: "paid",
+      });
+
+      await createTestInvoice(tenant.id, undefined, {
+        periodStart: "2099-10-01",
+        periodEnd: "2099-10-31",
+        totalAmount: "3000000",
+        paidAmount: "0",
+        outstandingAmount: "3000000",
+        status: "unpaid",
+      });
+
+      const floor = await owner.get("/api/tenant-pos/floor-plan");
+      expect(floor.status).toBe(200);
+      const item = floor.body.find((row: any) => row.tenantId === tenant.id);
+      expect(item).toBeTruthy();
+      expect(item.paymentStatus).toBe("PAID");
+      expect(item.openInvoiceCount).toBe(0);
+
+      const invoices = await owner.get(`/api/tenant-pos/tenants/${tenant.id}/invoices`);
+      expect(invoices.status).toBe(200);
+      expect(invoices.body).toEqual([]);
     });
   });
 
