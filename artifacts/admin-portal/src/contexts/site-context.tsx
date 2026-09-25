@@ -42,10 +42,13 @@ const SiteContext = createContext<SiteContextValue>({
 export function SiteProvider({ children }: { children: React.ReactNode }) {
   const queryClient = useQueryClient();
   const { data: user } = useAuth();
+  const bootstrapSites = Array.isArray(user?.sites)
+    ? (user.sites as MallSite[]).filter((s) => s.status === "active")
+    : [];
 
-  const { data: sites = [], isLoading } = useQuery<MallSite[]>({
+  const { data: fetchedSites = [], isLoading: sitesQueryLoading } = useQuery<MallSite[]>({
     queryKey: ["sites"],
-    enabled: !!user,
+    enabled: !!user && bootstrapSites.length === 0,
     queryFn: () => fetch("/api/sites", { credentials: "include" }).then((r) => {
       if (!r.ok) return [];
       return r.json().then((d: unknown) =>
@@ -54,6 +57,9 @@ export function SiteProvider({ children }: { children: React.ReactNode }) {
     }),
     staleTime: 5 * 60 * 1000,
   });
+
+  const sites = bootstrapSites.length > 0 ? bootstrapSites : fetchedSites;
+  const isLoading = !!user && bootstrapSites.length === 0 && sitesQueryLoading;
 
   const [activeSite, setActiveSiteState] = useState<MallSite | null>(null);
 

@@ -49,6 +49,7 @@ import { getPaymentDateLabel } from "@/lib/payment-date-label";
 import { useToast } from "@/hooks/use-toast";
 import { useSite } from "@/contexts/site-context";
 import { apiFetch } from "@/lib/api";
+import { asArray } from "@/lib/api-shape";
 
 function formatRupiah(val: number | string | null | undefined) {
   if (val == null || val === "") return "Rp 0";
@@ -191,7 +192,8 @@ export default function RiwayatPembayaran() {
     queryFn: async () => {
       const res = await apiFetch(`/api/tenant-pos/payments-history?${params}`);
       if (!res.ok) throw new Error("Gagal mengambil data");
-      return res.json();
+      const payload = await res.json();
+      return { ...payload, data: asArray<Payment>(payload?.data ?? payload) };
     },
     placeholderData: (prev) => prev,
     enabled: activeSiteId !== null,

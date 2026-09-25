@@ -444,6 +444,29 @@ router.get("/auth/me", authMeRateLimiter, async (req, res) => {
     tenantAccess = await getTenantAccess(user.dbId);
   }
 
+  // Bootstrap site metadata in the auth response so the frontend does not
+  // perform auth -> sites -> page-data as three sequential network round trips.
+  const activeSites = await db
+    .select({
+      id: mallSitesTable.id,
+      code: mallSitesTable.code,
+      name: mallSitesTable.name,
+      type: mallSitesTable.type,
+      status: mallSitesTable.status,
+      companyName: mallSitesTable.companyName,
+    })
+    .from(mallSitesTable)
+    .where(eq(mallSitesTable.status, "active"));
+
+  const allowedSiteIds = new Set(user.allowedSites ?? []);
+  const bootstrapSites =
+    user.role === "owner" || user.role === "admin"
+      ? activeSites
+      : allowedSiteIds.size > 0
+        ? activeSites.filter((site) => allowedSiteIds.has(site.id))
+        : activeSites.filter((site) => site.code === "TOD_M1_BANDARA").slice(0, 1);
+
+  res.setHeader("Cache-Control", "private, no-store");
   res.json({
     id: user.id,
     dbId: user.dbId,
@@ -453,6 +476,7 @@ router.get("/auth/me", authMeRateLimiter, async (req, res) => {
     avatar: user.avatar,
     role: user.role,
     allowedSites: user.allowedSites ?? [],
+    sites: bootstrapSites,
     ...(user.role === "tenant_user" ? { tenantAccess: tenantAccess ?? [] } : {}),
   });
 });

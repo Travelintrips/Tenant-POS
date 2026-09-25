@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, useState } from "react";
+import React, { Suspense, useRef, useEffect, useState } from "react";
 import { Link, useLocation } from "wouter";
 import {
   Sidebar,
@@ -34,6 +34,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useToast } from "@/hooks/use-toast";
 import { apiFetch } from "@/lib/api";
+import { arrayField } from "@/lib/api-shape";
 
 const ROLE_COLORS: Record<UserRole, string> = {
   owner:       "bg-purple-100 text-purple-800",
@@ -203,7 +204,15 @@ function SidebarNav({ children }: { children: React.ReactNode }) {
     queryFn: async () => {
       const res = await apiFetch("/api/tenant-invoices/upcoming");
       if (!res.ok) return { count: 0, overdueCount: 0, upcomingCount: 0, overdue: [], upcoming: [] };
-      return res.json();
+      const data = await res.json();
+      return {
+        ...data,
+        count: Number(data?.count ?? 0),
+        overdueCount: Number(data?.overdueCount ?? 0),
+        upcomingCount: Number(data?.upcomingCount ?? 0),
+        overdue: arrayField<UpcomingItem>(data, "overdue"),
+        upcoming: arrayField<UpcomingItem>(data, "upcoming"),
+      };
     },
     refetchInterval: 60_000,
     enabled: can("owner", "admin", "finance") && !!activeSite,
@@ -797,7 +806,21 @@ function SidebarNav({ children }: { children: React.ReactNode }) {
           )}
         </header>
         <main className="flex-1 p-3 sm:p-5 md:p-6 bg-muted/20 min-w-0 overflow-x-hidden">
-          {children}
+          <Suspense
+            fallback={
+              <div className="space-y-4 animate-pulse" aria-label="Memuat halaman">
+                <div className="h-8 w-52 rounded-md bg-muted" />
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="h-24 rounded-xl bg-muted" />
+                  <div className="h-24 rounded-xl bg-muted" />
+                  <div className="h-24 rounded-xl bg-muted" />
+                </div>
+                <div className="h-64 rounded-xl bg-muted" />
+              </div>
+            }
+          >
+            {children}
+          </Suspense>
         </main>
       </SidebarInset>
     </>

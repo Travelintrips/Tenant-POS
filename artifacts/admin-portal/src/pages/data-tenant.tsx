@@ -1,4 +1,5 @@
 import { apiFetch } from "@/lib/api";
+import { asArray } from "@/lib/api-shape";
 import { useState, useRef, useEffect } from "react";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
@@ -66,7 +67,7 @@ type CompanyRow = { id: number; code: string; name: string; companyName: string 
 async function fetchCompanies(): Promise<CompanyRow[]> {
   const res = await apiFetch(`${BASE}/api/companies`, { credentials: "include" });
   if (!res.ok) return [];
-  return res.json() as Promise<CompanyRow[]>;
+  return asArray<CompanyRow>(await res.json());
 }
 
 type Tenant = {
@@ -215,7 +216,7 @@ async function fetchTenants(siteId: number | null): Promise<Tenant[]> {
     headers: siteRequestHeaders(siteId),
   });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return res.json() as Promise<Tenant[]>;
+  return asArray<Tenant>(await res.json());
 }
 
 type MallUnit = {
@@ -238,7 +239,7 @@ async function fetchMallUnits(siteId: number | null): Promise<MallUnit[]> {
     headers: siteRequestHeaders(siteId),
   });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return res.json() as Promise<MallUnit[]>;
+  return asArray<MallUnit>(await res.json());
 }
 
 async function createTenant(data: TenantForm): Promise<Tenant> {
