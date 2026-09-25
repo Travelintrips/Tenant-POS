@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, useState } from "react";
+import React, { Suspense, useRef, useEffect, useState } from "react";
 import { Link, useLocation } from "wouter";
 import {
   Sidebar,
@@ -797,7 +797,21 @@ function SidebarNav({ children }: { children: React.ReactNode }) {
           )}
         </header>
         <main className="flex-1 p-3 sm:p-5 md:p-6 bg-muted/20 min-w-0 overflow-x-hidden">
-          {children}
+          <Suspense
+            fallback={
+              <div className="space-y-4 animate-pulse" aria-label="Memuat halaman">
+                <div className="h-8 w-52 rounded-md bg-muted" />
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="h-24 rounded-xl bg-muted" />
+                  <div className="h-24 rounded-xl bg-muted" />
+                  <div className="h-24 rounded-xl bg-muted" />
+                </div>
+                <div className="h-64 rounded-xl bg-muted" />
+              </div>
+            }
+          >
+            {children}
+          </Suspense>
         </main>
       </SidebarInset>
     </>
