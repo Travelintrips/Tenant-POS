@@ -326,13 +326,24 @@ if (fs.existsSync(frontendDist)) {
       // disimpan lama karena nama berubah setiap build.
       if (filePath.includes(`${path.sep}assets${path.sep}`)) {
         res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+        return;
+      }
+
+      // index.html dapat dilayani langsung oleh express.static untuk request "/".
+      // Paksa no-store agar browser/CDN tidak menahan shell lama setelah deploy.
+      if (filePath === frontendIndex || filePath.endsWith(`${path.sep}index.html`)) {
+        res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+        res.setHeader("Pragma", "no-cache");
+        res.setHeader("Expires", "0");
       }
     },
   }));
-  // SPA shell jangan di-cache lama agar deploy baru langsung memuat nama asset
-  // hashed yang baru, sementara chunk lama tetap cacheable.
+  // SPA shell untuk route seperti /tenant-invoices juga wajib selalu fresh,
+  // sementara chunk hashed tetap immutable.
   app.use((_req, res) => {
-    res.setHeader("Cache-Control", "no-cache");
+    res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+    res.setHeader("Pragma", "no-cache");
+    res.setHeader("Expires", "0");
     res.sendFile(frontendIndex);
   });
 } else {
