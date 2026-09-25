@@ -455,7 +455,6 @@ export async function runInvoiceNotificationCheck(): Promise<number> {
       });
 
       if (result.ok && !result.skipped) {
-        // Claim tetap tersimpan setelah Fonnte menerima/menaruh pesan di antrean.
         await recordSchedulerWa({
           siteId: invoice.siteId,
           tenantId: invoice.tenantId,
@@ -465,8 +464,21 @@ export async function runInvoiceNotificationCheck(): Promise<number> {
           status: result.pending ? "queued" : "accepted",
           errorMessage: result.pending ? "Fonnte process:pending" : null,
         });
+
+        // "pending" berarti Fonnte baru menerima antrean, belum ada kepastian
+        // device WhatsApp memproses pesan. Jangan menandai invoice selesai agar
+        // scheduler/manual retry berikutnya masih dapat mencoba kembali.
+        if (result.pending) {
+          await releaseInvoiceNotificationClaim(invoice.id, now);
+          logger.warn(
+            { invoiceId: invoice.id },
+            "[scheduler] Invoice masih pending di Fonnte — claim dilepas untuk retry",
+          );
+          continue;
+        }
+
         sent++;
-        void notifyAdminGroup({
+        await notifyAdminGroup({
           eventType: "invoice_sent",
           businessName: invoice.businessName,
           ownerName: invoice.ownerName,
@@ -476,7 +488,12 @@ export async function runInvoiceNotificationCheck(): Promise<number> {
           dueDate: dueStr,
           siteName: companyName,
           paymentLink,
-        }).catch(() => {});
+          siteId: invoice.siteId,
+          tenantId: invoice.tenantId,
+          invoiceId: invoice.id,
+        }).catch((err) =>
+          logger.warn({ err, invoiceId: invoice.id }, "[scheduler] Notifikasi group admin gagal"),
+        );
       } else {
         await recordSchedulerWa({
           siteId: invoice.siteId,
@@ -644,11 +661,20 @@ export async function runMonthlyDailyReminderCheck(): Promise<{ h7: number; h3: 
           errorMessage: result.pending ? "Fonnte process:pending" : null,
         });
 
+        if (result.pending) {
+          await releasePaymentReminderClaim(invoice.id, claimedAt);
+          logger.warn(
+            { invoiceId: invoice.id, daysUntilDue },
+            "[scheduler] Due reminder masih pending di Fonnte — claim dilepas untuk retry",
+          );
+          continue;
+        }
+
         if (daysUntilDue === 7) counts.h7++;
         if (daysUntilDue === 3) counts.h3++;
         if (daysUntilDue === 1) counts.h1++;
 
-        void notifyAdminGroup({
+        await notifyAdminGroup({
           eventType: "reminder",
           businessName: invoice.businessName,
           ownerName: invoice.ownerName,
@@ -658,7 +684,12 @@ export async function runMonthlyDailyReminderCheck(): Promise<{ h7: number; h3: 
           dueDate: dueStr,
           siteName: companyName,
           paymentLink,
-        }).catch(() => {});
+          siteId: invoice.siteId,
+          tenantId: invoice.tenantId,
+          invoiceId: invoice.id,
+        }).catch((err) =>
+          logger.warn({ err, invoiceId: invoice.id }, "[scheduler] Notifikasi group admin gagal"),
+        );
       } else {
         await recordSchedulerWa({
           siteId: invoice.siteId,
@@ -812,8 +843,18 @@ export async function runOverdueCheck(): Promise<number> {
           status: result.pending ? "queued" : "accepted",
           errorMessage: result.pending ? "Fonnte process:pending" : null,
         });
+
+        if (result.pending) {
+          await releaseOverdueReminderClaim(invoice.id, claimedAt);
+          logger.warn(
+            { invoiceId: invoice.id },
+            "[scheduler] Overdue reminder masih pending di Fonnte — claim dilepas untuk retry",
+          );
+          continue;
+        }
+
         sent++;
-        void notifyAdminGroup({
+        await notifyAdminGroup({
           eventType: "overdue",
           ownerName: invoice.ownerName,
           businessName: invoice.businessName,
@@ -821,7 +862,12 @@ export async function runOverdueCheck(): Promise<number> {
           amount: invoice.outstandingAmount ?? invoice.totalAmount,
           daysOverdue,
           paymentLink,
-        }).catch(() => {});
+          siteId: invoice.siteId,
+          tenantId: invoice.tenantId,
+          invoiceId: invoice.id,
+        }).catch((err) =>
+          logger.warn({ err, invoiceId: invoice.id }, "[scheduler] Notifikasi group admin gagal"),
+        );
       } else {
         await recordSchedulerWa({
           siteId: invoice.siteId,
