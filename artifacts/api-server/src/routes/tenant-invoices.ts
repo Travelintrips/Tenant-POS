@@ -339,6 +339,9 @@ router.get("/tenant-invoices/upcoming", async (req, res) => {
       .where(
         and(
           notInArray(tenantInvoicesTable.status, ["paid", "cancelled"]),
+          // Future contract invoices are pre-generated but must not be treated as
+          // current debt/upcoming collection until their billing period starts.
+          sql`(${tenantInvoicesTable.periodStart} IS NULL OR ${tenantInvoicesTable.periodStart}::date <= ${todayStr}::date)`,
           lte(tenantInvoicesTable.dueDate, in7Str),
           siteFilter,
         )
