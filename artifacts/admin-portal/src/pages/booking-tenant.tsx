@@ -1,4 +1,5 @@
 import { apiFetch } from "@/lib/api";
+import { asArray } from "@/lib/api-shape";
 import { useState, useMemo, useRef, useEffect, useCallback } from "react";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
@@ -241,7 +242,7 @@ async function fetchBookings(siteId: number | null): Promise<BookingWithTenant[]
     headers: { ...makeSiteHeaders(siteId), "Cache-Control": "no-cache" },
   });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return res.json() as Promise<BookingWithTenant[]>;
+  return asArray<BookingWithTenant>(await res.json());
 }
 
 async function fetchTenants(siteId: number | null): Promise<Tenant[]> {
@@ -250,7 +251,7 @@ async function fetchTenants(siteId: number | null): Promise<Tenant[]> {
     headers: { ...makeSiteHeaders(siteId), "Cache-Control": "no-cache" },
   });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return res.json() as Promise<Tenant[]>;
+  return asArray<Tenant>(await res.json());
 }
 
 async function createBooking(data: object): Promise<BookingWithTenant> {
