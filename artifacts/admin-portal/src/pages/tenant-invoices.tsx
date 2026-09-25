@@ -1,5 +1,5 @@
 import { apiFetch as apiFetchBase } from "@/lib/api";
-import { useState, useMemo, useRef } from "react";
+import { useState, useMemo, useRef, useEffect } from "react";
 import { useSite } from "@/contexts/site-context";
 import { PaymentHistoryModal } from "@/components/payment-history-modal";
 import { getPaymentDateLabel } from "@/lib/payment-date-label";
@@ -840,14 +840,14 @@ export default function TenantInvoices() {
 
   // Cek apakah ada bukti pending_review untuk invoice yang sedang dibuka di dialog Bayar
   const { data: pendingProofCheck } = useQuery<{ hasPending: boolean; receiptNumber?: string }>({
-    queryKey: ["pending-proof-check", paymentTarget?.id],
+    queryKey: ["pending-proof-check", activeSiteId, paymentTarget?.id],
     queryFn: async () => {
       if (!paymentTarget) return { hasPending: false };
       const rows = await apiFetchBase(`/api/pending-payments?status=pending_review`) as unknown as Array<{ invoiceId: number; receiptNumber: string }>;
       const found = rows.find((r) => r.invoiceId === paymentTarget.id);
       return { hasPending: !!found, receiptNumber: found?.receiptNumber };
     },
-    enabled: paymentOpen && !!paymentTarget,
+    enabled: activeSiteId !== null && paymentOpen && !!paymentTarget,
   });
 
   const [detailOpen, setDetailOpen] = useState(false);
@@ -873,6 +873,21 @@ export default function TenantInvoices() {
     mode: "manual" | "wa-failed" | "wa-pending";
   } | null>(null);
   const [linkCopied, setLinkCopied] = useState(false);
+
+  // Pilihan dan dialog milik site lama tidak boleh ikut tampil setelah lokasi berganti.
+  useEffect(() => {
+    setSelectedIds(new Set());
+    setPaymentOpen(false);
+    setPaymentTarget(null);
+    setDetailOpen(false);
+    setDetailTarget(null);
+    setEditOpen(false);
+    setEditTarget(null);
+    setPayHistoryOpen(false);
+    setPayHistoryInvoice(null);
+    setCancelTarget(null);
+    setDeleteTarget(null);
+  }, [activeSiteId]);
 
   // ─── Laporan PPN state ───────────────────────────────────────────────────────
   const now = new Date();
@@ -906,24 +921,28 @@ export default function TenantInvoices() {
   if (search) qParams.set("search", search);
 
   const { data: invoices, isLoading, isError } = useQuery<Invoice[]>({
-    queryKey: ["/api/tenant-invoices", filterStatus, filterTenant, filterCompany, search],
+    queryKey: ["/api/tenant-invoices", activeSiteId, filterStatus, filterTenant, filterCompany, search],
     queryFn: () => apiFetch<Invoice[]>(`${BASE}/api/tenant-invoices?${qParams}`),
     refetchInterval: 30000,
+    enabled: activeSiteId !== null,
   });
 
   const { data: tenants } = useQuery<Tenant[]>({
-    queryKey: ["/api/tenants"],
+    queryKey: ["/api/tenants", activeSiteId],
     queryFn: () => apiFetch<Tenant[]>(`${BASE}/api/tenants`),
+    enabled: activeSiteId !== null,
   });
 
   const { data: companies = [] } = useQuery<CompanyRow[]>({
-    queryKey: ["/api/companies"],
+    queryKey: ["/api/companies", activeSiteId],
     queryFn: () => apiFetch<CompanyRow[]>(`${BASE}/api/companies`),
+    enabled: activeSiteId !== null,
   });
 
   const { data: bookings } = useQuery<Booking[]>({
-    queryKey: ["/api/bookings"],
+    queryKey: ["/api/bookings", activeSiteId],
     queryFn: () => apiFetch<Booking[]>(`${BASE}/api/bookings`),
+    enabled: activeSiteId !== null,
   });
 
   type PpnReportRow = {
@@ -953,15 +972,15 @@ export default function TenantInvoices() {
   };
 
   const { data: ppnReport, isFetching: ppnLoading, refetch: refetchPpn } = useQuery<PpnReport>({
-    queryKey: ["/api/tenant-invoices/ppn-report", ppnFrom, ppnTo],
+    queryKey: ["/api/tenant-invoices/ppn-report", activeSiteId, ppnFrom, ppnTo],
     queryFn: () => apiFetch<PpnReport>(`${BASE}/api/tenant-invoices/ppn-report?from=${ppnFrom}&to=${ppnTo}`),
-    enabled: ppnOpen,
+    enabled: activeSiteId !== null && ppnOpen,
   });
 
   const { data: detailData, isLoading: detailLoading } = useQuery<Invoice>({
-    queryKey: ["/api/tenant-invoices", detailTarget?.id],
+    queryKey: ["/api/tenant-invoices/detail", activeSiteId, detailTarget?.id],
     queryFn: () => apiFetch<Invoice>(`${BASE}/api/tenant-invoices/${detailTarget!.id}`),
-    enabled: !!detailTarget,
+    enabled: activeSiteId !== null && !!detailTarget,
   });
 
   const { data: waStatus, isLoading: waStatusLoading } = useQuery<{
@@ -1071,7 +1090,7 @@ export default function TenantInvoices() {
       apiPatch<Invoice>(`${BASE}/api/tenant-invoices/${id}`, data),
     onSuccess: (updated) => {
       queryClient.invalidateQueries({ queryKey: ["/api/tenant-invoices"] });
-      queryClient.setQueryData(["/api/tenant-invoices", updated.id], updated);
+      queryClient.setQueryData(["/api/tenant-invoices/detail", activeSiteId, updated.id], updated);
       toast({ title: "Invoice Diperbarui", description: `${updated.invoiceNumber} berhasil disimpan.` });
       setEditOpen(false);
       setEditTarget(null);
@@ -1237,8 +1256,8 @@ export default function TenantInvoices() {
       apiPost<Invoice>(`${BASE}/api/tenant-invoices/${id}/recalculate`, {}),
     onSuccess: (updated) => {
       queryClient.invalidateQueries({ queryKey: ["/api/tenant-invoices"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/tenant-invoices", String(updated.id)] });
-      queryClient.setQueryData(["/api/tenant-invoices", updated.id], updated);
+      queryClient.invalidateQueries({ queryKey: ["/api/tenant-invoices/detail", activeSiteId, updated.id] });
+      queryClient.setQueryData(["/api/tenant-invoices/detail", activeSiteId, updated.id], updated);
       toast({ title: "PPN Dihitung Ulang", description: `Invoice ${updated.invoiceNumber}: subtotal ${formatRupiah(updated.subtotal)} + PPN 11% ${formatRupiah(updated.taxAmount)} = ${formatRupiah(updated.totalAmount)}` });
     },
     onError: (e: Error) => toast({ title: "Gagal Hitung Ulang", description: e.message, variant: "destructive" }),
