@@ -1,4 +1,4 @@
-import React, { useRef, useEffect } from "react";
+import React, { useRef, useEffect, useState } from "react";
 import { Link, useLocation } from "wouter";
 import {
   Sidebar,
@@ -114,6 +114,30 @@ function SidebarNav({ children }: { children: React.ReactNode }) {
 
   const role = user?.role as UserRole | undefined;
   const can = (...roles: UserRole[]) => !!role && roles.includes(role);
+  const [backgroundReady, setBackgroundReady] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    const ready = () => {
+      if (!cancelled) setBackgroundReady(true);
+    };
+    const idleWindow = window as typeof window & {
+      requestIdleCallback?: (callback: () => void, options?: { timeout: number }) => number;
+      cancelIdleCallback?: (id: number) => void;
+    };
+    if (idleWindow.requestIdleCallback) {
+      const id = idleWindow.requestIdleCallback(ready, { timeout: 1500 });
+      return () => {
+        cancelled = true;
+        idleWindow.cancelIdleCallback?.(id);
+      };
+    }
+    const id = window.setTimeout(ready, 900);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(id);
+    };
+  }, [activeSite?.id, location]);
 
   const { data: pendingCount = 0 } = useQuery<number>({
     queryKey: ["pending-payments-sidebar-count", activeSite?.id ?? null],
@@ -124,7 +148,7 @@ function SidebarNav({ children }: { children: React.ReactNode }) {
       return d.count ?? 0;
     },
     refetchInterval: 30_000,
-    enabled: can("owner", "admin", "finance") && !!activeSite,
+    enabled: backgroundReady && can("owner", "admin", "finance") && !!activeSite,
   });
 
   // ── Polling: jumlah calon tenant pending (self-register) ──────────────────
@@ -139,7 +163,7 @@ function SidebarNav({ children }: { children: React.ReactNode }) {
       return res.json();
     },
     refetchInterval: 30_000,
-    enabled: can("owner", "admin") && !!activeSite,
+    enabled: backgroundReady && can("owner", "admin") && !!activeSite,
   });
 
   const pendingRegistrationCount = pendingRegistrationData?.pendingCount ?? 0;
@@ -193,14 +217,15 @@ function SidebarNav({ children }: { children: React.ReactNode }) {
   // can render the correct dataset immediately instead of briefly showing the
   // previous site's rows while a refetch is still in flight.
   useEffect(() => {
-    if (!activeSite || !can("owner", "admin") || sites.length < 2) return;
+    if (!backgroundReady || !activeSite || !can("owner", "admin") || sites.length < 2) return;
 
-    const timer = window.setTimeout(() => {
+    let cancelled = false;
+    const run = async () => {
       for (const site of sites) {
-        if (site.id === activeSite.id) continue;
+        if (cancelled || site.id === activeSite.id) continue;
         const siteHeaders = { "x-site-id": String(site.id) };
 
-        void queryClient.prefetchQuery({
+        await queryClient.prefetchQuery({
           queryKey: ["/api/tenants", site.id],
           queryFn: async () => {
             const res = await apiFetch("/api/tenants", { headers: siteHeaders });
@@ -208,9 +233,10 @@ function SidebarNav({ children }: { children: React.ReactNode }) {
             return res.json();
           },
           staleTime: 60_000,
-        });
+        }).catch(() => undefined);
 
-        void queryClient.prefetchQuery({
+        if (cancelled) break;
+        await queryClient.prefetchQuery({
           queryKey: ["/api/mall-units", site.id],
           queryFn: async () => {
             const res = await apiFetch("/api/mall-units", { headers: siteHeaders });
@@ -218,12 +244,13 @@ function SidebarNav({ children }: { children: React.ReactNode }) {
             return res.json();
           },
           staleTime: 60_000,
-        });
+        }).catch(() => undefined);
       }
-    }, 250);
+    };
 
-    return () => window.clearTimeout(timer);
-  }, [activeSite?.id, role, sites, queryClient]);
+    void run();
+    return () => { cancelled = true; };
+  }, [backgroundReady, activeSite?.id, role, sites, queryClient]);
 
   return (
     <>
