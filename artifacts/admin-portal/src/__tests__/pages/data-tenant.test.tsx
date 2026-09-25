@@ -3,6 +3,18 @@ import { describe, it, expect, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import { renderWithProviders, withUser, mockFetchResponse } from "@/test/render-utils";
 
+const { mockUseSite } = vi.hoisted(() => ({
+  mockUseSite: vi.fn(() => ({
+    activeSite: { id: 2, code: "SPORT_CENTER_BANDARA", name: "Sport Center", type: "sport_center", status: "active" },
+    activeSiteId: 2,
+    sites: [],
+    isLoading: false,
+    setActiveSite: vi.fn(),
+  })),
+}));
+
+vi.mock("@/contexts/site-context", () => ({ useSite: mockUseSite }));
+
 const mockTenants = [
   {
     id: 1,
