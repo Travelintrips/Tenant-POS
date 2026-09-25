@@ -172,7 +172,7 @@ function DetailModal({ id, onClose }: { id: number; onClose: () => void }) {
       toast({ title: "Bukti Pembayaran Tersimpan", description: `Bukti dihubungkan ke ${data.updatedPayments ?? 0} transaksi invoice konsolidasi.` });
       setHistoricalProof(null);
       void queryClient.invalidateQueries({ queryKey: ["consolidated-invoice-detail", id] });
-      void queryClient.invalidateQueries({ queryKey: ["consolidated-invoices", activeSiteId] });
+      void queryClient.invalidateQueries({ queryKey: ["consolidated-invoices"] });
       void queryClient.invalidateQueries({ queryKey: ["payment-history"] });
     },
     onError: (e: Error) => toast({ title: "Gagal", description: e.message, variant: "destructive" }),
@@ -341,7 +341,7 @@ function DetailModal({ id, onClose }: { id: number; onClose: () => void }) {
         onSuccess={() => {
           setShowPaymentModal(false);
           queryClient.invalidateQueries({ queryKey: ["consolidated-invoice-detail", id] });
-          queryClient.invalidateQueries({ queryKey: ["consolidated-invoices", activeSiteId] });
+          queryClient.invalidateQueries({ queryKey: ["consolidated-invoices"] });
         }}
       />
     )}
