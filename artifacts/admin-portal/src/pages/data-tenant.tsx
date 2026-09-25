@@ -203,8 +203,17 @@ function proxyLogoUrl(url: string | null | undefined): string | null {
   return `/api/logo-proxy?url=${encodeURIComponent(url)}`;
 }
 
-async function fetchTenants(): Promise<Tenant[]> {
-  const res = await apiFetch(`${BASE}/api/tenants`, { credentials: "include" });
+function siteRequestHeaders(siteId: number | null): Record<string, string> {
+  if (siteId === 0) return { "x-site-code": "ALL" };
+  if (siteId && siteId > 0) return { "x-site-id": String(siteId) };
+  return {};
+}
+
+async function fetchTenants(siteId: number | null): Promise<Tenant[]> {
+  const res = await apiFetch(`${BASE}/api/tenants`, {
+    credentials: "include",
+    headers: siteRequestHeaders(siteId),
+  });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json() as Promise<Tenant[]>;
 }
@@ -223,8 +232,11 @@ type MallUnit = {
   bookingId: number | null;
 };
 
-async function fetchMallUnits(): Promise<MallUnit[]> {
-  const res = await apiFetch(`${BASE}/api/mall-units`, { credentials: "include" });
+async function fetchMallUnits(siteId: number | null): Promise<MallUnit[]> {
+  const res = await apiFetch(`${BASE}/api/mall-units`, {
+    credentials: "include",
+    headers: siteRequestHeaders(siteId),
+  });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json() as Promise<MallUnit[]>;
 }
@@ -439,7 +451,7 @@ export default function DataTenant() {
 
   const { data: tenants, isLoading, isError } = useQuery<Tenant[]>({
     queryKey: ["/api/tenants", activeSiteId],
-    queryFn: fetchTenants,
+    queryFn: () => fetchTenants(activeSiteId),
     enabled: activeSiteId !== null,
     staleTime: 60_000,
   });
@@ -448,7 +460,7 @@ export default function DataTenant() {
 
   const { data: mallUnits = [] } = useQuery<MallUnit[]>({
     queryKey: ["/api/mall-units", activeSiteId],
-    queryFn: fetchMallUnits,
+    queryFn: () => fetchMallUnits(activeSiteId),
     enabled: activeSiteId !== null,
     staleTime: 60_000,
   });
