@@ -604,9 +604,14 @@ router.post("/tenant-invoices/bulk", async (req, res) => {
 });
 
 // ─── POST /api/tenant-invoices ─────────────────────────────────────────────────
+const optionalPositiveInt = z.preprocess(
+  (value) => value === "" || value === undefined ? null : value,
+  z.coerce.number().int().positive().nullable(),
+);
+
 const createInvoiceSchema = z.object({
-  tenantId: z.number().int().positive({ message: "Tenant wajib dipilih" }),
-  bookingId: z.number().int().positive().optional().nullable(),
+  tenantId: z.coerce.number().int().positive({ message: "Tenant wajib dipilih" }),
+  bookingId: optionalPositiveInt.optional(),
   unitCode: z.string().optional().nullable(),
   periodStart: z.string().optional().nullable(),
   periodEnd: z.string().optional().nullable(),
