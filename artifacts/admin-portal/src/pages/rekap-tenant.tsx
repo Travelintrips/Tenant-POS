@@ -1,4 +1,5 @@
 import { apiFetchJson } from "@/lib/api";
+import { asArray } from "@/lib/api-shape";
 import { useState, useMemo } from "react";
 import { useLocation } from "wouter";
 import {
@@ -160,12 +161,12 @@ export default function RekapTenantPage() {
 
   const { data: rekap = [], isLoading } = useQuery<RekapTenant[]>({
     queryKey: ["rekap-tenant", siteIdHeader],
-    queryFn: () => apiFetchJson<RekapTenant[]>("/api/laporan/rekap-tenant", { headers }),
+    queryFn: async () => asArray<RekapTenant>(await apiFetchJson<unknown>("/api/laporan/rekap-tenant", { headers })),
   });
 
   const { data: tren = [], isLoading: trenLoading } = useQuery<TrenBulanan[]>({
     queryKey: ["tren-bulanan", siteIdHeader],
-    queryFn:  () => apiFetchJson<TrenBulanan[]>("/api/laporan/tren-bulanan", { headers }),
+    queryFn:  async () => asArray<TrenBulanan>(await apiFetchJson<unknown>("/api/laporan/tren-bulanan", { headers })),
   });
 
   // Pivot tren → per bulan dengan site sebagai kolom
