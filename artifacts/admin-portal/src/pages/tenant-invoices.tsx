@@ -189,6 +189,12 @@ function isFutureInvoicePeriod(inv: Pick<Invoice, "periodStart" | "status">): bo
   return inv.periodStart > jakartaDateKey();
 }
 
+function isActiveReceivable(inv: Pick<Invoice, "periodStart" | "status" | "outstandingAmount">): boolean {
+  if (["paid", "cancelled", "draft"].includes(inv.status)) return false;
+  if (isFutureInvoicePeriod(inv as Pick<Invoice, "periodStart" | "status">)) return false;
+  return Number(inv.outstandingAmount ?? 0) > 0;
+}
+
 // ─── CSV Export ───────────────────────────────────────────────────────────────
 
 type ExportableInvoice = {
@@ -1329,13 +1335,18 @@ export default function TenantInvoices() {
 
   const summary = useMemo(() => {
     const all = invoices ?? [];
+    const activeReceivables = all.filter(isActiveReceivable);
+
     return {
       total: all.length,
-      unpaid: all.filter(i => i.status === "unpaid").length,
-      overdue: all.filter(i => i.status === "overdue").length,
-      unpaidAll: all.filter(i => ["unpaid", "partial", "overdue"].includes(i.status)).length,
+      // "Belum Bayar" hanya invoice yang sudah memasuki periodenya.
+      unpaid: activeReceivables.filter(i => i.status === "unpaid").length,
+      overdue: activeReceivables.filter(i => i.status === "overdue").length,
+      unpaidAll: activeReceivables.length,
       totalPaid: all.reduce((s, i) => s + Number(i.paidAmount ?? 0), 0),
-      totalOutstanding: all.reduce((s, i) => s + Number(i.outstandingAmount), 0),
+      // Piutang aktif = periode berjalan + tunggakan lama.
+      // Tenant nonaktif tetap dihitung karena daftar invoice tidak difilter status tenant.
+      totalOutstanding: activeReceivables.reduce((s, i) => s + Number(i.outstandingAmount ?? 0), 0),
     };
   }, [invoices]);
 
