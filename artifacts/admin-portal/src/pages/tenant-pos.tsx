@@ -54,7 +54,7 @@ type FloorPlanItem = {
   totalAmount: number;
   paidAmount: number;
   remainingAmount: number;
-  paymentStatus: PaymentStatus;
+  paymentStatus: PaymentStatus | "VACANT";
   bookingStatus: string;
   dueDate: string | null;
   periodLabel: string | null;
@@ -245,12 +245,10 @@ function formatTanggalID(dateStr: string | null): string {
   return d.toLocaleDateString("id-ID", { day: "numeric", month: "long", year: "numeric" });
 }
 function resolveStatus(item: FloorPlanItem): PaymentStatus | "VACANT" {
-  if (!item.bookingId) {
-    const isActive = item.tenantStatus === "aktif" || item.tenantStatus === "active";
-    return isActive ? "UNPAID" : "VACANT";
-  }
-  const upper = (item.paymentStatus ?? "UNPAID").toUpperCase() as PaymentStatus;
-  return statusConfig[upper] ? upper : "UNPAID";
+  // Backend sudah menghitung status berdasarkan invoice efektif (periode berjalan
+  // + tunggakan lama). Jangan override hanya karena booking aktif tidak ada.
+  const upper = (item.paymentStatus ?? "VACANT").toUpperCase() as PaymentStatus | "VACANT";
+  return statusConfig[upper] ? upper : "VACANT";
 }
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
