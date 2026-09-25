@@ -1519,7 +1519,7 @@ router.get("/tenant-invoices/export", async (req, res) => {
         Number(r.subtotal ?? 0),
         Number(r.totalAmount ?? 0),
         Number(r.paidAmount ?? 0),
-        Number(r.outstandingAmount ?? 0),
+        r.status === "cancelled" ? 0 : Number(r.outstandingAmount ?? 0),
         esc(STATUS_ID[r.status] ?? r.status),
         esc(r.notes),
         esc(fmtDate(r.createdAt?.toISOString())),
@@ -1561,6 +1561,10 @@ router.post("/tenant-invoices/:id/send-pdf", uploadPdfMemory.single("pdf"), asyn
       .where(eq(tenantInvoicesTable.id, id));
 
     if (!invoice) { res.status(404).json({ error: "Invoice tidak ditemukan" }); return; }
+    if (invoice.status === "cancelled") {
+      res.status(409).json({ error: "Invoice yang dibatalkan tidak dapat dikirim sebagai tagihan" });
+      return;
+    }
     if (!invoice.phone) { res.status(400).json({ error: "Nomor HP tenant tidak terdaftar" }); return; }
 
     const filename = `invoice-${invoice.invoiceNumber}-${Date.now()}.pdf`;
