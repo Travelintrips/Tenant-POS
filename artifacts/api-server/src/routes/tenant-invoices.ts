@@ -649,6 +649,36 @@ router.post("/tenant-invoices", async (req, res) => {
   );
 
   try {
+    // Manual invoice yang ditautkan ke booking tidak boleh membuat duplikat
+    // untuk booking + period_start yang sama. Database production memiliki
+    // guard idempotency untuk pasangan ini; tanpa pre-check error 23505
+    // sebelumnya berubah menjadi HTTP 500 generik.
+    if (data.bookingId && data.periodStart) {
+      const [existing] = await db
+        .select({
+          id: tenantInvoicesTable.id,
+          invoiceNumber: tenantInvoicesTable.invoiceNumber,
+          status: tenantInvoicesTable.status,
+        })
+        .from(tenantInvoicesTable)
+        .where(
+          and(
+            eq(tenantInvoicesTable.bookingId, data.bookingId),
+            eq(tenantInvoicesTable.periodStart, data.periodStart),
+          ),
+        )
+        .limit(1);
+
+      if (existing) {
+        res.status(409).json({
+          error: `Invoice ${existing.invoiceNumber} sudah ada untuk booking dan periode tersebut. Buka invoice yang sudah ada atau pilih periode lain.`,
+          existingInvoiceId: existing.id,
+          existingInvoiceNumber: existing.invoiceNumber,
+        });
+        return;
+      }
+    }
+
     const invoice = await insertInvoiceSafe(
       {
         ...(req.siteId > 0 ? { siteId: req.siteId } : {}),
@@ -693,7 +723,33 @@ router.post("/tenant-invoices", async (req, res) => {
     res.status(201).json(withTenant);
   } catch (err) {
     req.log.error(err, "Failed to create invoice");
-    res.status(500).json({ error: "Gagal membuat invoice" });
+
+    const dbCode =
+      (err as any)?.code ??
+      (err as any)?.cause?.code;
+
+    if (dbCode === "23505") {
+      res.status(409).json({
+        error: "Invoice duplikat terdeteksi. Periksa booking/periode atau nomor invoice lalu coba lagi.",
+      });
+      return;
+    }
+
+    if (dbCode === "23503") {
+      res.status(400).json({
+        error: "Tenant atau booking yang dipilih sudah tidak valid. Muat ulang halaman lalu pilih kembali.",
+      });
+      return;
+    }
+
+    if (dbCode === "23502") {
+      res.status(400).json({
+        error: "Data invoice belum lengkap. Muat ulang halaman lalu lengkapi field wajib.",
+      });
+      return;
+    }
+
+    res.status(500).json({ error: "Gagal membuat invoice. Silakan muat ulang halaman dan coba lagi." });
   }
 });
 
