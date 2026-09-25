@@ -465,6 +465,14 @@ router.get("/tenant-invoices/:id/payment-link", async (req, res) => {
       .where(eq(tenantInvoicesTable.id, id));
 
     if (!row) { res.status(404).json({ error: "Invoice tidak ditemukan" }); return; }
+    if (row.status === "cancelled") {
+      res.status(409).json({ error: "Invoice yang dibatalkan tidak memiliki piutang aktif atau link pembayaran" });
+      return;
+    }
+    if (row.status === "paid") {
+      res.status(409).json({ error: "Invoice sudah lunas dan tidak memerlukan link pembayaran" });
+      return;
+    }
 
     if (!row.paymentToken) {
       res.status(422).json({ error: "Invoice ini belum memiliki token pembayaran. Coba kirim link WA terlebih dahulu untuk membuat token." });
@@ -1041,8 +1049,25 @@ router.post("/tenant-invoices/:id/cancel", async (req, res) => {
       .where(eq(tenantInvoicesTable.id, id));
 
     if (!existing) { res.status(404).json({ error: "Invoice tidak ditemukan" }); return; }
+    if (existing.status === "cancelled") {
+      res.json(existing);
+      return;
+    }
     if (existing.status === "paid") {
       res.status(409).json({ error: "Invoice yang sudah lunas tidak dapat dibatalkan" });
+      return;
+    }
+
+    const [existingPayment] = await db
+      .select({ id: tenantPaymentsTable.id })
+      .from(tenantPaymentsTable)
+      .where(eq(tenantPaymentsTable.invoiceId, id))
+      .limit(1);
+
+    if (Number(existing.paidAmount ?? 0) > 0 || existingPayment) {
+      res.status(409).json({
+        error: "Invoice yang sudah memiliki pembayaran tidak dapat dibatalkan. Lakukan koreksi/refund sesuai prosedur pembayaran.",
+      });
       return;
     }
 
@@ -1371,6 +1396,10 @@ router.delete("/tenant-invoices/:id", requireAnyRole("owner", "admin"), async (r
 
     if (existing.status === "paid") {
       res.status(409).json({ error: "Invoice yang sudah lunas tidak dapat dihapus" });
+      return;
+    }
+    if (existing.status === "cancelled") {
+      res.status(409).json({ error: "Invoice yang dibatalkan dipertahankan sebagai histori audit dan tidak dapat dihapus" });
       return;
     }
 
