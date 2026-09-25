@@ -1,5 +1,5 @@
 import { apiFetch } from "@/lib/api";
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
@@ -378,7 +378,21 @@ async function uploadLogoFile(file: File): Promise<string> {
   return data.url;
 }
 
+function useMobileLayout() {
+  const [isMobile, setIsMobile] = useState(false);
+  useEffect(() => {
+    if (typeof window === "undefined" || !window.matchMedia) return;
+    const media = window.matchMedia("(max-width: 767px)");
+    const sync = () => setIsMobile(media.matches);
+    sync();
+    media.addEventListener?.("change", sync);
+    return () => media.removeEventListener?.("change", sync);
+  }, []);
+  return isMobile;
+}
+
 export default function DataTenant() {
+  const isMobile = useMobileLayout();
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const logoInputRef = useRef<HTMLInputElement>(null);
@@ -1152,7 +1166,8 @@ export default function DataTenant() {
               Gagal memuat data tenant. Periksa koneksi server.
             </p>
           )}
-          <div className="space-y-2 md:hidden">
+          {isMobile ? (
+          <div className="space-y-2">
             {isLoading ? (
               Array.from({ length: 4 }).map((_, i) => (
                 <div key={i} className="rounded-xl border bg-card p-3">
@@ -1228,7 +1243,9 @@ export default function DataTenant() {
             )}
           </div>
 
-          <div className="hidden rounded-md border overflow-x-auto md:block">
+          </div>
+          ) : (
+          <div className="rounded-md border overflow-x-auto">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -1460,6 +1477,7 @@ export default function DataTenant() {
               </TableBody>
             </Table>
           </div>
+          )}
 
           {/* Footer info jumlah */}
           {!isLoading && filtered.length > 0 && (
