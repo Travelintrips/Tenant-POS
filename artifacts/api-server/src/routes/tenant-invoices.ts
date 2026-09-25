@@ -1551,6 +1551,7 @@ router.post("/tenant-invoices/:id/send-pdf", uploadPdfMemory.single("pdf"), asyn
         tenantId: tenantInvoicesTable.tenantId,
         siteId: tenantInvoicesTable.siteId,
         totalAmount: tenantInvoicesTable.totalAmount,
+        status: tenantInvoicesTable.status,
         dueDate: tenantInvoicesTable.dueDate,
         ownerName: tenantsTable.ownerName,
         businessName: tenantsTable.businessName,
