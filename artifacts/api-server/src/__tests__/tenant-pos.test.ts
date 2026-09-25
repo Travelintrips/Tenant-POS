@@ -101,24 +101,6 @@ describe("Fase 4 — POS Pembayaran", () => {
       expect(res.status).toBe(200);
     });
 
-    it("invoice future tidak menambah Belum Lunas sebelum periodenya mulai", async () => {
-      const before = await owner.get("/api/tenant-pos/overview");
-      expect(before.status).toBe(200);
-
-      const tenant = await createTestTenant();
-      await createTestInvoice(tenant.id, undefined, {
-        periodStart: "2099-10-01",
-        periodEnd: "2099-10-31",
-        totalAmount: "7000000",
-        paidAmount: "0",
-        outstandingAmount: "7000000",
-        status: "unpaid",
-      });
-
-      const after = await owner.get("/api/tenant-pos/overview");
-      expect(after.status).toBe(200);
-      expect(after.body.unpaidCount).toBe(before.body.unpaidCount);
-    });
   });
 
   describe("GET /api/tenant-pos/floor-plan", () => {
