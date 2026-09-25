@@ -1,4 +1,4 @@
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, useEffect } from "react";
 import { Switch, Route, Router as WouterRouter, Redirect } from "wouter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
@@ -18,9 +18,11 @@ const DataTenant = lazy(() => import("@/pages/data-tenant"));
 const UnitTenant = lazy(() => import("@/pages/unit-tenant"));
 const RekapTenant = lazy(() => import("@/pages/rekap-tenant"));
 const BookingTenant = lazy(() => import("@/pages/booking-tenant"));
-const TenantPos = lazy(() => import("@/pages/tenant-pos"));
+const loadTenantPos = () => import("@/pages/tenant-pos");
+const TenantPos = lazy(loadTenantPos);
 const Laporan = lazy(() => import("@/pages/laporan"));
-const TenantInvoices = lazy(() => import("@/pages/tenant-invoices"));
+const loadTenantInvoices = () => import("@/pages/tenant-invoices");
+const TenantInvoices = lazy(loadTenantInvoices);
 const AuditLogs = lazy(() => import("@/pages/audit-logs"));
 const UsersPage = lazy(() => import("@/pages/users"));
 const SettingsPage = lazy(() => import("@/pages/settings"));
@@ -28,7 +30,8 @@ const CompareSites = lazy(() => import("@/pages/compare-sites"));
 const TenantPortal = lazy(() => import("@/pages/tenant-portal"));
 const TinjauPembayaran = lazy(() => import("@/pages/tinjau-pembayaran"));
 const PaymentProofUpload = lazy(() => import("@/pages/payment-proof-upload"));
-const Dashboard = lazy(() => import("@/pages/dashboard"));
+const loadDashboard = () => import("@/pages/dashboard");
+const Dashboard = lazy(loadDashboard);
 const TenantProfile = lazy(() => import("@/pages/tenant-profile"));
 const WhatsAppSend = lazy(() => import("@/pages/whatsapp-send"));
 const WhatsAppTemplates = lazy(() => import("@/pages/whatsapp-templates"));
@@ -47,8 +50,7 @@ const RekonsiliasiBank = lazy(() => import("@/pages/rekonsiliasi-bank"));
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      staleTime: 30_000,
-      gcTime: 5 * 60 * 1000,
+      // RealtimeSync + polling tetap menjaga freshness. Cache lebih lama menghindari\n      // refetch berulang ketika user berpindah menu dan kembali dalam sesi yang sama.\n      staleTime: 2 * 60 * 1000,\n      gcTime: 15 * 60 * 1000,
       refetchOnWindowFocus: false,
       refetchOnReconnect: true,
       retry: 1,
@@ -72,6 +74,40 @@ function getDefaultRoute(role: UserRole): string {
 
 function AuthGuard({ children, roles }: { children: React.ReactNode; roles?: UserRole[] }) {
   const { data: user, isLoading } = useAuth();
+
+  useEffect(() => {
+    if (!user) return;
+
+    let cancelled = false;
+    const run = async () => {
+      // Prefetch menu operasional paling sering dipakai setelah browser idle.
+      // Bertahap supaya tidak berebut CPU/network dengan halaman yang sedang dibuka.
+      for (const load of [loadDashboard, loadTenantPos, loadTenantInvoices]) {
+        if (cancelled) break;
+        await load().catch(() => undefined);
+        await new Promise((resolve) => window.setTimeout(resolve, 40));
+      }
+    };
+
+    const idleWindow = window as typeof window & {
+      requestIdleCallback?: (callback: () => void, options?: { timeout: number }) => number;
+      cancelIdleCallback?: (id: number) => void;
+    };
+
+    if (idleWindow.requestIdleCallback) {
+      const id = idleWindow.requestIdleCallback(() => void run(), { timeout: 1200 });
+      return () => {
+        cancelled = true;
+        idleWindow.cancelIdleCallback?.(id);
+      };
+    }
+
+    const id = window.setTimeout(() => void run(), 600);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(id);
+    };
+  }, [user?.id, user?.role]);
 
   if (isLoading) return <Spinner />;
 

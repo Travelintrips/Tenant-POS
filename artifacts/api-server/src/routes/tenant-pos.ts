@@ -60,80 +60,84 @@ router.get("/tenant-pos/overview", async (req, res) => {
     const paymentSiteFilter = siteId > 0 ? eq(tenantPaymentsTable.siteId, siteId) : undefined;
     const shiftSiteFilter = siteId > 0 ? eq(cashierShiftsTable.siteId, siteId) : undefined;
 
-    const [totalActive] = await db
-      .select({ count: sql<number>`count(*)::int` })
-      .from(tenantsTable)
-      .where(and(
-        sql`${tenantsTable.status} IN ('aktif', 'active')`,
-        tenantSiteFilter
-      ));
+    // Semua statistik overview independen dan read-only: jalankan paralel agar
+    // latency endpoint mengikuti query terlama, bukan penjumlahan seluruh round-trip DB.
+    const [
+      totalActiveRows,
+      unpaidBookingRows,
+      unpaidInvoiceRows,
+      overdueRows,
+      paidTodayRows,
+      openShiftRows,
+    ] = await Promise.all([
+      db.select({ count: sql<number>`count(*)::int` })
+        .from(tenantsTable)
+        .where(and(
+          sql`${tenantsTable.status} IN ('aktif', 'active')`,
+          tenantSiteFilter
+        )),
+      db.select({ count: sql<number>`count(distinct ${tenantBookingsTable.tenantId})::int` })
+        .from(tenantBookingsTable)
+        .where(
+          and(
+            eq(tenantBookingsTable.bookingStatus, "aktif"),
+            sql`upper(${tenantBookingsTable.paymentStatus}) IN ('UNPAID', 'PARTIAL')`,
+            sql`(${tenantBookingsTable.startDate} IS NULL OR ${tenantBookingsTable.startDate}::date <= (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Jakarta')::date)`,
+            sql`NOT EXISTS (
+              SELECT 1
+              FROM tenant_invoices ti
+              WHERE ti.tenant_id = ${tenantBookingsTable.tenantId}
+                AND ti.status NOT IN ('cancelled', 'draft')
+                AND (ti.period_start IS NULL OR ti.period_start::date <= (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Jakarta')::date)
+                ${siteId > 0 ? sql`AND ti.site_id = ${siteId}` : sql``}
+            )`,
+            bookingSiteFilter
+          )
+        ),
+      db.select({ count: sql<number>`count(distinct ${tenantInvoicesTable.tenantId})::int` })
+        .from(tenantInvoicesTable)
+        .where(and(
+          sql`${tenantInvoicesTable.status} IN ('unpaid', 'partial')`,
+          sql`COALESCE(${tenantInvoicesTable.outstandingAmount}, 0)::numeric > 0`,
+          sql`(${tenantInvoicesTable.periodStart} IS NULL OR ${tenantInvoicesTable.periodStart}::date <= (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Jakarta')::date)`,
+          invoiceSiteFilter
+        )),
+      db.select({ count: sql<number>`count(*)::int` })
+        .from(tenantInvoicesTable)
+        .where(and(
+          sql`${tenantInvoicesTable.status} = 'overdue'`,
+          sql`COALESCE(${tenantInvoicesTable.outstandingAmount}, 0)::numeric > 0`,
+          sql`(${tenantInvoicesTable.periodStart} IS NULL OR ${tenantInvoicesTable.periodStart}::date <= (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Jakarta')::date)`,
+          invoiceSiteFilter
+        )),
+      db.select({ total: sql<number>`coalesce(sum(amount::numeric), 0)::int` })
+        .from(tenantPaymentsTable)
+        .where(
+          and(
+            sql`DATE(${tenantPaymentsTable.paidAt} AT TIME ZONE 'Asia/Jakarta') = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Jakarta')::date`,
+            eq(tenantPaymentsTable.isVoided, false),
+            eq(tenantPaymentsTable.approvalStatus, "approved"),
+            paymentSiteFilter
+          )
+        ),
+      db.select({
+          id: cashierShiftsTable.id,
+          cashierName: cashierShiftsTable.cashierName,
+          openedAt: cashierShiftsTable.openedAt,
+        })
+        .from(cashierShiftsTable)
+        .where(and(eq(cashierShiftsTable.status, "open"), shiftSiteFilter))
+        .orderBy(desc(cashierShiftsTable.openedAt))
+        .limit(1),
+    ]);
 
-    // Hitung belum lunas hanya dari periode yang sudah mulai.
-    // Booking lama hanya menjadi fallback bila tenant belum punya invoice efektif sama sekali.
-    const [unpaidBooking] = await db
-      .select({ count: sql<number>`count(distinct ${tenantBookingsTable.tenantId})::int` })
-      .from(tenantBookingsTable)
-      .where(
-        and(
-          eq(tenantBookingsTable.bookingStatus, "aktif"),
-          sql`upper(${tenantBookingsTable.paymentStatus}) IN ('UNPAID', 'PARTIAL')`,
-          sql`(${tenantBookingsTable.startDate} IS NULL OR ${tenantBookingsTable.startDate}::date <= (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Jakarta')::date)`,
-          sql`NOT EXISTS (
-            SELECT 1
-            FROM tenant_invoices ti
-            WHERE ti.tenant_id = ${tenantBookingsTable.tenantId}
-              AND ti.status NOT IN ('cancelled', 'draft')
-              AND (ti.period_start IS NULL OR ti.period_start::date <= (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Jakarta')::date)
-              ${siteId > 0 ? sql`AND ti.site_id = ${siteId}` : sql``}
-          )`,
-          bookingSiteFilter
-        )
-      );
-
-    const [unpaidInvoice] = await db
-      .select({ count: sql<number>`count(distinct ${tenantInvoicesTable.tenantId})::int` })
-      .from(tenantInvoicesTable)
-      .where(and(
-        sql`${tenantInvoicesTable.status} IN ('unpaid', 'partial')`,
-        sql`COALESCE(${tenantInvoicesTable.outstandingAmount}, 0)::numeric > 0`,
-        sql`(${tenantInvoicesTable.periodStart} IS NULL OR ${tenantInvoicesTable.periodStart}::date <= (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Jakarta')::date)`,
-        invoiceSiteFilter
-      ));
-
+    const totalActive = totalActiveRows[0];
+    const unpaidBooking = unpaidBookingRows[0];
+    const unpaidInvoice = unpaidInvoiceRows[0];
+    const overdue = overdueRows[0];
+    const paidToday = paidTodayRows[0];
+    const openShift = openShiftRows[0];
     const unpaidCount = Number(unpaidBooking?.count ?? 0) + Number(unpaidInvoice?.count ?? 0);
-
-    const [overdue] = await db
-      .select({ count: sql<number>`count(*)::int` })
-      .from(tenantInvoicesTable)
-      .where(and(
-        sql`${tenantInvoicesTable.status} = 'overdue'`,
-        sql`COALESCE(${tenantInvoicesTable.outstandingAmount}, 0)::numeric > 0`,
-        sql`(${tenantInvoicesTable.periodStart} IS NULL OR ${tenantInvoicesTable.periodStart}::date <= (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Jakarta')::date)`,
-        invoiceSiteFilter
-      ));
-
-    const [paidToday] = await db
-      .select({ total: sql<number>`coalesce(sum(amount::numeric), 0)::int` })
-      .from(tenantPaymentsTable)
-      .where(
-        and(
-          sql`DATE(${tenantPaymentsTable.paidAt} AT TIME ZONE 'Asia/Jakarta') = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Jakarta')::date`,
-          eq(tenantPaymentsTable.isVoided, false),
-          eq(tenantPaymentsTable.approvalStatus, "approved"),
-          paymentSiteFilter
-        )
-      );
-
-    const [openShift] = await db
-      .select({
-        id: cashierShiftsTable.id,
-        cashierName: cashierShiftsTable.cashierName,
-        openedAt: cashierShiftsTable.openedAt,
-      })
-      .from(cashierShiftsTable)
-      .where(and(eq(cashierShiftsTable.status, "open"), shiftSiteFilter))
-      .orderBy(desc(cashierShiftsTable.openedAt))
-      .limit(1);
 
     res.json({
       totalActiveTenants: totalActive?.count ?? 0,
@@ -155,7 +159,7 @@ router.get("/tenant-pos/floor-plan", async (req, res) => {
     const tenantSiteFilter = siteId > 0 ? eq(tenantsTable.siteId, siteId) : undefined;
     const invoiceSiteFilter = siteId > 0 ? eq(tenantInvoicesTable.siteId, siteId) : undefined;
 
-    const rows = await db
+    const rowsPromise = db
       .select({
         tenantId: tenantsTable.id,
         businessName: tenantsTable.businessName,
@@ -198,7 +202,7 @@ router.get("/tenant-pos/floor-plan", async (req, res) => {
       .orderBy(tenantsTable.areaName, tenantsTable.id);
 
     // Invoice terbuka yang benar-benar sudah menjadi piutang: periode berjalan + tunggakan lama.
-    const invoiceCounts = await db
+    const invoiceCountsPromise = db
       .select({
         tenantId: tenantInvoicesTable.tenantId,
         openCount: sql<number>`count(*)::int`,
@@ -215,17 +219,8 @@ router.get("/tenant-pos/floor-plan", async (req, res) => {
       ))
       .groupBy(tenantInvoicesTable.tenantId);
 
-    const invoiceCountMap = new Map<number, { open: number; overdue: number; partial: number; unpaid: number }>(
-      invoiceCounts.map((r) => [r.tenantId, {
-        open: r.openCount,
-        overdue: r.overdueCount,
-        partial: r.partialCount,
-        unpaid: r.unpaidCount,
-      }])
-    );
-
     // Bedakan invoice efektif (sudah masuk periode) vs invoice future.
-    const invoiceExistRes = await db
+    const invoiceExistPromise = db
       .select({
         tenantId: tenantInvoicesTable.tenantId,
         effectiveCount: sql<number>`count(*) filter (
@@ -246,17 +241,9 @@ router.get("/tenant-pos/floor-plan", async (req, res) => {
       .where(invoiceSiteFilter)
       .groupBy(tenantInvoicesTable.tenantId);
 
-    const invoiceExistMap = new Map<number, { effective: number; paidEffective: number; future: number }>(
-      invoiceExistRes.map((r) => [r.tenantId, {
-        effective: r.effectiveCount,
-        paidEffective: r.paidEffectiveCount,
-        future: r.futureCount,
-      }])
-    );
-
     // Angka yang ditampilkan di kartu POS harus berasal dari invoice, bukan total kontrak booking.
     // "Bulan berjalan" memakai bulan period_start di zona bisnis Asia/Jakarta.
-    const invoiceFinancialRes = await db
+    const invoiceFinancialPromise = db
       .select({
         tenantId: tenantInvoicesTable.tenantId,
         currentPeriodTotal: sql<number>`coalesce(sum(${tenantInvoicesTable.totalAmount}::numeric) filter (
@@ -299,6 +286,32 @@ router.get("/tenant-pos/floor-plan", async (req, res) => {
       .from(tenantInvoicesTable)
       .where(invoiceSiteFilter)
       .groupBy(tenantInvoicesTable.tenantId);
+
+    // Empat query floor-plan ini independen dan read-only. Jalankan paralel untuk
+    // menghilangkan akumulasi round-trip DB pada initial load / perpindahan site.
+    const [rows, invoiceCounts, invoiceExistRes, invoiceFinancialRes] = await Promise.all([
+      rowsPromise,
+      invoiceCountsPromise,
+      invoiceExistPromise,
+      invoiceFinancialPromise,
+    ]);
+
+    const invoiceCountMap = new Map<number, { open: number; overdue: number; partial: number; unpaid: number }>(
+      invoiceCounts.map((r) => [r.tenantId, {
+        open: r.openCount,
+        overdue: r.overdueCount,
+        partial: r.partialCount,
+        unpaid: r.unpaidCount,
+      }])
+    );
+
+    const invoiceExistMap = new Map<number, { effective: number; paidEffective: number; future: number }>(
+      invoiceExistRes.map((r) => [r.tenantId, {
+        effective: r.effectiveCount,
+        paidEffective: r.paidEffectiveCount,
+        future: r.futureCount,
+      }])
+    );
 
     const invoiceFinancialMap = new Map<number, {
       currentPeriodTotal: number;
