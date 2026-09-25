@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
+import { flushSync } from "react-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/use-auth";
 
@@ -82,19 +83,39 @@ export function SiteProvider({ children }: { children: React.ReactNode }) {
 
   const setActiveSite = useCallback(
     (site: MallSite) => {
-      setActiveSiteState(site);
-      localStorage.setItem(LS_KEY, site.code === "ALL" ? "ALL" : String(site.id));
-      // Reload data yang bergantung pada site, tetapi jangan refetch auth
-      // dan daftar site yang tidak berubah. Ini menghindari request storm saat
-      // user berpindah TOD M1 <-> Sport Center.
-      queryClient.invalidateQueries({
+      const nextStoredSite = site.code === "ALL" ? "ALL" : String(site.id);
+      const currentStoredSite = localStorage.getItem(LS_KEY);
+
+      // Tidak perlu mengulang seluruh refetch bila lokasi yang dipilih sama.
+      if (
+        activeSite?.code === site.code &&
+        activeSite?.id === site.id &&
+        currentStoredSite === nextStoredSite
+      ) {
+        return;
+      }
+
+      // apiFetch membaca site dari localStorage. Persist dulu, lalu paksa React
+      // commit activeSite sebelum invalidasi query. Tanpa urutan ini, query TOD
+      // yang masih aktif dapat ter-refetch memakai header Sport Center (atau
+      // sebaliknya) sebelum komponen berpindah ke query key site yang baru.
+      localStorage.setItem(LS_KEY, nextStoredSite);
+      flushSync(() => {
+        setActiveSiteState(site);
+      });
+
+      // Hanya refetch query yang sedang aktif pada UI site yang BARU.
+      // Cache site lama tetap ditandai stale bila dibuka lagi, tetapi tidak
+      // menimbulkan request storm/background refetch.
+      void queryClient.invalidateQueries({
         predicate: (query) => {
           const root = String(query.queryKey[0] ?? "");
           return root !== "auth-me" && root !== "sites";
         },
+        refetchType: "active",
       });
     },
-    [queryClient],
+    [activeSite, queryClient],
   );
 
   // activeSiteId: 0 for "ALL" (enables queries; API returns all-sites data), null while loading
