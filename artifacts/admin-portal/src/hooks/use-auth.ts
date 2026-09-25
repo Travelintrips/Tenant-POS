@@ -28,6 +28,14 @@ export interface AuthUser {
   avatar: string | null;
   role: UserRole;
   allowedSites?: number[];
+  sites?: Array<{
+    id: number;
+    code: string;
+    name: string;
+    type: string;
+    status: string;
+    companyName?: string | null;
+  }>;
   tenantAccess?: TenantAccessEntry[];
 }
 
