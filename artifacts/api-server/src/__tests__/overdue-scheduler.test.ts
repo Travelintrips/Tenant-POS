@@ -164,7 +164,7 @@ describe("overdue invoice scheduler", () => {
   });
 });
 
-describe("due reminder H-7/H-3/H-1", () => {
+describe("daily reminder periode aktif", () => {
   let tenantIds: number[] = [];
 
   beforeEach(() => {
@@ -182,7 +182,7 @@ describe("due reminder H-7/H-3/H-1", () => {
     vi.useRealTimers();
   });
 
-  it("mengirim H-3 untuk invoice tenant dengan periode non-tanggal-1 dan tidak dobel di hari yang sama", async () => {
+  it("mengirim reminder harian sebelum jatuh tempo dan tidak dobel di hari yang sama", async () => {
     const tenant = await createTenant({
       phone: "6281200000011",
       status: "active",
@@ -197,6 +197,7 @@ describe("due reminder H-7/H-3/H-1", () => {
       status: "unpaid",
       outstandingAmount: "100000",
       lastPaymentReminderAt: null,
+      invoiceNotifiedAt: new Date("2026-09-23T01:00:00.000Z"),
     });
 
     const first = await runMonthlyDailyReminderCheck();
@@ -212,7 +213,7 @@ describe("due reminder H-7/H-3/H-1", () => {
     expect(calls()).toHaveLength(1);
   });
 
-  it("melepas claim H-3 saat Fonnte pending agar dapat dicoba lagi", async () => {
+  it("melepas claim reminder harian saat Fonnte pending agar dapat dicoba lagi", async () => {
     const tenant = await createTenant({
       phone: "6281200000012",
       status: "active",
@@ -227,6 +228,7 @@ describe("due reminder H-7/H-3/H-1", () => {
       status: "unpaid",
       outstandingAmount: "100000",
       lastPaymentReminderAt: null,
+      invoiceNotifiedAt: new Date("2026-09-23T01:00:00.000Z"),
     });
 
     vi.mocked(sendDueReminder).mockResolvedValueOnce({
@@ -257,6 +259,57 @@ describe("due reminder H-7/H-3/H-1", () => {
       ),
     ).toBe(true);
   });
+
+  it("tidak mengirim reminder sebelum period_start", async () => {
+    const tenant = await createTenant({
+      phone: "6281200000013",
+      status: "active",
+    });
+    tenantIds.push(tenant.id);
+
+    const invoice = await createTestInvoice(tenant.id, undefined, {
+      invoiceNumber: `INV-FUTURE-${Date.now()}`,
+      periodStart: "2026-10-01",
+      periodEnd: "2026-10-31",
+      dueDate: "2026-10-10",
+      status: "unpaid",
+      outstandingAmount: "100000",
+      invoiceNotifiedAt: null,
+      lastPaymentReminderAt: null,
+    });
+
+    await runMonthlyDailyReminderCheck();
+    const calls = vi.mocked(sendDueReminder).mock.calls.filter(
+      ([params]) => params.invoiceNumber === invoice.invoiceNumber,
+    );
+    expect(calls).toHaveLength(0);
+  });
+
+  it("tidak mengirim reminder kedua pada hari tagihan awal baru dikirim", async () => {
+    const tenant = await createTenant({
+      phone: "6281200000014",
+      status: "active",
+    });
+    tenantIds.push(tenant.id);
+
+    const invoice = await createTestInvoice(tenant.id, undefined, {
+      invoiceNumber: `INV-FIRST-DAY-${Date.now()}`,
+      periodStart: "2026-09-24",
+      periodEnd: "2026-10-23",
+      dueDate: "2026-09-30",
+      status: "unpaid",
+      outstandingAmount: "100000",
+      invoiceNotifiedAt: new Date("2026-09-24T01:00:00.000Z"),
+      lastPaymentReminderAt: null,
+    });
+
+    await runMonthlyDailyReminderCheck();
+    const calls = vi.mocked(sendDueReminder).mock.calls.filter(
+      ([params]) => params.invoiceNumber === invoice.invoiceNumber,
+    );
+    expect(calls).toHaveLength(0);
+  });
+
 });
 
 describe("overdue scheduler daily window guard", () => {
