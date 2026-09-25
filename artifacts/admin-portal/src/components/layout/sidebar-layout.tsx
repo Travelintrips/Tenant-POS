@@ -34,6 +34,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useToast } from "@/hooks/use-toast";
 import { apiFetch } from "@/lib/api";
+import { arrayField } from "@/lib/api-shape";
 
 const ROLE_COLORS: Record<UserRole, string> = {
   owner:       "bg-purple-100 text-purple-800",
@@ -203,7 +204,15 @@ function SidebarNav({ children }: { children: React.ReactNode }) {
     queryFn: async () => {
       const res = await apiFetch("/api/tenant-invoices/upcoming");
       if (!res.ok) return { count: 0, overdueCount: 0, upcomingCount: 0, overdue: [], upcoming: [] };
-      return res.json();
+      const data = await res.json();
+      return {
+        ...data,
+        count: Number(data?.count ?? 0),
+        overdueCount: Number(data?.overdueCount ?? 0),
+        upcomingCount: Number(data?.upcomingCount ?? 0),
+        overdue: arrayField<UpcomingItem>(data, "overdue"),
+        upcoming: arrayField<UpcomingItem>(data, "upcoming"),
+      };
     },
     refetchInterval: 60_000,
     enabled: can("owner", "admin", "finance") && !!activeSite,
