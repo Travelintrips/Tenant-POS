@@ -60,6 +60,31 @@ const ConsolidatedInvoices = lazyWithRecovery(loadConsolidatedInvoices);
 const loadRekonsiliasiBank = () => import("@/pages/rekonsiliasi-bank");
 const RekonsiliasiBank = lazyWithRecovery(loadRekonsiliasiBank);
 
+// Start downloading the current page chunk immediately, in parallel with the
+// auth/session check. Previously the page import only started after auth
+// completed, creating a visible auth -> chunk waterfall on full reload.
+if (typeof window !== "undefined") {
+  const path = window.location.pathname.replace(/\/+$/, "") || "/";
+  const activeRouteLoaders: Record<string, () => Promise<unknown>> = {
+    "/dashboard": loadDashboard,
+    "/data-tenant": loadDataTenant,
+    "/unit-tenant": loadUnitTenant,
+    "/booking-tenant": loadBookingTenant,
+    "/tenant-pos": loadTenantPos,
+    "/laporan": loadLaporan,
+    "/tenant-invoices": loadTenantInvoices,
+    "/invoice-konsolidasi": loadConsolidatedInvoices,
+    "/tinjau-pembayaran": loadTinjauPembayaran,
+    "/riwayat-pembayaran": loadRiwayatPembayaran,
+    "/draf-perjanjian": loadDrafPerjanjian,
+    "/pengeluaran-operasional": loadPengeluaranOperasional,
+    "/buku-jurnal": loadBukuJurnal,
+    "/rekonsiliasi-bank": loadRekonsiliasiBank,
+    "/rekap-tenant": loadRekapTenant,
+  };
+  void activeRouteLoaders[path]?.().catch(() => undefined);
+}
+
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
@@ -72,8 +97,29 @@ const queryClient = new QueryClient({
 });
 
 const Spinner = () => (
-  <div className="min-h-screen flex items-center justify-center">
-    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
+  <div className="min-h-screen bg-background">
+    <div className="flex min-h-screen">
+      <aside className="hidden md:block w-56 border-r bg-background p-4">
+        <div className="h-7 w-32 rounded bg-muted animate-pulse mb-8" />
+        <div className="space-y-3">
+          {Array.from({ length: 8 }).map((_, i) => (
+            <div key={i} className="h-8 rounded bg-muted animate-pulse" />
+          ))}
+        </div>
+      </aside>
+      <div className="flex-1">
+        <div className="h-16 border-b bg-background" />
+        <main className="p-4 sm:p-6 space-y-4">
+          <div className="h-8 w-56 rounded bg-muted animate-pulse" />
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {Array.from({ length: 3 }).map((_, i) => (
+              <div key={i} className="h-24 rounded-xl bg-muted animate-pulse" />
+            ))}
+          </div>
+          <div className="h-72 rounded-xl bg-muted animate-pulse" />
+        </main>
+      </div>
+    </div>
   </div>
 );
 
