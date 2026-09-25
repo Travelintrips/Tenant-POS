@@ -886,7 +886,7 @@ export default function DataTenant() {
       </div>
 
       {/* Summary */}
-      <div className="grid grid-cols-3 gap-2 sm:gap-4">
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-3 sm:gap-4">
         {[
           { label: "Tenant Aktif", value: countActive, color: "text-green-600", sub: "unit terisi" },
           { label: "Non-Aktif", value: countInactive, color: "text-gray-500", sub: "unit kosong" },
@@ -1152,7 +1152,83 @@ export default function DataTenant() {
               Gagal memuat data tenant. Periksa koneksi server.
             </p>
           )}
-          <div className="rounded-md border overflow-x-auto">
+          <div className="space-y-2 md:hidden">
+            {isLoading ? (
+              Array.from({ length: 4 }).map((_, i) => (
+                <div key={i} className="rounded-xl border bg-card p-3">
+                  <Skeleton className="h-4 w-32 mb-2" />
+                  <Skeleton className="h-3 w-full mb-2" />
+                  <Skeleton className="h-3 w-2/3" />
+                </div>
+              ))
+            ) : filtered.length === 0 ? (
+              <div className="rounded-xl border bg-card p-6 text-center text-sm text-muted-foreground">
+                {tenants?.length === 0 ? "Belum ada tenant terdaftar." : "Tidak ada hasil pencarian."}
+              </div>
+            ) : (
+              filtered.map((tenant) => {
+                const contract = getContractInfo(tenant.contractEndDate);
+                return (
+                  <div key={tenant.id} className="rounded-xl border bg-card p-3 shadow-sm">
+                    <div className="flex items-start gap-3">
+                      <Checkbox
+                        checked={selectedIds.has(tenant.id)}
+                        onCheckedChange={() => toggleOne(tenant.id)}
+                        aria-label={`Pilih ${tenant.businessName}`}
+                        className="mt-1"
+                      />
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <p className="font-semibold truncate">{tenant.businessName}</p>
+                            <p className="text-xs text-muted-foreground truncate">{tenant.ownerName || "—"}</p>
+                          </div>
+                          <span className={`inline-flex shrink-0 items-center rounded-full border px-2 py-0.5 text-[11px] font-medium ${statusClass(tenant.status)}`}>
+                            {STATUS_LABEL[tenant.status] ?? tenant.status}
+                          </span>
+                        </div>
+
+                        <div className="mt-3 grid grid-cols-2 gap-x-3 gap-y-2 text-xs">
+                          <div>
+                            <p className="text-muted-foreground">Unit</p>
+                            <p className="font-mono font-medium">{tenant.boothNumber ?? "—"}</p>
+                          </div>
+                          <div>
+                            <p className="text-muted-foreground">Harga Sewa</p>
+                            <p className="font-medium">{tenant.defaultRentAmount && Number(tenant.defaultRentAmount) > 0 ? formatRupiah(Number(tenant.defaultRentAmount)) : "—"}</p>
+                          </div>
+                          <div>
+                            <p className="text-muted-foreground">Tunggakan</p>
+                            <p className={tenant.totalOutstanding > 0 ? "font-semibold text-red-600" : "font-medium text-emerald-600"}>
+                              {tenant.totalOutstanding > 0 ? formatRupiah(tenant.totalOutstanding) : "Rp 0"}
+                            </p>
+                          </div>
+                          <div>
+                            <p className="text-muted-foreground">Kontrak</p>
+                            <p className={`font-medium ${contract.colorClass}`}>{tenant.contractEndDate ? contract.label : "—"}</p>
+                          </div>
+                        </div>
+
+                        <div className="mt-3 flex items-center justify-end gap-1 border-t pt-2">
+                          <Button variant="ghost" size="sm" className="h-8 px-2 text-blue-600" onClick={() => navigate(`/tenant-profile/${tenant.id}`)}>
+                            <Eye className="h-4 w-4 mr-1" />Lihat
+                          </Button>
+                          <Button variant="ghost" size="sm" className="h-8 px-2" onClick={() => openEdit(tenant)}>
+                            <Pencil className="h-4 w-4 mr-1" />Edit
+                          </Button>
+                          <Button variant="ghost" size="sm" className="h-8 px-2 text-destructive" onClick={() => setDeleteTarget(tenant)}>
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+
+          <div className="hidden rounded-md border overflow-x-auto md:block">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -1452,7 +1528,7 @@ export default function DataTenant() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <div className="flex flex-col gap-1.5 col-span-2">
                   <Label htmlFor="businessName">Nama Usaha <span className="text-destructive">*</span></Label>
                   <Input
@@ -1636,7 +1712,7 @@ export default function DataTenant() {
                 <p className="text-xs text-muted-foreground -mt-1">
                   Diisi otomatis saat membuat invoice baru untuk tenant ini. Bisa diubah manual saat buat invoice.
                 </p>
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <div className="flex flex-col gap-1.5">
                     <Label htmlFor="defaultRentAmount">Harga Sewa (Rp)</Label>
                     <Input
