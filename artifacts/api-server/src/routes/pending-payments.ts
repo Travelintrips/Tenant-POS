@@ -6,7 +6,7 @@ import {
   tenantsTable,
   tenantReceiptsTable,
 } from "@workspace/db/schema";
-import { eq, and, inArray, desc } from "drizzle-orm";
+import { eq, and, inArray, desc, sql } from "drizzle-orm";
 import { z } from "zod";
 import { requireAnyRole } from "../middlewares/auth";
 import { sseBroker } from "../lib/sse-broker";
@@ -79,9 +79,7 @@ router.get("/pending-payments", async (req, res) => {
       .where(
         and(
           inArray(tenantPaymentsTable.approvalStatus, statuses),
-          tenantPaymentsTable.invoiceId !== null
-            ? undefined
-            : undefined,
+          req.siteId > 0 ? eq(tenantPaymentsTable.siteId, req.siteId) : undefined,
         ),
       )
       .orderBy(desc(tenantPaymentsTable.createdAt));
@@ -147,16 +145,47 @@ router.get("/pending-payments/:id/proof", async (req, res) => {
 });
 
 // ─── GET /api/pending-payments/count ─────────────────────────────────────────
-router.get("/pending-payments/count", async (_req, res) => {
+router.get("/pending-payments/count", async (req, res) => {
   try {
-    const rows = await db
-      .select({ id: tenantPaymentsTable.id })
+    const [row] = await db
+      .select({ count: sql<number>`count(*)::int` })
       .from(tenantPaymentsTable)
-      .where(eq(tenantPaymentsTable.approvalStatus, "pending_review"));
+      .where(and(
+        eq(tenantPaymentsTable.approvalStatus, "pending_review"),
+        req.siteId > 0 ? eq(tenantPaymentsTable.siteId, req.siteId) : undefined,
+      ));
 
-    res.json({ count: rows.length });
+    res.json({ count: row?.count ?? 0 });
   } catch {
     res.json({ count: 0 });
+  }
+});
+
+// Satu aggregate request untuk badge tab. Menggantikan tiga full-list request
+// dari frontend yang sebelumnya saling berebut koneksi DB saat halaman dibuka.
+router.get("/pending-payments/counts", async (req, res) => {
+  try {
+    const rows = await db
+      .select({
+        status: tenantPaymentsTable.approvalStatus,
+        count: sql<number>`count(*)::int`,
+      })
+      .from(tenantPaymentsTable)
+      .where(and(
+        inArray(tenantPaymentsTable.approvalStatus, ["pending_review", "approved", "rejected"]),
+        req.siteId > 0 ? eq(tenantPaymentsTable.siteId, req.siteId) : undefined,
+      ))
+      .groupBy(tenantPaymentsTable.approvalStatus);
+
+    const counts = { pending_review: 0, approved: 0, rejected: 0 };
+    for (const row of rows) {
+      if (row.status === "pending_review" || row.status === "approved" || row.status === "rejected") {
+        counts[row.status] = row.count;
+      }
+    }
+    res.json(counts);
+  } catch {
+    res.json({ pending_review: 0, approved: 0, rejected: 0 });
   }
 });
 
