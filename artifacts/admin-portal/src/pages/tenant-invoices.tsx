@@ -840,7 +840,21 @@ type GenerateForm = { bookingId: string; notes: string };
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
+function useMobileLayout() {
+  const [isMobile, setIsMobile] = useState(false);
+  useEffect(() => {
+    if (typeof window === "undefined" || !window.matchMedia) return;
+    const media = window.matchMedia("(max-width: 767px)");
+    const sync = () => setIsMobile(media.matches);
+    sync();
+    media.addEventListener?.("change", sync);
+    return () => media.removeEventListener?.("change", sync);
+  }, []);
+  return isMobile;
+}
+
 export default function TenantInvoices() {
+  const isMobile = useMobileLayout();
   const { activeSite, activeSiteId } = useSite();
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -2101,6 +2115,116 @@ export default function TenantInvoices() {
               </Button>
             </div>
           )}
+          {isMobile ? (
+          <div className="space-y-2">
+            {isLoading ? (
+              Array.from({ length: 4 }).map((_, i) => (
+                <div key={i} className="rounded-xl border bg-card p-3">
+                  <Skeleton className="h-4 w-40 mb-2" />
+                  <Skeleton className="h-3 w-full mb-2" />
+                  <Skeleton className="h-3 w-2/3" />
+                </div>
+              ))
+            ) : filteredInvoices.length === 0 ? (
+              <div className="rounded-xl border bg-card p-6 text-center text-sm text-muted-foreground">
+                {filterDueDate !== "all" ? "Tidak ada invoice untuk filter tanggal ini." : "Belum ada invoice."}
+              </div>
+            ) : (
+              filteredInvoices.map((inv) => {
+                const future = isFutureInvoicePeriod(inv);
+                const outstanding = effectiveOutstanding(inv);
+                return (
+                  <div
+                    key={inv.id}
+                    className={`rounded-xl border bg-card p-3 shadow-sm ${selectedIds.has(inv.id) ? "border-violet-300 bg-violet-50/40" : ""}`}
+                    onClick={() => openDetail(inv)}
+                  >
+                    <div className="flex items-start gap-2">
+                      {inv.phone ? (
+                        <Checkbox
+                          checked={selectedIds.has(inv.id)}
+                          onCheckedChange={(checked) => {
+                            setSelectedIds(prev => {
+                              const next = new Set(prev);
+                              if (checked) next.add(inv.id); else next.delete(inv.id);
+                              return next;
+                            });
+                          }}
+                          onClick={(e) => e.stopPropagation()}
+                          aria-label={`Pilih invoice ${inv.invoiceNumber}`}
+                          className="mt-1"
+                        />
+                      ) : <div className="w-4" />}
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <p className="font-mono text-xs font-semibold truncate">{inv.invoiceNumber}</p>
+                            <p className="font-medium truncate">{inv.tenantName ?? "-"}</p>
+                            <p className="text-xs text-muted-foreground truncate">{inv.unitCode ?? inv.boothNumber ?? "—"} · {formatPeriod(inv.periodStart, inv.periodEnd)}</p>
+                          </div>
+                          {future ? (
+                            <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] font-medium text-slate-600">
+                              <Clock className="h-3 w-3" />Akan Datang
+                            </span>
+                          ) : (
+                            <span className={`inline-flex shrink-0 items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium ${STATUS_CLASS[inv.status]}`}>
+                              {STATUS_ICON[inv.status]}{STATUS_LABEL[inv.status]}
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="mt-3 grid grid-cols-3 gap-2 rounded-lg bg-muted/35 p-2 text-xs">
+                          <div>
+                            <p className="text-muted-foreground">Total</p>
+                            <p className="font-semibold">{formatRupiah(inv.totalAmount)}</p>
+                          </div>
+                          <div>
+                            <p className="text-muted-foreground">Terbayar</p>
+                            <p className="font-semibold text-green-600">{formatRupiah(inv.paidAmount)}</p>
+                          </div>
+                          <div>
+                            <p className="text-muted-foreground">Sisa</p>
+                            <p className={`font-semibold ${future || inv.status === "cancelled" ? "text-muted-foreground" : outstanding > 0 ? "text-orange-600" : "text-green-600"}`}>
+                              {inv.status === "cancelled" ? "Nonaktif" : future ? "Belum aktif" : formatRupiah(outstanding)}
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="mt-2 flex items-center justify-between text-[11px] text-muted-foreground">
+                          <span>Jatuh tempo: {formatDate(inv.dueDate)}</span>
+                          <span>{inv.invoiceNotifiedAt ? "WA terkirim" : "WA belum"}</span>
+                        </div>
+
+                        <div className="mt-3 flex flex-wrap items-center justify-end gap-1 border-t pt-2" onClick={(e) => e.stopPropagation()}>
+                          {!future && inv.status !== "paid" && inv.status !== "cancelled" && (
+                            <Button size="sm" variant="outline" className="h-8 px-2 text-xs" onClick={() => openPayment(inv)}>
+                              <CreditCard className="h-3.5 w-3.5 mr-1" />Bayar
+                            </Button>
+                          )}
+                          <Button size="sm" variant="outline" className="h-8 px-2 text-xs" onClick={() => { void viewOrPrintInvoice(inv, "view"); }}>
+                            <Eye className="h-3.5 w-3.5 mr-1" />Lihat
+                          </Button>
+                          {!future && inv.status !== "paid" && inv.status !== "cancelled" && inv.phone && (
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="h-8 px-2 text-xs text-emerald-700"
+                              disabled={sendingLinkId === inv.id}
+                              onClick={() => sendLinkMutation.mutate(inv.id)}
+                            >
+                              {sendingLinkId === inv.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <MessageCircle className="h-3.5 w-3.5 mr-1" />}
+                              Tagih
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+          ) : (
           <div className="rounded-md border overflow-x-auto">
             <Table>
               <TableHeader>
@@ -2349,18 +2473,19 @@ export default function TenantInvoices() {
               </TableBody>
             </Table>
           </div>
+          )}
         </CardContent>
       </Card>
 
       {/* ─── Dialog: Create Invoice ───────────────────────────────────────────── */}
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-        <DialogContent className="max-w-2xl">
+        <DialogContent className="w-[calc(100vw-1rem)] max-w-2xl sm:w-auto">
           <DialogHeader>
             <DialogTitle>Buat Invoice Baru</DialogTitle>
           </DialogHeader>
           <ScrollArea className="max-h-[70vh] pr-2">
             <form id="create-invoice-form" onSubmit={handleCreateSubmit} className="flex flex-col gap-4 py-1">
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <Field label="Tenant" required>
                   <Select
                     value={createForm.tenantId}
@@ -2439,7 +2564,7 @@ export default function TenantInvoices() {
                 </Field>
               </div>
 
-              <div className="grid grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
                 <Field label="Unit / Kode">
                   <Input value={createForm.unitCode} onChange={e => setCreateForm(f => ({ ...f, unitCode: e.target.value }))} placeholder="A-01" />
                 </Field>
@@ -2451,7 +2576,7 @@ export default function TenantInvoices() {
                 </Field>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <Field label="Jatuh Tempo">
                   <Input type="date" value={createForm.dueDate} onChange={e => setCreateForm(f => ({ ...f, dueDate: e.target.value }))} />
                 </Field>
@@ -2469,7 +2594,7 @@ export default function TenantInvoices() {
               <Separator />
               <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Komponen Tagihan</p>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <Field label="Harga Sewa">
                   <Input type="number" min="0" value={createForm.rentAmount} onChange={e => setCreateForm(f => ({ ...f, rentAmount: e.target.value }))} placeholder="0" />
                 </Field>
@@ -2642,7 +2767,7 @@ export default function TenantInvoices() {
                 placeholder="0"
               />
             </Field>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <Field label="Metode Pembayaran">
                 <Select value={paymentForm.paymentMethod} onValueChange={(v) => setPaymentForm(f => ({ ...f, paymentMethod: v as PaymentForm["paymentMethod"] }))}>
                   <SelectTrigger><SelectValue /></SelectTrigger>

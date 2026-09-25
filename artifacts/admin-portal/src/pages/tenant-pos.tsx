@@ -360,7 +360,7 @@ function ShiftPanel({ shift, onOpenShift, onCloseShift }: {
   if (!shift) {
     return (
       <div className="flex items-center justify-between rounded-xl border border-amber-200 bg-amber-50/60 px-4 py-2.5">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <ShieldAlert className="w-4 h-4 text-amber-500 shrink-0" />
           <span className="text-sm text-amber-700 font-medium">Tidak ada shift aktif</span>
           <span className="text-xs text-amber-600">· Buka shift untuk mulai mencatat transaksi</span>
@@ -1024,7 +1024,7 @@ function SummaryCards({ overview, loading, error }: { overview?: Overview; loadi
   }
 
   return (
-    <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+    <div className="grid grid-cols-1 min-[380px]:grid-cols-2 lg:grid-cols-4 gap-3">
       {cards.map((c) => (
         <div key={c.label} className={cn("relative rounded-2xl border bg-gradient-to-br shadow-sm overflow-hidden", c.gradient, c.border)}>
           <div className={cn("absolute top-0 left-0 w-1 h-full rounded-l-2xl", c.accent)} />
@@ -1172,8 +1172,8 @@ function TenantFloorPlan({ items: rawItems, selected, onSelect, isFiltered }: {
     );
   }
   return (
-    <div className="h-full overflow-y-auto p-4">
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+    <div className="h-full overflow-y-auto p-2 sm:p-4">
+      <div className="grid grid-cols-1 min-[420px]:grid-cols-2 gap-2 sm:gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
         {items.map((item) => (
           <BoothCard key={item.id} item={item} selected={selected?.id === item.id} onClick={() => onSelect(item)} />
         ))}
@@ -1188,7 +1188,7 @@ function FloorPlanSkeleton() {
       {[1, 2].map((g) => (
         <div key={g}>
           <Skeleton className="h-4 w-36 mb-3" />
-          <div className="grid grid-cols-3 gap-2.5">
+          <div className="grid grid-cols-1 min-[420px]:grid-cols-2 sm:grid-cols-3 gap-2.5">
             {Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} className="h-[88px] rounded-xl" />)}
           </div>
         </div>
@@ -3209,8 +3209,8 @@ export default function TenantPos() {
   };
 
   return (
-    <div className="flex flex-col h-[calc(100vh-4.5rem)] gap-3">
-      <div className="flex items-start justify-between">
+    <div className="flex flex-col min-h-[calc(100vh-4.5rem)] lg:h-[calc(100vh-4.5rem)] gap-3">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">POS Kasir</h1>
           <p className="text-muted-foreground mt-0.5 text-sm">Klik unit pada denah untuk melihat detail dan memproses pembayaran</p>
@@ -3222,13 +3222,13 @@ export default function TenantPos() {
           <Button variant="outline" size="sm" className="text-xs" onClick={() => setShowDailyReport(true)}>
             <FileText className="w-3.5 h-3.5 mr-1.5" />Laporan
           </Button>
-          <StatusLegend />
+          <div className="hidden md:block"><StatusLegend /></div>
         </div>
       </div>
 
       <SummaryCards overview={overview.data} loading={overview.isLoading} error={overview.isError} />
 
-      <div className="flex flex-1 gap-4 min-h-0">
+      <div className="flex flex-1 flex-col lg:flex-row gap-3 lg:gap-4 min-h-0">
         <Card className="flex-1 min-w-0 overflow-hidden flex flex-col">
           {/* ── Tab Lokasi (Semua / Sport Center / TOD M1) ── */}
           {sites.length > 1 && (
@@ -3272,7 +3272,7 @@ export default function TenantPos() {
               })}
             </div>
           )}
-          <CardHeader className="py-3 px-4 border-b flex-row items-center justify-between space-y-0">
+          <CardHeader className="py-3 px-3 sm:px-4 border-b flex-col gap-2 sm:flex-row sm:items-center sm:justify-between space-y-0">
             <div className="flex items-center gap-2">
               <CardTitle className="text-sm font-semibold text-slate-700">Denah Tenant</CardTitle>
               {activeSite && sites.length === 1 && (
@@ -3282,8 +3282,8 @@ export default function TenantPos() {
                 <span className="text-[10px] text-muted-foreground">({filteredItems.length}/{allItems.length} unit)</span>
               )}
             </div>
-            <div className="flex items-center gap-2 flex-wrap justify-end">
-              <div className="flex items-center gap-1">
+            <div className="flex w-full sm:w-auto items-center gap-2 flex-wrap sm:justify-end">
+              <div className="flex items-center gap-1 overflow-x-auto max-w-full pb-1 sm:pb-0">
                 <Filter className="w-3.5 h-3.5 text-muted-foreground mr-0.5" />
                 {([null, "PAID", "UNPAID", "PARTIAL", "OVERDUE", "VACANT"] as const).map((s) => (
                   <button
@@ -3352,7 +3352,7 @@ export default function TenantPos() {
           </CardContent>
         </Card>
 
-        <Card className="w-80 flex-shrink-0 overflow-hidden">
+        <Card className="hidden lg:block w-80 flex-shrink-0 overflow-hidden">
           <CardContent className="p-0 h-full">
             <DetailPanel
               item={selected}
@@ -3364,6 +3364,30 @@ export default function TenantPos() {
           </CardContent>
         </Card>
       </div>
+
+      {selected && (
+        <div
+          className="fixed inset-0 z-40 flex items-end bg-black/40 lg:hidden"
+          onClick={() => setSelected(null)}
+          aria-label="Tutup detail tenant"
+        >
+          <div
+            className="w-full max-h-[82dvh] overflow-hidden rounded-t-2xl bg-background shadow-2xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="mx-auto mt-2 h-1.5 w-12 rounded-full bg-muted-foreground/25" />
+            <div className="max-h-[calc(82dvh-1rem)] overflow-y-auto">
+              <DetailPanel
+                item={selected}
+                onClose={() => setSelected(null)}
+                onProses={setModalItem}
+                onBayarInvoice={handleBayarInvoice}
+                currentShiftId={currentShift.data?.id ?? null}
+              />
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Modal Pembayaran */}
       {modalItem && (
