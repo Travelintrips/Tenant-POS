@@ -99,13 +99,49 @@ describe("Fase 3 — Invoice / Tagihan", () => {
   });
 
   describe("POST /api/tenant-invoices/:id/cancel", () => {
-    it("cancel mengubah status invoice menjadi cancelled", async () => {
+    it("cancel mempertahankan nilai historis tetapi mengubah status menjadi cancelled", async () => {
       const invoice = await createTestInvoice(testTenant.id, testBooking.id, {
+        totalAmount: "5000000",
+        paidAmount: "0",
+        outstandingAmount: "5000000",
         status: "unpaid",
       });
       const res = await owner.post(`/api/tenant-invoices/${invoice.id}/cancel`);
       expect(res.status).toBe(200);
       expect(res.body.status).toBe("cancelled");
+      expect(Number(res.body.totalAmount)).toBe(5000000);
+      expect(Number(res.body.outstandingAmount)).toBe(5000000);
+    });
+
+    it("menolak pembatalan bila invoice sudah memiliki pembayaran", async () => {
+      const invoice = await createTestInvoice(testTenant.id, testBooking.id, {
+        totalAmount: "5000000",
+        paidAmount: "0",
+        outstandingAmount: "5000000",
+        status: "unpaid",
+      });
+
+      const pay = await owner
+        .post(`/api/tenant-invoices/${invoice.id}/payment`)
+        .send({ amountPaid: 1000000, paymentMethod: "transfer" });
+      expect(pay.status).toBe(201);
+
+      const res = await owner.post(`/api/tenant-invoices/${invoice.id}/cancel`);
+      expect(res.status).toBe(409);
+    });
+
+    it("invoice cancelled tidak dapat dihapus atau menghasilkan payment link", async () => {
+      const invoice = await createTestInvoice(testTenant.id, testBooking.id, {
+        status: "unpaid",
+      });
+      const cancelled = await owner.post(`/api/tenant-invoices/${invoice.id}/cancel`);
+      expect(cancelled.status).toBe(200);
+
+      const link = await owner.get(`/api/tenant-invoices/${invoice.id}/payment-link`);
+      expect(link.status).toBe(409);
+
+      const del = await owner.delete(`/api/tenant-invoices/${invoice.id}`);
+      expect(del.status).toBe(409);
     });
   });
 
