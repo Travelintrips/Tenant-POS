@@ -66,6 +66,35 @@ describe("Fase 3 — Invoice / Tagihan", () => {
       });
       expect([400, 422]).toContain(res.status);
     });
+
+    it("menolak duplikat booking + periode dengan 409 yang jelas", async () => {
+      const periodStart = "2098-09-01";
+      const periodEnd = "2098-09-30";
+      const dueDate = "2098-10-05";
+
+      const first = await owner.post("/api/tenant-invoices").send({
+        tenantId: testTenant.id,
+        bookingId: testBooking.id,
+        rentAmount: "3000000",
+        periodStart,
+        periodEnd,
+        dueDate,
+        usePpn: true,
+      });
+      expect(first.status).toBe(201);
+
+      const duplicate = await owner.post("/api/tenant-invoices").send({
+        tenantId: testTenant.id,
+        bookingId: testBooking.id,
+        rentAmount: "3000000",
+        periodStart,
+        periodEnd,
+        dueDate,
+        usePpn: true,
+      });
+      expect(duplicate.status).toBe(409);
+      expect(String(duplicate.body.error)).toContain("sudah ada");
+    });
   });
 
   describe("POST /api/tenant-invoices/:id/payment — transisi status", () => {
