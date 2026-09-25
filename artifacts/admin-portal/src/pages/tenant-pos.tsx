@@ -59,6 +59,11 @@ type FloorPlanItem = {
   dueDate: string | null;
   periodLabel: string | null;
   openInvoiceCount: number;
+  currentPeriodTotal: number;
+  currentPeriodPaid: number;
+  currentPeriodOutstanding: number;
+  priorOutstanding: number;
+  activeOutstanding: number;
   logoUrl: string | null;
   tenantStatus: string | null;
   unitStatus: string | null;
@@ -1123,17 +1128,29 @@ function BoothCard({ item, selected, onClick }: { item: FloorPlanItem; selected:
           {isVacant ? "Kosong" : item.businessName}
         </p>
 
-        {/* Harga Sewa */}
-        {!isVacant && item.totalAmount > 0 && (
-          <div className="mt-1 pt-1.5 border-t border-slate-200/60">
-            <p className="text-[9px] text-slate-400 font-medium uppercase tracking-wide">Harga Sewa</p>
-            <p className={cn("text-[11px] font-bold",
-              status === "PAID" ? "text-emerald-600" :
-              status === "OVERDUE" ? "text-red-600" :
-              status === "PARTIAL" ? "text-blue-600" : "text-amber-600"
-            )}>
-              {formatRupiah(item.totalAmount)}
-            </p>
+        {/* Ringkasan tagihan aktif — bukan total kontrak */}
+        {!isVacant && (
+          <div className="mt-1 pt-1.5 border-t border-slate-200/60 space-y-0.5">
+            {item.currentPeriodTotal > 0 ? (
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-[9px] text-slate-400 font-medium uppercase tracking-wide">Tagihan Bulan Ini</p>
+                <p className="text-[10px] font-bold text-slate-700">{formatRupiah(item.currentPeriodTotal)}</p>
+              </div>
+            ) : (
+              <p className="text-[9px] text-slate-400 font-medium uppercase tracking-wide">Tidak ada tagihan bulan ini</p>
+            )}
+            {item.priorOutstanding > 0 && (
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-[9px] text-red-500 font-medium uppercase tracking-wide">Tunggakan Lama</p>
+                <p className="text-[10px] font-bold text-red-600">{formatRupiah(item.priorOutstanding)}</p>
+              </div>
+            )}
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-[9px] text-slate-400 font-medium uppercase tracking-wide">Sisa Aktif</p>
+              <p className={cn("text-[10px] font-bold", item.activeOutstanding > 0 ? "text-amber-600" : "text-emerald-600")}>
+                {formatRupiah(item.activeOutstanding)}
+              </p>
+            </div>
           </div>
         )}
       </div>
@@ -1485,19 +1502,25 @@ function DetailPanel({ item, onClose, onProses, onBayarInvoice, currentShiftId }
               </Button>
             )}
 
-            {item.bookingId && (
+            {!isVacant && (
               <div>
-                <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">Tagihan Booking</p>
+                <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">Ringkasan Tagihan Aktif</p>
                 <div className="bg-muted/30 rounded-lg px-3 divide-y divide-border/60">
-                  {item.periodLabel && <DetailRow label="Periode" value={item.periodLabel} />}
-                  <DetailRow label="Total Tagihan" value={formatRupiah(item.totalAmount)} valueClass="font-semibold" />
-                  <DetailRow label="Sudah Dibayar" value={formatRupiah(item.paidAmount)} valueClass="text-emerald-700" />
+                  <DetailRow label="Tagihan Bulan Ini" value={formatRupiah(item.currentPeriodTotal)} valueClass="font-semibold" />
+                  <DetailRow label="Terbayar Bulan Ini" value={formatRupiah(item.currentPeriodPaid)} valueClass="text-emerald-700" />
+                  {item.priorOutstanding > 0 && (
+                    <DetailRow label="Tunggakan Lama" value={formatRupiah(item.priorOutstanding)} valueClass="text-red-600 font-semibold" />
+                  )}
                   <div className="py-2 flex justify-between">
-                    <span className="text-xs font-semibold">Sisa Pembayaran</span>
-                    <span className={cn("text-sm font-bold", item.remainingAmount === 0 ? "text-emerald-600" : "text-amber-600")}>{formatRupiah(item.remainingAmount)}</span>
+                    <span className="text-xs font-semibold">Sisa Piutang Aktif</span>
+                    <span className={cn("text-sm font-bold", item.activeOutstanding === 0 ? "text-emerald-600" : "text-amber-600")}>{formatRupiah(item.activeOutstanding)}</span>
                   </div>
-                  {item.dueDate && <DetailRow label="Jatuh Tempo" value={<span className={cn("flex items-center gap-1 justify-end", status === "OVERDUE" ? "text-red-600 font-semibold" : "")}><Clock className="w-3 h-3 shrink-0" />{formatTanggalID(item.dueDate)}</span>} />}
                 </div>
+                {item.bookingId && (
+                  <p className="mt-1.5 text-[10px] text-muted-foreground">
+                    Total kontrak tidak ditampilkan sebagai harga sewa bulanan. Lihat data booking/kontrak untuk nilai kontrak penuh.
+                  </p>
+                )}
               </div>
             )}
             {canPay && (

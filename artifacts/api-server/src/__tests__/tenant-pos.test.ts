@@ -142,6 +142,51 @@ describe("Fase 4 — POS Pembayaran", () => {
       expect(invoices.status).toBe(200);
       expect(invoices.body).toEqual([]);
     });
+
+    it("kartu POS memisahkan tagihan bulan ini, tunggakan lama, dan future invoice", async () => {
+      const tenant = await createTestTenant();
+      const now = new Date();
+      const year = now.getUTCFullYear();
+      const month = String(now.getUTCMonth() + 1).padStart(2, "0");
+      const currentStart = `${year}-${month}-01`;
+
+      await createTestInvoice(tenant.id, undefined, {
+        periodStart: currentStart,
+        periodEnd: currentStart,
+        totalAmount: "3000000",
+        paidAmount: "1000000",
+        outstandingAmount: "2000000",
+        status: "partial",
+      });
+
+      await createTestInvoice(tenant.id, undefined, {
+        periodStart: "2020-01-01",
+        periodEnd: "2020-01-31",
+        totalAmount: "1000000",
+        paidAmount: "0",
+        outstandingAmount: "1000000",
+        status: "overdue",
+      });
+
+      await createTestInvoice(tenant.id, undefined, {
+        periodStart: "2099-12-01",
+        periodEnd: "2099-12-31",
+        totalAmount: "9000000",
+        paidAmount: "0",
+        outstandingAmount: "9000000",
+        status: "unpaid",
+      });
+
+      const floor = await owner.get("/api/tenant-pos/floor-plan");
+      expect(floor.status).toBe(200);
+      const item = floor.body.find((row: any) => row.tenantId === tenant.id);
+      expect(item).toBeTruthy();
+      expect(Number(item.currentPeriodTotal)).toBe(3000000);
+      expect(Number(item.currentPeriodPaid)).toBe(1000000);
+      expect(Number(item.currentPeriodOutstanding)).toBe(2000000);
+      expect(Number(item.priorOutstanding)).toBe(1000000);
+      expect(Number(item.activeOutstanding)).toBe(3000000);
+    });
   });
 
   describe("POST /api/tenant-pos/payments", () => {
