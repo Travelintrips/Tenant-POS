@@ -529,15 +529,16 @@ export async function runInvoiceNotificationCheck(): Promise<number> {
   return sent;
 }
 
-// ─── Due reminder H-7 / H-3 / H-1 ───────────────────────────────────────────
+// ─── Reminder harian periode aktif sampai jatuh tempo ─────────────────────────
 
 /**
- * Kirim WA reminder tepat H-7, H-3, dan H-1 sebelum jatuh tempo.
- * Berjalan setiap hari pada scheduler 08:00 WIB sehingga tenant dengan tanggal
- * mulai kontrak non-tanggal-1 tetap mendapatkan reminder yang benar.
+ * Kirim WA reminder setiap hari pukul 08:00 WIB sejak periode invoice mulai
+ * sampai tanggal jatuh tempo, selama invoice masih unpaid/partial.
  *
- * Overdue tidak diproses di sini agar satu invoice tidak menerima dua pesan
- * dalam blast yang sama; overdue ditangani eksklusif oleh runOverdueCheck().
+ * Hari pertama periode ditangani oleh runInvoiceNotificationCheck() agar tenant
+ * menerima tagihan awal, bukan dua pesan pada hari yang sama. Mulai hari
+ * berikutnya reminder dikirim sekali per hari. Setelah melewati jatuh tempo,
+ * pengiriman harian ditangani eksklusif oleh runOverdueCheck().
  */
 export async function runMonthlyDailyReminderCheck(): Promise<{ h7: number; h3: number; h1: number }> {
   const nowUtc = new Date();
@@ -549,7 +550,7 @@ export async function runMonthlyDailyReminderCheck(): Promise<{ h7: number; h3: 
   const pad = (n: number) => String(n).padStart(2, "0");
   const todayWibStr = `${yearWib}-${pad(monthWib + 1)}-${pad(dayWib)}`;
 
-  logger.info({ todayWibStr }, "[scheduler] Menjalankan reminder H-7/H-3/H-1...");
+  logger.info({ todayWibStr }, "[scheduler] Menjalankan reminder harian periode aktif...");
 
   const invoices = await db
     .select({
@@ -575,7 +576,9 @@ export async function runMonthlyDailyReminderCheck(): Promise<{ h7: number; h3: 
         inArray(tenantInvoicesTable.status, ["unpaid", "partial"]),
         sql`${tenantInvoicesTable.periodStart}::date <= ${todayWibStr}::date`,
         sql`${tenantInvoicesTable.dueDate} IS NOT NULL`,
-        sql`(${tenantInvoicesTable.dueDate}::date - ${todayWibStr}::date) IN (7, 3, 1)`,
+        sql`${tenantInvoicesTable.dueDate}::date >= ${todayWibStr}::date`,
+        sql`${tenantInvoicesTable.invoiceNotifiedAt} IS NOT NULL`,
+        sql`DATE(${tenantInvoicesTable.invoiceNotifiedAt} AT TIME ZONE 'Asia/Jakarta') < ${todayWibStr}::date`,
         sql`COALESCE(${tenantInvoicesTable.outstandingAmount}, 0)::numeric > 0`,
         sql`(
           last_payment_reminder_at IS NULL
@@ -584,7 +587,7 @@ export async function runMonthlyDailyReminderCheck(): Promise<{ h7: number; h3: 
       ),
     );
 
-  logger.info({ count: invoices.length }, "[scheduler] Invoice perlu reminder jatuh tempo");
+  logger.info({ count: invoices.length }, "[scheduler] Invoice perlu reminder harian");
 
   const counts = { h7: 0, h3: 0, h1: 0 };
 
@@ -594,7 +597,7 @@ export async function runMonthlyDailyReminderCheck(): Promise<{ h7: number; h3: 
 
     const todayDate = new Date(todayWibStr + "T00:00:00Z");
     const daysUntilDue = Math.round((dueDate.getTime() - todayDate.getTime()) / 86400000);
-    if (![7, 3, 1].includes(daysUntilDue)) continue;
+    if (daysUntilDue < 0) continue;
 
     const claimedAt = new Date();
     const claimed = await db
@@ -610,7 +613,9 @@ export async function runMonthlyDailyReminderCheck(): Promise<{ h7: number; h3: 
           )`,
           inArray(tenantInvoicesTable.status, ["unpaid", "partial"]),
           sql`${tenantInvoicesTable.periodStart}::date <= ${todayWibStr}::date`,
-          sql`(${tenantInvoicesTable.dueDate}::date - ${todayWibStr}::date) IN (7, 3, 1)`,
+          sql`${tenantInvoicesTable.dueDate}::date >= ${todayWibStr}::date`,
+          sql`${tenantInvoicesTable.invoiceNotifiedAt} IS NOT NULL`,
+          sql`DATE(${tenantInvoicesTable.invoiceNotifiedAt} AT TIME ZONE 'Asia/Jakarta') < ${todayWibStr}::date`,
           sql`COALESCE(${tenantInvoicesTable.outstandingAmount}, 0)::numeric > 0`,
           sql`(
             last_payment_reminder_at IS NULL
@@ -721,7 +726,7 @@ export async function runMonthlyDailyReminderCheck(): Promise<{ h7: number; h3: 
     }
   }
 
-  logger.info({ ...counts }, "[scheduler] Reminder H-7/H-3/H-1 selesai");
+  logger.info({ ...counts }, "[scheduler] Reminder harian periode aktif selesai");
   return counts;
 }
 
