@@ -123,4 +123,25 @@ describe("Fase 1 — Halaman Data Tenant (Frontend)", () => {
       expect(container).toBeTruthy();
     }, { timeout: 5000 });
   });
+
+  it("menampilkan tunggakan yang sudah dihitung backend tanpa memasukkan future invoice", async () => {
+    const rows = [
+      { ...mockTenants[0], totalOutstanding: 2500000 },
+      { ...mockTenants[1], totalOutstanding: 0 },
+    ];
+    vi.mocked(global.fetch).mockImplementation((url: string) => {
+      if (String(url).includes("/api/auth/me")) {
+        return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(withUser()) } as Response);
+      }
+      if (String(url).includes("/api/tenants")) {
+        return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(rows) } as Response);
+      }
+      return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve([]) } as Response);
+    });
+
+    const DataTenant = (await import("@/pages/data-tenant")).default;
+    renderWithProviders(<DataTenant />, { user: withUser() });
+    expect(await screen.findByText("Rp 2.500.000")).toBeInTheDocument();
+  });
+
 });
