@@ -254,6 +254,68 @@ router.get("/tenant-pos/floor-plan", async (req, res) => {
       }])
     );
 
+    // Angka yang ditampilkan di kartu POS harus berasal dari invoice, bukan total kontrak booking.
+    // "Bulan berjalan" memakai bulan period_start di zona bisnis Asia/Jakarta.
+    const invoiceFinancialRes = await db
+      .select({
+        tenantId: tenantInvoicesTable.tenantId,
+        currentPeriodTotal: sql<number>`coalesce(sum(${tenantInvoicesTable.totalAmount}::numeric) filter (
+          where ${tenantInvoicesTable.status} NOT IN ('cancelled', 'draft')
+            and ${tenantInvoicesTable.periodStart} IS NOT NULL
+            and date_trunc('month', ${tenantInvoicesTable.periodStart}::date)
+              = date_trunc('month', (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Jakarta')::date)
+        ), 0)::numeric`,
+        currentPeriodPaid: sql<number>`coalesce(sum(${tenantInvoicesTable.paidAmount}::numeric) filter (
+          where ${tenantInvoicesTable.status} NOT IN ('cancelled', 'draft')
+            and ${tenantInvoicesTable.periodStart} IS NOT NULL
+            and date_trunc('month', ${tenantInvoicesTable.periodStart}::date)
+              = date_trunc('month', (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Jakarta')::date)
+        ), 0)::numeric`,
+        currentPeriodOutstanding: sql<number>`coalesce(sum(${tenantInvoicesTable.outstandingAmount}::numeric) filter (
+          where ${tenantInvoicesTable.status} IN ('unpaid', 'partial', 'overdue')
+            and coalesce(${tenantInvoicesTable.outstandingAmount}, 0)::numeric > 0
+            and ${tenantInvoicesTable.periodStart} IS NOT NULL
+            and date_trunc('month', ${tenantInvoicesTable.periodStart}::date)
+              = date_trunc('month', (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Jakarta')::date)
+        ), 0)::numeric`,
+        priorOutstanding: sql<number>`coalesce(sum(${tenantInvoicesTable.outstandingAmount}::numeric) filter (
+          where ${tenantInvoicesTable.status} IN ('unpaid', 'partial', 'overdue')
+            and coalesce(${tenantInvoicesTable.outstandingAmount}, 0)::numeric > 0
+            and (
+              ${tenantInvoicesTable.periodStart} IS NULL
+              or date_trunc('month', ${tenantInvoicesTable.periodStart}::date)
+                < date_trunc('month', (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Jakarta')::date)
+            )
+        ), 0)::numeric`,
+        activeOutstanding: sql<number>`coalesce(sum(${tenantInvoicesTable.outstandingAmount}::numeric) filter (
+          where ${tenantInvoicesTable.status} IN ('unpaid', 'partial', 'overdue')
+            and coalesce(${tenantInvoicesTable.outstandingAmount}, 0)::numeric > 0
+            and (
+              ${tenantInvoicesTable.periodStart} IS NULL
+              or ${tenantInvoicesTable.periodStart}::date <= (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Jakarta')::date
+            )
+        ), 0)::numeric`,
+      })
+      .from(tenantInvoicesTable)
+      .where(invoiceSiteFilter)
+      .groupBy(tenantInvoicesTable.tenantId);
+
+    const invoiceFinancialMap = new Map<number, {
+      currentPeriodTotal: number;
+      currentPeriodPaid: number;
+      currentPeriodOutstanding: number;
+      priorOutstanding: number;
+      activeOutstanding: number;
+    }>(
+      invoiceFinancialRes.map((r) => [r.tenantId, {
+        currentPeriodTotal: Number(r.currentPeriodTotal ?? 0),
+        currentPeriodPaid: Number(r.currentPeriodPaid ?? 0),
+        currentPeriodOutstanding: Number(r.currentPeriodOutstanding ?? 0),
+        priorOutstanding: Number(r.priorOutstanding ?? 0),
+        activeOutstanding: Number(r.activeOutstanding ?? 0),
+      }])
+    );
+
     const result = rows.map((row: typeof rows[number], idx: number) => {
       // Status POS mengutamakan invoice yang sudah memasuki periodenya.
       // Invoice future tidak membuat tenant menjadi utang/belum bayar.
@@ -298,6 +360,11 @@ router.get("/tenant-pos/floor-plan", async (req, res) => {
         dueDate: row.dueDate ?? null,
         periodLabel: row.periodLabel ?? null,
         openInvoiceCount: invoiceCountMap.get(row.tenantId)?.open ?? 0,
+        currentPeriodTotal: invoiceFinancialMap.get(row.tenantId)?.currentPeriodTotal ?? 0,
+        currentPeriodPaid: invoiceFinancialMap.get(row.tenantId)?.currentPeriodPaid ?? 0,
+        currentPeriodOutstanding: invoiceFinancialMap.get(row.tenantId)?.currentPeriodOutstanding ?? 0,
+        priorOutstanding: invoiceFinancialMap.get(row.tenantId)?.priorOutstanding ?? 0,
+        activeOutstanding: invoiceFinancialMap.get(row.tenantId)?.activeOutstanding ?? 0,
         logoUrl: row.logoUrl ?? null,
         tenantStatus: row.tenantStatus ?? null,
         unitStatus: row.unitStatus ?? null,
