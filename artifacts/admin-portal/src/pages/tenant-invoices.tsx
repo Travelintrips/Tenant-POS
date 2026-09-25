@@ -840,7 +840,21 @@ type GenerateForm = { bookingId: string; notes: string };
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
+function useMobileLayout() {
+  const [isMobile, setIsMobile] = useState(false);
+  useEffect(() => {
+    if (typeof window === "undefined" || !window.matchMedia) return;
+    const media = window.matchMedia("(max-width: 767px)");
+    const sync = () => setIsMobile(media.matches);
+    sync();
+    media.addEventListener?.("change", sync);
+    return () => media.removeEventListener?.("change", sync);
+  }, []);
+  return isMobile;
+}
+
 export default function TenantInvoices() {
+  const isMobile = useMobileLayout();
   const { activeSite, activeSiteId } = useSite();
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -2101,7 +2115,8 @@ export default function TenantInvoices() {
               </Button>
             </div>
           )}
-          <div className="space-y-2 md:hidden">
+          {isMobile ? (
+          <div className="space-y-2">
             {isLoading ? (
               Array.from({ length: 4 }).map((_, i) => (
                 <div key={i} className="rounded-xl border bg-card p-3">
@@ -2210,7 +2225,9 @@ export default function TenantInvoices() {
             )}
           </div>
 
-          <div className="hidden rounded-md border overflow-x-auto md:block">
+          </div>
+          ) : (
+          <div className="rounded-md border overflow-x-auto">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -2458,6 +2475,7 @@ export default function TenantInvoices() {
               </TableBody>
             </Table>
           </div>
+          )}
         </CardContent>
       </Card>
 
