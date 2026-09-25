@@ -42,6 +42,7 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { useSite } from "@/contexts/site-context";
 import { apiFetch as siteApiFetch } from "@/lib/api";
+import { asArray } from "@/lib/api-shape";
 
 function formatRupiah(val: string | number | null | undefined) {
   if (val == null || val === "") return "Rp 0";
@@ -149,7 +150,7 @@ export default function TinjauPembayaran() {
     queryKey: ["pending-payments", activeSiteId, activeTab],
     enabled: activeSiteId !== null,
     staleTime: 30_000,
-    queryFn: () => apiFetch(`/api/pending-payments?status=${activeTab}`),
+    queryFn: async () => asArray<PendingPayment>(await apiFetch(`/api/pending-payments?status=${activeTab}`)),
     refetchInterval: activeTab === "pending_review" ? 30_000 : false,
   });
 
