@@ -29,7 +29,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useSite, type MallSite, ALL_SITES_SENTINEL } from "@/contexts/site-context";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useToast } from "@/hooks/use-toast";
@@ -110,6 +110,7 @@ function SidebarNav({ children }: { children: React.ReactNode }) {
   const logout = useLogout();
   const { activeSite, sites, setActiveSite } = useSite();
   const { toast } = useToast();
+  const queryClient = useQueryClient();
 
   const role = user?.role as UserRole | undefined;
   const can = (...roles: UserRole[]) => !!role && roles.includes(role);
@@ -186,6 +187,43 @@ function SidebarNav({ children }: { children: React.ReactNode }) {
 
   const notifCount = upcomingData?.count ?? 0;
   const grouped = groupSites(Array.isArray(sites) ? sites : []);
+
+  // Warm the two heaviest Data Tenant requests for inactive sites in the
+  // background. The cache is keyed by site, so switching Sport Center/TOD M1
+  // can render the correct dataset immediately instead of briefly showing the
+  // previous site's rows while a refetch is still in flight.
+  useEffect(() => {
+    if (!activeSite || !can("owner", "admin") || sites.length < 2) return;
+
+    const timer = window.setTimeout(() => {
+      for (const site of sites) {
+        if (site.id === activeSite.id) continue;
+        const siteHeaders = { "x-site-id": String(site.id) };
+
+        void queryClient.prefetchQuery({
+          queryKey: ["/api/tenants", site.id],
+          queryFn: async () => {
+            const res = await apiFetch("/api/tenants", { headers: siteHeaders });
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            return res.json();
+          },
+          staleTime: 60_000,
+        });
+
+        void queryClient.prefetchQuery({
+          queryKey: ["/api/mall-units", site.id],
+          queryFn: async () => {
+            const res = await apiFetch("/api/mall-units", { headers: siteHeaders });
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            return res.json();
+          },
+          staleTime: 60_000,
+        });
+      }
+    }, 250);
+
+    return () => window.clearTimeout(timer);
+  }, [activeSite?.id, role, sites, queryClient]);
 
   return (
     <>
