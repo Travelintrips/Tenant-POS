@@ -212,4 +212,24 @@ describe("Fase 3 — Halaman Invoice Tenant (Frontend)", () => {
     expect(screen.queryByText("Rp 15.000.000")).not.toBeInTheDocument();
   });
 
+
+  it("invoice cancelled ditampilkan sebagai bukan piutang walau nilai historis outstanding masih tersimpan", async () => {
+    const invoices = [{
+      ...mockInvoices[0],
+      id: 301,
+      invoiceNumber: "INV-CANCELLED-001",
+      status: "cancelled",
+      outstandingAmount: "5000000",
+      periodStart: "2020-01-01",
+      periodEnd: "2020-01-31",
+    }];
+
+    setupMock(invoices);
+    const TenantInvoices = (await import("@/pages/tenant-invoices")).default;
+    renderInvoicePage(TenantInvoices);
+
+    expect(await screen.findByText("Tidak menjadi piutang")).toBeInTheDocument();
+    expect(screen.getByText("Dibatalkan")).toBeInTheDocument();
+  });
+
 });
