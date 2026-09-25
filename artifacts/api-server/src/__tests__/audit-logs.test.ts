@@ -83,7 +83,8 @@ describe("Fase 7 — Audit Log", () => {
   describe("update_booking menghasilkan audit log", () => {
     it("update booking dan verifikasi audit log", async () => {
       const tenant = await createTestTenant();
-      const booking = await createTestBooking(tenant.id);
+      const uniqueUnitCode = `AUDIT-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const booking = await createTestBooking(tenant.id, { unitCode: uniqueUnitCode });
 
       const today = new Date();
       const future = new Date(today);
@@ -91,7 +92,7 @@ describe("Fase 7 — Audit Log", () => {
 
       const updateRes = await owner.put(`/api/bookings/${booking.id}`).send({
         tenantId: tenant.id,
-        unitCode: booking.unitCode,
+        unitCode: uniqueUnitCode,
         startDate: today.toISOString().slice(0, 10),
         endDate: future.toISOString().slice(0, 10),
         rentAmount: "7000000",
