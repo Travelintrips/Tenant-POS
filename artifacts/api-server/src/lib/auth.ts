@@ -25,7 +25,7 @@ declare global {
 }
 
 const DEFAULT_GOOGLE_OWNER_EMAILS = ["admcst001@gmail.com"];
-const DEFAULT_GOOGLE_ADMIN_EMAILS = ["almanosetiawan@gmail.com"];
+const DEFAULT_GOOGLE_ADMIN_EMAILS = ["almanosetiawan@gmail.com", "erlanggaerix@gmail.com"];
 
 function normalizeEmail(value: string): string {
   return value.trim().toLowerCase();
