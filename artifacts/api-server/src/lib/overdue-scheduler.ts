@@ -847,12 +847,10 @@ export async function runOverdueCheck(): Promise<number> {
         });
 
         if (result.pending) {
-          await releaseOverdueReminderClaim(invoice.id, claimedAt);
           logger.warn(
             { invoiceId: invoice.id },
-            "[scheduler] Overdue reminder masih pending di Fonnte — claim dilepas untuk retry",
+            "[scheduler] Overdue reminder diterima Fonnte sebagai queued/pending — claim dipertahankan",
           );
-          continue;
         }
 
         sent++;
