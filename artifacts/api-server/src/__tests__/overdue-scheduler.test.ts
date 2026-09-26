@@ -334,6 +334,40 @@ describe("overdue scheduler daily window guard", () => {
     vi.resetModules();
   });
 
+  it("tidak menjalankan blast WA saat app restart pukul 16:30 WIB", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-26T09:30:00.000Z")); // 16:30 WIB
+
+    const execute = vi.fn().mockResolvedValue({ rows: [] });
+    const select = vi.fn(() => {
+      const chain: any = {};
+      chain.from = vi.fn(() => chain);
+      chain.innerJoin = vi.fn(() => chain);
+      chain.where = vi.fn().mockResolvedValue([]);
+      return chain;
+    });
+
+    vi.resetModules();
+    vi.doMock("@workspace/db", async () => {
+      const actual = await vi.importActual<typeof import("@workspace/db")>("@workspace/db");
+      return {
+        ...actual,
+        db: {
+          execute,
+          select,
+        },
+      };
+    });
+
+    const scheduler = await import("../lib/overdue-scheduler");
+    scheduler.startOverdueScheduler();
+
+    // Startup timeout berjalan, tetapi karena di luar 08:00-08:59 WIB
+    // hanya invoice generation yang boleh jalan. Tidak boleh ada blast WA.
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(scheduler.getBlastHistory()).toHaveLength(0);
+  });
+
   it("hanya menjalankan satu blast pada window UTC yang sama dan boleh jalan lagi pada window berikutnya", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-09-20T01:00:00.000Z"));
