@@ -9,9 +9,13 @@ import { getBaseUrl } from "./app-url";
 let _started = false;
 
 // Jam eksekusi scheduler (dalam WIB = UTC+7, diperhitungkan sbg UTC)
-// Eksekusi sekali sehari pukul 08:00 WIB (01:00 UTC).
-// Semua invoice baru, reminder yang relevan, dan overdue diproses pada window ini.
+// Eksekusi rutin sekali sehari pukul 08:00 WIB (01:00 UTC).
 const SCHEDULE_HOURS_UTC = [1];
+
+// One-off verification blast requested for 26 Sep 2026 at 18:00 WIB (11:00 UTC).
+// Sengaja dibatasi ke tanggal ini saja agar tidak menjadi jadwal harian kedua.
+const ONE_OFF_WIB_DATE = "2026-09-26";
+const ONE_OFF_HOUR_UTC = 11;
 
 let _lastRunDateKey = ""; // format: "YYYY-MM-DD-HH"
 
@@ -228,13 +232,23 @@ export function startOverdueScheduler(): void {
     const hourUtc = now.getUTCHours();
     const dateKey = `${now.toISOString().slice(0, 10)}-${hourUtc}`;
 
-    // Hanya eksekusi jika jam-nya sesuai jadwal DAN belum dijalankan di jam ini.
+    const wibMs = 7 * 60 * 60 * 1000;
+    const nowWib = new Date(now.getTime() + wibMs);
+    const wibDate = nowWib.toISOString().slice(0, 10);
+    const isRegularWindow = SCHEDULE_HOURS_UTC.includes(hourUtc);
+    const isOneOffVerificationWindow =
+      wibDate === ONE_OFF_WIB_DATE && hourUtc === ONE_OFF_HOUR_UTC;
+
+    // Eksekusi jika jam rutin atau window one-off, dan belum dijalankan pada jam ini.
     // Date key diklaim sebelum await supaya dua tick dalam window yang sama
     // tidak bisa memulai blast kedua saat blast pertama masih berjalan.
-    if (SCHEDULE_HOURS_UTC.includes(hourUtc) && dateKey !== _lastRunDateKey) {
+    if ((isRegularWindow || isOneOffVerificationWindow) && dateKey !== _lastRunDateKey) {
       _lastRunDateKey = dateKey;
       try {
-        await runAllChecks(`cron ${hourUtc}:00 UTC`, true);
+        const label = isOneOffVerificationWindow
+          ? "one-off verification 18:00 WIB"
+          : `cron ${hourUtc}:00 UTC`;
+        await runAllChecks(label, true);
       } catch (err) {
         logger.warn({ err }, "[scheduler] Cron blast gagal");
       }
