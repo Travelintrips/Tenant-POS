@@ -117,7 +117,7 @@ describe("overdue invoice scheduler", () => {
     expect(eligibleCalls()).toHaveLength(1);
   });
 
-  it("melepas claim dan tidak menghitung terkirim saat Fonnte masih pending", async () => {
+  it("mempertahankan claim dan menghitung queued sekali saat Fonnte pending", async () => {
     const tenant = await createTenant({
       phone: "6281200000099",
       status: "active",
@@ -141,13 +141,21 @@ describe("overdue invoice scheduler", () => {
     });
 
     const sent = await runOverdueCheck();
-    expect(sent).toBe(0);
+    expect(sent).toBeGreaterThanOrEqual(1);
 
     const [updated] = await db
       .select()
       .from(tenantInvoicesTable)
       .where(eq(tenantInvoicesTable.id, invoice.id));
-    expect(updated?.lastOverdueReminderAt).toBeNull();
+    expect(updated?.lastOverdueReminderAt).not.toBeNull();
+
+    // Queued provider response tetap diklaim sebagai percobaan hari ini supaya
+    // scheduler tidak mengirim ulang invoice yang sama berkali-kali.
+    await runOverdueCheck();
+    const pendingCalls = vi.mocked(sendOverdueReminder).mock.calls.filter(
+      ([params]) => params.invoiceNumber === invoice.invoiceNumber,
+    );
+    expect(pendingCalls).toHaveLength(1);
 
     const deliveryLogs = await db
       .select()
@@ -213,7 +221,7 @@ describe("daily reminder periode aktif", () => {
     expect(calls()).toHaveLength(1);
   });
 
-  it("melepas claim reminder harian saat Fonnte pending agar dapat dicoba lagi", async () => {
+  it("mempertahankan claim reminder harian saat Fonnte pending agar tidak dobel", async () => {
     const tenant = await createTenant({
       phone: "6281200000012",
       status: "active",
@@ -238,13 +246,19 @@ describe("daily reminder periode aktif", () => {
     });
 
     const result = await runMonthlyDailyReminderCheck();
-    expect(result.h3).toBe(0);
+    expect(result.h3).toBeGreaterThanOrEqual(1);
 
     const [updated] = await db
       .select()
       .from(tenantInvoicesTable)
       .where(eq(tenantInvoicesTable.id, invoice.id));
-    expect(updated?.lastPaymentReminderAt).toBeNull();
+    expect(updated?.lastPaymentReminderAt).not.toBeNull();
+
+    await runMonthlyDailyReminderCheck();
+    const pendingCalls = vi.mocked(sendDueReminder).mock.calls.filter(
+      ([params]) => params.invoiceNumber === invoice.invoiceNumber,
+    );
+    expect(pendingCalls).toHaveLength(1);
 
     const deliveryLogs = await db
       .select()
