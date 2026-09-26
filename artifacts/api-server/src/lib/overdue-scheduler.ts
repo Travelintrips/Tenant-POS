@@ -465,16 +465,15 @@ export async function runInvoiceNotificationCheck(): Promise<number> {
           errorMessage: result.pending ? "Fonnte process:pending" : null,
         });
 
-        // "pending" berarti Fonnte baru menerima antrean, belum ada kepastian
-        // device WhatsApp memproses pesan. Jangan menandai invoice selesai agar
-        // scheduler/manual retry berikutnya masih dapat mencoba kembali.
+        // Fonnte process=pending berarti request sudah diterima provider dan
+        // masuk antrean. Anggap sebagai queued delivery: pertahankan claim agar
+        // scheduler tidak membanjiri nomor yang sama setiap restart/manual blast.
+        // Admin group tetap harus menerima event pada percobaan yang sama.
         if (result.pending) {
-          await releaseInvoiceNotificationClaim(invoice.id, now);
           logger.warn(
             { invoiceId: invoice.id },
-            "[scheduler] Invoice masih pending di Fonnte — claim dilepas untuk retry",
+            "[scheduler] Invoice diterima Fonnte sebagai queued/pending — claim dipertahankan",
           );
-          continue;
         }
 
         sent++;
@@ -667,12 +666,10 @@ export async function runMonthlyDailyReminderCheck(): Promise<{ h7: number; h3: 
         });
 
         if (result.pending) {
-          await releasePaymentReminderClaim(invoice.id, claimedAt);
           logger.warn(
             { invoiceId: invoice.id, daysUntilDue },
-            "[scheduler] Due reminder masih pending di Fonnte — claim dilepas untuk retry",
+            "[scheduler] Due reminder diterima Fonnte sebagai queued/pending — claim dipertahankan",
           );
-          continue;
         }
 
         if (daysUntilDue === 7) counts.h7++;
@@ -850,12 +847,10 @@ export async function runOverdueCheck(): Promise<number> {
         });
 
         if (result.pending) {
-          await releaseOverdueReminderClaim(invoice.id, claimedAt);
           logger.warn(
             { invoiceId: invoice.id },
-            "[scheduler] Overdue reminder masih pending di Fonnte — claim dilepas untuk retry",
+            "[scheduler] Overdue reminder diterima Fonnte sebagai queued/pending — claim dipertahankan",
           );
-          continue;
         }
 
         sent++;
