@@ -12,11 +12,6 @@ let _started = false;
 // Eksekusi rutin sekali sehari pukul 08:00 WIB (01:00 UTC).
 const SCHEDULE_HOURS_UTC = [1];
 
-// One-off verification blast requested for 26 Sep 2026 at 18:00 WIB (11:00 UTC).
-// Sengaja dibatasi ke tanggal ini saja agar tidak menjadi jadwal harian kedua.
-const ONE_OFF_WIB_DATE = "2026-09-26";
-const ONE_OFF_HOUR_UTC = 11;
-
 let _lastRunDateKey = ""; // format: "YYYY-MM-DD-HH"
 
 // ─── Status tracker (diakses oleh route /blast-tagihan/status) ────────────────
@@ -203,20 +198,23 @@ export function startOverdueScheduler(): void {
   if (_started) return;
   _started = true;
 
-  // Startup catch-up: bila proses baru hidup setelah window 08:00 WIB,
-  // jalankan seluruh pengecekan satu kali. Idempotency per invoice/tanggal
-  // mencegah pengiriman reminder overdue ganda pada hari yang sama.
+  // Startup catch-up hanya di window 08:00-08:59 WIB.
+  // Restart/deploy di siang/sore hari TIDAK boleh mengirim reminder di luar jadwal.
+  // Ini mencegah kasus production restart pukul 16:30 WIB memicu blast harian.
   setTimeout(async () => {
     try {
       const now = new Date();
       const wibMs = 7 * 60 * 60 * 1000;
       const nowWib = new Date(now.getTime() + wibMs);
       const hourWib = nowWib.getUTCHours();
-      if (hourWib >= 8) {
-        logger.info("[scheduler] Startup catch-up setelah 08:00 WIB — menjalankan blast harian...");
-        await runAllChecks("startup catch-up after 08:00 WIB", true);
+      if (hourWib === 8) {
+        logger.info("[scheduler] Startup catch-up dalam window 08:00 WIB — menjalankan blast harian...");
+        await runAllChecks("startup catch-up 08:00 WIB", true);
       } else {
-        logger.info("[scheduler] Startup sebelum 08:00 WIB — invoice generation only...");
+        logger.info(
+          { hourWib },
+          "[scheduler] Startup di luar window 08:00 WIB — tidak mengirim WA; invoice generation only",
+        );
         const created = await runMonthlyInvoiceGeneration();
         logger.info({ created }, "[scheduler] Startup invoice generation selesai");
       }
@@ -232,22 +230,15 @@ export function startOverdueScheduler(): void {
     const hourUtc = now.getUTCHours();
     const dateKey = `${now.toISOString().slice(0, 10)}-${hourUtc}`;
 
-    const wibMs = 7 * 60 * 60 * 1000;
-    const nowWib = new Date(now.getTime() + wibMs);
-    const wibDate = nowWib.toISOString().slice(0, 10);
     const isRegularWindow = SCHEDULE_HOURS_UTC.includes(hourUtc);
-    const isOneOffVerificationWindow =
-      wibDate === ONE_OFF_WIB_DATE && hourUtc === ONE_OFF_HOUR_UTC;
 
-    // Eksekusi jika jam rutin atau window one-off, dan belum dijalankan pada jam ini.
+    // Eksekusi hanya pada window rutin 08:00 WIB dan belum dijalankan pada jam ini.
     // Date key diklaim sebelum await supaya dua tick dalam window yang sama
     // tidak bisa memulai blast kedua saat blast pertama masih berjalan.
-    if ((isRegularWindow || isOneOffVerificationWindow) && dateKey !== _lastRunDateKey) {
+    if (isRegularWindow && dateKey !== _lastRunDateKey) {
       _lastRunDateKey = dateKey;
       try {
-        const label = isOneOffVerificationWindow
-          ? "one-off verification 18:00 WIB"
-          : `cron ${hourUtc}:00 UTC`;
+        const label = `cron ${hourUtc}:00 UTC`;
         await runAllChecks(label, true);
       } catch (err) {
         logger.warn({ err }, "[scheduler] Cron blast gagal");
@@ -257,7 +248,7 @@ export function startOverdueScheduler(): void {
 
   logger.info(
     "[scheduler] Scheduler aktif — cron harian 08:00 WIB (01 UTC). " +
-    "Invoice, reminder, dan overdue dikirim pada window ini; startup setelah 08:00 WIB melakukan catch-up harian.",
+    "Invoice, reminder, dan overdue dikirim hanya pada window 08:00 WIB; restart di luar window tidak mengirim WA.",
   );
 }
 
@@ -406,6 +397,7 @@ export async function runInvoiceNotificationCheck(): Promise<number> {
     .innerJoin(tenantsTable, eq(tenantInvoicesTable.tenantId, tenantsTable.id))
     .where(
       and(
+        sql`${tenantsTable.status} IN ('aktif', 'active')`,
         inArray(tenantInvoicesTable.status, ["unpaid", "partial"]),
         isNull(tenantInvoicesTable.invoiceNotifiedAt),
         // Kirim semua invoice yang periodenya sudah mulai (sudah atau hari ini)
@@ -428,7 +420,15 @@ export async function runInvoiceNotificationCheck(): Promise<number> {
     const claimed = await db
       .update(tenantInvoicesTable)
       .set({ invoiceNotifiedAt: now, updatedAt: now })
-      .where(and(eq(tenantInvoicesTable.id, invoice.id), isNull(tenantInvoicesTable.invoiceNotifiedAt)))
+      .where(and(
+        eq(tenantInvoicesTable.id, invoice.id),
+        isNull(tenantInvoicesTable.invoiceNotifiedAt),
+        sql`EXISTS (
+          SELECT 1 FROM tenants AS active_tenant
+          WHERE active_tenant.id = ${tenantInvoicesTable.tenantId}
+            AND active_tenant.status IN ('aktif', 'active')
+        )`,
+      ))
       .returning({ id: tenantInvoicesTable.id });
 
     if (claimed.length === 0) {
