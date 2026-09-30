@@ -476,17 +476,17 @@ export async function runInvoiceNotificationCheck(): Promise<number> {
           phone: invoice.phone,
           messageType: "invoice_scheduler",
           status: result.pending ? "queued" : "accepted",
-          errorMessage: result.pending ? "Fonnte process:pending" : null,
+          errorMessage: result.pending ? "CST WA Gateway queued" : null,
         });
 
-        // Fonnte process=pending berarti request sudah diterima provider dan
+        // CST WA Gateway process=pending berarti request sudah diterima provider dan
         // masuk antrean. Anggap sebagai queued delivery: pertahankan claim agar
         // scheduler tidak membanjiri nomor yang sama setiap restart/manual blast.
         // Admin group tetap harus menerima event pada percobaan yang sama.
         if (result.pending) {
           logger.warn(
             { invoiceId: invoice.id },
-            "[scheduler] Invoice diterima Fonnte sebagai queued/pending — claim dipertahankan",
+            "[scheduler] Invoice diterima CST WA Gateway sebagai queued/pending — claim dipertahankan",
           );
         }
 
@@ -676,13 +676,13 @@ export async function runMonthlyDailyReminderCheck(): Promise<{ h7: number; h3: 
           phone: invoice.phone,
           messageType: "due_reminder",
           status: result.pending ? "queued" : "accepted",
-          errorMessage: result.pending ? "Fonnte process:pending" : null,
+          errorMessage: result.pending ? "CST WA Gateway queued" : null,
         });
 
         if (result.pending) {
           logger.warn(
             { invoiceId: invoice.id, daysUntilDue },
-            "[scheduler] Due reminder diterima Fonnte sebagai queued/pending — claim dipertahankan",
+            "[scheduler] Due reminder diterima CST WA Gateway sebagai queued/pending — claim dipertahankan",
           );
         }
 
@@ -857,13 +857,13 @@ export async function runOverdueCheck(): Promise<number> {
           phone: invoice.phone,
           messageType: "overdue_reminder",
           status: result.pending ? "queued" : "accepted",
-          errorMessage: result.pending ? "Fonnte process:pending" : null,
+          errorMessage: result.pending ? "CST WA Gateway queued" : null,
         });
 
         if (result.pending) {
           logger.warn(
             { invoiceId: invoice.id },
-            "[scheduler] Overdue reminder diterima Fonnte sebagai queued/pending — claim dipertahankan",
+            "[scheduler] Overdue reminder diterima CST WA Gateway sebagai queued/pending — claim dipertahankan",
           );
         }
 
