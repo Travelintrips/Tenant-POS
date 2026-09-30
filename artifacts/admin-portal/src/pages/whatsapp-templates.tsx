@@ -456,7 +456,7 @@ export default function WhatsAppTemplates() {
         <ul className="list-disc list-inside space-y-0.5">
           <li>Format <strong>*teks*</strong> = tebal, <strong>_teks_</strong> = miring di WhatsApp</li>
           <li>Nomor HP otomatis dikonversi: <strong>0812... → 62812...</strong></li>
-          <li>Semua pengiriman via <strong>Fonnte API</strong> — pastikan device WA aktif di Pengaturan</li>
+          <li>Semua pengiriman via <strong>CST WA Gateway</strong> — pastikan worker/device WA online di panel gateway</li>
           <li>Link pembayaran hanya muncul jika <strong>APP_URL</strong> sudah dikonfigurasi di Secrets</li>
         </ul>
       </div>
