@@ -216,14 +216,20 @@ export async function getCstWaGatewayStatus(): Promise<GatewayStatus> {
       Number(queue["waiting"] ?? 0) +
       Number(queue["active"] ?? 0) +
       Number(queue["delayed"] ?? 0);
-    const connected = res.ok && String(data["overallStatus"] ?? "") === "operational" && onlineWorkers > 0;
+    // /v1/status sengaja mengembalikan HTTP 503 jika overall gateway degraded,
+    // misalnya satu device QR_REQUIRED. Selama masih ada worker ONLINE,
+    // Tenant-POS tetap memiliki jalur pengiriman WhatsApp yang aktif.
+    const connected = onlineWorkers > 0;
+    const overallStatus = String(data["overallStatus"] ?? "unknown");
 
     return {
       configured,
       connected,
       provider: "CST WA Gateway",
       message: connected
-        ? "WhatsApp aktif melalui CST WA Gateway"
+        ? overallStatus === "operational"
+          ? "WhatsApp aktif melalui CST WA Gateway"
+          : `CST WA Gateway degraded, tetapi ${onlineWorkers} worker WhatsApp masih online`
         : "CST WA Gateway belum memiliki worker WhatsApp online",
       onlineWorkers,
       queueCount,
