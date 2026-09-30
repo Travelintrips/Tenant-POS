@@ -3,7 +3,7 @@ import request from "supertest";
 import { createTestApp } from "./helpers/app";
 import { createTenant, createBooking, cleanupTestData, getSportSiteId } from "./helpers/factory";
 import { db } from "@workspace/db";
-import { tenantInvoicesTable } from "@workspace/db/schema";
+import { tenantInvoicesTable, tenantPaymentsTable } from "@workspace/db/schema";
 import { eq } from "drizzle-orm";
 
 const app = createTestApp("owner");
@@ -249,8 +249,8 @@ describe("POST /api/tenant-invoices/:id/payment", () => {
 
     const [payment] = await db
       .select()
-      .from((await import("@workspace/db/schema")).tenantPaymentsTable)
-      .where(eq((await import("@workspace/db/schema")).tenantPaymentsTable.invoiceId, invoiceId))
+      .from(tenantPaymentsTable)
+      .where(eq(tenantPaymentsTable.invoiceId, invoiceId))
       .limit(1);
 
     expect(Number(payment.amount)).toBe(3500000);
