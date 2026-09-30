@@ -1,16 +1,13 @@
 /**
- * Fonnte Incoming Message Webhook
+ * CST WA Gateway incoming message webhook.
  *
- * Konfigurasi di Fonnte dashboard → Webhook URL:
- *   https://{domain}/api/whatsapp/webhook
+ * Gateway mengirim event message.received ke endpoint ini. Payload diverifikasi
+ * kembali melalui /v1/inbound-events/:eventId menggunakan client API key Tenant-POS,
+ * sehingga Tenant-POS tidak perlu memegang ADMIN_API_TOKEN gateway.
  *
- * Keamanan opsional: set FONNTE_WEBHOOK_SECRET di Replit Secrets,
- * lalu isi "Webhook Secret" di Fonnte dashboard dengan nilai yang sama.
- * Jika tidak diset, semua request diterima (aman selama endpoint tidak diketahui publik).
- *
- * Format pesan yang dikenali (dikirim admin ke WA bot):
- *   SETUJU {paymentId}          → approve pembayaran
- *   TOLAK {paymentId} {alasan}  → reject pembayaran + kirim WA ke tenant
+ * Perintah yang dikenali dari admin:
+ *   SETUJU {paymentId}
+ *   TOLAK {paymentId} {alasan}
  */
 
 import { Router, type IRouter } from "express";
@@ -30,6 +27,10 @@ import {
   sendPaymentRejected,
   notifyAdminGroup,
 } from "../lib/whatsapp";
+import {
+  normalizeWhatsappDestination,
+  verifyCstWaInboundEvent,
+} from "../lib/whatsapp-gateway-client";
 import { webhookRateLimiter } from "../middlewares/rate-limit";
 import { approveExistingPayment } from "../lib/payment-ledger";
 import { postTenantPaymentAccountingEntry } from "../lib/accounting-entry";
@@ -38,90 +39,98 @@ import { isLikelyYearAmount } from "../lib/ocr-service";
 
 const router: IRouter = Router();
 
-// ─── POST /api/webhook/fonnte ─────────────────────────────────────────────────
-// Fonnte Delivery Status Callback — dipanggil Fonnte setiap kali status pesan
-// berubah (pending → sent / failed). Harus public (sebelum requireAuth).
-// Format body: { id, target, message, status, statusType, reason, device }
-router.post("/webhook/fonnte", webhookRateLimiter, async (req, res) => {
-  res.json({ ok: true });
+function extractGatewayMessageText(body: Record<string, unknown>): string {
+  const envelope = body["message"] as Record<string, unknown> | undefined;
+  const content = envelope?.["message"] as Record<string, unknown> | undefined;
+  if (!content) return "";
 
-  const body = req.body as Record<string, unknown>;
-  const msgId = String(body["id"] ?? "");
-  const target = String(body["target"] ?? "");
-  const statusType = String(body["statusType"] ?? body["status"] ?? "");
-  const reason = String(body["reason"] ?? "");
+  const direct = content["conversation"];
+  if (typeof direct === "string") return direct.trim();
 
-  if (msgId || target) {
-    logger.info(
-      { id: msgId, target, statusType, reason },
-      "[wa-delivery] Fonnte delivery callback",
-    );
-  }
-});
+  const extended = content["extendedTextMessage"] as Record<string, unknown> | undefined;
+  if (typeof extended?.["text"] === "string") return String(extended["text"]).trim();
+
+  const image = content["imageMessage"] as Record<string, unknown> | undefined;
+  if (typeof image?.["caption"] === "string") return String(image["caption"]).trim();
+
+  const video = content["videoMessage"] as Record<string, unknown> | undefined;
+  if (typeof video?.["caption"] === "string") return String(video["caption"]).trim();
+
+  return "";
+}
+
+function isGatewayGroupMessage(body: Record<string, unknown>): boolean {
+  const envelope = body["message"] as Record<string, unknown> | undefined;
+  const key = envelope?.["key"] as Record<string, unknown> | undefined;
+  const remoteJid = String(key?.["remoteJid"] ?? "");
+  return remoteJid.endsWith("@g.us");
+}
 
 // ─── POST /api/whatsapp/webhook ───────────────────────────────────────────────
 router.post("/whatsapp/webhook", webhookRateLimiter, async (req, res) => {
-  // Segera balas 200 agar Fonnte tidak retry
-  res.json({ ok: true });
+  const eventId = String(req.headers["x-cst-wa-event-id"] ?? "").trim();
+  const body = req.body as Record<string, unknown>;
 
-  // Verifikasi secret jika dikonfigurasi
-  const webhookSecret = process.env.FONNTE_WEBHOOK_SECRET;
-  const incomingSecret =
-    (req.headers["x-webhook-secret"] as string | undefined) ??
-    String(req.body?.secret ?? "");
-
-  if (webhookSecret && incomingSecret !== webhookSecret) {
-    logger.warn({ ip: req.ip }, "[wa-webhook] secret tidak cocok, diabaikan");
+  if (!eventId) {
+    logger.warn({ ip: req.ip }, "[wa-webhook] x-cst-wa-event-id tidak ada");
+    res.status(401).json({ ok: false, error: "INVALID_CST_WA_EVENT" });
     return;
   }
 
-  // Fonnte body: { device, sender, message, member, name }
-  // Abaikan pesan dari grup (member !== 0)
-  const member = Number(req.body?.member ?? 0);
-  if (member !== 0) return;
-
-  const rawMessage: string = String(req.body?.message ?? req.body?.text ?? "").trim();
-  const senderPhone: string = String(req.body?.sender ?? "").trim();
-
-  if (!rawMessage || !senderPhone) return;
-
-  // Jika FONNTE_WEBHOOK_SECRET tidak diset, verifikasi nomor pengirim
-  // harus terdaftar sebagai admin/owner/finance di DB agar tidak bisa
-  // dieksploitasi oleh siapa pun yang mengetahui paymentId.
-  if (!webhookSecret) {
-    const [authorizedUser] = await db
-      .select({ id: usersTable.id })
-      .from(usersTable)
-      .where(
-        and(
-          eq(usersTable.phoneNumber, senderPhone),
-          inArray(usersTable.role, ["owner", "admin", "finance"]),
-        ),
-      )
-      .limit(1);
-
-    if (!authorizedUser) {
-      logger.warn(
-        { ip: req.ip, senderPhone },
-        "[wa-webhook] FONNTE_WEBHOOK_SECRET tidak diset — pengirim tidak terdaftar sebagai admin, diabaikan",
-      );
-      return;
-    }
+  const verified = await verifyCstWaInboundEvent(eventId, body);
+  if (!verified) {
+    logger.warn({ ip: req.ip, eventId }, "[wa-webhook] event CST WA Gateway tidak terverifikasi");
+    res.status(401).json({ ok: false, error: "INVALID_CST_WA_EVENT" });
+    return;
   }
 
-  // Parse perintah
+  // Approval hanya menerima direct message, bukan pesan group.
+  if (isGatewayGroupMessage(body)) {
+    res.json({ ok: true, ignored: "group_message" });
+    return;
+  }
+
+  const rawMessage = extractGatewayMessageText(body);
+  const senderPhone = normalizeWhatsappDestination(String(body["senderPhone"] ?? ""));
+
+  if (!rawMessage || !senderPhone || senderPhone.length < 8) {
+    res.json({ ok: true, ignored: "empty_message_or_sender" });
+    return;
+  }
+
+  const [authorizedUser] = await db
+    .select({ id: usersTable.id })
+    .from(usersTable)
+    .where(
+      and(
+        eq(usersTable.phoneNumber, senderPhone),
+        inArray(usersTable.role, ["owner", "admin", "finance"]),
+      ),
+    )
+    .limit(1);
+
+  if (!authorizedUser) {
+    logger.warn({ senderPhone }, "[wa-webhook] pengirim bukan admin/owner/finance aktif");
+    res.status(403).json({ ok: false, error: "UNAUTHORIZED_SENDER" });
+    return;
+  }
+
   const approveMatch = rawMessage.match(/^SETUJU\s+(\d+)$/i);
   const rejectMatch = rawMessage.match(/^TOLAK\s+(\d+)\s+(.+)$/i);
 
   if (approveMatch) {
-    const paymentId = Number(approveMatch[1]);
-    await handleApprove(paymentId, senderPhone);
-  } else if (rejectMatch) {
-    const paymentId = Number(rejectMatch[1]);
-    const reason = rejectMatch[2].trim();
-    await handleReject(paymentId, reason, senderPhone);
+    await handleApprove(Number(approveMatch[1]), senderPhone);
+    res.json({ ok: true, action: "approved" });
+    return;
   }
-  // Pesan tidak dikenali → abaikan
+
+  if (rejectMatch) {
+    await handleReject(Number(rejectMatch[1]), rejectMatch[2].trim(), senderPhone);
+    res.json({ ok: true, action: "rejected" });
+    return;
+  }
+
+  res.json({ ok: true, ignored: "unknown_command" });
 });
 
 // ─── handleApprove ────────────────────────────────────────────────────────────
