@@ -1980,9 +1980,9 @@ ALTER TABLE tenant_invoices ADD COLUMN IF NOT EXISTS trash_charge_amount numeric
     sql: `
 ALTER TABLE tenant_invoices ADD COLUMN IF NOT EXISTS use_ppn boolean NOT NULL DEFAULT true;
     `.trim(),
-  },,
+  },
   {
-    name: "0072_tenant_payment_surcharge_allocation",
+    name: "0046_tenant_payment_surcharge_allocation",
     sql: `
 DO $$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='tenant_payments' AND column_name='invoice_allocation_amount') THEN
