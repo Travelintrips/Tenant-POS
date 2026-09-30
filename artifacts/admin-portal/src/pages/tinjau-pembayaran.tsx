@@ -317,11 +317,16 @@ export default function TinjauPembayaran() {
                         <TableCell>
                           <div className="space-y-0.5">
                             <p className="font-semibold text-sm">{formatRupiah(p.amount)}</p>
-                            {p.totalAmount && (
+                            {p.approvalStatus === "approved" && Number(p.surchargeAllocationAmount ?? 0) > 0 ? (
+                              <div className="text-xs mt-1 space-y-0.5">
+                                <p className="text-muted-foreground">Sewa: <span className="font-medium text-foreground">{formatRupiah(p.invoiceAllocationAmount)}</span></p>
+                                <p className="text-amber-700">Cicilan surcharge: <span className="font-medium">{formatRupiah(p.surchargeAllocationAmount)}</span></p>
+                              </div>
+                            ) : p.totalAmount ? (
                               <p className="text-xs text-muted-foreground">
                                 dr {formatRupiah(p.totalAmount)}
                               </p>
-                            )}
+                            ) : null}
                             {p.approvalStatus === "pending_review" && Number(p.outstandingAmount) === 0 && (
                               <span className="inline-flex items-center gap-1 text-xs font-medium text-amber-700 bg-amber-50 border border-amber-200 rounded px-1.5 py-0.5">
                                 <AlertTriangle className="h-3 w-3" />
