@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import request from "supertest";
 import { createTestApp } from "./helpers/app";
-import { createTenant, createBooking, cleanupTestData } from "./helpers/factory";
+import { createTenant, createBooking, cleanupTestData, getSportSiteId } from "./helpers/factory";
 import { db } from "@workspace/db";
 import { tenantInvoicesTable } from "@workspace/db/schema";
 import { eq } from "drizzle-orm";
@@ -219,6 +219,43 @@ describe("POST /api/tenant-invoices/:id/payment", () => {
     expect(payRes.body.receiptNumber).toBeTruthy();
     expect(Number(payRes.body.outstandingAmount)).toBe(0);
     expect(Number(payRes.body.paidAmount)).toBe(total);
+  });
+
+  it("Sport Center: kelebihan transfer dialokasikan ke surcharge, bukan menambah paid invoice", async () => {
+    const sportSiteId = await getSportSiteId();
+    const tenant = await createTenant({ siteId: sportSiteId });
+    tenantIds.push(tenant.id);
+    const booking = await createBooking(tenant.id, { siteId: sportSiteId, rentAmount: "3000000", totalAmount: "3000000", remainingAmount: "3000000" });
+
+    const genRes = await request(app)
+      .post(`/api/tenant-invoices/generate-from-booking/${booking.id}`)
+      .send({});
+    expect(genRes.status).toBe(201);
+
+    const invoiceId = genRes.body.id;
+    const payRes = await request(app)
+      .post(`/api/tenant-invoices/${invoiceId}/payment`)
+      .send({
+        amountPaid: 3500000,
+        paymentMethod: "transfer",
+      });
+
+    expect(payRes.status).toBe(201);
+    expect(payRes.body.invoiceStatus).toBe("paid");
+    expect(Number(payRes.body.paidAmount)).toBe(3000000);
+    expect(Number(payRes.body.outstandingAmount)).toBe(0);
+    expect(Number(payRes.body.allocation.invoiceAmount)).toBe(3000000);
+    expect(Number(payRes.body.allocation.surchargeAmount)).toBe(500000);
+
+    const [payment] = await db
+      .select()
+      .from((await import("@workspace/db/schema")).tenantPaymentsTable)
+      .where(eq((await import("@workspace/db/schema")).tenantPaymentsTable.invoiceId, invoiceId))
+      .limit(1);
+
+    expect(Number(payment.amount)).toBe(3500000);
+    expect(Number(payment.invoiceAllocationAmount)).toBe(3000000);
+    expect(Number(payment.surchargeAllocationAmount)).toBe(500000);
   });
 
   it("pembayaran sebagian → status invoice menjadi partial", async () => {
