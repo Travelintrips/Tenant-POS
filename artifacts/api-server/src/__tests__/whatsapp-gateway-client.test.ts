@@ -10,14 +10,14 @@ import {
 describe("CST WA Gateway client", () => {
   const original = {
     url: process.env.CST_WA_GATEWAY_URL,
-    key: process.env.CST_WA_GATEWAY_API_KEY,
+    key: process.env.CST_WA_GATEWAY_TOKEN,
     device: process.env.CST_WA_DEVICE_ID,
     timeout: process.env.CST_WA_GATEWAY_TIMEOUT_MS,
   };
 
   beforeEach(() => {
     process.env.CST_WA_GATEWAY_URL = "https://wa.example.test";
-    process.env.CST_WA_GATEWAY_API_KEY = "tenant-pos-test-key";
+    process.env.CST_WA_GATEWAY_TOKEN = "tenant-pos-test-key";
     process.env.CST_WA_DEVICE_ID = "tenant-pos-01";
     process.env.CST_WA_GATEWAY_TIMEOUT_MS = "1000";
   });
@@ -26,8 +26,8 @@ describe("CST WA Gateway client", () => {
     vi.unstubAllGlobals();
     if (original.url === undefined) delete process.env.CST_WA_GATEWAY_URL;
     else process.env.CST_WA_GATEWAY_URL = original.url;
-    if (original.key === undefined) delete process.env.CST_WA_GATEWAY_API_KEY;
-    else process.env.CST_WA_GATEWAY_API_KEY = original.key;
+    if (original.key === undefined) delete process.env.CST_WA_GATEWAY_TOKEN;
+    else process.env.CST_WA_GATEWAY_TOKEN = original.key;
     if (original.device === undefined) delete process.env.CST_WA_DEVICE_ID;
     else process.env.CST_WA_DEVICE_ID = original.device;
     if (original.timeout === undefined) delete process.env.CST_WA_GATEWAY_TIMEOUT_MS;
@@ -89,7 +89,7 @@ describe("CST WA Gateway client", () => {
   });
 
   it("skips outbound safely when client API key is missing", async () => {
-    delete process.env.CST_WA_GATEWAY_API_KEY;
+    delete process.env.CST_WA_GATEWAY_TOKEN;
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
 
