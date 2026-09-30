@@ -568,8 +568,9 @@ router.get("/whatsapp/logs", requireAuth, requireAnyRole("owner", "admin", "fina
 router.get("/whatsapp/devices", requireAuth, requireAnyRole("owner", "admin"), async (_req, res) => {
   const status = await getCstWaGatewayStatus();
   const devices = (status.workers ?? []).map((worker) => ({
+    deviceId: String(worker["deviceId"] ?? ""),
+    workerId: String(worker["workerId"] ?? ""),
     name: String(worker["deviceId"] ?? worker["workerId"] ?? "WhatsApp"),
-    phone: String(worker["phone"] ?? ""),
     status: String(worker["status"] ?? "UNKNOWN").toLowerCase(),
     connected: String(worker["status"] ?? "").toUpperCase() === "ONLINE",
     queueCount: status.queueCount ?? 0,
