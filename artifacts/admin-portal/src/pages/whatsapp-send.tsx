@@ -347,7 +347,7 @@ export default function WhatsAppSend() {
                   )}
                   {!status?.configured && (
                     <p className="text-xs text-amber-600 mt-1">
-                      ⚠ CST_WA_GATEWAY_API_KEY belum dikonfigurasi untuk Tenant-POS.
+                      ⚠ CST_WA_GATEWAY_TOKEN belum dikonfigurasi untuk Tenant-POS.
                     </p>
                   )}
                 </div>
