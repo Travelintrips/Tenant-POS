@@ -1,59 +1,9 @@
 import { logger } from "../lib/logger";
+import { sendGatewayText } from "../lib/whatsapp-gateway-client";
 
 export interface SendOtpResult {
   sent: boolean;
   error?: string;
-}
-
-async function sendViaFonnte(
-  phoneNumber: string,
-  otp: string,
-  apiKey: string,
-): Promise<SendOtpResult> {
-  const sender = process.env.FONNTE_SENDER?.trim() ?? "";
-
-  const message = `Kode OTP Portal Admin Mall Anda: *${otp}*\n\nBerlaku ${process.env.OTP_EXPIRY_MINUTES ?? "5"} menit. Jangan bagikan kode ini kepada siapapun.`;
-
-  const body = new URLSearchParams({
-    target: phoneNumber,
-    message,
-    ...(sender ? { sender } : {}),
-  });
-
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 15_000);
-
-  let res: Response;
-  try {
-    res = await fetch("https://api.fonnte.com/send", {
-      method: "POST",
-      headers: {
-        Authorization: apiKey,
-        "Content-Type": "application/x-www-form-urlencoded",
-      },
-      body: body.toString(),
-      signal: controller.signal,
-    });
-  } catch (err: unknown) {
-    clearTimeout(timeoutId);
-    const isTimeout = err instanceof Error && err.name === "AbortError";
-    logger.error({ phoneNumber, err }, isTimeout ? "[fonnte] timeout 15s" : "[fonnte] fetch error");
-    return { sent: false, error: isTimeout ? "Fonnte timeout" : String(err) };
-  } finally {
-    clearTimeout(timeoutId);
-  }
-
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    return { sent: false, error: `Fonnte error ${res.status}: ${text}` };
-  }
-
-  const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
-  if (data.status === false) {
-    return { sent: false, error: `Fonnte gagal: ${JSON.stringify(data.reason ?? data)}` };
-  }
-
-  return { sent: true };
 }
 
 export async function sendOtpWhatsapp(
@@ -65,29 +15,26 @@ export async function sendOtpWhatsapp(
     return { sent: false, error: "OTP tidak boleh kosong" };
   }
 
-  const tokens = [
-    process.env.FONNTE_TOKEN?.trim(),
-    process.env.FONNTE_API_KEY?.trim(),
-  ].filter((token, index, all): token is string => Boolean(token) && all.indexOf(token) === index);
+  const message = `Kode OTP Portal Admin Mall Anda: *${otp}*\n\nBerlaku ${process.env.OTP_EXPIRY_MINUTES ?? "5"} menit. Jangan bagikan kode ini kepada siapapun.`;
+  const result = await sendGatewayText(phoneNumber, message);
 
-  if (tokens.length === 0) {
+  if (result.skipped) {
     if (process.env.NODE_ENV === "production") {
-      logger.error("[whatsapp-provider] FONNTE token belum dikonfigurasi di production");
-      return { sent: false, error: "FONNTE_API_KEY atau FONNTE_TOKEN belum dikonfigurasi" };
+      logger.error("[whatsapp-provider] CST WA Gateway belum dikonfigurasi di production");
+      return { sent: false, error: "CST_WA_GATEWAY_API_KEY belum dikonfigurasi" };
     }
 
-    // Development boleh berjalan tanpa perangkat Fonnte.
-    logger.info({ phoneNumber }, "[whatsapp-provider] Tidak ada FONNTE token — OTP tidak dikirim via WA");
+    logger.info(
+      { phoneNumber },
+      "[whatsapp-provider] CST WA Gateway belum dikonfigurasi — OTP tidak dikirim via WA di non-production",
+    );
     return { sent: true };
   }
 
-  let lastError = "Fonnte gagal";
-
-  for (const token of tokens) {
-    const result = await sendViaFonnte(phoneNumber, otp, token);
-    if (result.sent) return result;
-    lastError = result.error ?? lastError;
+  if (!result.ok) {
+    logger.error({ phoneNumber, error: result.error }, "[whatsapp-provider] CST WA Gateway gagal mengirim OTP");
+    return { sent: false, error: result.error ?? "CST WA Gateway gagal" };
   }
 
-  return { sent: false, error: lastError };
+  return { sent: true };
 }
