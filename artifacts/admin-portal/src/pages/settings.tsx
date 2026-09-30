@@ -44,16 +44,19 @@ interface MallConfig {
   invoiceSignerName: string;
 }
 
-interface FonnteDevice {
+interface GatewayDevice {
+  deviceId: string;
+  workerId?: string;
   name: string;
-  phone: string;
   status: string;
   connected: boolean;
+  queueCount?: number;
 }
 
 interface DevicesResult {
   configured: boolean;
-  devices: FonnteDevice[];
+  devices: GatewayDevice[];
+  provider?: string;
   error?: string;
 }
 
@@ -62,6 +65,8 @@ interface WaStatus {
   connected: boolean | null;
   provider: string;
   message: string;
+  onlineWorkers?: number;
+  queueCount?: number;
 }
 
 interface TestSendResult {
@@ -70,6 +75,8 @@ interface TestSendResult {
   error?: string;
   target?: string;
   skipped?: boolean;
+  pending?: boolean;
+  messageId?: string | null;
 }
 
 // ─── WhatsApp Status Panel ────────────────────────────────────────────────────
@@ -78,7 +85,7 @@ function WaStatusBadge({ status }: { status: WaStatus | undefined; }) {
   if (!status) return <Badge variant="secondary" className="gap-1"><Loader2 className="h-3 w-3 animate-spin" />Memuat...</Badge>;
   if (!status.configured) return (
     <Badge variant="outline" className="gap-1 border-orange-300 bg-orange-50 text-orange-700">
-      <AlertCircle className="h-3 w-3" />FONNTE_TOKEN belum diisi
+      <AlertCircle className="h-3 w-3" />CST_WA_GATEWAY_TOKEN belum dikonfigurasi
     </Badge>
   );
   if (status.connected === true) return (
@@ -98,24 +105,11 @@ function WaStatusBadge({ status }: { status: WaStatus | undefined; }) {
   );
 }
 
-function WhatsAppPanel({ config, onSaveSender }: {
-  config: MallConfig | undefined;
-  onSaveSender: (waSenderPhone: string, waSenderLabel: string) => void;
-}) {
+function WhatsAppPanel() {
   const { toast } = useToast();
   const [testPhone, setTestPhone] = useState("");
   const [testSending, setTestSending] = useState(false);
   const [lastTestResult, setLastTestResult] = useState<TestSendResult | null>(null);
-  const [senderPhone, setSenderPhone] = useState("");
-  const [senderLabel, setSenderLabel] = useState("");
-  const [senderDirty, setSenderDirty] = useState(false);
-
-  React.useEffect(() => {
-    if (config) {
-      setSenderPhone(config.waSenderPhone ?? "");
-      setSenderLabel(config.waSenderLabel ?? "");
-    }
-  }, [config]);
 
   const {
     data: waStatus,
@@ -126,18 +120,22 @@ function WhatsAppPanel({ config, onSaveSender }: {
     queryKey: ["/api/whatsapp/status"],
     queryFn: async () => {
       const res = await apiFetch("/api/whatsapp/status");
-      if (!res.ok) throw new Error("Gagal cek status");
+      if (!res.ok) throw new Error("Gagal cek status CST WA Gateway");
       return res.json();
     },
     refetchInterval: 30000,
     staleTime: 15000,
   });
 
-  const { data: devicesData, isLoading: devicesLoading, refetch: refetchDevices } = useQuery<DevicesResult>({
+  const {
+    data: devicesData,
+    isLoading: devicesLoading,
+    refetch: refetchDevices,
+  } = useQuery<DevicesResult>({
     queryKey: ["/api/whatsapp/devices"],
     queryFn: async () => {
       const res = await apiFetch("/api/whatsapp/devices");
-      if (!res.ok) throw new Error("Gagal ambil device");
+      if (!res.ok) throw new Error("Gagal mengambil status device");
       return res.json();
     },
     staleTime: 60000,
@@ -159,8 +157,13 @@ function WhatsAppPanel({ config, onSaveSender }: {
       const data: TestSendResult = await res.json();
       setLastTestResult(data);
       if (data.ok) {
-        toast({ title: "✅ Pesan tes terkirim!", description: `WA berhasil dikirim ke ${data.target ?? testPhone}` });
-        refetchStatus();
+        toast({
+          title: "Pesan diterima CST WA Gateway",
+          description: data.pending
+            ? `Pesan ke ${data.target ?? testPhone} sudah masuk antrean pengiriman.`
+            : `WA berhasil diproses untuk ${data.target ?? testPhone}.`,
+        });
+        void refetchStatus();
       } else {
         toast({ title: "Gagal kirim WA", description: data.error ?? "Terjadi kesalahan", variant: "destructive" });
       }
@@ -177,19 +180,13 @@ function WhatsAppPanel({ config, onSaveSender }: {
   const isConfigured = waStatus?.configured === true;
   const devices = devicesData?.devices ?? [];
 
-  function selectDevice(d: FonnteDevice) {
-    setSenderPhone(d.phone);
-    setSenderLabel(d.name);
-    setSenderDirty(true);
-  }
-
   return (
     <Card>
       <CardHeader className="pb-3">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between gap-3">
           <CardTitle className="text-sm flex items-center gap-2">
             <MessageSquare className="h-4 w-4 text-green-600" />
-            WhatsApp via Fonnte
+            WhatsApp — CST WA Gateway
           </CardTitle>
           <div className="flex items-center gap-2">
             <WaStatusBadge status={waStatus} />
@@ -205,163 +202,132 @@ function WhatsAppPanel({ config, onSaveSender }: {
           </div>
         </div>
         <CardDescription className="text-xs">
-          Koneksi WhatsApp untuk notifikasi otomatis invoice, pengingat tagihan, dan konfirmasi pembayaran.
+          Transport WhatsApp terpusat untuk invoice, pengingat tagihan, OTP, konfirmasi pembayaran, dan notifikasi tenant.
         </CardDescription>
       </CardHeader>
 
       <CardContent className="space-y-4">
-        {/* Status detail */}
         {!waLoading && waStatus && (
           <div className={`flex items-start gap-2.5 rounded-lg border px-3 py-2.5 text-xs ${
-            isConnected ? "bg-green-50 border-green-200 text-green-800"
-            : !isConfigured ? "bg-orange-50 border-orange-200 text-orange-800"
-            : "bg-red-50 border-red-200 text-red-800"
+            isConnected && isConfigured
+              ? "bg-green-50 border-green-200 text-green-800"
+              : !isConfigured
+                ? "bg-orange-50 border-orange-200 text-orange-800"
+                : "bg-red-50 border-red-200 text-red-800"
           }`}>
             {isConnected
               ? <Wifi className="h-4 w-4 mt-0.5 shrink-0 text-green-600" />
               : <WifiOff className="h-4 w-4 mt-0.5 shrink-0 text-red-500" />}
             <div className="space-y-0.5">
               <p className="font-medium">{waStatus.message}</p>
-              {isConnected && <p className="text-green-700 opacity-80">Semua fitur notifikasi WA siap digunakan.</p>}
+              {isConnected && isConfigured && (
+                <p className="text-green-700 opacity-80">
+                  Tenant-POS siap mengirim melalui API Client CST WA Gateway.
+                </p>
+              )}
+              {isConnected && !isConfigured && (
+                <p>Gateway dapat dijangkau, tetapi token API Client Tenant-POS belum terbaca oleh aplikasi.</p>
+              )}
             </div>
           </div>
         )}
 
-        <Separator />
-
-        {/* ─── Perangkat / Nomor Pengirim ─────────────────────────────────────── */}
-        <div className="space-y-3">
-          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
-            <Smartphone className="h-3.5 w-3.5" />
-            Perangkat Pengirim WA
-          </p>
-          <p className="text-xs text-muted-foreground">
-            Pilih nomor HP (device Fonnte) yang digunakan untuk mengirim pesan ke penyewa tenant. Klik baris perangkat untuk memilih.
-          </p>
-
-          {/* Daftar device dari Fonnte */}
-          {devicesLoading ? (
-            <div className="flex items-center gap-2 text-xs text-muted-foreground py-2">
-              <Loader2 className="h-3.5 w-3.5 animate-spin" /> Memuat daftar perangkat...
-            </div>
-          ) : !isConfigured ? (
-            <p className="text-xs text-orange-600 bg-orange-50 border border-orange-200 rounded-md px-3 py-2">
-              Konfigurasi FONNTE_TOKEN terlebih dahulu untuk melihat daftar perangkat.
-            </p>
-          ) : devices.length === 0 ? (
-            <p className="text-xs text-muted-foreground bg-muted/40 border rounded-md px-3 py-2">
-              {devicesData?.error ?? "Belum ada perangkat terhubung di akun Fonnte Anda."}
-            </p>
-          ) : (
-            <div className="space-y-1.5">
-              {devices.map((d) => {
-                const isSelected = senderPhone === d.phone;
-                return (
-                  <button
-                    key={d.phone}
-                    type="button"
-                    onClick={() => selectDevice(d)}
-                    className={`w-full text-left rounded-lg border px-3 py-2.5 text-xs transition-colors ${
-                      isSelected
-                        ? "border-green-400 bg-green-50 text-green-900"
-                        : "border-border bg-background hover:bg-muted/50"
-                    }`}
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="flex items-center gap-2.5">
-                        <div className={`h-2 w-2 rounded-full flex-shrink-0 ${d.connected ? "bg-green-500" : "bg-gray-300"}`} />
-                        <div>
-                          <p className="font-semibold">{d.name}</p>
-                          <p className="font-mono text-muted-foreground mt-0.5">{d.phone}</p>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-2 flex-shrink-0">
-                        <Badge variant="outline" className={`text-[10px] h-5 ${d.connected ? "border-green-300 text-green-700 bg-green-50" : "text-muted-foreground"}`}>
-                          {d.connected ? "Terhubung" : "Terputus"}
-                        </Badge>
-                        {isSelected && <CheckCircle2 className="h-4 w-4 text-green-600" />}
-                      </div>
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-          )}
-
-          {/* Field manual override */}
-          <div className="space-y-1.5">
-            <Label className="text-xs text-muted-foreground">Nomor Pengirim (manual / override)</Label>
-            <div className="flex gap-2">
-              <Input
-                value={senderPhone}
-                onChange={e => { setSenderPhone(e.target.value); setSenderDirty(true); }}
-                placeholder="628xxxxxxxxxx (kosongkan = default Fonnte)"
-                className="h-8 text-sm font-mono flex-1"
-              />
-              <Input
-                value={senderLabel}
-                onChange={e => { setSenderLabel(e.target.value); setSenderDirty(true); }}
-                placeholder="Label (opsional)"
-                className="h-8 text-sm w-36"
-              />
-              <Button
-                size="sm"
-                className="h-8 gap-1.5 whitespace-nowrap"
-                disabled={!senderDirty}
-                onClick={() => { onSaveSender(senderPhone, senderLabel); setSenderDirty(false); }}
-              >
-                <Save className="h-3.5 w-3.5" />
-                Simpan
-              </Button>
-            </div>
-            <p className="text-[10px] text-muted-foreground">
-              Nomor yang dipilih akan digunakan sebagai pengirim semua pesan WA ke tenant. Kosongkan untuk menggunakan device default akun Fonnte.
-            </p>
+        <div className="grid gap-2 sm:grid-cols-3">
+          <div className="rounded-lg border p-3">
+            <p className="text-[10px] uppercase tracking-wide text-muted-foreground">API Client</p>
+            <p className="mt-1 text-sm font-medium">{isConfigured ? "Configured" : "Belum dikonfigurasi"}</p>
+          </div>
+          <div className="rounded-lg border p-3">
+            <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Worker Online</p>
+            <p className="mt-1 text-sm font-medium">{waStatus?.onlineWorkers ?? 0}</p>
+          </div>
+          <div className="rounded-lg border p-3">
+            <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Antrean Aktif</p>
+            <p className="mt-1 text-sm font-medium">{waStatus?.queueCount ?? 0}</p>
           </div>
         </div>
 
         <Separator />
 
-        {/* ─── Panduan Setup ────────────────────────────────────────────────────── */}
-        <div className="space-y-2">
-          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
-            <Info className="h-3.5 w-3.5" />
-            Cara Menghubungkan Perangkat
-          </p>
-          <ol className="space-y-2 text-xs text-muted-foreground">
-            <li className="flex gap-2">
-              <span className="flex-shrink-0 h-5 w-5 rounded-full bg-muted flex items-center justify-center text-[10px] font-bold">1</span>
-              <span>Buka <a href="https://fonnte.com" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline inline-flex items-center gap-0.5 font-medium">fonnte.com <ExternalLink className="h-2.5 w-2.5" /></a> lalu login ke dashboard Anda.</span>
-            </li>
-            <li className="flex gap-2">
-              <span className="flex-shrink-0 h-5 w-5 rounded-full bg-muted flex items-center justify-center text-[10px] font-bold">2</span>
-              <span>Pilih <strong>Device</strong> → klik <strong>"Connect"</strong> / <strong>"Scan QR"</strong>.</span>
-            </li>
-            <li className="flex gap-2">
-              <span className="flex-shrink-0 h-5 w-5 rounded-full bg-muted flex items-center justify-center text-[10px] font-bold">3</span>
-              <span>Di HP, buka <strong>WhatsApp → Setelan → Perangkat Tertaut → Tautkan Perangkat</strong> → scan QR.</span>
-            </li>
-            <li className="flex gap-2">
-              <span className="flex-shrink-0 h-5 w-5 rounded-full bg-muted flex items-center justify-center text-[10px] font-bold">4</span>
-              <span>Salin <strong>Token API</strong> dari dashboard Fonnte → simpan sebagai secret <code className="bg-muted px-1 rounded font-mono">FONNTE_TOKEN</code> di Replit.</span>
-            </li>
-            <li className="flex gap-2">
-              <span className="flex-shrink-0 h-5 w-5 rounded-full bg-muted flex items-center justify-center text-[10px] font-bold">5</span>
-              <span>Kembali ke halaman ini → klik <strong>Refresh</strong> → pilih perangkat yang ingin digunakan sebagai pengirim.</span>
-            </li>
-          </ol>
+        <div className="space-y-3">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
+                <Smartphone className="h-3.5 w-3.5" />
+                Device Gateway
+              </p>
+              <p className="text-xs text-muted-foreground mt-1">
+                Device dan sesi WhatsApp dikelola terpusat. Tenant-POS tidak menyimpan kredensial admin gateway.
+              </p>
+            </div>
+            <a
+              href="https://wa.cstlogistic.co.id/admin?view=devices"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 text-xs font-medium text-blue-600 hover:underline"
+            >
+              Buka WA Gateway <ExternalLink className="h-3 w-3" />
+            </a>
+          </div>
+
+          {devicesLoading ? (
+            <div className="flex items-center gap-2 text-xs text-muted-foreground py-2">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" /> Memuat status perangkat...
+            </div>
+          ) : devices.length === 0 ? (
+            <p className="text-xs text-muted-foreground bg-muted/40 border rounded-md px-3 py-2">
+              {devicesData?.error ?? "Belum ada worker WhatsApp yang terdeteksi."}
+            </p>
+          ) : (
+            <div className="space-y-1.5">
+              {devices.map((d) => (
+                <div key={d.deviceId || d.workerId || d.name} className="rounded-lg border px-3 py-2.5 text-xs">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2.5">
+                      <div className={`h-2 w-2 rounded-full flex-shrink-0 ${d.connected ? "bg-green-500" : "bg-gray-300"}`} />
+                      <div>
+                        <p className="font-semibold">{d.name || d.deviceId}</p>
+                        <p className="font-mono text-muted-foreground mt-0.5">
+                          Device: {d.deviceId || "-"}{d.workerId ? ` · ${d.workerId}` : ""}
+                        </p>
+                      </div>
+                    </div>
+                    <Badge variant="outline" className={`text-[10px] h-5 ${d.connected ? "border-green-300 text-green-700 bg-green-50" : "text-muted-foreground"}`}>
+                      {d.status || "unknown"}
+                    </Badge>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         <Separator />
 
-        {/* ─── Tes Kirim ────────────────────────────────────────────────────────── */}
+        <div className="rounded-lg bg-muted/60 px-3 py-2.5 space-y-1.5">
+          <p className="text-xs font-medium flex items-center gap-1.5">
+            <ShieldAlert className="h-3.5 w-3.5 text-muted-foreground" />
+            Environment Hostinger
+          </p>
+          <p className="text-xs text-muted-foreground leading-relaxed">
+            Tenant-POS menggunakan <code className="bg-background border px-1 rounded font-mono text-[10px]">CST_WA_GATEWAY_URL</code> dan{" "}
+            <code className="bg-background border px-1 rounded font-mono text-[10px]">CST_WA_GATEWAY_TOKEN</code>.
+            Nilai token tidak ditampilkan di halaman ini.
+          </p>
+          <p className="text-[10px] text-muted-foreground">
+            Gateway: <code>https://wa.cstlogistic.co.id</code>
+          </p>
+        </div>
+
+        <Separator />
+
         <div className="space-y-2.5">
           <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
             <Send className="h-3.5 w-3.5" />
             Tes Kirim Pesan WA
           </p>
           <p className="text-xs text-muted-foreground">
-            Kirim pesan tes ke nomor HP untuk verifikasi koneksi dan nomor pengirim.
+            Kirim satu pesan uji ke nomor yang Anda kendalikan untuk memastikan API Client, queue, dan worker berfungsi.
           </p>
           <div className="flex gap-2">
             <Input
@@ -374,7 +340,7 @@ function WhatsAppPanel({ config, onSaveSender }: {
             <Button
               size="sm" className="h-8 gap-1.5 whitespace-nowrap"
               onClick={handleTestSend}
-              disabled={testSending || !testPhone.trim()}
+              disabled={testSending || !testPhone.trim() || !isConfigured}
             >
               {testSending
                 ? <><Loader2 className="h-3.5 w-3.5 animate-spin" />Mengirim...</>
@@ -389,25 +355,12 @@ function WhatsAppPanel({ config, onSaveSender }: {
                 ? <CheckCircle2 className="h-4 w-4 mt-0.5 shrink-0 text-green-600" />
                 : <XCircle className="h-4 w-4 mt-0.5 shrink-0 text-red-500" />}
               <div>
-                <p className="font-medium">{lastTestResult.ok ? "Berhasil!" : "Gagal"}</p>
+                <p className="font-medium">{lastTestResult.ok ? "Diterima gateway" : "Gagal"}</p>
                 <p className="opacity-80">{lastTestResult.ok ? lastTestResult.message : lastTestResult.error}</p>
+                {lastTestResult.messageId && <p className="font-mono text-[10px] mt-1">Message ID: {lastTestResult.messageId}</p>}
               </div>
             </div>
           )}
-        </div>
-
-        <Separator />
-
-        {/* Info token */}
-        <div className="rounded-lg bg-muted/60 px-3 py-2.5 space-y-1">
-          <p className="text-xs font-medium flex items-center gap-1.5">
-            <AlertCircle className="h-3.5 w-3.5 text-muted-foreground" />
-            Konfigurasi Replit Secret
-          </p>
-          <p className="text-xs text-muted-foreground leading-relaxed">
-            Token Fonnte disimpan sebagai secret <code className="bg-background border px-1 rounded font-mono text-[10px]">FONNTE_TOKEN</code>.
-            Untuk mengubahnya, buka tab <strong>Secrets</strong> di sidebar Replit dan perbarui nilainya. Restart server setelah mengubah secret.
-          </p>
         </div>
       </CardContent>
     </Card>
@@ -1446,23 +1399,7 @@ export default function SettingsPage() {
       <SiteCompanyPanel />
 
       {/* Panel WhatsApp — di luar form karena punya state/action sendiri */}
-      <WhatsAppPanel
-        config={config}
-        onSaveSender={async (waSenderPhone, waSenderLabel) => {
-          try {
-            const res = await apiFetch("/api/settings", {
-              method: "PUT",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ waSenderPhone, waSenderLabel }),
-            });
-            if (!res.ok) throw new Error("Gagal menyimpan");
-            toast({ title: "Pengirim WA disimpan", description: waSenderPhone ? `Nomor pengirim diatur ke ${waSenderPhone}` : "Menggunakan device default Fonnte." });
-            void qc.invalidateQueries({ queryKey: ["settings"] });
-          } catch {
-            toast({ title: "Gagal", description: "Tidak dapat menyimpan pengaturan pengirim WA.", variant: "destructive" });
-          }
-        }}
-      />
+      <WhatsAppPanel />
 
       {/* Zona Bahaya — hanya Pemilik yang bisa akses halaman ini */}
       <ResetTransactionsPanel />
