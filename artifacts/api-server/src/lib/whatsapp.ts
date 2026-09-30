@@ -1,19 +1,18 @@
 /**
- * WhatsApp Notification Service menggunakan Fonnte API
- * https://fonnte.com — gateway WA paling populer di Indonesia
+ * WhatsApp Notification Service melalui CST WA Gateway.
  *
- * Set FONNTE_TOKEN di Replit Secrets untuk mengaktifkan.
- * Jika token tidak ada, notifikasi di-skip tanpa error.
+ * Transport WA dipusatkan di wa.cstlogistic.co.id. Aplikasi hanya memegang
+ * client API key dan tidak menerima kredensial sesi WhatsApp/admin gateway.
  */
 
 import { db } from "@workspace/db";
 import { usersTable, systemSettingsTable, waLogsTable } from "@workspace/db/schema";
 import { sql, and, inArray, eq } from "drizzle-orm";
 import { logger } from "./logger";
-
-const FONNTE_TOKEN = process.env.FONNTE_API_KEY ?? process.env.FONNTE_TOKEN;
-const FONNTE_SENDER = process.env.FONNTE_SENDER ?? "";
-const FONNTE_URL = "https://api.fonnte.com/send";
+import {
+  sendGatewayMedia,
+  sendGatewayText,
+} from "./whatsapp-gateway-client";
 
 export function isWhatsappDeliveryDisabled(): boolean {
   return (
@@ -54,17 +53,6 @@ export function clearCompanyNameCache(siteId?: number) {
   }
 }
 
-/** Terjemahkan pesan error Fonnte ke Bahasa Indonesia yang lebih jelas */
-function translateFonnteError(reason: string): string {
-  const r = reason.toLowerCase();
-  if (r.includes("disconnected")) return "Perangkat WhatsApp Fonnte tidak terhubung. Silakan scan ulang QR di dashboard Fonnte.";
-  if (r.includes("invalid token") || r.includes("unauthorized")) return "Token Fonnte tidak valid. Periksa FONNTE_TOKEN di pengaturan.";
-  if (r.includes("target")) return "Nomor HP tujuan tidak valid.";
-  if (r.includes("message")) return "Pesan tidak boleh kosong.";
-  if (r.includes("quota") || r.includes("limit")) return "Kuota pengiriman Fonnte habis.";
-  return reason;
-}
-
 export interface WaResult {
   ok: boolean;
   skipped?: boolean;
@@ -74,8 +62,8 @@ export interface WaResult {
 }
 
 // Satu pembayaran bisa melewati lebih dari satu jalur post-commit
-// (misalnya endpoint POS dan endpoint invoice). Fonnte tidak menyediakan
-// idempotency key, jadi dedupe dilakukan di level aplikasi berdasarkan
+// (misalnya endpoint POS dan endpoint invoice). Gateway juga menyediakan
+// idempotency key; dedupe aplikasi tetap dipertahankan untuk notifikasi grup berdasarkan
 // nomor kuitansi/invoice selama proses server masih hidup.
 const groupNotificationCache = new Map<
   string,
@@ -116,7 +104,7 @@ const DEV_PHONES = new Set(["6281111111111","6281111111112","6281111111113","628
  * Prioritas:
  *   1. ADMIN_WA_GROUP (group JID) — jika diset, kirim HANYA ke group, skip semua lainnya
  *   2. DB user owner/admin/finance aktif yang punya phone_number (filter dev placeholder)
- *      + selalu tambahkan ADMIN_WHATSAPP / FONNTE_ADMIN_WA jika ada
+ *      + selalu tambahkan ADMIN_WHATSAPP / ADMIN_WHATSAPP jika ada
  *   3. Fallback ke system_settings.mall_config.adminPhone
  */
 export async function getAdminNotifyPhones(): Promise<Array<{ name: string; phone: string }>> {
@@ -139,7 +127,7 @@ export async function getAdminNotifyPhones(): Promise<Array<{ name: string; phon
       .filter((u) => u.phoneNumber && !DEV_PHONES.has(u.phoneNumber))
       .map((u) => ({ name: u.name, phone: u.phoneNumber! }));
 
-    const envPhone = process.env.ADMIN_WHATSAPP ?? process.env.FONNTE_ADMIN_WA;
+    const envPhone = process.env.ADMIN_WHATSAPP ?? process.env.ADMIN_WHATSAPP;
     if (envPhone && !phones.some((p) => normalizePhone(p.phone) === normalizePhone(envPhone))) {
       phones.push({ name: "Admin", phone: envPhone });
     }
@@ -163,95 +151,43 @@ export async function getAdminNotifyPhones(): Promise<Array<{ name: string; phon
     }
     return [...uniquePhones.values()];
   } catch {
-    const fallback = process.env.ADMIN_WHATSAPP ?? process.env.FONNTE_ADMIN_WA ?? process.env.ADMIN_WA_GROUP;
+    const fallback = process.env.ADMIN_WHATSAPP ?? process.env.ADMIN_WHATSAPP ?? process.env.ADMIN_WA_GROUP;
     return fallback ? [{ name: "Admin", phone: fallback }] : [];
   }
 }
 
 async function sendMessage(phone: string, message: string): Promise<WaResult> {
-  if (isWhatsappDeliveryDisabled() || !FONNTE_TOKEN) {
+  if (isWhatsappDeliveryDisabled()) {
     return { ok: true, skipped: true };
   }
 
-  try {
-    // Group JID Fonnte format: XXXXXX@g.us — jangan dinormalisasi
-    const target = phone.includes("@g.") ? phone : normalizePhone(phone);
-    const params: Record<string, string> = { target, message, delay: "2" };
-    if (FONNTE_SENDER) params.sender = FONNTE_SENDER;
-    const body = new URLSearchParams(params);
-
-    const res = await fetch(FONNTE_URL, {
-      method: "POST",
-      headers: {
-        Authorization: FONNTE_TOKEN,
-        "Content-Type": "application/x-www-form-urlencoded",
-      },
-      body: body.toString(),
-    });
-
-    const data = await res.json() as Record<string, unknown>;
-
-    logger.info({ fonnte: data }, "[WA] Fonnte response");
-
-    // Fonnte kadang return status sebagai string "false" atau boolean false
-    const statusFailed = data["status"] === false || data["status"] === "false";
-    // process: false → pesan diterima Fonnte tapi device offline/disconnected
-    const processedFailed = data["process"] === false || data["process"] === "false";
-    // process: "pending" → pesan masuk antrian Fonnte tapi belum terproses ke WA
-    // ini sering terjadi ketika sesi WA di device Fonnte sudah expired
-    const processPending = data["process"] === "pending";
-
-    if (!res.ok || statusFailed || processedFailed) {
-      const rawReason = String(data["reason"] ?? data["message"] ?? data["detail"] ?? "Gagal kirim WA");
-      logger.error({ fonnte: data }, "[WA] Fonnte error: " + rawReason);
-      return { ok: false, error: translateFonnteError(rawReason), response: data };
-    }
-
-    if (processPending) {
-      logger.warn("[WA] Fonnte: pesan masuk antrian (pending) — kemungkinan sesi WA device expired. Periksa dashboard Fonnte dan reconnect device.");
-      return { ok: true, pending: true, response: data };
-    }
-
-    return { ok: true, response: data };
-  } catch (err) {
-    return { ok: false, error: err instanceof Error ? err.message : String(err) };
-  }
+  const result = await sendGatewayText(phone, message);
+  return {
+    ok: result.ok,
+    skipped: result.skipped,
+    pending: result.queued,
+    response: result.response,
+    error: result.error,
+  };
 }
 
 /**
- * Kirim WA dengan lampiran file (PDF/gambar) via Fonnte.
- * fileUrl harus publicly accessible (misal: Supabase Storage public URL).
+ * Kirim WA dengan lampiran file (PDF/gambar/video) melalui CST WA Gateway.
+ * fileUrl wajib HTTPS agar media dapat diambil gateway dengan aman.
  */
 export async function sendWaWithFile(phone: string, message: string, fileUrl: string): Promise<WaResult> {
-  if (isWhatsappDeliveryDisabled() || !FONNTE_TOKEN) {
+  if (isWhatsappDeliveryDisabled()) {
     return { ok: true, skipped: true };
   }
-  try {
-    const target = phone.includes("@g.") ? phone : normalizePhone(phone);
-    const params: Record<string, string> = { target, message, url: fileUrl, delay: "2" };
-    if (FONNTE_SENDER) params.sender = FONNTE_SENDER;
-    const body = new URLSearchParams(params);
-    const res = await fetch(FONNTE_URL, {
-      method: "POST",
-      headers: { Authorization: FONNTE_TOKEN, "Content-Type": "application/x-www-form-urlencoded" },
-      body: body.toString(),
-    });
-    const data = await res.json() as Record<string, unknown>;
-    logger.info({ fonnte: data }, "[WA] Fonnte response (with file)");
-    const statusFailed = data["status"] === false || data["status"] === "false";
-    const processedFailed = data["process"] === false || data["process"] === "false";
-    const processPending = data["process"] === "pending";
-    if (!res.ok || statusFailed || processedFailed) {
-      const rawReason = String(data["reason"] ?? data["message"] ?? data["detail"] ?? "Gagal kirim WA");
-      return { ok: false, error: translateFonnteError(rawReason), response: data };
-    }
-    if (processPending) {
-      return { ok: true, pending: true, response: data };
-    }
-    return { ok: true, response: data };
-  } catch (err) {
-    return { ok: false, error: err instanceof Error ? err.message : String(err) };
-  }
+
+  const result = await sendGatewayMedia(phone, message, fileUrl);
+  return {
+    ok: result.ok,
+    skipped: result.skipped,
+    pending: result.queued,
+    response: result.response,
+    error: result.error,
+  };
 }
 
 // ─── Template Pesan ──────────────────────────────────────────────────────────
@@ -1025,9 +961,7 @@ async function recordAdminGroupDelivery(
         ? "queued"
         : "accepted";
 
-  const errorMessage = result.pending
-    ? "Fonnte process:pending"
-    : result.error ?? null;
+  const errorMessage = result.error ?? null;
 
   try {
     await db.insert(waLogsTable).values({
@@ -1165,9 +1099,10 @@ export async function notifyAdminGroup(params: AdminGroupPaymentParams): Promise
   const sendPromise = sendMessage(groupJid, message).then(async (result) => {
     await recordAdminGroupDelivery(params, groupJid, result);
 
-    // Hanya delivery yang benar-benar accepted yang boleh dideduplikasi.
-    // queued/pending/skipped/failed harus dapat dicoba lagi.
-    if (!result.ok || result.pending || result.skipped) {
+    // Respons queued dari CST WA Gateway berarti pesan sudah diterima oleh
+    // durable queue. Pertahankan dedupe agar event yang sama tidak diantrikan
+    // dua kali. Hanya kegagalan atau skip yang boleh dicoba ulang.
+    if (!result.ok || result.skipped) {
       groupNotificationCache.delete(dedupeKey);
     }
     return result;

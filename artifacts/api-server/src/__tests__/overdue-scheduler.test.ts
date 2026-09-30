@@ -117,7 +117,7 @@ describe("overdue invoice scheduler", () => {
     expect(eligibleCalls()).toHaveLength(1);
   });
 
-  it("mempertahankan claim dan menghitung queued sekali saat Fonnte pending", async () => {
+  it("mempertahankan claim dan menghitung queued sekali saat CST WA Gateway queued", async () => {
     const tenant = await createTenant({
       phone: "6281200000099",
       status: "active",
@@ -166,7 +166,7 @@ describe("overdue invoice scheduler", () => {
         (row) =>
           row.messageType === "overdue_reminder" &&
           row.status === "queued" &&
-          row.errorMessage === "Fonnte process:pending",
+          row.errorMessage === "CST WA Gateway queued",
       ),
     ).toBe(true);
   });
@@ -221,7 +221,7 @@ describe("daily reminder periode aktif", () => {
     expect(calls()).toHaveLength(1);
   });
 
-  it("mempertahankan claim reminder harian saat Fonnte pending agar tidak dobel", async () => {
+  it("mempertahankan claim reminder harian saat CST WA Gateway queued agar tidak dobel", async () => {
     const tenant = await createTenant({
       phone: "6281200000012",
       status: "active",
@@ -269,7 +269,7 @@ describe("daily reminder periode aktif", () => {
         (row) =>
           row.messageType === "due_reminder" &&
           row.status === "queued" &&
-          row.errorMessage === "Fonnte process:pending",
+          row.errorMessage === "CST WA Gateway queued",
       ),
     ).toBe(true);
   });

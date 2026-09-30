@@ -13,7 +13,7 @@ describe("pengaman WhatsApp saat test", () => {
     vi.unstubAllGlobals();
   });
 
-  it("tidak mengirim pesan atau file ke Fonnte saat NODE_ENV=test", async () => {
+  it("tidak mengirim pesan atau file ke CST WA Gateway saat NODE_ENV=test", async () => {
     process.env.NODE_ENV = "test";
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);

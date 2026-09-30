@@ -11,6 +11,11 @@ import {
   sendOverdueReminder,
   getSiteCompanyName,
 } from "../lib/whatsapp";
+import {
+  getCstWaGatewayStatus,
+  normalizeWhatsappDestination,
+  sendGatewayText,
+} from "../lib/whatsapp-gateway-client";
 
 const recentTestSends = new Map<string, number>();
 const TEST_SEND_COOLDOWN_MS = 30 * 1000;
@@ -169,7 +174,7 @@ router.post("/whatsapp/invoice/:id/send", async (req, res) => {
     const sentBy = (req.user as { email?: string } | undefined)?.email ?? null;
     if (result.skipped) {
       await logWa({ siteId: req.siteId, tenantId: invoice.tenantId, invoiceId: id, phone: invoice.phone, messageType: "invoice", status: "skipped", sentBy });
-      res.json({ ok: true, skipped: true, paymentLink: paymentLink ?? null, message: "FONNTE_TOKEN belum dikonfigurasi. Pesan tidak terkirim." });
+      res.json({ ok: true, skipped: true, paymentLink: paymentLink ?? null, message: "CST WA Gateway belum dikonfigurasi. Pesan tidak terkirim." });
       return;
     }
 
@@ -181,7 +186,7 @@ router.post("/whatsapp/invoice/:id/send", async (req, res) => {
 
     if (result.pending) {
       await logWa({ siteId: req.siteId, tenantId: invoice.tenantId, invoiceId: id, phone: invoice.phone, messageType: "invoice", status: "sent", errorMessage: "process:pending", sentBy });
-      res.json({ ok: true, pending: true, paymentLink: paymentLink ?? null, message: `Invoice masuk antrian Fonnte ke ${invoice.phone} — akan terkirim dalam beberapa saat.` });
+      res.json({ ok: true, pending: true, paymentLink: paymentLink ?? null, message: `Invoice masuk antrian CST WA Gateway ke ${invoice.phone} — akan terkirim dalam beberapa saat.` });
       return;
     }
 
@@ -253,7 +258,7 @@ router.post("/whatsapp/invoice/:id/overdue-reminder", async (req, res) => {
     const sentBy = (req.user as { email?: string } | undefined)?.email ?? null;
     if (result.skipped) {
       await logWa({ siteId: req.siteId, tenantId: invoice.tenantId ?? null, invoiceId: id, phone: invoice.phone, messageType: "overdue_reminder", status: "skipped", sentBy });
-      res.json({ ok: true, skipped: true, message: "FONNTE_TOKEN belum dikonfigurasi. Pesan tidak terkirim." });
+      res.json({ ok: true, skipped: true, message: "CST WA Gateway belum dikonfigurasi. Pesan tidak terkirim." });
       return;
     }
 
@@ -344,7 +349,7 @@ router.post("/whatsapp/blast-overdue", async (req, res) => {
     }
 
     if (skipped) {
-      res.json({ ok: true, skipped: true, message: "FONNTE_TOKEN belum dikonfigurasi. Blast tidak terkirim." });
+      res.json({ ok: true, skipped: true, message: "CST WA Gateway belum dikonfigurasi. Blast tidak terkirim." });
       return;
     }
 
@@ -459,7 +464,7 @@ router.post("/whatsapp/blast-link-unpaid", async (req, res) => {
     }
 
     if (skipped) {
-      res.json({ ok: true, skipped: true, sent: 0, failed: 0, total: unpaidInvoices.length, message: "FONNTE_TOKEN belum dikonfigurasi. Blast tidak terkirim." });
+      res.json({ ok: true, skipped: true, sent: 0, failed: 0, total: unpaidInvoices.length, message: "CST WA Gateway belum dikonfigurasi. Blast tidak terkirim." });
       return;
     }
 
@@ -476,7 +481,7 @@ router.post("/whatsapp/blast-link-unpaid", async (req, res) => {
 
 /**
  * POST /api/whatsapp/test-send
- * Kirim pesan WA percobaan ke nomor tertentu (untuk verifikasi koneksi)
+ * Kirim pesan WA percobaan melalui CST WA Gateway.
  */
 router.post("/whatsapp/test-send", async (req, res) => {
   const { phone, message } = req.body as { phone?: string; message?: string };
@@ -486,24 +491,10 @@ router.post("/whatsapp/test-send", async (req, res) => {
     return;
   }
 
-  const token = process.env.FONNTE_API_KEY ?? process.env.FONNTE_TOKEN;
-  if (!token) {
-    res.status(400).json({ ok: false, skipped: true, error: "FONNTE_TOKEN belum dikonfigurasi di Replit Secrets." });
-    return;
-  }
-
   const testMsg = message?.trim() ||
-    "✅ *Tes Koneksi WhatsApp Berhasil!*\n\nNotifikasi dari Portal Admin Mall sudah aktif dan berfungsi dengan baik.\n\n_Pesan ini dikirim otomatis oleh sistem._";
+    "✅ *Tes Koneksi WhatsApp Berhasil!*\n\nNotifikasi dari Portal Admin Mall sudah aktif melalui CST WA Gateway.\n\n_Pesan ini dikirim otomatis oleh sistem._";
 
-  const isGroupJid = phone.includes("@g.");
-  const digits = phone.replace(/\D/g, "");
-  const normalized = isGroupJid
-    ? phone.trim()
-    : digits.startsWith("0") ? "62" + digits.slice(1) : digits.startsWith("62") ? digits : "62" + digits;
-  const sender = process.env.FONNTE_SENDER ?? "";
-  const params: Record<string, string> = { target: normalized, message: testMsg, delay: "1" };
-  if (sender) params.sender = sender;
-
+  const normalized = normalizeWhatsappDestination(phone);
   const now = Date.now();
   const lastSentAt = recentTestSends.get(normalized);
   if (lastSentAt && now - lastSentAt < TEST_SEND_COOLDOWN_MS) {
@@ -515,53 +506,40 @@ router.post("/whatsapp/test-send", async (req, res) => {
     });
     return;
   }
-  // Kunci sebelum request dibuat agar dua request bersamaan tidak sama-sama
-  // masuk ke antrian Fonnte sebelum request pertama selesai.
   recentTestSends.set(normalized, now);
 
-  try {
-    const r = await fetch("https://api.fonnte.com/send", {
-      method: "POST",
-      headers: { Authorization: token, "Content-Type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams(params).toString(),
-      signal: AbortSignal.timeout(10000),
-    });
-    const data = await r.json() as Record<string, unknown>;
-    const sentBy = (req.user as { email?: string } | undefined)?.email ?? null;
-    const statusFailed = data["status"] === false || data["status"] === "false";
-    const processFailed = data["process"] === false || data["process"] === "false";
-    const processPending = data["process"] === "pending";
+  const result = await sendGatewayText(normalized, testMsg);
+  const sentBy = (req.user as { email?: string } | undefined)?.email ?? null;
 
-    if (!r.ok || statusFailed || processFailed) {
-      recentTestSends.delete(normalized);
-      const reason = String(data["reason"] ?? data["message"] ?? "Gagal kirim WA");
-      const r2 = reason.toLowerCase();
-      let errMsg = reason;
-      if (r2.includes("disconnected")) errMsg = "Perangkat WhatsApp tidak terhubung. Scan ulang QR di dashboard Fonnte.";
-      else if (r2.includes("invalid token") || r2.includes("unauthorized")) errMsg = "Token Fonnte tidak valid.";
-      else if (r2.includes("target")) errMsg = "Nomor HP tujuan tidak valid.";
-      await logWa({ phone: normalized, messageType: "test", status: "failed", errorMessage: errMsg, sentBy });
-      res.json({ ok: false, error: errMsg, raw: reason });
-    } else if (processPending) {
-      await logWa({ phone: normalized, messageType: "test", status: "sent", errorMessage: "process:pending", sentBy });
-      res.json({
-        ok: true,
-        pending: true,
-        isGroup: isGroupJid,
-        message: isGroupJid
-          ? `Pesan ke grup ${normalized} masuk antrian Fonnte — akan terkirim dalam beberapa saat.`
-          : `Pesan ke ${normalized} masuk antrian Fonnte — akan terkirim dalam beberapa saat.`,
-        detail: "Fonnte menerima pesan dan memasukkannya ke antrian pengiriman. Pesan tetap akan sampai ke penerima. Jika antrian menumpuk banyak, bisa dibersihkan di dashboard.fonnte.com → Device → Clear Queue.",
-        target: normalized,
-      });
-    } else {
-      await logWa({ phone: normalized, messageType: "test", status: "sent", sentBy });
-      res.json({ ok: true, message: `Pesan tes berhasil dikirim ke ${normalized}`, target: normalized });
-    }
-  } catch (err) {
+  if (result.skipped) {
     recentTestSends.delete(normalized);
-    res.status(502).json({ ok: false, error: err instanceof Error ? err.message : "Gagal menghubungi Fonnte" });
+    await logWa({ phone: normalized, messageType: "test", status: "skipped", errorMessage: result.error, sentBy });
+    res.status(400).json({ ok: false, skipped: true, error: result.error });
+    return;
   }
+
+  if (!result.ok) {
+    recentTestSends.delete(normalized);
+    await logWa({ phone: normalized, messageType: "test", status: "failed", errorMessage: result.error, sentBy });
+    res.status(502).json({ ok: false, error: result.error ?? "Gagal mengirim melalui CST WA Gateway" });
+    return;
+  }
+
+  await logWa({
+    phone: normalized,
+    messageType: "test",
+    status: "sent",
+    errorMessage: result.queued ? "CST WA Gateway queued" : null,
+    sentBy,
+  });
+  res.json({
+    ok: true,
+    pending: Boolean(result.queued),
+    isGroup: normalized.endsWith("@g.us"),
+    messageId: result.messageId ?? null,
+    message: `Pesan ke ${normalized} diterima CST WA Gateway dan masuk antrian pengiriman.`,
+    target: normalized,
+  });
 });
 
 /**
@@ -585,46 +563,19 @@ router.get("/whatsapp/logs", requireAuth, requireAnyRole("owner", "admin", "fina
 
 /**
  * GET /api/whatsapp/devices
- * Ambil daftar perangkat/nomor HP yang terhubung ke akun Fonnte
+ * Tampilkan status worker/device dari CST WA Gateway.
  */
 router.get("/whatsapp/devices", requireAuth, requireAnyRole("owner", "admin"), async (_req, res) => {
-  const token = process.env.FONNTE_API_KEY ?? process.env.FONNTE_TOKEN;
-  if (!token) {
-    res.json({ configured: false, devices: [] });
-    return;
-  }
-
-  try {
-    const r = await fetch("https://api.fonnte.com/device", {
-      method: "POST",
-      headers: { Authorization: token, "Content-Type": "application/x-www-form-urlencoded" },
-      signal: AbortSignal.timeout(8000),
-    });
-    const data = await r.json() as Record<string, unknown>;
-
-    if (!r.ok || data["status"] === false) {
-      res.json({ configured: true, devices: [], error: String(data["reason"] ?? "Gagal ambil data device") });
-      return;
-    }
-
-    // Fonnte /device (single device token) returns flat object, not array
-    const isConnected = String(data["device_status"] ?? "").toLowerCase() === "connect";
-    const devices = data["device"]
-      ? [{
-          name: String(data["name"] ?? "Perangkat"),
-          phone: String(data["device"] ?? ""),
-          status: isConnected ? "connected" : "disconnected",
-          connected: isConnected,
-          queueCount: Number(data["messages"] ?? 0),
-          quota: String(data["quota"] ?? ""),
-          expired: String(data["expired"] ?? ""),
-        }]
-      : [];
-
-    res.json({ configured: true, devices });
-  } catch {
-    res.json({ configured: true, devices: [], error: "Gagal menghubungi Fonnte" });
-  }
+  const status = await getCstWaGatewayStatus();
+  const devices = (status.workers ?? []).map((worker) => ({
+    deviceId: String(worker["deviceId"] ?? ""),
+    workerId: String(worker["workerId"] ?? ""),
+    name: String(worker["deviceId"] ?? worker["workerId"] ?? "WhatsApp"),
+    status: String(worker["status"] ?? "UNKNOWN").toLowerCase(),
+    connected: String(worker["status"] ?? "").toUpperCase() === "ONLINE",
+    queueCount: status.queueCount ?? 0,
+  }));
+  res.json({ configured: status.configured, devices, provider: status.provider, error: status.connected === null ? status.message : undefined });
 });
 
 /**
@@ -667,84 +618,25 @@ router.get("/whatsapp/reminder-status", async (req, res) => {
 
 /**
  * POST /api/whatsapp/reconnect-device
- * Panggil Fonnte /reconnect — restart koneksi device dan flush antrian yang stuck.
- * Biasanya membantu jika antrian menumpuk namun device masih terhubung.
+ * Reconnect device dikelola terpusat oleh CST WA Gateway. Tenant-POS sengaja
+ * tidak memegang admin token gateway.
  */
 router.post("/whatsapp/reconnect-device", requireAuth, requireAnyRole("owner", "admin"), async (_req, res) => {
-  const token = process.env.FONNTE_API_KEY ?? process.env.FONNTE_TOKEN;
-  if (!token) {
-    res.status(400).json({ ok: false, error: "FONNTE_TOKEN belum dikonfigurasi" });
-    return;
-  }
-
-  try {
-    const r = await fetch("https://api.fonnte.com/reconnect", {
-      method: "POST",
-      headers: { Authorization: token, "Content-Type": "application/x-www-form-urlencoded" },
-      signal: AbortSignal.timeout(15000),
-    });
-    const data = await r.json() as Record<string, unknown>;
-    if (data["status"] === true) {
-      res.json({ ok: true, message: "Reconnect berhasil. Device sedang restart — tunggu 15-30 detik lalu cek status kembali." });
-    } else {
-      res.json({ ok: false, error: String(data["reason"] ?? "Gagal reconnect") });
-    }
-  } catch {
-    res.status(502).json({ ok: false, error: "Tidak dapat menghubungi server Fonnte" });
-  }
+  res.status(409).json({
+    ok: false,
+    centralized: true,
+    provider: "CST WA Gateway",
+    error: "Reconnect perangkat dikelola dari panel CST WA Gateway agar kredensial admin tidak dibagikan ke Tenant-POS.",
+  });
 });
 
 /**
  * GET /api/whatsapp/status
- * Cek status konfigurasi WA + konektivitas perangkat Fonnte
+ * Cek status CST WA Gateway dan worker WhatsApp.
  */
 router.get("/whatsapp/status", async (_req, res) => {
-  const token = process.env.FONNTE_API_KEY ?? process.env.FONNTE_TOKEN;
-  if (!token) {
-    res.json({ configured: false, connected: false, provider: "Fonnte", message: "FONNTE_TOKEN belum dikonfigurasi" });
-    return;
-  }
-
-  try {
-    // Gunakan /device API (lebih akurat, tidak membuat pesan dummy)
-    const probe = await fetch("https://api.fonnte.com/device", {
-      method: "POST",
-      headers: { Authorization: token, "Content-Type": "application/x-www-form-urlencoded" },
-      signal: AbortSignal.timeout(8000),
-    });
-    const data = await probe.json() as Record<string, unknown>;
-
-    const isConnected = String(data["device_status"] ?? "").toLowerCase() === "connect";
-    const queueCount = Number(data["messages"] ?? 0);
-    const quota = String(data["quota"] ?? "");
-    const expired = String(data["expired"] ?? "");
-    const devicePhone = String(data["device"] ?? "");
-
-    // Peringatan antrian: lebih dari 50 pesan menumpuk
-    const queueWarning = queueCount > 50
-      ? `⚠️ ${queueCount.toLocaleString("id-ID")} pesan menumpuk di antrian Fonnte. Buka dashboard.fonnte.com → Device → klik "Hapus Antrian" untuk membersihkannya.`
-      : undefined;
-
-    const message = isConnected
-      ? queueCount > 50
-        ? `WhatsApp terhubung — ${queueCount.toLocaleString("id-ID")} pesan dalam antrian (belum terkirim)`
-        : "WhatsApp aktif dan terhubung"
-      : "Perangkat WhatsApp tidak terhubung — scan ulang QR di dashboard Fonnte";
-
-    res.json({
-      configured: true,
-      connected: isConnected,
-      provider: "Fonnte",
-      message,
-      queueCount,
-      queueWarning,
-      quota,
-      expired,
-      devicePhone,
-    });
-  } catch {
-    res.json({ configured: true, connected: null, provider: "Fonnte", message: "Tidak dapat menghubungi server Fonnte" });
-  }
+  const status = await getCstWaGatewayStatus();
+  res.json(status);
 });
 
 export default router;

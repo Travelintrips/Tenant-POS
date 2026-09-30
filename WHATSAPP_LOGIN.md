@@ -17,8 +17,8 @@
 | `ENABLE_WHATSAPP_LOGIN` | Aktifkan login WhatsApp | `true` (otomatis) |
 | `OTP_EXPIRY_MINUTES` | Durasi OTP berlaku (menit) | `5` |
 | `OTP_MAX_ATTEMPTS` | Maks percobaan OTP salah | `5` |
-| `FONNTE_API_KEY` | API Key Fonnte untuk production | — |
-| `FONNTE_SENDER` | Nomor pengirim Fonnte (opsional) | — |
+| `CST_WA_GATEWAY_TOKEN` | API Key CST WA Gateway untuk production | — |
+| `CST_WA_DEVICE_ID` | Nomor pengirim CST WA Gateway (opsional) | — |
 | `ENABLE_DEV_LOGIN` | Aktifkan dev mode login | `true` di non-prod |
 
 ## Dev Mode
@@ -30,15 +30,17 @@ Di lingkungan development (`NODE_ENV !== "production"`):
 
 ## Production Mode
 
-Di production, set `FONNTE_API_KEY` untuk mengaktifkan pengiriman OTP via Fonnte.
-Jika `FONNTE_API_KEY` tidak diset, request OTP akan mengembalikan error konfigurasi.
+Di production, set `CST_WA_GATEWAY_TOKEN` untuk mengaktifkan pengiriman OTP via CST WA Gateway.
+Jika `CST_WA_GATEWAY_TOKEN` tidak diset, request OTP akan mengembalikan error konfigurasi.
 
-## Cara Aktifkan Provider WhatsApp (Fonnte)
+## Cara Aktifkan Provider WhatsApp (CST WA Gateway)
 
-1. Daftar di [fonnte.com](https://fonnte.com)
-2. Dapatkan API Key dari dashboard
-3. Set secret: `FONNTE_API_KEY=<api_key_anda>`
-4. Opsional: `FONNTE_SENDER=6281234567890` (nomor WhatsApp pengirim)
+1. Buat API Client khusus Tenant-POS di panel CST WA Gateway.
+2. Berikan scope minimal `messages:send` dan `messages:read`.
+3. Set secret `CST_WA_GATEWAY_TOKEN=<client_api_key>` di environment Tenant-POS.
+4. Set `CST_WA_GATEWAY_URL=https://wa.cstlogistic.co.id`.
+5. Opsional: set `CST_WA_DEVICE_ID=<device_id>` jika Tenant-POS harus memakai device tertentu.
+6. Jangan menaruh `ADMIN_API_TOKEN` gateway di Tenant-POS.
 
 ## Flow OTP
 
@@ -75,6 +77,7 @@ Response: { id, name, phoneNumber, role, tenantAccess? }
 
 ## Yang Belum Production-Ready
 
-- [ ] Set `FONNTE_API_KEY` di environment production
+- [ ] Set `CST_WA_GATEWAY_TOKEN` di environment production
+- [ ] Set webhook `message.received` untuk company Tenant-POS ke `/api/whatsapp/webhook`
 - [ ] Aktifkan `SESSION_SECRET` yang kuat di production
-- [ ] Uji integrasi Fonnte dengan nomor nyata
+- [ ] Uji outbound, OTP, dan inbound approval melalui CST WA Gateway

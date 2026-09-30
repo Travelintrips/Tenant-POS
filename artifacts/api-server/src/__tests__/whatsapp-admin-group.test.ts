@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 describe("admin WhatsApp group delivery log", () => {
   const originalGroup = process.env.ADMIN_WA_GROUP;
+  const originalNodeEnv = process.env.NODE_ENV;
 
   beforeEach(() => {
     vi.resetModules();
@@ -10,7 +11,9 @@ describe("admin WhatsApp group delivery log", () => {
 
   afterEach(() => {
     vi.doUnmock("@workspace/db");
+    vi.doUnmock("../lib/whatsapp-gateway-client");
     vi.resetModules();
+    process.env.NODE_ENV = originalNodeEnv;
     if (originalGroup === undefined) {
       delete process.env.ADMIN_WA_GROUP;
     } else {
@@ -59,4 +62,61 @@ describe("admin WhatsApp group delivery log", () => {
       }),
     );
   });
+
+  it("tidak mengantrikan ulang notifikasi group yang sudah diterima CST WA Gateway", async () => {
+    process.env.NODE_ENV = "development";
+
+    const values = vi.fn().mockResolvedValue(undefined);
+    const insert = vi.fn(() => ({ values }));
+    const sendGatewayText = vi.fn().mockResolvedValue({
+      ok: true,
+      queued: true,
+      messageId: "msg-queued-1",
+    });
+
+    vi.doMock("@workspace/db", async (importOriginal) => {
+      const actual = await importOriginal<typeof import("@workspace/db")>();
+      return {
+        ...actual,
+        db: {
+          ...actual.db,
+          insert,
+        },
+      };
+    });
+
+    vi.doMock("../lib/whatsapp-gateway-client", () => ({
+      sendGatewayText,
+      sendGatewayMedia: vi.fn(),
+    }));
+
+    const { notifyAdminGroup } = await import("../lib/whatsapp");
+    const params = {
+      eventType: "payment_approved" as const,
+      businessName: "Tenant Queue Test",
+      ownerName: "Owner Test",
+      invoiceNumber: "INV-QUEUE-001",
+      receiptNumber: "RCPT-QUEUE-001",
+      amount: "250000",
+      siteId: 1,
+      tenantId: 2,
+      invoiceId: 3,
+    };
+
+    const first = await notifyAdminGroup(params);
+    const second = await notifyAdminGroup(params);
+
+    expect(first).toMatchObject({ ok: true, pending: true });
+    expect(second).toMatchObject({ ok: true, pending: true });
+    expect(sendGatewayText).toHaveBeenCalledTimes(1);
+    expect(values).toHaveBeenCalledTimes(1);
+    expect(values).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: "queued",
+        errorMessage: null,
+        messageType: "admin_group_payment_approved",
+      }),
+    );
+  });
+
 });
