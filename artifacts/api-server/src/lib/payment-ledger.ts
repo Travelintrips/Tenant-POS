@@ -127,7 +127,7 @@ export async function syncInvoiceFromPayments(
   now = new Date(),
 ): Promise<{ paidAmount: number; outstanding: number; status: string }> {
   const [sumRow] = await tx
-    .select({ sumPaid: sql<string>`coalesce(sum(amount::numeric), 0)::text` })
+    .select({ sumPaid: sql<string>`coalesce(sum(coalesce(invoice_allocation_amount, amount)::numeric), 0)::text` })
     .from(tenantPaymentsTable)
     .where(
       and(
@@ -214,7 +214,7 @@ export async function validateNoOverpayment(
 ): Promise<void> {
   const [[sumRow], [invoice]] = await Promise.all([
     tx
-      .select({ sumPaid: sql<string>`coalesce(sum(amount::numeric), 0)::text` })
+      .select({ sumPaid: sql<string>`coalesce(sum(coalesce(invoice_allocation_amount, amount)::numeric), 0)::text` })
       .from(tenantPaymentsTable)
       .where(
         and(
@@ -295,6 +295,8 @@ export async function recordPayment(
       siteId: params.siteId ?? undefined,
       companyId: companyId ?? undefined,
       amount: String(params.amount),
+      invoiceAllocationAmount: String(params.amount),
+      surchargeAllocationAmount: "0",
       discountAmount: String(params.discountAmount ?? 0),
       penaltyAmount: String(params.penaltyAmount ?? 0),
       paymentMethod: params.paymentMethod,
@@ -349,8 +351,8 @@ export async function approveExistingPayment(
   invoiceId: number,
   approvedBy: string,
   now = new Date(),
-): Promise<{ invoiceStatus: string; paidAmount: number; remaining: number }> {
-  // Get payment amount for overpayment check
+  allocations?: { invoiceAmount: number; surchargeAmount: number },
+): Promise<{ invoiceStatus: string; paidAmount: number; remaining: number; invoiceAmount: number; surchargeAmount: number }> {
   const [payment] = await tx
     .select({ amount: tenantPaymentsTable.amount })
     .from(tenantPaymentsTable)
@@ -358,12 +360,19 @@ export async function approveExistingPayment(
 
   if (!payment) throw new Error("Pembayaran tidak ditemukan");
 
-  // Overpayment check (payment is still pending_review, so not counted in existing sum)
-  await validateNoOverpayment(tx, invoiceId, parseFloat(String(payment.amount)));
+  const grossAmount = parseFloat(String(payment.amount));
+  const invoiceAmount = allocations?.invoiceAmount ?? grossAmount;
+  const surchargeAmount = allocations?.surchargeAmount ?? 0;
+
+  if (invoiceAmount < 0 || surchargeAmount < 0 || Math.abs((invoiceAmount + surchargeAmount) - grossAmount) > 0.01) {
+    throw new Error("Alokasi pembayaran tidak valid");
+  }
+
+  // Only the invoice portion is subject to the invoice overpayment guard.
+  await validateNoOverpayment(tx, invoiceId, invoiceAmount);
 
   const companyId = await resolveInvoiceCompanyId(tx, invoiceId);
 
-  // Flip to approved and enforce the company that owns the linked invoice.
   await tx
     .update(tenantPaymentsTable)
     .set({
@@ -375,14 +384,14 @@ export async function approveExistingPayment(
       status: "PAID",
       sourceType: "ocr",
       companyId: companyId ?? undefined,
+      invoiceAllocationAmount: String(invoiceAmount),
+      surchargeAllocationAmount: String(surchargeAmount),
       updatedAt: now,
     })
     .where(eq(tenantPaymentsTable.id, paymentId));
 
-  // Sync invoice
   const ledger = await syncInvoiceFromPayments(tx, invoiceId, now);
 
-  // Backfill remaining_balance_after after sync
   await tx
     .update(tenantPaymentsTable)
     .set({ remainingBalanceAfter: String(ledger.outstanding) })
@@ -392,5 +401,7 @@ export async function approveExistingPayment(
     invoiceStatus: ledger.status,
     paidAmount: ledger.paidAmount,
     remaining: ledger.outstanding,
+    invoiceAmount,
+    surchargeAmount,
   };
 }
