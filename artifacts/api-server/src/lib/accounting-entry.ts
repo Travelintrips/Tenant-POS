@@ -8,6 +8,7 @@ interface AccountingEntryParams {
   invoiceNumber?: string | null;
   businessName?: string | null;
   amountPaid: number;
+  surchargeAmount?: number;
   paymentMethod: string;
   transactionDate: Date;
   receiptNumber?: string | null;
@@ -31,6 +32,7 @@ export async function postTenantPaymentAccountingEntry(
     invoiceNumber,
     businessName,
     amountPaid,
+    surchargeAmount = 0,
     paymentMethod,
     transactionDate,
     receiptNumber,
@@ -158,11 +160,31 @@ export async function postTenantPaymentAccountingEntry(
       (ppnRow as any)?.rows?.[0]?.id != null
         ? Number((ppnRow as any).rows[0].id)
         : null;
+    const rentAmount = Math.max(amountPaid, 0);
+    const extraSurcharge = Math.max(surchargeAmount, 0);
+    const grossReceived = rentAmount + extraSurcharge;
     const taxAmount =
       usePpn && ppnAccountId
-        ? Math.round((amountPaid * PPN_RATE) / (1 + PPN_RATE))
+        ? Math.round((rentAmount * PPN_RATE) / (1 + PPN_RATE))
         : 0;
-    const netAmount = amountPaid - taxAmount;
+    const netAmount = rentAmount - taxAmount;
+
+    const surchargeCoaRow = extraSurcharge > 0
+      ? await db.execute(sql`
+          SELECT id FROM chart_of_accounts
+          WHERE company_id = ${companyId} AND code LIKE '4-1020-%'
+          ORDER BY id LIMIT 1
+        `)
+      : null;
+    const surchargeAccountId: number | null =
+      (surchargeCoaRow as any)?.rows?.[0]?.id != null
+        ? Number((surchargeCoaRow as any).rows[0].id)
+        : null;
+
+    if (extraSurcharge > 0 && !surchargeAccountId) {
+      logger.warn(`[accounting_entry] COA Pendapatan Lain-lain untuk surcharge tidak ditemukan company_id=${companyId}; posting dibatalkan agar jurnal tidak timpang`);
+      return;
+    }
 
     if (!creditAccountId) {
       logger.warn(
@@ -205,7 +227,7 @@ export async function postTenantPaymentAccountingEntry(
         (${entryNumber}, ${journalId}, ${dateStr}::date, ${ref},
          ${description}, 'draft',
          ${"tenant_rent_payment"}::accounting_entry_source,
-         ${sourceModule}, ${paymentId}, ${amountPaid}, ${amountPaid},
+         ${sourceModule}, ${paymentId}, ${grossReceived}, ${grossReceived},
          ${companyId}, ${correlationId}, NOW())
       ON CONFLICT DO NOTHING
       RETURNING id
@@ -241,13 +263,20 @@ export async function postTenantPaymentAccountingEntry(
         INSERT INTO accounting_entry_lines (entry_id, account_id, description, debit, credit)
         VALUES
           (${entryId}, ${debitAccountId},
-           ${"Penerimaan sewa " + ref},
-           ${amountPaid}, 0),
+           ${extraSurcharge > 0 ? "Penerimaan sewa + surcharge " + ref : "Penerimaan sewa " + ref},
+           ${grossReceived}, 0),
           (${entryId}, ${creditAccountId},
            ${"Pendapatan Sewa Tenant — " + bizLabel},
             0, ${netAmount})
         ON CONFLICT DO NOTHING
       `);
+      if (surchargeAccountId && extraSurcharge > 0) {
+        await db.execute(sql`
+          INSERT INTO accounting_entry_lines (entry_id, account_id, description, debit, credit)
+          VALUES (${entryId}, ${surchargeAccountId}, ${"Cicilan Surcharge Tenant — " + bizLabel}, 0, ${extraSurcharge})
+          ON CONFLICT DO NOTHING
+        `);
+      }
       if (ppnAccountId && taxAmount > 0) {
         await db.execute(sql`
           INSERT INTO accounting_entry_lines (entry_id, account_id, description, debit, credit)
@@ -265,7 +294,7 @@ export async function postTenantPaymentAccountingEntry(
     `);
 
     logger.info(
-      `[accounting_entry] ✅ ${entryNumber} | company_id=${companyId} | Rp ${amountPaid} | ${description} | lines: 2`
+      `[accounting_entry] ✅ ${entryNumber} | company_id=${companyId} | gross Rp ${grossReceived} | rent Rp ${rentAmount} | surcharge Rp ${extraSurcharge} | ${description}`
     );
 
     // --- Insert accounting_payments (idempoten via correlation_id) ---

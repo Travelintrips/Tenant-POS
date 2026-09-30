@@ -1229,8 +1229,32 @@ router.post("/tenant-invoices/:id/payment", async (req, res) => {
         );
       }
 
-      const newPaidAmount = Number(invoice.paidAmount) + amountPaid;
       const total = Number(invoice.totalAmount);
+      const currentPaid = Number(invoice.paidAmount ?? 0);
+      const currentOutstanding = Math.max(total - currentPaid, 0);
+
+      const [site] = invoice.siteId
+        ? await tx
+            .select({ type: mallSitesTable.type })
+            .from(mallSitesTable)
+            .where(eq(mallSitesTable.id, invoice.siteId))
+            .limit(1)
+        : [null];
+
+      const isSportCenter = site?.type === "sport_center";
+      const invoiceAllocationAmount =
+        isSportCenter ? Math.min(amountPaid, currentOutstanding) : amountPaid;
+      const surchargeAllocationAmount =
+        isSportCenter ? Math.max(amountPaid - invoiceAllocationAmount, 0) : 0;
+
+      if (!isSportCenter && amountPaid > currentOutstanding * 1.001) {
+        throw Object.assign(
+          new Error(`Pembayaran melebihi sisa invoice Rp ${currentOutstanding.toLocaleString("id-ID")}`),
+          { status: 400 },
+        );
+      }
+
+      const newPaidAmount = currentPaid + invoiceAllocationAmount;
       const outstanding = Math.max(total - newPaidAmount, 0);
 
       let newStatus: string;
@@ -1259,6 +1283,8 @@ router.post("/tenant-invoices/:id/payment", async (req, res) => {
           bookingId: invoice.bookingId ?? null,
           tenantBookingId: invoice.bookingId ?? null,
           amount: String(amountPaid),
+          invoiceAllocationAmount: String(invoiceAllocationAmount),
+          surchargeAllocationAmount: String(surchargeAllocationAmount),
           discountAmount: "0",
           penaltyAmount: "0",
           paymentMethod,
@@ -1280,7 +1306,7 @@ router.post("/tenant-invoices/:id/payment", async (req, res) => {
         .where(eq(tenantInvoicesTable.id, id))
         .returning();
 
-      return { payment, invoice: updatedInvoice, receiptNumber, newStatus, newPaidAmount, outstanding };
+      return { payment, invoice: updatedInvoice, receiptNumber, newStatus, newPaidAmount, outstanding, invoiceAllocationAmount, surchargeAllocationAmount };
     });
 
     logAudit(req, {
@@ -1294,6 +1320,8 @@ router.post("/tenant-invoices/:id/payment", async (req, res) => {
         paymentMethod,
         receiptNumber: result.receiptNumber,
         invoiceStatus: result.newStatus,
+        invoiceAllocationAmount: result.invoiceAllocationAmount,
+        surchargeAllocationAmount: result.surchargeAllocationAmount,
       },
     });
     sseBroker.publish("payment_created", { paymentId: result.payment.id, invoiceId: id });
@@ -1315,6 +1343,9 @@ router.post("/tenant-invoices/:id/payment", async (req, res) => {
         receiptNumber: result.receiptNumber,
         invoiceStatus: result.newStatus,
         source: "direct_invoice_payment",
+        grossAmount: amountPaid,
+        invoiceAllocationAmount: result.invoiceAllocationAmount,
+        surchargeAllocationAmount: result.surchargeAllocationAmount,
       },
     }).catch(() => {});
 
@@ -1325,6 +1356,7 @@ router.post("/tenant-invoices/:id/payment", async (req, res) => {
       invoiceStatus: result.newStatus,
       paidAmount: result.newPaidAmount,
       outstandingAmount: result.outstanding,
+      allocation: { invoiceAmount: result.invoiceAllocationAmount, surchargeAmount: result.surchargeAllocationAmount },
     });
 
     // ── Fire-and-forget: Accounting journal + tax entry ──────────────────────
@@ -1348,7 +1380,8 @@ router.post("/tenant-invoices/:id/payment", async (req, res) => {
           siteId,
           invoiceNumber: inv.invoiceNumber ?? null,
           businessName: tenantRow?.businessName ?? null,
-          amountPaid: parseFloat(String(p.amount)),
+          amountPaid: result.invoiceAllocationAmount,
+          surchargeAmount: result.surchargeAllocationAmount,
           paymentMethod: p.paymentMethod ?? paymentMethod,
           transactionDate: p.paidAt ?? new Date(),
           receiptNumber: p.receiptNumber ?? result.receiptNumber,

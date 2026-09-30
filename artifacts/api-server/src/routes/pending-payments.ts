@@ -5,6 +5,7 @@ import {
   tenantInvoicesTable,
   tenantsTable,
   tenantReceiptsTable,
+  mallSitesTable,
 } from "@workspace/db/schema";
 import { eq, and, inArray, desc, sql } from "drizzle-orm";
 import { z } from "zod";
@@ -250,7 +251,24 @@ router.post("/pending-payments/:id/approve", async (req, res) => {
 
       const grossAmount = Number(payment.amount);
       const outstanding = Number(invoice.outstandingAmount ?? invoice.totalAmount ?? 0);
-      const allocateExcess = approvalInput.data.allocateExcessToSurcharge && grossAmount > outstanding;
+      const [site] = invoice.siteId
+        ? await tx
+            .select({ type: mallSitesTable.type })
+            .from(mallSitesTable)
+            .where(eq(mallSitesTable.id, invoice.siteId))
+            .limit(1)
+        : [null];
+      const isSportCenter = site?.type === "sport_center";
+
+      if (approvalInput.data.allocateExcessToSurcharge && !isSportCenter) {
+        throw Object.assign(
+          new Error("Alokasi surcharge hanya tersedia untuk tenant Sport Center"),
+          { status: 400 },
+        );
+      }
+
+      const allocateExcess =
+        isSportCenter && approvalInput.data.allocateExcessToSurcharge && grossAmount > outstanding;
       const invoiceAmount = allocateExcess ? Math.max(outstanding, 0) : grossAmount;
       const surchargeAmount = allocateExcess ? Math.max(grossAmount - invoiceAmount, 0) : 0;
 
@@ -325,7 +343,8 @@ router.post("/pending-payments/:id/approve", async (req, res) => {
           siteId: p.siteId ?? null,
           invoiceNumber: inv.invoiceNumber ?? null,
           businessName: tenantRow?.businessName ?? null,
-          amountPaid: parseFloat(String(p.amount)),
+          amountPaid: result.ledger.invoiceAmount,
+          surchargeAmount: result.ledger.surchargeAmount,
           paymentMethod: p.paymentMethod ?? "transfer",
           transactionDate: p.paidAt ?? new Date(),
           receiptNumber: p.receiptNumber ?? `RCT-${p.id}`,
@@ -355,6 +374,9 @@ router.post("/pending-payments/:id/approve", async (req, res) => {
         receiptNumber: result.payment.receiptNumber,
         approvedBy: req.user?.name ?? req.user?.email ?? "Admin",
         invoiceStatus: result.invoice.status,
+        grossAmount: parseFloat(String(result.payment.amount)),
+        invoiceAllocationAmount: result.ledger.invoiceAmount,
+        surchargeAllocationAmount: result.ledger.surchargeAmount,
       },
     }).catch(() => {});
 

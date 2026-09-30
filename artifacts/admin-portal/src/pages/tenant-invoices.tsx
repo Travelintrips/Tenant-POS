@@ -84,6 +84,8 @@ type CompanyRow = { id: number; code: string; name: string; companyName: string 
 type Payment = {
   id: number;
   amount: string;
+  invoiceAllocationAmount?: string | null;
+  surchargeAllocationAmount?: string | null;
   paymentMethod: string;
   sourceType: string | null;
   receiptNumber: string | null;
@@ -2767,6 +2769,15 @@ export default function TenantInvoices() {
                 placeholder="0"
               />
             </Field>
+            {paymentTarget && activeSite?.type === "sport_center" && Number(paymentForm.amountPaid || 0) > Number(paymentTarget.outstandingAmount || 0) && (
+              <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm">
+                <p className="font-semibold text-amber-800">Pembayaran lebih besar dari sisa invoice</p>
+                <p className="text-xs text-amber-700 mt-1">
+                  Sewa: {formatRupiah(paymentTarget.outstandingAmount)} · Cicilan surcharge: {formatRupiah(Number(paymentForm.amountPaid || 0) - Number(paymentTarget.outstandingAmount || 0))}.
+                  Total transfer tetap dicatat penuh sesuai bukti/mutasi.
+                </p>
+              </div>
+            )}
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <Field label="Metode Pembayaran">
                 <Select value={paymentForm.paymentMethod} onValueChange={(v) => setPaymentForm(f => ({ ...f, paymentMethod: v as PaymentForm["paymentMethod"] }))}>
@@ -2898,6 +2909,12 @@ export default function TenantInvoices() {
                           <div key={p.id} className="flex justify-between items-center text-sm bg-muted/30 rounded-md px-3 py-2">
                             <div>
                               <p className="font-medium">{formatRupiah(p.amount)}</p>
+                              {Number(p.surchargeAllocationAmount ?? 0) > 0 && (
+                                <div className="text-xs mt-0.5">
+                                  <span className="text-muted-foreground">Sewa {formatRupiah(p.invoiceAllocationAmount)}</span>
+                                  <span className="text-amber-700"> · Surcharge {formatRupiah(p.surchargeAllocationAmount)}</span>
+                                </div>
+                              )}
                               <p className="text-[10px] text-muted-foreground uppercase tracking-wide">{getPaymentDateLabel(p.sourceType)}</p>
                               <p className="text-xs text-muted-foreground">{p.paymentMethod} · {formatDate(p.paidAt)}</p>
                             </div>
