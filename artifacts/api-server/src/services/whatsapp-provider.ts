@@ -21,7 +21,7 @@ export async function sendOtpWhatsapp(
   if (result.skipped) {
     if (process.env.NODE_ENV === "production") {
       logger.error("[whatsapp-provider] CST WA Gateway belum dikonfigurasi di production");
-      return { sent: false, error: "CST_WA_GATEWAY_API_KEY belum dikonfigurasi" };
+      return { sent: false, error: "CST_WA_GATEWAY_TOKEN belum dikonfigurasi" };
     }
 
     logger.info(
