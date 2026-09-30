@@ -36,10 +36,8 @@ interface WaStatus {
   provider: string;
   message: string;
   queueCount?: number;
-  queueWarning?: string;
-  quota?: string;
-  expired?: string;
-  devicePhone?: string;
+  onlineWorkers?: number;
+  workers?: Array<Record<string, unknown>>;
 }
 
 interface BlastResult {
@@ -187,20 +185,6 @@ export default function WhatsAppSend() {
     saveGroupsMut.mutate(waGroups.filter(g => g.jid !== jid));
   };
 
-  const reconnectMut = useMutation({
-    mutationFn: () =>
-      apiFetch("/api/whatsapp/reconnect-device", { method: "POST" }).then(r => r.json()),
-    onSuccess: (data: { ok: boolean; message?: string; error?: string }) => {
-      if (data.ok) {
-        toast({ title: "✅ Reconnect Dikirim", description: data.message });
-        setTimeout(() => { void refetchStatus(); }, 20000);
-      } else {
-        toast({ title: "Gagal Reconnect", description: data.error, variant: "destructive" });
-      }
-    },
-    onError: () => toast({ title: "Gagal", description: "Terjadi kesalahan.", variant: "destructive" }),
-  });
-
   const { data: status, isLoading: statusLoading, refetch: refetchStatus } = useQuery<WaStatus>({
     queryKey: ["wa-status"],
     queryFn: () => apiFetch("/api/whatsapp/status").then(r => r.json()),
@@ -267,8 +251,8 @@ export default function WhatsAppSend() {
       void qc.invalidateQueries({ queryKey: ["wa-logs"] });
       if (data.pending) {
         toast({
-          title: data.isGroup ? "🕐 Pesan ke Grup Masuk Antrian" : "🕐 Pesan Masuk Antrian Fonnte",
-          description: data.message ?? "Pesan sudah diterima Fonnte dan akan dikirim ke penerima dalam beberapa saat.",
+          title: data.isGroup ? "🕐 Pesan ke Grup Masuk Antrian" : "🕐 Pesan Masuk Antrian CST WA Gateway",
+          description: data.message ?? "Pesan sudah diterima CST WA Gateway dan akan dikirim ke penerima dalam beberapa saat.",
         });
       } else {
         toast({
@@ -289,8 +273,8 @@ export default function WhatsAppSend() {
       void qc.invalidateQueries({ queryKey: ["wa-reminder-status"] });
       if (data.pending) {
         toast({
-          title: "🕐 Pengingat Masuk Antrian Fonnte",
-          description: "Pesan sudah diterima Fonnte dan akan dikirim ke tenant dalam beberapa saat.",
+          title: "🕐 Pengingat Masuk Antrian CST WA Gateway",
+          description: "Pesan sudah diterima CST WA Gateway dan akan dikirim ke tenant dalam beberapa saat.",
         });
       } else {
         toast({
@@ -321,7 +305,7 @@ export default function WhatsAppSend() {
           Kirim WhatsApp
         </h1>
         <p className="text-muted-foreground text-sm mt-1">
-          Kirim notifikasi, pengingat, dan blast pesan ke tenant via WhatsApp (Fonnte).
+          Kirim notifikasi, pengingat, dan blast pesan ke tenant via WhatsApp melalui CST WA Gateway.
         </p>
       </div>
 
@@ -329,7 +313,7 @@ export default function WhatsAppSend() {
       <Card>
         <CardHeader className="pb-3">
           <div className="flex items-center justify-between">
-            <CardTitle className="text-base">Status Koneksi Fonnte</CardTitle>
+            <CardTitle className="text-base">Status CST WA Gateway</CardTitle>
             <Button
               variant="ghost"
               size="sm"
@@ -355,63 +339,38 @@ export default function WhatsAppSend() {
                     {status?.connected === true ? "Terhubung" : status?.connected === false ? "Tidak Terhubung" : "Status Tidak Diketahui"}
                   </p>
                   <p className="text-xs text-muted-foreground mt-0.5">{status?.message}</p>
-                  {status?.devicePhone && (
+                  {status?.onlineWorkers != null && (
                     <p className="text-xs text-muted-foreground mt-0.5">
-                      Device: {status.devicePhone}
-                      {status.expired && ` · Aktif s/d ${status.expired}`}
-                      {status.quota && ` · Sisa kuota: ${status.quota}`}
+                      Worker online: {status.onlineWorkers}
+                      {status.queueCount != null && ` · Antrian: ${status.queueCount}`}
                     </p>
                   )}
                   {!status?.configured && (
                     <p className="text-xs text-amber-600 mt-1">
-                      ⚠ FONNTE_TOKEN belum dikonfigurasi. Masuk ke Pengaturan › WhatsApp untuk mengatur.
+                      ⚠ CST_WA_GATEWAY_API_KEY belum dikonfigurasi untuk Tenant-POS.
                     </p>
                   )}
                 </div>
               </div>
 
-              {/* Peringatan antrian menumpuk */}
-              {status?.queueWarning && (
+              {(status?.queueCount ?? 0) > 50 && (
                 <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800 space-y-2">
                   <p className="font-semibold flex items-center gap-1.5">
                     <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-amber-600" />
-                    Antrian Pesan Menumpuk — {(status.queueCount ?? 0).toLocaleString("id-ID")} pesan belum terkirim
+                    Antrian gateway tinggi — {(status?.queueCount ?? 0).toLocaleString("id-ID")} pesan
                   </p>
                   <p>
-                    Pesan masuk antrian Fonnte tapi <strong>belum dikirim ke WhatsApp</strong>.
-                    Ini bukan masalah koneksi — device sudah terhubung.
+                    Pengelolaan device, reconnect, dan retry dilakukan terpusat di CST WA Gateway agar
+                    kredensial admin gateway tidak dibagikan ke Tenant-POS.
                   </p>
-
-                  {/* Opsi 1: Tombol reconnect dari portal */}
-                  <div className="rounded border border-amber-300 bg-white p-2.5 space-y-1.5">
-                    <p className="font-semibold text-amber-900">Opsi 1 — Reconnect via Portal (Coba dulu)</p>
-                    <p>Tekan tombol di bawah untuk paksa restart koneksi device Fonnte. Setelah berhasil, tunggu 15–30 detik lalu klik Refresh.</p>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="border-amber-400 text-amber-800 hover:bg-amber-100 h-7 text-xs"
-                      onClick={() => reconnectMut.mutate()}
-                      disabled={reconnectMut.isPending}
-                    >
-                      {reconnectMut.isPending
-                        ? <><Loader2 className="h-3 w-3 animate-spin mr-1.5" />Mengirim...</>
-                        : <><RefreshCw className="h-3 w-3 mr-1.5" />Reconnect Device Sekarang</>
-                      }
-                    </Button>
-                  </div>
-
-                  {/* Opsi 2: Hapus antrian manual via dashboard Fonnte */}
-                  <div className="rounded border border-amber-300 bg-white p-2.5 space-y-1">
-                    <p className="font-semibold text-amber-900">Opsi 2 — Hapus Antrian di Dashboard Fonnte</p>
-                    <p>Jika reconnect tidak membantu, hapus antrian manual:</p>
-                    <ol className="list-decimal list-inside space-y-0.5 pl-1">
-                      <li>Buka <a href="https://dashboard.fonnte.com" target="_blank" rel="noopener noreferrer" className="underline font-medium">dashboard.fonnte.com</a> → Login</li>
-                      <li>Klik menu <strong>"Pesan"</strong> di sidebar kiri</li>
-                      <li>Pilih tab/filter <strong>"Antrian"</strong> atau <strong>"Pending"</strong></li>
-                      <li>Pilih semua pesan → klik <strong>"Hapus"</strong> atau <strong>"Delete All"</strong></li>
-                    </ol>
-                    <p className="text-amber-700">Jika tidak ada menu "Pesan", coba: <strong>Device</strong> → klik nama device → tab <strong>"Queue"</strong>.</p>
-                  </div>
+                  <a
+                    href="https://wa.cstlogistic.co.id/admin"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="underline font-medium"
+                  >
+                    Buka panel CST WA Gateway
+                  </a>
                 </div>
               )}
             </>
