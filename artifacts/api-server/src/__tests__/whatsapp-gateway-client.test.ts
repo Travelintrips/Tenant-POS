@@ -101,16 +101,19 @@ describe("CST WA Gateway client", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("maps gateway operational status without using admin credentials", async () => {
+  it("treats degraded gateway as connected while at least one worker is online", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(
         JSON.stringify({
-          overallStatus: "operational",
+          overallStatus: "degraded",
           onlineWorkers: 2,
-          workers: [{ workerId: "worker-01", deviceId: "tenant-pos-01", status: "ONLINE" }],
+          workers: [
+            { workerId: "worker-01:02", deviceId: "02", status: "QR_REQUIRED" },
+            { workerId: "worker-01:03", deviceId: "03", status: "ONLINE" },
+          ],
           queue: { waiting: 3, active: 1, delayed: 2 },
         }),
-        { status: 200, headers: { "content-type": "application/json" } },
+        { status: 503, headers: { "content-type": "application/json" } },
       ),
     );
     vi.stubGlobal("fetch", fetchMock);
@@ -123,6 +126,7 @@ describe("CST WA Gateway client", () => {
       onlineWorkers: 2,
       queueCount: 6,
     });
+    expect(result.message).toContain("degraded");
 
     const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
     expect((init.headers as Record<string, string>).Authorization).toBeUndefined();
