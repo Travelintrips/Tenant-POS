@@ -961,9 +961,7 @@ async function recordAdminGroupDelivery(
         ? "queued"
         : "accepted";
 
-  const errorMessage = result.pending
-    ? "CST WA Gateway queued"
-    : result.error ?? null;
+  const errorMessage = result.error ?? null;
 
   try {
     await db.insert(waLogsTable).values({
@@ -1101,9 +1099,10 @@ export async function notifyAdminGroup(params: AdminGroupPaymentParams): Promise
   const sendPromise = sendMessage(groupJid, message).then(async (result) => {
     await recordAdminGroupDelivery(params, groupJid, result);
 
-    // Hanya delivery yang benar-benar accepted yang boleh dideduplikasi.
-    // queued/pending/skipped/failed harus dapat dicoba lagi.
-    if (!result.ok || result.pending || result.skipped) {
+    // Respons queued dari CST WA Gateway berarti pesan sudah diterima oleh
+    // durable queue. Pertahankan dedupe agar event yang sama tidak diantrikan
+    // dua kali. Hanya kegagalan atau skip yang boleh dicoba ulang.
+    if (!result.ok || result.skipped) {
       groupNotificationCache.delete(dedupeKey);
     }
     return result;
