@@ -1980,7 +1980,26 @@ ALTER TABLE tenant_invoices ADD COLUMN IF NOT EXISTS trash_charge_amount numeric
     sql: `
 ALTER TABLE tenant_invoices ADD COLUMN IF NOT EXISTS use_ppn boolean NOT NULL DEFAULT true;
     `.trim(),
-  },
+  },,
+  {
+    name: "0072_tenant_payment_surcharge_allocation",
+    sql: `
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='tenant_payments' AND column_name='invoice_allocation_amount') THEN
+    ALTER TABLE "tenant_payments" ADD COLUMN "invoice_allocation_amount" numeric;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='tenant_payments' AND column_name='surcharge_allocation_amount') THEN
+    ALTER TABLE "tenant_payments" ADD COLUMN "surcharge_allocation_amount" numeric NOT NULL DEFAULT '0';
+  END IF;
+END $$;
+
+-- Existing approved payments were entirely invoice payments before split allocation existed.
+UPDATE "tenant_payments"
+SET "invoice_allocation_amount" = "amount"
+WHERE "invoice_allocation_amount" IS NULL
+  AND COALESCE("approval_status", 'approved') = 'approved';
+    `.trim(),
+  }
 ];
 
 const MIGRATIONS_TABLE = "schema_migrations";
