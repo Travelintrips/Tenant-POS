@@ -24,8 +24,8 @@ function gatewayBaseUrl(): string {
   return (process.env.CST_WA_GATEWAY_URL ?? "https://wa.cstlogistic.co.id").replace(/\/+$/, "");
 }
 
-function gatewayApiKey(): string {
-  return process.env.CST_WA_GATEWAY_API_KEY?.trim() ?? "";
+function gatewayToken(): string {
+  return process.env.CST_WA_GATEWAY_TOKEN?.trim() ?? "";
 }
 
 function gatewayDeviceId(): string | undefined {
@@ -34,7 +34,7 @@ function gatewayDeviceId(): string | undefined {
 }
 
 export function isCstWaGatewayConfigured(): boolean {
-  return gatewayApiKey().length > 0;
+  return gatewayToken().length > 0;
 }
 
 export function normalizeWhatsappDestination(value: string): string {
@@ -52,9 +52,9 @@ async function gatewayFetch(
   init: RequestInit = {},
   requireAuth = true,
 ): Promise<Response> {
-  const key = gatewayApiKey();
+  const key = gatewayToken();
   if (requireAuth && !key) {
-    throw new Error("CST_WA_GATEWAY_API_KEY belum dikonfigurasi");
+    throw new Error("CST_WA_GATEWAY_TOKEN belum dikonfigurasi");
   }
 
   const controller = new AbortController();
@@ -86,8 +86,8 @@ async function sendPayload(
   idempotencyKey?: string,
 ): Promise<GatewaySendResult> {
   if (!isCstWaGatewayConfigured()) {
-    logger.warn("[wa-gateway] CST_WA_GATEWAY_API_KEY belum dikonfigurasi");
-    return { ok: true, skipped: true, error: "CST_WA_GATEWAY_API_KEY belum dikonfigurasi" };
+    logger.warn("[wa-gateway] CST_WA_GATEWAY_TOKEN belum dikonfigurasi");
+    return { ok: true, skipped: true, error: "CST_WA_GATEWAY_TOKEN belum dikonfigurasi" };
   }
 
   try {
