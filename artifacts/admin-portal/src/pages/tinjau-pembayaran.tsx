@@ -116,6 +116,8 @@ interface PendingPayment {
   phone: string | null;
   ocrExtractedAmount: string | null;
   ocrConfidence: string | null;
+  invoiceAllocationAmount?: string | null;
+  surchargeAllocationAmount?: string | null;
 }
 
 function isSuspiciousOcrPayment(payment: PendingPayment): boolean {
@@ -136,7 +138,7 @@ async function apiFetch(url: string, opts?: RequestInit) {
 export default function TinjauPembayaran() {
   const { toast } = useToast();
   const qc = useQueryClient();
-  const { activeSiteId } = useSite();
+  const { activeSite, activeSiteId } = useSite();
 
   const [activeTab, setActiveTab] = useState("pending_review");
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
@@ -163,8 +165,12 @@ export default function TinjauPembayaran() {
   });
 
   const approveMut = useMutation({
-    mutationFn: (id: number) =>
-      apiFetch(`/api/pending-payments/${id}/approve`, { method: "POST", headers: { "Content-Type": "application/json" } }),
+    mutationFn: ({ id, allocateExcessToSurcharge }: { id: number; allocateExcessToSurcharge: boolean }) =>
+      apiFetch(`/api/pending-payments/${id}/approve`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ allocateExcessToSurcharge }),
+      }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["pending-payments"] });
       qc.invalidateQueries({ queryKey: ["pending-payments-counts"] });
@@ -465,9 +471,14 @@ export default function TinjauPembayaran() {
             <DialogDescription>
               {(() => {
                 const selected = payments.find((payment) => payment.id === approveId);
-                return selected
-                  ? `Pastikan nominal ${formatRupiah(selected.amount)} sesuai dengan bukti transfer dan total invoice ${formatRupiah(selected.totalAmount)}. Setelah disetujui, nominal akan masuk ke invoice dan tenant mendapat notifikasi WhatsApp.`
-                  : "Pastikan nominal sesuai dengan bukti transfer sebelum menyetujui pembayaran.";
+                if (!selected) return "Pastikan nominal sesuai dengan bukti transfer sebelum menyetujui pembayaran.";
+                const gross = Number(selected.amount ?? 0);
+                const outstanding = Number(selected.outstandingAmount ?? selected.totalAmount ?? 0);
+                const excess = Math.max(gross - outstanding, 0);
+                if (activeSite?.type === "sport_center" && excess > 0) {
+                  return `Transfer ${formatRupiah(gross)} akan dialokasikan: sewa tenant ${formatRupiah(outstanding)} + cicilan surcharge ${formatRupiah(excess)}. Invoice tetap hanya menerima nilai sewanya; total transfer tetap sama dengan bukti/mutasi.`;
+                }
+                return `Pastikan nominal ${formatRupiah(selected.amount)} sesuai dengan bukti transfer dan total invoice ${formatRupiah(selected.totalAmount)}. Setelah disetujui, nominal akan masuk ke invoice dan tenant mendapat notifikasi WhatsApp.`;
               })()}
             </DialogDescription>
           </DialogHeader>
@@ -478,7 +489,17 @@ export default function TinjauPembayaran() {
             <Button
               className="bg-green-600 hover:bg-green-700"
               disabled={approveMut.isPending}
-              onClick={() => approveId !== null && approveMut.mutate(approveId)}
+              onClick={() => {
+                if (approveId === null) return;
+                const selected = payments.find((payment) => payment.id === approveId);
+                const gross = Number(selected?.amount ?? 0);
+                const outstanding = Number(selected?.outstandingAmount ?? selected?.totalAmount ?? 0);
+                const hasExcess = gross > outstanding;
+                approveMut.mutate({
+                  id: approveId,
+                  allocateExcessToSurcharge: Boolean(activeSite?.type === "sport_center" && hasExcess),
+                });
+              }}
             >
               {approveMut.isPending ? (
                 <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Memproses...</>
