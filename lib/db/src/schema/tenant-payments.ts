@@ -18,6 +18,10 @@ export const tenantPaymentsTable = pgTable("tenant_payments", {
   receiptNumber: text("receipt_number"),
   proofImageUrl: text("proof_image_url"),
   amount: numeric("amount").notNull(),
+  // Gross transfer amount remains in `amount`; invoice allocation may be lower
+  // when the tenant voluntarily pays a surcharge installment in the same transfer.
+  invoiceAllocationAmount: numeric("invoice_allocation_amount"),
+  surchargeAllocationAmount: numeric("surcharge_allocation_amount").notNull().default("0"),
   discountAmount: numeric("discount_amount").notNull().default("0"),
   penaltyAmount: numeric("penalty_amount").notNull().default("0"),
   method: text("method").notNull().default("tunai"),
