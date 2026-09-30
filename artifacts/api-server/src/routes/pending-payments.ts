@@ -54,6 +54,8 @@ const pendingPaymentSelect = {
   phone: tenantsTable.phone,
   ocrExtractedAmount: tenantPaymentsTable.ocrExtractedAmount,
   ocrConfidence: tenantPaymentsTable.ocrConfidence,
+  invoiceAllocationAmount: tenantPaymentsTable.invoiceAllocationAmount,
+  surchargeAllocationAmount: tenantPaymentsTable.surchargeAllocationAmount,
 } as const;
 
 // ─── GET /api/pending-payments ────────────────────────────────────────────────
@@ -190,9 +192,14 @@ router.get("/pending-payments/counts", async (req, res) => {
 });
 
 // ─── POST /api/pending-payments/:id/approve ───────────────────────────────────
+const approveSchema = z.object({ allocateExcessToSurcharge: z.boolean().optional().default(false) });
+
 router.post("/pending-payments/:id/approve", async (req, res) => {
   const id = Number(req.params.id);
   if (isNaN(id)) { res.status(400).json({ error: "ID tidak valid" }); return; }
+
+  const approvalInput = approveSchema.safeParse(req.body ?? {});
+  if (!approvalInput.success) { res.status(400).json({ error: "Data alokasi tidak valid" }); return; }
 
   try {
     const result = await db.transaction(async (tx) => {
@@ -241,7 +248,20 @@ router.post("/pending-payments/:id/approve", async (req, res) => {
       const approvedBy = req.user?.name ?? req.user?.email ?? "Admin";
       const now = new Date();
 
-      const ledger = await approveExistingPayment(tx, payment.id, invoice.id, approvedBy, now);
+      const grossAmount = Number(payment.amount);
+      const outstanding = Number(invoice.outstandingAmount ?? invoice.totalAmount ?? 0);
+      const allocateExcess = approvalInput.data.allocateExcessToSurcharge && grossAmount > outstanding;
+      const invoiceAmount = allocateExcess ? Math.max(outstanding, 0) : grossAmount;
+      const surchargeAmount = allocateExcess ? Math.max(grossAmount - invoiceAmount, 0) : 0;
+
+      const ledger = await approveExistingPayment(
+        tx,
+        payment.id,
+        invoice.id,
+        approvedBy,
+        now,
+        { invoiceAmount, surchargeAmount },
+      );
 
       const [updatedPayment] = await tx
         .select()
@@ -260,7 +280,7 @@ router.post("/pending-payments/:id/approve", async (req, res) => {
       action: "approve_payment",
       entityType: "payment",
       entityId: id,
-      afterData: { paymentId: id, approvedBy: req.user?.name, invoiceStatus: result.invoice.status },
+      afterData: { paymentId: id, approvedBy: req.user?.name, invoiceStatus: result.invoice.status, invoiceAllocationAmount: result.ledger.invoiceAmount, surchargeAllocationAmount: result.ledger.surchargeAmount },
     });
 
     sseBroker.publish("payment_approved", {
@@ -366,7 +386,7 @@ router.post("/pending-payments/:id/approve", async (req, res) => {
       }).catch(() => {});
     }
 
-    res.json({ success: true, payment: result.payment, invoice: result.invoice });
+    res.json({ success: true, payment: result.payment, invoice: result.invoice, allocation: { invoiceAmount: result.ledger.invoiceAmount, surchargeAmount: result.ledger.surchargeAmount } });
   } catch (err) {
     if (err instanceof LedgerError) {
       const httpCode = err.code === "OVERPAYMENT" ? 400 : 409;
