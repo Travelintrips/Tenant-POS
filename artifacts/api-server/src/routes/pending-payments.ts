@@ -325,7 +325,8 @@ router.post("/pending-payments/:id/approve", async (req, res) => {
           siteId: p.siteId ?? null,
           invoiceNumber: inv.invoiceNumber ?? null,
           businessName: tenantRow?.businessName ?? null,
-          amountPaid: parseFloat(String(p.amount)),
+          amountPaid: result.ledger.invoiceAmount,
+          surchargeAmount: result.ledger.surchargeAmount,
           paymentMethod: p.paymentMethod ?? "transfer",
           transactionDate: p.paidAt ?? new Date(),
           receiptNumber: p.receiptNumber ?? `RCT-${p.id}`,
@@ -355,6 +356,9 @@ router.post("/pending-payments/:id/approve", async (req, res) => {
         receiptNumber: result.payment.receiptNumber,
         approvedBy: req.user?.name ?? req.user?.email ?? "Admin",
         invoiceStatus: result.invoice.status,
+        grossAmount: parseFloat(String(result.payment.amount)),
+        invoiceAllocationAmount: result.ledger.invoiceAmount,
+        surchargeAllocationAmount: result.ledger.surchargeAmount,
       },
     }).catch(() => {});
 
