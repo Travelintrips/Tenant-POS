@@ -11,8 +11,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import {
   Settings, Building2, FileText, DollarSign, Save, RefreshCw,
-  MessageSquare, CheckCircle2, XCircle, Wifi, WifiOff, Send,
-  AlertCircle, Loader2, ExternalLink, Smartphone, Info, Link,
+  MessageSquare, CheckCircle2, XCircle, Send,
+  AlertCircle, Loader2, Info, Link,
   Upload, Palette, Eye, ImageIcon, X, Pencil, Check, Globe2,
   Trash2, ShieldAlert,
 } from "lucide-react";
@@ -113,7 +113,6 @@ function WhatsAppPanel() {
 
   const {
     data: waStatus,
-    isLoading: waLoading,
     refetch: refetchStatus,
     isFetching: waFetching,
   } = useQuery<WaStatus>({
@@ -164,6 +163,7 @@ function WhatsAppPanel() {
             : `WA berhasil diproses untuk ${data.target ?? testPhone}.`,
         });
         void refetchStatus();
+        void refetchDevices();
       } else {
         toast({ title: "Gagal kirim WA", description: data.error ?? "Terjadi kesalahan", variant: "destructive" });
       }
@@ -176,9 +176,22 @@ function WhatsAppPanel() {
     }
   }
 
-  const isConnected = waStatus?.connected === true;
   const isConfigured = waStatus?.configured === true;
   const devices = devicesData?.devices ?? [];
+  const tenantDevice = devices.find((device) => device.deviceId.trim().toLowerCase() === "tenant-pos");
+  const tenantConnected = devicesLoading
+    ? waStatus?.connected === true
+    : tenantDevice?.connected === true;
+  const displayStatus = waStatus
+    ? { ...waStatus, connected: tenantConnected }
+    : waStatus;
+  const deviceStatus = devicesLoading
+    ? "Memuat..."
+    : tenantDevice?.connected
+      ? "Online"
+      : tenantDevice?.status
+        ? tenantDevice.status.replaceAll("_", " ")
+        : "Tidak terdeteksi";
 
   return (
     <Card>
@@ -189,9 +202,10 @@ function WhatsAppPanel() {
             WhatsApp — CST WA Gateway
           </CardTitle>
           <div className="flex items-center gap-2">
-            <WaStatusBadge status={waStatus} />
+            <WaStatusBadge status={displayStatus} />
             <Button
-              variant="ghost" size="sm"
+              variant="ghost"
+              size="sm"
               className="h-7 px-2 text-xs text-muted-foreground"
               onClick={() => { void refetchStatus(); void refetchDevices(); }}
               disabled={waFetching}
@@ -202,107 +216,63 @@ function WhatsAppPanel() {
           </div>
         </div>
         <CardDescription className="text-xs">
-          Transport WhatsApp terpusat untuk invoice, pengingat tagihan, OTP, konfirmasi pembayaran, dan notifikasi tenant.
+          Status koneksi WhatsApp yang digunakan khusus oleh Tenant-POS.
         </CardDescription>
       </CardHeader>
 
       <CardContent className="space-y-4">
-        {!waLoading && waStatus && (
-          <div className={`flex items-start gap-2.5 rounded-lg border px-3 py-2.5 text-xs ${
-            isConnected && isConfigured
-              ? "bg-green-50 border-green-200 text-green-800"
-              : !isConfigured
-                ? "bg-orange-50 border-orange-200 text-orange-800"
-                : "bg-red-50 border-red-200 text-red-800"
-          }`}>
-            {isConnected
-              ? <Wifi className="h-4 w-4 mt-0.5 shrink-0 text-green-600" />
-              : <WifiOff className="h-4 w-4 mt-0.5 shrink-0 text-red-500" />}
-            <div className="space-y-0.5">
-              <p className="font-medium">{waStatus.message}</p>
-              {isConnected && isConfigured && (
-                <p className="text-green-700 opacity-80">
-                  Tenant-POS siap mengirim melalui API Client CST WA Gateway.
-                </p>
-              )}
-              {isConnected && !isConfigured && (
-                <p>Gateway dapat dijangkau, tetapi token API Client Tenant-POS belum terbaca oleh aplikasi.</p>
-              )}
-            </div>
+        <div className="overflow-hidden rounded-lg border">
+          <div className="flex items-center justify-between gap-4 px-4 py-3 border-b bg-muted/20">
+            <span className="text-xs text-muted-foreground">Status</span>
+            <Badge
+              variant="outline"
+              className={tenantConnected && isConfigured
+                ? "border-green-300 bg-green-50 text-green-700"
+                : "border-red-300 bg-red-50 text-red-700"}
+            >
+              {tenantConnected && isConfigured ? "Terhubung" : "Tidak Terhubung"}
+            </Badge>
+          </div>
+          <div className="flex items-center justify-between gap-4 px-4 py-3 border-b">
+            <span className="text-xs text-muted-foreground">API Client</span>
+            <span className="text-sm font-medium">Tenant POS</span>
+          </div>
+          <div className="flex items-center justify-between gap-4 px-4 py-3 border-b">
+            <span className="text-xs text-muted-foreground">Device</span>
+            <span className="text-sm font-medium">Tenant Pos</span>
+          </div>
+          <div className="flex items-center justify-between gap-4 px-4 py-3 border-b">
+            <span className="text-xs text-muted-foreground">Nomor</span>
+            <span className="text-sm font-medium font-mono">+6281992935357</span>
+          </div>
+          <div className="flex items-center justify-between gap-4 px-4 py-3 border-b">
+            <span className="text-xs text-muted-foreground">Status Device</span>
+            <Badge
+              variant="outline"
+              className={tenantDevice?.connected
+                ? "border-green-300 bg-green-50 text-green-700"
+                : "text-muted-foreground"}
+            >
+              {deviceStatus}
+            </Badge>
+          </div>
+          <div className="flex items-center justify-between gap-4 px-4 py-3">
+            <span className="text-xs text-muted-foreground">Antrean</span>
+            <span className="text-sm font-medium">{waStatus?.queueCount ?? 0}</span>
+          </div>
+        </div>
+
+        {!isConfigured && (
+          <div className="rounded-lg border border-orange-200 bg-orange-50 px-3 py-2.5 text-xs text-orange-800">
+            CST_WA_GATEWAY_TOKEN belum terbaca oleh Tenant-POS.
           </div>
         )}
 
-        <div className="grid gap-2 sm:grid-cols-3">
-          <div className="rounded-lg border p-3">
-            <p className="text-[10px] uppercase tracking-wide text-muted-foreground">API Client</p>
-            <p className="mt-1 text-sm font-medium">{isConfigured ? "Configured" : "Belum dikonfigurasi"}</p>
+        {!devicesLoading && !tenantDevice && (
+          <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2.5 text-xs text-red-800">
+            Device <code className="font-mono">tenant-pos</code> belum terdeteksi dari CST WA Gateway.
           </div>
-          <div className="rounded-lg border p-3">
-            <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Worker Online</p>
-            <p className="mt-1 text-sm font-medium">{waStatus?.onlineWorkers ?? 0}</p>
-          </div>
-          <div className="rounded-lg border p-3">
-            <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Antrean Aktif</p>
-            <p className="mt-1 text-sm font-medium">{waStatus?.queueCount ?? 0}</p>
-          </div>
-        </div>
-
-        <Separator />
-
-        <div className="space-y-3">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
-                <Smartphone className="h-3.5 w-3.5" />
-                Device Gateway
-              </p>
-              <p className="text-xs text-muted-foreground mt-1">
-                Device dan sesi WhatsApp dikelola terpusat. Tenant-POS tidak menyimpan kredensial admin gateway.
-              </p>
-            </div>
-            <a
-              href="https://wa.cstlogistic.co.id/admin?view=devices"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1 text-xs font-medium text-blue-600 hover:underline"
-            >
-              Buka WA Gateway <ExternalLink className="h-3 w-3" />
-            </a>
-          </div>
-
-          {devicesLoading ? (
-            <div className="flex items-center gap-2 text-xs text-muted-foreground py-2">
-              <Loader2 className="h-3.5 w-3.5 animate-spin" /> Memuat status perangkat...
-            </div>
-          ) : devices.length === 0 ? (
-            <p className="text-xs text-muted-foreground bg-muted/40 border rounded-md px-3 py-2">
-              {devicesData?.error ?? "Belum ada worker WhatsApp yang terdeteksi."}
-            </p>
-          ) : (
-            <div className="space-y-1.5">
-              {devices.map((d) => (
-                <div key={d.deviceId || d.workerId || d.name} className="rounded-lg border px-3 py-2.5 text-xs">
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-2.5">
-                      <div className={`h-2 w-2 rounded-full flex-shrink-0 ${d.connected ? "bg-green-500" : "bg-gray-300"}`} />
-                      <div>
-                        <p className="font-semibold">{d.name || d.deviceId}</p>
-                        <p className="font-mono text-muted-foreground mt-0.5">
-                          Device: {d.deviceId || "-"}{d.workerId ? ` · ${d.workerId}` : ""}
-                        </p>
-                      </div>
-                    </div>
-                    <Badge variant="outline" className={`text-[10px] h-5 ${d.connected ? "border-green-300 text-green-700 bg-green-50" : "text-muted-foreground"}`}>
-                      {d.status || "unknown"}
-                    </Badge>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-
-        <Separator />
+        )}
 
         <div className="rounded-lg bg-muted/60 px-3 py-2.5 space-y-1.5">
           <p className="text-xs font-medium flex items-center gap-1.5">
@@ -327,7 +297,7 @@ function WhatsAppPanel() {
             Tes Kirim Pesan WA
           </p>
           <p className="text-xs text-muted-foreground">
-            Kirim satu pesan uji ke nomor yang Anda kendalikan untuk memastikan API Client, queue, dan worker berfungsi.
+            Kirim satu pesan uji untuk memastikan API Client Tenant POS dan device Tenant Pos berfungsi.
           </p>
           <div className="flex gap-2">
             <Input
@@ -338,9 +308,10 @@ function WhatsAppPanel() {
               onKeyDown={e => e.key === "Enter" && void handleTestSend()}
             />
             <Button
-              size="sm" className="h-8 gap-1.5 whitespace-nowrap"
+              size="sm"
+              className="h-8 gap-1.5 whitespace-nowrap"
               onClick={handleTestSend}
-              disabled={testSending || !testPhone.trim() || !isConfigured}
+              disabled={testSending || !testPhone.trim() || !isConfigured || !tenantConnected}
             >
               {testSending
                 ? <><Loader2 className="h-3.5 w-3.5 animate-spin" />Mengirim...</>
@@ -357,7 +328,9 @@ function WhatsAppPanel() {
               <div>
                 <p className="font-medium">{lastTestResult.ok ? "Diterima gateway" : "Gagal"}</p>
                 <p className="opacity-80">{lastTestResult.ok ? lastTestResult.message : lastTestResult.error}</p>
-                {lastTestResult.messageId && <p className="font-mono text-[10px] mt-1">Message ID: {lastTestResult.messageId}</p>}
+                {lastTestResult.messageId && (
+                  <p className="font-mono text-[10px] mt-1">Message ID: {lastTestResult.messageId}</p>
+                )}
               </div>
             </div>
           )}
