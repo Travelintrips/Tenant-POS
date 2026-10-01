@@ -70,6 +70,47 @@ describe("CST WA Gateway client", () => {
     });
   });
 
+  it("routes raw group JID passed to sendGatewayText through gateway groupId lookup", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            groups: [
+              {
+                id: "group-tenant-pos-raw",
+                deviceId: "tenant-pos-01",
+                jid: "120363426361032308@g.us",
+                subject: "Admin TOD",
+                isActive: true,
+              },
+            ],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ status: "queued", messageId: "msg-group-raw" }), {
+          status: 202,
+          headers: { "content-type": "application/json" },
+        }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await sendGatewayText("120363426361032308@g.us", "test");
+    expect(result).toMatchObject({ ok: true, queued: true, messageId: "msg-group-raw" });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    const [sendUrl, sendInit] = fetchMock.mock.calls[1] as [string, RequestInit];
+    expect(sendUrl).toBe("https://wa.example.test/v1/messages");
+    expect(JSON.parse(String(sendInit.body))).toEqual({
+      deviceId: "tenant-pos-01",
+      groupId: "group-tenant-pos-raw",
+      type: "text",
+      text: "test",
+    });
+  });
+
   it("resolves an allowed WhatsApp group and sends it by groupId", async () => {
     const fetchMock = vi
       .fn()
