@@ -148,6 +148,84 @@ export async function sendGatewayText(
   );
 }
 
+type GatewayGroupRecord = {
+  id: string;
+  deviceId?: string;
+  jid: string;
+  name?: string | null;
+  subject?: string | null;
+  isActive?: boolean;
+};
+
+const groupIdCache = new Map<string, { groupId: string; expiresAt: number }>();
+const GROUP_ID_CACHE_MS = 5 * 60 * 1000;
+
+async function resolveGatewayGroupId(groupJid: string): Promise<string> {
+  const normalizedJid = groupJid.trim();
+  if (!/^[0-9]+(?:-[0-9]+)?@g\.us$/.test(normalizedJid)) {
+    throw new Error("ADMIN_WA_GROUP format tidak valid");
+  }
+
+  const cached = groupIdCache.get(normalizedJid);
+  if (cached && cached.expiresAt > Date.now()) return cached.groupId;
+  if (cached) groupIdCache.delete(normalizedJid);
+
+  const deviceId = gatewayDeviceId();
+  const query = deviceId ? `?deviceId=${encodeURIComponent(deviceId)}` : "";
+  const res = await gatewayFetch(`/v1/groups${query}`, { method: "GET" });
+  const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+
+  if (!res.ok) {
+    throw new Error(responseError(data, res.status));
+  }
+
+  const groups = Array.isArray(data["groups"])
+    ? (data["groups"] as Array<Record<string, unknown>>)
+    : [];
+  const match = groups.find((group) =>
+    String(group["jid"] ?? "") === normalizedJid &&
+    group["isActive"] !== false,
+  );
+
+  const groupId = typeof match?.["id"] === "string" ? match["id"] : "";
+  if (!groupId) {
+    throw new Error("CST WA Gateway: GROUP_NOT_FOUND_FOR_TENANT_POS_DEVICE");
+  }
+
+  groupIdCache.set(normalizedJid, {
+    groupId,
+    expiresAt: Date.now() + GROUP_ID_CACHE_MS,
+  });
+  return groupId;
+}
+
+export async function sendGatewayGroupText(
+  groupJid: string,
+  text: string,
+  idempotencyKey?: string,
+): Promise<GatewaySendResult> {
+  if (!isCstWaGatewayConfigured()) {
+    logger.warn("[wa-gateway] CST_WA_GATEWAY_TOKEN belum dikonfigurasi");
+    return { ok: true, skipped: true, error: "CST_WA_GATEWAY_TOKEN belum dikonfigurasi" };
+  }
+
+  try {
+    const groupId = await resolveGatewayGroupId(groupJid);
+    return await sendPayload(
+      {
+        groupId,
+        type: "text",
+        text,
+      },
+      idempotencyKey,
+    );
+  } catch (err) {
+    const error = err instanceof Error ? err.message : String(err);
+    logger.error({ err, groupJid }, "[wa-gateway] pengiriman group gagal");
+    return { ok: false, error };
+  }
+}
+
 function mediaDescriptor(fileUrl: string): {
   type: "image" | "video" | "audio" | "document";
   fileName?: string;
