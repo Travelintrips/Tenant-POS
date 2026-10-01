@@ -138,9 +138,14 @@ export async function sendGatewayText(
   text: string,
   idempotencyKey?: string,
 ): Promise<GatewaySendResult> {
+  const normalized = normalizeWhatsappDestination(to);
+  if (normalized.endsWith("@g.us")) {
+    return sendGatewayGroupText(normalized, text, idempotencyKey);
+  }
+
   return sendPayload(
     {
-      to: normalizeWhatsappDestination(to),
+      to: normalized,
       type: "text",
       text,
     },
@@ -267,9 +272,32 @@ export async function sendGatewayMedia(
   idempotencyKey?: string,
 ): Promise<GatewaySendResult> {
   const media = mediaDescriptor(fileUrl);
+  const normalized = normalizeWhatsappDestination(to);
+
+  if (normalized.endsWith("@g.us")) {
+    try {
+      const groupId = await resolveGatewayGroupId(normalized);
+      return sendPayload(
+        {
+          groupId,
+          type: media.type,
+          mediaUrl: fileUrl,
+          ...(caption ? { caption } : {}),
+          ...(media.fileName ? { fileName: media.fileName } : {}),
+          ...(media.mimetype ? { mimetype: media.mimetype } : {}),
+        },
+        idempotencyKey,
+      );
+    } catch (err) {
+      const error = err instanceof Error ? err.message : String(err);
+      logger.error({ err, groupJid: normalized }, "[wa-gateway] pengiriman media group gagal");
+      return { ok: false, error };
+    }
+  }
+
   return sendPayload(
     {
-      to: normalizeWhatsappDestination(to),
+      to: normalized,
       type: media.type,
       mediaUrl: fileUrl,
       ...(caption ? { caption } : {}),
