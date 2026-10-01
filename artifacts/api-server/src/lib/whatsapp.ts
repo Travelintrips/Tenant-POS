@@ -10,6 +10,7 @@ import { usersTable, systemSettingsTable, waLogsTable } from "@workspace/db/sche
 import { sql, and, inArray, eq } from "drizzle-orm";
 import { logger } from "./logger";
 import {
+  sendGatewayGroupText,
   sendGatewayMedia,
   sendGatewayText,
 } from "./whatsapp-gateway-client";
@@ -162,6 +163,21 @@ async function sendMessage(phone: string, message: string): Promise<WaResult> {
   }
 
   const result = await sendGatewayText(phone, message);
+  return {
+    ok: result.ok,
+    skipped: result.skipped,
+    pending: result.queued,
+    response: result.response,
+    error: result.error,
+  };
+}
+
+async function sendGroupMessage(groupJid: string, message: string): Promise<WaResult> {
+  if (isWhatsappDeliveryDisabled()) {
+    return { ok: true, skipped: true };
+  }
+
+  const result = await sendGatewayGroupText(groupJid, message);
   return {
     ok: result.ok,
     skipped: result.skipped,
@@ -1096,7 +1112,7 @@ export async function notifyAdminGroup(params: AdminGroupPaymentParams): Promise
     reviewLine +
     payLinkLine;
 
-  const sendPromise = sendMessage(groupJid, message).then(async (result) => {
+  const sendPromise = sendGroupMessage(groupJid, message).then(async (result) => {
     await recordAdminGroupDelivery(params, groupJid, result);
 
     // Respons queued dari CST WA Gateway berarti pesan sudah diterima oleh

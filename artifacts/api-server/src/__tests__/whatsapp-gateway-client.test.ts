@@ -3,6 +3,7 @@ import {
   getCstWaGatewayStatus,
   isCstWaGatewayConfigured,
   normalizeWhatsappDestination,
+  sendGatewayGroupText,
   sendGatewayText,
   verifyCstWaInboundEvent,
 } from "../lib/whatsapp-gateway-client";
@@ -67,6 +68,90 @@ describe("CST WA Gateway client", () => {
       type: "text",
       text: "Halo",
     });
+  });
+
+  it("resolves an allowed WhatsApp group and sends it by groupId", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            groups: [
+              {
+                id: "group-tenant-pos-123",
+                deviceId: "tenant-pos-01",
+                jid: "12036341119221335@g.us",
+                subject: "Admin Tenant POS",
+                isActive: true,
+              },
+            ],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ status: "queued", messageId: "msg-group-1" }), {
+          status: 202,
+          headers: { "content-type": "application/json" },
+        }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      sendGatewayGroupText("12036341119221335@g.us", "Tes Group", "group:test:1"),
+    ).resolves.toMatchObject({
+      ok: true,
+      queued: true,
+      messageId: "msg-group-1",
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    const [groupsUrl, groupsInit] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(groupsUrl).toBe("https://wa.example.test/v1/groups?deviceId=tenant-pos-01");
+    expect(groupsInit.method).toBe("GET");
+    expect((groupsInit.headers as Record<string, string>).Authorization).toBe("Bearer tenant-pos-test-key");
+
+    const [sendUrl, sendInit] = fetchMock.mock.calls[1] as [string, RequestInit];
+    expect(sendUrl).toBe("https://wa.example.test/v1/messages");
+    expect(sendInit.headers).toMatchObject({
+      Authorization: "Bearer tenant-pos-test-key",
+      "Idempotency-Key": "group:test:1",
+    });
+    expect(JSON.parse(String(sendInit.body))).toEqual({
+      deviceId: "tenant-pos-01",
+      groupId: "group-tenant-pos-123",
+      type: "text",
+      text: "Tes Group",
+    });
+  });
+
+  it("does not send when the configured admin group is not available to the Tenant POS device", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          groups: [
+            {
+              id: "other-group",
+              deviceId: "tenant-pos-01",
+              jid: "120363400000000000@g.us",
+              subject: "Other Group",
+              isActive: true,
+            },
+          ],
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      sendGatewayGroupText("120363499999999999@g.us", "Tes Group"),
+    ).resolves.toMatchObject({
+      ok: false,
+      error: "CST WA Gateway: GROUP_NOT_FOUND_FOR_TENANT_POS_DEVICE",
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it("treats gateway duplicate response as accepted queued delivery", async () => {
