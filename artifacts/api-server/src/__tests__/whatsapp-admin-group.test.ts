@@ -68,7 +68,7 @@ describe("admin WhatsApp group delivery log", () => {
 
     const values = vi.fn().mockResolvedValue(undefined);
     const insert = vi.fn(() => ({ values }));
-    const sendGatewayText = vi.fn().mockResolvedValue({
+    const sendGatewayGroupText = vi.fn().mockResolvedValue({
       ok: true,
       queued: true,
       messageId: "msg-queued-1",
@@ -86,7 +86,8 @@ describe("admin WhatsApp group delivery log", () => {
     });
 
     vi.doMock("../lib/whatsapp-gateway-client", () => ({
-      sendGatewayText,
+      sendGatewayGroupText,
+      sendGatewayText: vi.fn(),
       sendGatewayMedia: vi.fn(),
     }));
 
@@ -108,7 +109,11 @@ describe("admin WhatsApp group delivery log", () => {
 
     expect(first).toMatchObject({ ok: true, pending: true });
     expect(second).toMatchObject({ ok: true, pending: true });
-    expect(sendGatewayText).toHaveBeenCalledTimes(1);
+    expect(sendGatewayGroupText).toHaveBeenCalledTimes(1);
+    expect(sendGatewayGroupText).toHaveBeenCalledWith(
+      "12036341119221335@g.us",
+      expect.stringContaining("Pembayaran Disetujui"),
+    );
     expect(values).toHaveBeenCalledTimes(1);
     expect(values).toHaveBeenCalledWith(
       expect.objectContaining({
