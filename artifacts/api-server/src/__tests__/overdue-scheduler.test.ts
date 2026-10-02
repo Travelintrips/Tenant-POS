@@ -334,7 +334,7 @@ describe("overdue scheduler daily window guard", () => {
     vi.resetModules();
   });
 
-  it("tidak menjalankan blast WA saat app restart pukul 16:30 WIB", async () => {
+  it("menjalankan catch-up sekali saat app restart setelah 08:00 WIB", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-09-26T09:30:00.000Z")); // 16:30 WIB
 
@@ -362,10 +362,13 @@ describe("overdue scheduler daily window guard", () => {
     const scheduler = await import("../lib/overdue-scheduler");
     scheduler.startOverdueScheduler();
 
-    // Startup timeout berjalan, tetapi karena di luar 08:00-08:59 WIB
-    // hanya invoice generation yang boleh jalan. Tidak boleh ada blast WA.
+    // Jika service melewatkan 08:00 karena restart/downtime, startup tetap
+    // menjalankan catch-up. Claim per invoice/reminder mencegah duplikasi.
     await vi.advanceTimersByTimeAsync(30_000);
-    expect(scheduler.getBlastHistory()).toHaveLength(0);
+    const catchups = scheduler.getBlastHistory().filter(
+      (run) => run.label === "startup catch-up after 08:00 WIB",
+    );
+    expect(catchups).toHaveLength(1);
   });
 
   it("hanya menjalankan satu blast pada window UTC yang sama dan boleh jalan lagi pada window berikutnya", async () => {
