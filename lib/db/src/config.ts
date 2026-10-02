@@ -54,6 +54,17 @@ function getPoolMode(url: string): DbPoolMode {
     if (parsed.hostname.includes("pooler.supabase.com")) {
       return parsed.port === "6543" ? "transaction" : "session";
     }
+
+    // Supabase Dedicated Pooler memakai host db.<project>.supabase.co pada
+    // port 6543 untuk transaction mode. Jangan klasifikasikan endpoint ini
+    // sebagai direct hanya karena hostname-nya sama dengan endpoint database.
+    if (
+      /^db\.[a-z0-9]+\.supabase\.co$/i.test(parsed.hostname) &&
+      parsed.port === "6543"
+    ) {
+      return "transaction";
+    }
+
     return "direct";
   } catch {
     return "direct";
@@ -63,7 +74,17 @@ function getPoolMode(url: string): DbPoolMode {
 function isInvalidSupabaseEndpoint(url: string): boolean {
   try {
     const parsed = new URL(url);
-    return /^db\.[a-z0-9]+\.supabase\.co$/i.test(parsed.hostname) && parsed.port === "6543";
+    const isProjectDbHost = /^db\.[a-z0-9]+\.supabase\.co$/i.test(parsed.hostname);
+
+    // db.<project>.supabase.co:5432 = direct connection
+    // db.<project>.supabase.co:6543 = Dedicated Transaction Pooler
+    // Keduanya valid. Tolak hanya port eksplisit lain pada hostname project DB.
+    return (
+      isProjectDbHost &&
+      parsed.port !== "" &&
+      parsed.port !== "5432" &&
+      parsed.port !== "6543"
+    );
   } catch {
     return false;
   }
@@ -73,22 +94,10 @@ function normalizeCandidate(candidate: DbCandidate, expectedProjectRef: string |
   try {
     const parsed = new URL(candidate.value);
 
-    // Hostinger dapat menginjeksi SUPABASE_DATABASE_URL sebagai
-    // db.<project>.supabase.co:6543. Port 6543 tidak valid pada host db.*.
-    // Jangan menebak host Supavisor/pooler karena shard/host dapat berubah.
-    // Pulihkan ke endpoint direct project yang sama pada port PostgreSQL 5432.
-    const directMatch = parsed.hostname.match(/^db\.([a-z0-9]+)\.supabase\.co$/i);
-    if (directMatch?.[1] && parsed.port === "6543") {
-      parsed.port = "5432";
-      const username = decodeURIComponent(parsed.username);
-      if (username.includes(".")) {
-        // Username bertipe postgres.<ref> hanya untuk pooler. Direct DB memakai
-        // username PostgreSQL biasa (umumnya postgres).
-        parsed.username = username.split(".")[0] || "postgres";
-      }
-      return { ...candidate, value: parsed.toString() };
-    }
-
+    // Dedicated Transaction Pooler Supabase dapat memakai
+    // db.<project>.supabase.co:6543. Pertahankan URL ini apa adanya; mengubahnya
+    // ke :5432 akan memindahkan runtime ke direct connection dan dapat memutus
+    // deployment IPv4-only seperti Hostinger.
     if (parsed.hostname.includes("pooler.supabase.com")) {
       const username = decodeURIComponent(parsed.username);
       if (expectedProjectRef && !username.includes(".")) {
@@ -110,7 +119,9 @@ function isNativeTransactionPoolerUrl(value: string | undefined): boolean {
   if (!value?.trim()) return false;
   try {
     const parsed = new URL(value.trim());
-    return parsed.hostname.includes("pooler.supabase.com") && parsed.port === "6543";
+    const isSharedPooler = parsed.hostname.includes("pooler.supabase.com");
+    const isDedicatedPooler = /^db\.[a-z0-9]+\.supabase\.co$/i.test(parsed.hostname);
+    return (isSharedPooler || isDedicatedPooler) && parsed.port === "6543";
   } catch {
     return false;
   }
@@ -176,7 +187,7 @@ function resolveDbUrl(): {
 
   if (candidates.length === 0) {
     throw new Error(
-      "Konfigurasi database Supabase tidak valid: host db.<project>.supabase.co tidak dapat memakai port transaction pooler 6543. Gunakan SUPABASE_POOLER_URL dari Supabase Connect.",
+      "Konfigurasi database Supabase tidak valid. Gunakan connection string dari Supabase Connect (Direct, Session Pooler, atau Transaction Pooler).",
     );
   }
 
