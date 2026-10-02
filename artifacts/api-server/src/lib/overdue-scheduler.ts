@@ -198,22 +198,26 @@ export function startOverdueScheduler(): void {
   if (_started) return;
   _started = true;
 
-  // Startup catch-up hanya di window 08:00-08:59 WIB.
-  // Restart/deploy di siang/sore hari TIDAK boleh mengirim reminder di luar jadwal.
-  // Ini mencegah kasus production restart pukul 16:30 WIB memicu blast harian.
+  // Startup catch-up: jika service baru hidup setelah jadwal 08:00 WIB,
+  // jalankan pengecekan harian sekali pada hari yang sama. Seluruh jalur WA
+  // memakai claim/idempotency di database, sehingga invoice/reminder yang
+  // sudah diproses hari ini tidak akan terkirim dua kali.
   setTimeout(async () => {
     try {
       const now = new Date();
       const wibMs = 7 * 60 * 60 * 1000;
       const nowWib = new Date(now.getTime() + wibMs);
       const hourWib = nowWib.getUTCHours();
-      if (hourWib === 8) {
-        logger.info("[scheduler] Startup catch-up dalam window 08:00 WIB — menjalankan blast harian...");
-        await runAllChecks("startup catch-up 08:00 WIB", true);
+      if (hourWib >= 8) {
+        logger.info(
+          { hourWib },
+          "[scheduler] Startup setelah jadwal 08:00 WIB — menjalankan catch-up harian...",
+        );
+        await runAllChecks("startup catch-up after 08:00 WIB", true);
       } else {
         logger.info(
           { hourWib },
-          "[scheduler] Startup di luar window 08:00 WIB — tidak mengirim WA; invoice generation only",
+          "[scheduler] Startup sebelum 08:00 WIB — invoice generation only",
         );
         const created = await runMonthlyInvoiceGeneration();
         logger.info({ created }, "[scheduler] Startup invoice generation selesai");
@@ -248,7 +252,7 @@ export function startOverdueScheduler(): void {
 
   logger.info(
     "[scheduler] Scheduler aktif — cron harian 08:00 WIB (01 UTC). " +
-    "Invoice, reminder, dan overdue dikirim hanya pada window 08:00 WIB; restart di luar window tidak mengirim WA.",
+    "Invoice, reminder, dan overdue ditargetkan pukul 08:00 WIB; restart setelah 08:00 menjalankan catch-up harian yang idempotent.",
   );
 }
 
