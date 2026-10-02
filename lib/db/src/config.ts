@@ -143,21 +143,21 @@ function getCandidates(): DbCandidate[] {
   const productionOrdered: Array<[DbUrlSource, string | undefined]> =
     isNativeTransactionPoolerUrl(prodPoolerUrl)
       ? [
-          // Gunakan explicit pooler hanya bila nilainya memang native Supavisor
-          // transaction URL. Jangan memprioritaskan db.<ref>.supabase.co:6543:
-          // walaupun host dapat diperbaiki, password di secret lama bisa stale.
-          ["SUPABASE_POOLER_URL", prodPoolerUrl],
-          ["SUPABASE_DATABASE_URL", process.env["SUPABASE_DATABASE_URL"]],
-          ["SUPABASE_PG_URL", process.env["SUPABASE_PG_URL"]],
+          // URL yang eksplisit untuk production harus menang atas credential generik.
+          // Ini mencegah Hostinger memakai SUPABASE_DATABASE_URL lama/stale setelah
+          // rotasi credential sementara SUPABASE_PG_URL_PROD sudah diperbarui.
           ["SUPABASE_PG_URL_PROD", process.env["SUPABASE_PG_URL_PROD"]],
+          ["SUPABASE_POOLER_URL", prodPoolerUrl],
+          ["SUPABASE_PG_URL", process.env["SUPABASE_PG_URL"]],
+          ["SUPABASE_DATABASE_URL", process.env["SUPABASE_DATABASE_URL"]],
           ["DATABASE_URL", process.env["DATABASE_URL"]],
         ]
       : [
-          // Bila SUPABASE_POOLER_URL malformed/legacy, gunakan credential database
-          // canonical lebih dulu dan pertahankan pooler URL hanya sebagai fallback.
-          ["SUPABASE_DATABASE_URL", process.env["SUPABASE_DATABASE_URL"]],
-          ["SUPABASE_PG_URL", process.env["SUPABASE_PG_URL"]],
+          // Bila explicit pooler malformed/legacy, tetap prioritaskan credential
+          // production-specific sebelum credential generik/canonical.
           ["SUPABASE_PG_URL_PROD", process.env["SUPABASE_PG_URL_PROD"]],
+          ["SUPABASE_PG_URL", process.env["SUPABASE_PG_URL"]],
+          ["SUPABASE_DATABASE_URL", process.env["SUPABASE_DATABASE_URL"]],
           ["DATABASE_URL", process.env["DATABASE_URL"]],
           ["SUPABASE_POOLER_URL", prodPoolerUrl],
         ];
