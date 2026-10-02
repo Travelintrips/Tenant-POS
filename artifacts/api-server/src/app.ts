@@ -129,25 +129,57 @@ const PgSession = connectPgSimple(session);
 
 // Gunakan pool database aplikasi yang sama untuk session store. Membuka pool kedua
 // per instance membuat rolling deployment menghabiskan slot session-pooler Supabase.
-app.use(
-  session({
-    store: new PgSession({
-      pool,
-      tableName: "session",
-      schemaName: "public",
-      createTableIfMissing: false,
-    }),
-    secret: sessionSecret,
-    resave: false,
-    saveUninitialized: false,
-    cookie: {
-      httpOnly: true,
-      secure: isProduction,
-      sameSite: isProduction ? "strict" : "lax",
-      maxAge: 7 * 24 * 60 * 60 * 1000,
-    },
+const sessionMiddleware = session({
+  store: new PgSession({
+    pool,
+    tableName: "session",
+    schemaName: "public",
+    createTableIfMissing: false,
   }),
-);
+  secret: sessionSecret,
+  resave: false,
+  saveUninitialized: false,
+  cookie: {
+    httpOnly: true,
+    secure: isProduction,
+    sameSite: isProduction ? "strict" : "lax",
+    maxAge: 7 * 24 * 60 * 60 * 1000,
+  },
+});
+
+app.use((req, res, next) => {
+  sessionMiddleware(req, res, (err?: unknown) => {
+    if (!err) {
+      next();
+      return;
+    }
+
+    // Jika session-store PostgreSQL sedang tidak tersedia, jangan ubah request
+    // frontend biasa menjadi JSON 500. Biarkan shell SPA/static tetap terbuka
+    // dan hapus cookie lama supaya browser tidak terus mencoba memuat session
+    // yang gagal. Route API tetap fail-closed melalui global error handler.
+    const isFrontendNavigation =
+      req.method === "GET" &&
+      !req.path.startsWith("/api") &&
+      !req.path.startsWith("/emergency");
+
+    if (isFrontendNavigation) {
+      logger.warn(
+        { err, path: req.path },
+        "[session] Store gagal saat navigasi frontend; lanjut sebagai anonymous",
+      );
+      res.clearCookie("connect.sid", {
+        httpOnly: true,
+        secure: isProduction,
+        sameSite: isProduction ? "strict" : "lax",
+      });
+      next();
+      return;
+    }
+
+    next(err);
+  });
+});
 
 app.use(passport.initialize());
 app.use(passport.session());
