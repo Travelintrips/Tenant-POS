@@ -102,19 +102,31 @@ export async function runSheetSync(opts: {
     return { newRows: 0, totalRows: 0, skipped: 0, autoMatched: 0 };
   }
 
-  const parsedKeys = parsed.map((m) => m.mutationKey);
+  // mutation_key is intentionally unique per account (and globally for rows
+  // without bank_account_id). Deduplicate the sheet itself before querying DB;
+  // otherwise two identical keys in one batch can violate the partial unique
+  // index even when neither key existed before this sync started.
+  const uniqueByMutationKey = new Map<string, typeof parsed[number]>();
+  for (const mutation of parsed) {
+    if (!uniqueByMutationKey.has(mutation.mutationKey)) {
+      uniqueByMutationKey.set(mutation.mutationKey, mutation);
+    }
+  }
+  const uniqueParsed = Array.from(uniqueByMutationKey.values());
+
+  const parsedKeys = uniqueParsed.map((m) => m.mutationKey);
   const existingRows = await db
     .select({ mutationKey: bankMutationsTable.mutationKey })
     .from(bankMutationsTable)
     .where(inArray(bankMutationsTable.mutationKey, parsedKeys));
   const existingKeys = new Set(existingRows.map((r) => r.mutationKey));
 
-  const newMutations = parsed.filter((m) => !existingKeys.has(m.mutationKey));
-  const skipped = totalRows - newMutations.length;
+  const newMutations = uniqueParsed.filter((m) => !existingKeys.has(m.mutationKey));
+  const preInsertSkipped = totalRows - newMutations.length;
 
   if (newMutations.length === 0) {
     await persistSyncResult({ success: true, newRows: 0, totalRows });
-    return { newRows: 0, totalRows, skipped, autoMatched: 0 };
+    return { newRows: 0, totalRows, skipped: preInsertSkipped, autoMatched: 0 };
   }
 
   const toInsert = newMutations.map((m) => ({
@@ -127,8 +139,15 @@ export async function runSheetSync(opts: {
     ownerCompanyId: null,
   }));
 
-  const inserted = await db.insert(bankMutationsTable).values(toInsert).returning({ id: bankMutationsTable.id });
+  // Keep the sync idempotent under races (manual import / another worker /
+  // previous run). Do not weaken or drop the DB uniqueness invariant.
+  const inserted = await db
+    .insert(bankMutationsTable)
+    .values(toInsert)
+    .onConflictDoNothing()
+    .returning({ id: bankMutationsTable.id });
   const ids = inserted.map((r) => r.id);
+  const skipped = totalRows - ids.length;
 
   const mc: MatchContext = { ownerTenantId: null, sourceApp: null };
   const matchResults = await Promise.allSettled(ids.map((id) => runMatchingForMutation(id, mc)));
